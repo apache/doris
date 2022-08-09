@@ -33,7 +33,7 @@ Suite.metaClass.testPlugin = { String info /* param */ ->
 
 logger.info("Added 'testPlugin' function to Suite")
 
-Suite.metaClass.check2_palo = { Object res1, Object res2 /* param */ ->
+Suite.metaClass.check2_doris = { Object res1, Object res2 /* param */ ->
 
     logger.debug("res1: ${res1}".toString())
     logger.debug("res2: ${res2}".toString())
@@ -51,4 +51,4 @@ Suite.metaClass.check2_palo = { Object res1, Object res2 /* param */ ->
     return true
 }
 
-logger.info("Added 'check2_palo' function to Suite")
+logger.info("Added 'check2_doris' function to Suite")

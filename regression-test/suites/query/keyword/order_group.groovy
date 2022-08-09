@@ -136,7 +136,7 @@ suite("order_group", "query,p0") {
        k6 not like 'INf%' order by sum nulls first"
     def res2 = sql"select k4 + k5 as sum, k5,  k5 + k7 as nu from ${tableName1} where k6 not like 'na%' and\
         k6 not like 'INf%' order by sum nulls first"
-    check2_palo(res1, res2)
+    check2_doris(res1, res2)
 
     qt_orderBy_withNull_1 "select k4 + k5 from ${tableName1} order by 1 nulls first"
     // line2 = "select k4 + k5 from ${tableName1} order by 1"
@@ -172,7 +172,7 @@ suite("order_group", "query,p0") {
     def res4 = sql"select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
         sum(k2) over (partition by k5 + k6)\
         as ss from ${tableName2}  where k5 > 2000 )s order by k1"
-    check2_palo(res3, res4)
+    check2_doris(res3, res4)
 
     // 2
     // 非NULL结果
@@ -196,7 +196,7 @@ suite("order_group", "query,p0") {
     def res5 = order_sql"""select k5 + k6 as nu, sum(k1) from ${tableName1} group by nu order by nu,
         sum(k1) nulls last"""
     def res6 = order_sql"""select k6 + k5 as nu, sum(k1) from ${tableName1} group by nu order by nu, sum(k1)"""
-    check2_palo(res5, res6)
+    check2_doris(res5, res6)
     //issue https://github.com/apache/incubator-doris/issues/2142
     def res7 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
          sum(k2) over (partition by k5 + k6)\
@@ -204,5 +204,5 @@ suite("order_group", "query,p0") {
     def res8 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
         sum(k2) over (partition by k5 + k6)\
         as ss from ${tableName2}  where k5 > 2000 )s order by k1,k2 "
-    check2_palo(res7, res8)
+    check2_doris(res7, res8)
 }

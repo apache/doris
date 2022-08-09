@@ -155,7 +155,7 @@ suite("test_alter_table_column", "schema_change") {
 
     def res1 = sql "select * from ${tbName3} order by k1"
     def res2 = sql "select k1, k2, k3 from baseall order by k1"
-    check2_palo(res1, res2)
+    check2_doris(res1, res2)
 
     sql "alter table ${tbName3} add column v2 int sum NULL"
     max_try_secs = 60
@@ -173,6 +173,6 @@ suite("test_alter_table_column", "schema_change") {
     }
     def res3 = sql "select * from ${tbName3} order by k1"
     def res4 = sql "select k1, k2, k3, null from baseall order by k1"
-    check2_palo(res3, res4)
+    check2_doris(res3, res4)
     sql "DROP TABLE ${tbName3} FORCE;"
 }

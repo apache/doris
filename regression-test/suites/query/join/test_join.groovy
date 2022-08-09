@@ -22,16 +22,15 @@ suite("test_join", "query,p0") {
     def tbName2 = "baseall"
     def tbName3 = "bigtable"
 
-    def res1 = order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
+    order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
-    def res2 = order_sql """select * from (select j.k1 j1, j.k2 j2, j.k3 j3, j.k4 j4, j.k5 j5, j.k6 j6, j.k10 j10, j.k11 j11, 
+    order_sql """select * from (select j.k1 j1, j.k2 j2, j.k3 j3, j.k4 j4, j.k5 j5, j.k6 j6, j.k10 j10, j.k11 j11, 
              j.k7 j7, j.k8 j8, j.k9 j9, d.k1 d1, d.k2 d2, d.k3 d3, d.k4 d4, d.k5 d5, d.k6 d6, d.k10 d10, 
              d.k11 d11, d.k7 d7, d.k8 d8, d.k9 d9 from ${tbName2} j left join ${tbName1} d on (j.k1=d.k1) 
              union select j.k1 j1, j.k2 j2, j.k3 j3, j.k4 j4, j.k5 j5, j.k6 j6, j.k10 j10, j.k11 j11, 
              j.k7 j7, j.k8 j8, j.k9 j9, d.k1 d1, d.k2 d2, d.k3 d3, d.k4 d4, d.k5 d5, d.k6 d6, d.k10 d10, d.k11 d11, 
              d.k7 d7, d.k8 d8, d.k9 d9 from ${tbName2} j right join ${tbName1} d on (j.k1=d.k1) ) a order by j1, j2, j3, j4, d1, d2 
              limit 100"""
-    //check2_palo(res1, res2)
     qt_join1 """select sum(t1.k1), sum(t1.k3), max(t1.k5), max(t2.k4) from ${tbName1} t1 inner join ${tbName2} t2 on t1.k1 = t2.k1 and 
 		    t1.k6 is not null and t2.k6 is not null"""
     qt_join2 """select k1, k2, k3 from ${tbName1} where k7 is not null order by 1 desc, 2 desc, 3 desc limit 10"""
@@ -511,11 +510,10 @@ suite("test_join", "query,p0") {
 
     // full outer join
     for (s in selected) {
-        def res3 = sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
                  order by 1, 2, 3, 4, 5 limit 65535"""
-        def res4 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                  order by 1, 2, 3, 4, 5 limit 65535"""
-        //check2_palo(res3, res4)
         test {
             sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 > b.k1 
                 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -585,19 +583,17 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        def res5 = sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
                 full outer join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
-        def res6 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                  left outer join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
-        //check2_palo(res5, res6)
     }
-    def res7 = sql"""select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName1} a full outer join ${tbName2} b 
+    sql"""select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName1} a full outer join ${tbName2} b 
              on a.k1 = b.k1 and a.k2 > b.k2 order by isnull(k1), 1, 2, 3, 4, 5 limit 65535"""
-    def res8 = sql"""select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName1} a left outer join ${tbName2} b 
+    sql"""select a.k1 k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName1} a left outer join ${tbName2} b 
              on a.k1 = b.k1 and a.k2 > b.k2 union (select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 
              from ${tbName1} a right outer join ${tbName2} b on a.k1 = b.k1 and a.k2 > b.k2) 
              order by isnull(k1), 1, 2, 3, 4, 5 limit 65535"""
-    // check2_palo(res7, res8)
     def res9 = sql"""select count(*) from ${tbName1} a full outer join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
             full outer join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 and c.k3 > 0"""
     def res10 = sql"""select count(*) from ((select a.k1 as k1, b.k1 as k2, a.k2 as k3, b.k2 as k4, a.k3 as k5, b.k3 as k6, c.k1 as k7, c.k2 as k8, c.k3 as k9 from ${tbName1} a 
@@ -612,12 +608,11 @@ suite("test_join", "query,p0") {
             union (select a.k1, b.k1, a.k2, b.k2, a.k3, b.k3, c.k1, c.k2, c.k3 from ${tbName1} a 
             right outer join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
             right outer join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 and c.k3 > 0))a"""
-    check2_palo(res9, res10)
-    def res11 = sql"""select ${i} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
+    check2_doris(res9, res10)
+    sql"""select ${i} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
              and a.k2 > 0 order by 1, isnull(b.k1), 2, 3, 4, 5  limit 65535"""
-    def res12 = sql"""select ${i} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 and a.k2 > 0 
+    sql"""select ${i} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 and a.k2 > 0 
             order by 1, isnull(b.k1), 2, 3, 4, 5 limit 65535"""
-    // check2_palo(res11, res12)
 
     // cross join
     for (s in selected){
@@ -736,11 +731,10 @@ suite("test_join", "query,p0") {
     // left_semi_join
     List left_selected = ["a.k1, a.k2, a.k3, a.k4, a.k5", "count(a.k1), count(a.k2), count(a.k4), count(a.k3), count(*)"]
     for (s in left_selected){
-        def res13 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 = b.k1 
                  order by 1, 2, 3, 4, 5 limit 65535"""
-        def res14 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                  where b.k3 is not null order by 1, 2, 3, 4, 5 limit 65535"""
-        //check2_palo(res13, res14)
         test {
             sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 > b.k1 
                 where a.k2 > 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -762,13 +756,13 @@ suite("test_join", "query,p0") {
         def res16 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                 on a.k1 = b.k1 and a.k2 > 0 where b.k3 is not null 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res15, res16)
+        check2_doris(res15, res16)
         def res17 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
                     on a.k1 = b.k1 and a.k2 > b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
         def res18 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                  on a.k1 = b.k1 and a.k2 > b.k2 where b.k3 is not null 
                  order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res17, res18)
+        check2_doris(res17, res18)
         test {
             sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
                 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -827,7 +821,7 @@ suite("test_join", "query,p0") {
         def res20 = sql"""select ${s} from (select distinct a.* from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                 left outer join ${tbName3} c on a.k2 = c.k2 where a.k1 is not null 
                 and b.k1 is not null and c.k1 is not null) a order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res19, res20)
+        check2_doris(res19, res20)
         def res21 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
                 left semi join ${tbName3} c on a.k3 = c.k3 and a.k1 = c.k1 + 1 and c.k3 > 0 
                 order by 1, 2, 3, 4, 5 limit 65535"""
@@ -835,7 +829,7 @@ suite("test_join", "query,p0") {
                 left outer join ${tbName3} c on a.k3 = c.k3 and a.k1 = c.k1 + 1 and c.k3 > 0 
                 where a.k1 is not null and b.k1 is not null and c.k1 is not null and a.k1 > 0 and c.k3 > 0) a
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res21, res22)
+        check2_doris(res21, res22)
     }
 
     // right semi join
@@ -845,7 +839,7 @@ suite("test_join", "query,p0") {
                 on a.k1 = b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
         def res24 = sql"""select ${s} from ${tbName1} a right outer join ${tbName1} b 
                 on a.k1 = b.k1 where a.k2 is not null order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res23, res24)
+        check2_doris(res23, res24)
         test {
             sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
                     on a.k1 > b.k1 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
@@ -868,13 +862,13 @@ suite("test_join", "query,p0") {
                  on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
         def res26 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b on a.k1 = b.k1 and 
                  a.k2 > 0 where a.k2 is not null order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res25, res26)
+        check2_doris(res25, res26)
         def res27 = sql"""select ${s} from ${tbName2} a right semi join ${tbName1} b 
                     on a.k1 = b.k1 and a.k2 > b.k2  order by 1, 2, 3, 4, 5 limit 65535"""
         def res28 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b 
                     on a.k1 = b.k1 and a.k2 > b.k2 where a.k2 is not null 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res27, res28)
+        check2_doris(res27, res28)
         test {
             sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
                where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -934,7 +928,7 @@ suite("test_join", "query,p0") {
         def res30 = sql"""select ${s} from (select distinct b.* from ${tbName3} a right outer join ${tbName1} c on a.k1 = c.k1 
                 right outer join ${tbName2} b on b.k2 = c.k2 where a.k1 is not null 
                 and b.k1 is not null and c.k1 is not null) b order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res29, res30)
+        check2_doris(res29, res30)
         def res31 = sql"""select ${s} from ${tbName2} c right semi join ${tbName1} a on c.k2 = a.k2 and c.k1 > 0 
                 right semi join ${tbName3} b on a.k3 = b.k3 and b.k1 = a.k1 + 1 and a.k3 > 0 
                 order by 1, 2, 3, 4, 5 limit 65535"""
@@ -942,7 +936,7 @@ suite("test_join", "query,p0") {
                 right outer join ${tbName3} a on c.k3 = a.k3 and a.k1 = c.k1 + 1 and a.k3 > 0 
                 where a.k1 is not null and b1.k1 is not null and a.k1 is not null and a.k1 > 0 and c.k3 > 0) b
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res31, res32)
+        check2_doris(res31, res32)
     }
 
     // left anti join
@@ -951,7 +945,7 @@ suite("test_join", "query,p0") {
                     on a.k1 = b.k1  order by 1, 2, 3, 4, 5 limit 65535"""
         def res34 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                     on a.k1 = b.k1 where b.k3 is null order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res33, res34)
+        check2_doris(res33, res34)
         test {
             sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
                     on a.k1 > b.k1 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
@@ -975,13 +969,13 @@ suite("test_join", "query,p0") {
         def res36 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                     on a.k1 = b.k1 and a.k2 > 0 where b.k3 is null 
                     order by 1, 2, 3, 4, 5 limit 50000"""
-        check2_palo(res35, res36)
+        check2_doris(res35, res36)
         def res37 = sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
                  on a.k1 = b.k1 and a.k2 > b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
         def res38 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                  on a.k1 = b.k1 and a.k2 > b.k2 where b.k3 is null 
                  order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res37, res38)
+        check2_doris(res37, res38)
         test {
             sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
                where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -1040,7 +1034,7 @@ suite("test_join", "query,p0") {
         def res40 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                 left outer join ${tbName3} c on a.k2 = c.k2 where 
                 b.k1 is null and c.k1 is null order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res39, res40)
+        check2_doris(res39, res40)
         def res41 = sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
                 left anti join ${tbName3} c on a.k3 = c.k3 and a.k1 = c.k1 + 1 and c.k3 > 0 
                 order by 1, 2, 3, 4, 5 limit 65535"""
@@ -1048,7 +1042,7 @@ suite("test_join", "query,p0") {
                 left outer join ${tbName3} c on a.k3 = c.k3 and a.k1 = c.k1 + 1 and c.k3 > 0 
                 where b.k1 is null and c.k1 is null) a
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res41, res42)
+        check2_doris(res41, res42)
     }
 
     // right anti join
@@ -1058,7 +1052,7 @@ suite("test_join", "query,p0") {
         def res44 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b 
                 on a.k1 = b.k1 where a.k2 is null 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res43, res44)
+        check2_doris(res43, res44)
         test {
             sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
                     on a.k1 > b.k1 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
@@ -1082,13 +1076,13 @@ suite("test_join", "query,p0") {
         def res46 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b 
                     on a.k1 = b.k1 and a.k2 > 0 where a.k2 is null 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res45 , res46)
+        check2_doris(res45 , res46)
         def res47 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b 
                     on a.k1 = b.k1 and a.k2 > b.k2  order by 1, 2, 3, 4, 5 limit 65535"""
         def res48 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b 
                     on a.k1 = b.k1 and a.k2 > b.k2 where a.k2 is null 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-        check2_palo(res47, res48)
+        check2_doris(res47, res48)
         test {
             sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
                where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -1142,26 +1136,24 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        def res49 = sql"""select ${s} from ${tbName1} a right anti join ${tbName2} c on a.k1 = c.k1 
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} c on a.k1 = c.k1 
                 right anti join ${tbName3} b on c.k2 = b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
 
-        def res50 = sql"""select ${s} from (select distinct b.k1, b.k2, b.k3, b.k4, b.k5 from 
+        sql"""select ${s} from (select distinct b.k1, b.k2, b.k3, b.k4, b.k5 from 
                 ${tbName1} a right outer join ${tbName2} c on a.k1 = c.k1 right outer join 
                 ${tbName3} b on c.k2=b.k2) b order by 1, 2, 3, 4, 5 limit 65535"""
-        // check2_palo(res49, res50)
-        def res51 = sql"""select ${s} from ${tbName1} a right anti join ${tbName2} c on a.k2 = c.k2 and a.k1 > 0 
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} c on a.k2 = c.k2 and a.k1 > 0 
                 right anti join ${tbName3} b on c.k3 = b.k3 and b.k1 = c.k1 + 1 and c.k3 > 0 
                 order by 1, 2, 3, 4, 5 limit 65535"""
         sql"""select ${s} from (select distinct c.* from ${tbName1} a right outer join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
                 right outer join ${tbName3} c on b.k3 = c.k3 and c.k1 = b.k1 + 1 and c.k3 > 0 
                 where b.k1 is null and a.k1 is null and a.k1 > 0) b
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        def res52 = sql"""select ${s} from (select distinct c.k1 k1, c.k2 k2, c.k3 k3, c.k4 k4, c.k5 k5 from 
+        sql"""select ${s} from (select distinct c.k1 k1, c.k2 k2, c.k3 k3, c.k4 k4, c.k5 k5 from 
                 (select b2.* from ${tbName1} a right outer join ${tbName2} b2 on a.k2 = b2.k2 and a.k1 > 0 
                 where a.k1 is null and a.k1 > 0) b1 right outer join ${tbName3} c 
                 on b1.k3 = c.k3 and c.k1 = b1.k1 + 1 and c.k3 > 0 where b1.k1 is null) b 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-        // check2_palo(res51, res52)
     }
 
 
@@ -1222,7 +1214,7 @@ suite("test_join", "query,p0") {
             order by 1, 2, 3, 4, 5"""
     def res54 = sql"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a left join ${empty_name} b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
-    check2_palo(res53, res54)
+    check2_doris(res53, res54)
     // qt_join_with_emptyTable5"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a cross join ${empty_name} b on a.k1 = b.k1
     //         order by 1, 2, 3, 4, 5"""
     test {
@@ -1243,7 +1235,7 @@ suite("test_join", "query,p0") {
     def res55 = sql"""select a.k1, a.k2, a.k3 from ${tbName2} a left anti join ${empty_name} b on a.k1 = b.k1 
             order by 1, 2, 3"""
     def res56 = sql"""select k1, k2, k3 from ${tbName2} order by 1, 2, 3"""
-    check2_palo(res55, res56)
+    check2_doris(res55, res56)
     test {
         sql"""select b.k1, b.k2, b.k3 from ${tbName2} a right anti join ${empty_name} b on a.k1 = b.k1 
             order by 1, 2, 3"""
@@ -1271,8 +1263,8 @@ suite("test_join", "query,p0") {
                    right semi join test b on a.k1 = b.k1 order by 1, 2, 3, 4 limit 65535"""
         def res62 = sql"""select count(b.k1), count(b.k2), count(b.k4), count(*) from baseall a 
                   right semi join test b on a.k1 = b.k1 order by 1, 2, 3, 4 limit 65535"""
-        check2_palo(res61, res59)
-        check2_palo(res62, res60)
+        check2_doris(res61, res59)
+        check2_doris(res62, res60)
     }
 
 
@@ -1282,7 +1274,7 @@ suite("test_join", "query,p0") {
     def res64 = sql"""select count(*) from test a full outer join baseall b on a.k2 = b.k2 and a.k1 > 0 
            full outer join bigtable c on a.k3 = c.k3 and b.k1 = c.k1 and c.k3 > 0 
            order by 1 limit 65535"""
-    check2_palo(res63, res64)
+    check2_doris(res63, res64)
 
     sql"drop view if exists nullable"
     sql"""create view nullable(n1, n2) as select a.k1, b.k2 from baseall 
@@ -1309,10 +1301,10 @@ suite("test_join", "query,p0") {
         }
     }
     for (c in columns){
-        def res65 = sql"""select * from ${tbName2} a full outer join ${tbName1} b on (a.${c} = b.${c}) 
+        sql"""select * from ${tbName2} a full outer join ${tbName1} b on (a.${c} = b.${c}) 
                 order by isnull(a.k1), a.k1, a.k2, a.k3, a.k4, isnull(b.k1), b.k1, b.k2, b.k3, 
                 b.k4 limit 65535"""
-        def res66 = sql"""select a.k1 ak1, a.k2 ak2, a.k3 ak3, a.k4 ak4, a.k5 ak5, a.k6 ak7, a.k10 ak10, a.k11 ak11, 
+        sql"""select a.k1 ak1, a.k2 ak2, a.k3 ak3, a.k4 ak4, a.k5 ak5, a.k6 ak7, a.k10 ak10, a.k11 ak11, 
                  a.k7 ak7, a.k8 ak8, a.k9 ak9, b.k1 bk1, b.k2 bk2, b.k3 bk3, b.k4 bk4, b.k5 bk5, 
                  b.k6 bk6, b.k10 bk10, b.k11 bk11, b.k7 bk7, b.k8 bk8, b.k9 bk9 
                  from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
@@ -1321,31 +1313,30 @@ suite("test_join", "query,p0") {
                  b.k5 bk5, b.k6 bk6, b.k10 bk10, b.k11 bk11, b.k7 bk7, b.k8 bk8, b.k9 bk9 from 
                  ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) order by 
                  isnull(ak1), 1, 2, 3, 4, isnull(bk1), 12, 13, 14, 15 limit 65535"""
-        // check2_palo(res65, res66)
 
         def res67 = sql"""select * from ${tbName2} a left semi join ${tbName1} b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
         def res68 = sql"""select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where b.k1 is not null order by a.k1, a.k2, a.k3"""
-        check2_palo(res67, res68)
+        check2_doris(res67, res68)
 
         def res69 = sql"""select * from ${tbName2} a right semi join ${tbName1} b on (a.${c} = b.${c}) 
                 order by b.k1, b.k2, b.k3"""
         def res70 = sql"""select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where a.k1 is not null order by b.k1, b.k2, b.k3"""
-        check2_palo(res69, res70)
+        check2_doris(res69, res70)
 
         def res71 = sql"""select * from ${tbName2} a left anti join ${tbName1} b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
         def res72 = sql"""select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where b.k1 is null order by a.k1, a.k2, a.k3"""
-        check2_palo(res71, res72)
+        check2_doris(res71, res72)
 
         def res73 = sql"""select * from ${tbName2} a right anti join ${tbName1} b on (a.${c} = b.${c}) 
                 order by b.k1, b.k2, b.k3"""
         def res74 = sql"""select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where a.k1 is null order by b.k1, b.k2, b.k3"""
-        check2_palo(res73, res74)
+        check2_doris(res73, res74)
     }
 
 
@@ -1369,7 +1360,7 @@ suite("test_join", "query,p0") {
             (select k1 + 2 as m1, k2 + 1000 as m2, k6 as m6 from ${tbName2} where k1 < 5 
             order by k1) a right outer join (select k1, k2, k6 from ${tbName2} where k1 < 5 
             order by k1) b on (a.m1 = b.k1))) c"""
-    check2_palo(res75, res76)
+    check2_doris(res75, res76)
 
     def res77 = sql"""select count(a.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a left semi join (select k1, k2, k6 from ${tbName2} where k1 < 5 
@@ -1377,7 +1368,7 @@ suite("test_join", "query,p0") {
     def res78 = sql"""select count(a.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a left outer join (select k1, k2, k6 from ${tbName2} where k1 < 5 
             order by k1) b on (a.k1 = b.k1) where b.k1 is not null """
-    check2_palo(res77, res78)
+    check2_doris(res77, res78)
 
     def res79 = sql"""select count(b.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a right semi join (select k1, k2, k6 from ${tbName2} where k1 < 5 
@@ -1385,7 +1376,7 @@ suite("test_join", "query,p0") {
     def res80 = sql"""select count(b.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a right outer join (select k1, k2, k6 from ${tbName2} where k1 < 5 
             order by k1) b on (a.k1 = b.k1) where a.k1 is not null"""
-    check2_palo(res79, res80)
+    check2_doris(res79, res80)
 
     def res81 = sql"""select count(a.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a left anti join (select k1, k2, k6 from ${tbName2} where k1 < 5 
@@ -1393,7 +1384,7 @@ suite("test_join", "query,p0") {
     def res82 = sql"""select count(a.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a left outer join (select k1, k2, k6 from ${tbName2} where k1 < 5 
             order by k1) b on (a.k1 = b.k1) where b.k1 is null"""
-    check2_palo(res81, res82)
+    check2_doris(res81, res82)
 
     def res83 = sql"""select count(b.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a right anti join (select k1, k2, k6 from ${tbName2} where k1 < 5 
@@ -1401,7 +1392,7 @@ suite("test_join", "query,p0") {
     def res84 = sql"""select count(b.k1), count(*) from (select k1 + 2 as k1, k2 + 1000 as k2, k6 from ${tbName2} where k1 < 5 
             order by k1) a right outer join (select k1, k2, k6 from ${tbName2} where k1 < 5 
             order by k1) b on (a.k1 = b.k1) where a.k1 is null"""
-    check2_palo(res83, res84)
+    check2_doris(res83, res84)
 
     // join multi table
     sql"drop view if exists nullable"
@@ -1447,22 +1438,22 @@ suite("test_join", "query,p0") {
     def res85 = sql"""select a.k1, a.k2 from ${tbName2} a left anti join ${null_name} b on a.k1 = b.n2 
            order by 1, 2"""
     def res86 = sql"""select k1, k2 from ${tbName2} order by k1, k2"""
-    check2_palo(res85, res86)
+    check2_doris(res85, res86)
 
     def res87 = sql"""select b.n1, b.n2 from ${tbName2} a right anti join ${null_name} b on a.k1 = b.n2 
             order by 1, 2"""
     def res88 = sql"""select n1, n2 from ${null_name} order by n1, n2"""
-    check2_palo(res87, res88)
+    check2_doris(res87, res88)
 
     def res89 = sql"""select b.k1, b.k2 from ${null_name} a right anti join ${tbName2} b on b.k1 = a.n2 
            order by 1, 2"""
     def res90 = sql"""select k1, k2 from ${tbName2} order by k1, k2"""
-    check2_palo(res89, res90)
+    check2_doris(res89, res90)
 
     def res91 = sql"""select a.n1, a.n2 from ${null_name} a left anti join ${tbName2} b on b.k1 = a.n2 
            order by 1, 2"""
     def res92 = sql"""select n1, n2 from ${null_name} order by n1, n2"""
-    check2_palo(res91, res92)
+    check2_doris(res91, res92)
 
     // join on predicate
     qt_join_on_predicate1"""select c.k1 from ${tbName2} a join ${tbName1} b on a.k2 between 0 and 1000 
@@ -1481,11 +1472,11 @@ suite("test_join", "query,p0") {
     qt_join42"""select 1 <=> null, null <=> null,  not("1" <=> NULL)"""
     def res93 = sql"""select  cast("2019-09-09" as int) <=> NULL, cast("2019" as int) <=> NULL"""
     def res94 = sql"""select  NULL <=> NULL, 2019 <=> NULL """
-    check2_palo(res93, res94)
+    check2_doris(res93, res94)
 
     def res95 = sql"""select (2019+10) <=> NULL, not (2019+10) <=> NULL, ("1"+"2") <=> NULL"""
     def res96 = sql"""select  2029 <=> NULL, not 2029 <=> NULL, 3 <=> NULL"""
-    check2_palo(res95, res96)
+    check2_doris(res95, res96)
 
     qt_join43"""select 2019 <=> NULL and NULL <=> NULL, NULL <=> NULL and NULL <=> NULL, 
        2019 <=> NULL or NULL <=> NULL"""
@@ -1530,7 +1521,7 @@ suite("test_join", "query,p0") {
        left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
     def res98 = sql"""select * from (select k1, k2, k5 from ${null_table_2}) a left join ${null_table_1} b
       on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
-    check2_palo(res97, res98)
+    check2_doris(res97, res98)
     sql"drop table ${null_table_1}"
     sql"drop table ${null_table_2}"
 
@@ -1591,7 +1582,7 @@ suite("test_join", "query,p0") {
     sql"""insert into ${table_4} values (1,"a"),(2,"b"),(3,"c"),(4,NULL)"""
     def res99 = sql"""select count(*) from ${table_3} join ${table_4} where ${table_3}.b = ${table_4}.b"""
     def res100 = sql"""select 3"""
-    check2_palo(res99, res100)
+    check2_doris(res99, res100)
     sql"""drop table ${table_3}"""
     sql"""drop table ${table_4}"""
 

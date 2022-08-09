@@ -145,7 +145,7 @@ suite("test_union", "query,p0") {
              union distinct (select 1.00000000, 2.00000) order by 1, 2"""
     def res2 = sql"""select cast(1 as decimal), cast(2 as decimal) union distinct select 1.0, 2.0 
              union distinct (select 1.00000000, 2.00000) order by 1, 2"""
-    check2_palo(res1, res2)
+    check2_doris(res1, res2)
 
 
     // test_union_multi
@@ -224,7 +224,7 @@ suite("test_union", "query,p0") {
                     order by k${it}) order by k1 limit 30"""
             def res4 = sql"""select k1 from ${tbName2} union all (select k${it} from ${tbName1} 
                     order by k${it})order by k1 limit 30"""
-            check2_palo(res3, res4)
+            check2_doris(res3, res4)
         }
     }
     test {
@@ -240,12 +240,12 @@ suite("test_union", "query,p0") {
        order by k1, k2"""
     def res6 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1} order by k2)
        order by k1, k2"""
-    check2_palo(res5, res6)
+    check2_doris(res5, res6)
     def res7 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k10 as int) from ${tbName1}) order by k1, k2"""
 
     def res8 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k10 as int) from ${tbName1} order by k2) order
         by k1, k2"""
-    check2_palo(res7, res8)
+    check2_doris(res7, res8)
     // 不同类型不同个数
     test {
         sql """select k1, k2 from ${tbName2} union selectk11, k10, k9  from ${tbName1} order by k1, k2"""
