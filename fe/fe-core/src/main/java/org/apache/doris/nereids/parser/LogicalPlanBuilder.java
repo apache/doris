@@ -596,7 +596,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return visit(namedCtx.namedExpression(), Expression.class);
     }
 
-    private LogicalPlan visitRelation(List<RelationContext> relations) {
+    private LogicalPlan visitRelationList(List<RelationContext> relations) {
         LogicalPlan left = null;
         for (RelationContext relation : relations) {
             LogicalPlan right = plan(relation.relationPrimary());
@@ -615,7 +615,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> visitRelation(ctx.relation()));
+        return ParserUtils.withOrigin(ctx, () -> visitRelationList(ctx.relation()));
     }
 
     /* ********************************************************************************************
