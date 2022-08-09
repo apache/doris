@@ -755,7 +755,8 @@ public class Alter {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, currentStoragePolicy);
+                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, currentStoragePolicy,
+                    Maps.newHashMap());
             modifyPartitionInfos.add(info);
         }
 
@@ -779,6 +780,11 @@ public class Alter {
             Optional.ofNullable(info.getStoragePolicy()).filter(p -> !p.isEmpty())
                     .ifPresent(p -> partitionInfo.setStoragePolicy(info.getPartitionId(), p));
             partitionInfo.setIsInMemory(info.getPartitionId(), info.isInMemory());
+
+            Map<String, String> tblProperties = info.getTblProperties();
+            if (tblProperties != null && !tblProperties.isEmpty()) {
+                olapTable.setReplicaAllocation(tblProperties);
+            }
         } finally {
             olapTable.writeUnlock();
         }
