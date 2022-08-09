@@ -50,6 +50,9 @@ class PartitionType(str, Enum):
     list = "LIST"
     range = "RANGE"
 
+class LabelType(str, Enum):
+    defined = "DEFINED"
+    default = "DEFAULT"
 
 class DorisConfig(AdapterConfig):
     engine: Engine
@@ -58,6 +61,7 @@ class DorisConfig(AdapterConfig):
     partition_type: PartitionType
     partition_by_init: List[str]
     distributed_by: Tuple[str]
+    Label_type: LabelType
     buckets: int
     properties: Dict[str, str]
 

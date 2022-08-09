@@ -105,3 +105,16 @@
     {% endif %}
   {% endcall %}
 {%- endmacro %}
+
+{% macro doris__timestimp_id() -%}
+ {{ return( (modules.datetime.datetime.now() ~ "").replace('-','').replace(':','').replace('.','').replace(' ','') ) }}
+{%- endmacro %}
+
+{% macro doris__with_label() -%}
+  {% set lable_suffix_id = config.get('label_id', validator=validation.any[basestring]) %}
+  {% if lable_suffix_id in [none,'DEFAULT'] %}
+    WITH LABEL dbt_doris_label_{{doris__timestimp_id()}}
+  {% else %}
+    WITH LABEL dbt_doris_label_{{ lable_suffix_id }}
+  {% endif %}  
+{%- endmacro %}

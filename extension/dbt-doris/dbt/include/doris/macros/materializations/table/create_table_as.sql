@@ -23,5 +23,7 @@
     {{ doris__partition_by() }}
     {{ doris__distributed_by() }}
     {{ doris__properties() }} as {{ sql }};
-    insert into {{ table }} {{ sql }};
+    insert into {{ table }}
+    {{ doris__with_label() }}
+    {{ sql }};
 {%- endmacro %}
