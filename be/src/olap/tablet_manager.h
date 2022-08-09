@@ -78,6 +78,8 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
+    std::vector<TabletSharedPtr> get_all_tablet();
+
     // Extract tablet_id and schema_hash from given path.
     //
     // The normal path pattern is like "/data/{shard_id}/{tablet_id}/{schema_hash}/xxx.data".

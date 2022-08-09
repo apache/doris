@@ -23,6 +23,7 @@
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
+#include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
@@ -110,6 +111,8 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new (std::nothrow) SchemaFilesScanner();
     case TSchemaTableType::SCH_PARTITIONS:
         return new (std::nothrow) SchemaPartitionsScanner();
+    case TSchemaTableType::SCH_ROWSETS:
+        return new (std::nothrow) SchemaRowsetsScanner();
     default:
         return new (std::nothrow) SchemaDummyScanner();
         break;
