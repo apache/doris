@@ -37,6 +37,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <future>
 
 #include "common/status.h"
 #include "common/config.h"
@@ -103,7 +104,7 @@ private:
                             int32_t* wbtyes);
 
 private:
-    void prefetch_batch();
+    void prefetch_batch(std::promise<Status>* status);
     Status read_next_batch();
 
 private:
@@ -135,6 +136,8 @@ private:
     std::condition_variable _queue_writer_cond;
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
+
+    std::promise<Status> thread_status;
 };
 
 } // namespace doris
