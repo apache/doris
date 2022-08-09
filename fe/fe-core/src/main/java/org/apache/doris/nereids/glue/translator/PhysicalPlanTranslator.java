@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -401,7 +400,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanFragment rightFragment, PlanTranslatorContext context) {
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
         DataPartition rhsJoinPartition =
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
+                        leftFragment.getDataPartition().getPartitionExprs());
         ExchangeNode rhsExchange =
                 new ExchangeNode(context.nextPlanNodeId(), rightFragment.getPlanRoot(), false);
         rhsExchange.setNumInstances(rightFragment.getPlanRoot().getNumInstances());
