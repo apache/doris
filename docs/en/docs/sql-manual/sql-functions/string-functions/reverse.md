@@ -29,9 +29,13 @@ under the License.
 #### Syntax
 
 `VARCHAR reverse(VARCHAR str)`
+`ARRAY<T> reverse(ARRAY<T> arr)`
 
+The REVERSE() function reverses a string or array and returns the result.
 
-The REVERSE() function reverses a string and returns the result.
+### notice
+
+`For the array type, only supported in vectorized engine`
 
 ### example
 
@@ -52,5 +56,34 @@ mysql> SELECT REVERSE('你好');
 +------------------+
 1 row in set (0.00 sec)
 ```
+
+mysql> set enable_array_type=true;
+
+mysql> set enable_vectorized_engine=true;
+
+mysql> select k1, k2, reverse(k2) from array_test order by k1;
++------+-----------------------------+-----------------------------+
+| k1   | k2                          | reverse(`k2`)               |
++------+-----------------------------+-----------------------------+
+|  1   | [1, 2, 3, 4, 5]             | [5, 4, 3, 2, 1]             |
+|  2   | [6, 7, 8]                   | [8, 7, 6]                   |
+|  3   | []                          | []                          |
+|  4   | NULL                        | NULL                        |
+|  5   | [1, 2, 3, 4, 5, 4, 3, 2, 1] | [1, 2, 3, 4, 5, 4, 3, 2, 1] |
+|  6   | [1, 2, 3, NULL]             | [NULL, 3, 2, 1]             |
+|  7   | [4, 5, 6, NULL, NULL]       | [NULL, NULL, 6, 5, 4]       |
++------+-----------------------------+-----------------------------+
+
+mysql> select k1, k2, reverse(k2) from array_test01 order by k1;
++------+-----------------------------------+-----------------------------------+
+| k1   | k2                                | reverse(`k2`)                     |
++------+-----------------------------------+-----------------------------------+
+|  1   | ['a', 'b', 'c', 'd']              | ['d', 'c', 'b', 'a']              |
+|  2   | ['e', 'f', 'g', 'h']              | ['h', 'g', 'f', 'e']              |
+|  3   | [NULL, 'a', NULL, 'b', NULL, 'c'] | ['c', NULL, 'b', NULL, 'a', NULL] |
+|  4   | ['d', 'e', NULL, ' ']             | [' ', NULL, 'e', 'd']             |
+|  5   | [' ', NULL, 'f', 'g']             | ['g', 'f', NULL, ' ']             |
++------+-----------------------------------+-----------------------------------+
+```
 ### keywords
-REVERSE
+REVERSE, ARRAY
