@@ -48,7 +48,7 @@ Status ColumnChunkReader::init(size_t type_length) {
 }
 
 Status ColumnChunkReader::next_page() {
-    RETURN_IF_ERROR(_page_reader->next_page());
+    RETURN_IF_ERROR(_page_reader->next_page_header());
     _num_values = _page_reader->get_page_header()->data_page_header.num_values;
     return Status::OK();
 }

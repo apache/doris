@@ -27,32 +27,52 @@ namespace doris::vectorized {
 
 class ParquetReadColumn;
 
+class ParquetColumnMetadata {
+public:
+    ParquetColumnMetadata(int64_t chunk_start_offset, int64_t chunk_length,
+                          tparquet::ColumnMetaData metadata)
+            : _chunk_start_offset(chunk_start_offset),
+              _chunk_length(chunk_length),
+              _metadata(metadata) {};
+
+    ~ParquetColumnMetadata() = default;
+    int64_t start_offset() const { return _chunk_start_offset; };
+    int64_t size() const { return _chunk_length; };
+    tparquet::ColumnMetaData t_metadata() { return _metadata; };
+
+private:
+    tparquet::ColumnMetaData _metadata;
+    int64_t _chunk_start_offset;
+    int64_t _chunk_length;
+};
+
 class ParquetColumnReader {
 public:
     ParquetColumnReader(const ParquetReadColumn& column) : _column(column) {};
     virtual ~ParquetColumnReader() = 0;
-    virtual Status read_column_data(ColumnPtr* data) = 0;
-    static Status create(FileReader* file, int64_t start_offset, int64_t chunk_size,
-                         FieldSchema* field, const ParquetReadColumn& column,
+    virtual Status read_column_data(ColumnPtr* data, size_t batch_size) = 0;
+    static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
                          const tparquet::RowGroup& row_group, const ParquetColumnReader* reader);
     virtual void close() = 0;
 
+private:
+    void _init_column_metadata(tparquet::ColumnChunk* chunk);
+
 protected:
     const ParquetReadColumn& _column;
+    std::unique_ptr<ParquetColumnMetadata> _metadata;
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
 public:
     ScalarColumnReader(const ParquetReadColumn& column) : ParquetColumnReader(column) {};
     ~ScalarColumnReader() override = default;
-    Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                int64_t start_offset, int64_t chunk_size);
-    Status read_column_data(ColumnPtr* data) override;
+    Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk);
+    Status read_column_data(ColumnPtr* data, size_t batch_size) override;
     void close() override;
 
 private:
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
-    int32_t _read_chunk_size;
 };
 
 //class ArrayColumnReader : public ParquetColumnReader {

@@ -58,7 +58,7 @@ private:
 
 class ParquetReader {
 public:
-    ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
+    ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file, size_t batch_size,
                   int64_t range_start_offset, int64_t range_size);
 
     ~ParquetReader();
@@ -69,7 +69,7 @@ public:
 
     Status read_next_batch(Block* block);
 
-    bool has_next() const { return !_batch_eof; };
+    bool has_next() const { return !*_batch_eof; };
 
     //        std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
@@ -81,7 +81,6 @@ private:
     Status _init_row_group_reader(const TupleDescriptor* tuple_desc, int64_t range_start_offset,
                                   int64_t range_size,
                                   const std::vector<ExprContext*>& conjunct_ctxs);
-    void _fill_block_data(Block* block, int group_id);
     bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
     Status _process_page_index(std::vector<tparquet::ColumnChunk> columns);
 
@@ -90,8 +89,8 @@ private:
     std::shared_ptr<FileMetaData> _file_metadata;
     std::shared_ptr<RowGroupReader> _row_group_reader;
     std::shared_ptr<PageIndex> _page_index;
-    int _total_groups; // num of groups(stripes) of a parquet(orc) file
-    //    int _current_group;                     // current group(stripe)
+    int _total_groups;      // num of groups(stripes) of a parquet(orc) file
+    int _current_group = 0; // current group(stripe)
     //        std::shared_ptr<Statistics> _statistics;
     const int32_t _num_of_columns_from_file;
 
@@ -99,6 +98,7 @@ private:
     std::vector<int> _include_column_ids;   // columns that need to get from file
     std::vector<ParquetReadColumn> _read_columns;
     // parquet file reader object
+    size_t _batch_size;
     bool* _batch_eof;
     int64_t _range_start_offset;
     int64_t _range_size;

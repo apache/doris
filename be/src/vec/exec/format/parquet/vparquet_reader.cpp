@@ -21,8 +21,9 @@
 
 namespace doris::vectorized {
 ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
-                             int64_t range_start_offset, int64_t range_size)
+                             size_t batch_size, int64_t range_start_offset, int64_t range_size)
         : _num_of_columns_from_file(num_of_columns_from_file),
+          _batch_size(batch_size),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {
     _file_reader = file_reader;
@@ -51,7 +52,7 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
     RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
     auto metadata = _file_metadata->to_thrift_metadata();
 
-    _total_groups = metadata.row_groups.size();
+    _total_groups = _file_metadata->num_row_groups();
     if (_total_groups == 0) {
         return Status::EndOfFile("Empty Parquet File");
     }
@@ -95,10 +96,11 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
 }
 
 Status ParquetReader::read_next_batch(Block* block) {
-    int32_t group_id = 0;
-    RETURN_IF_ERROR(_row_group_reader->get_next_row_group(&group_id));
+    if (!_row_group_reader->has_next_batch() || _current_group < _total_groups) {
+        RETURN_IF_ERROR(_row_group_reader->get_next_row_group(&_current_group));
+    }
     auto metadata = _file_metadata->to_thrift_metadata();
-    auto column_chunks = metadata.row_groups[group_id].columns;
+    auto column_chunks = metadata.row_groups[_current_group].columns;
     if (_has_page_index(column_chunks)) {
         Status st = _process_page_index(column_chunks);
         if (st.ok()) {
@@ -109,29 +111,11 @@ Status ParquetReader::read_next_batch(Block* block) {
             LOG(WARNING) << "";
         }
     }
-    // metadata has been processed, fill parquet data to block
-    // block is the batch data of a row group. a row group has N batch
-    // push to scanner queue
-    int64_t row_group_end_offset =
-            _current_row_group + 1 > total_group
-                    ? _split_start_offset + _split_size
-                    : _get_row_group_start_offset(metadata.row_groups[_current_row_group + 1]);
-    if (_current_batch_start_offset < row_group_end_offset) {
-        int64_t batch_size = _current_batch_start_offset + MAX_PARQUET_BATCH_SIZE;
-        if (batch_size > row_group_end_offset) {
-            batch_size = row_group_end_offset - _current_batch_start_offset;
-        }
-    } else {
-        advanced_group = true;
+    _row_group_reader->next_batch(block, _batch_size, _batch_eof);
+    if (_batch_eof) {
+        return Status::EndOfFile("No row group need read");
     }
-    _fill_block_data(block, group_id);
     return Status::OK();
-}
-
-void ParquetReader::_fill_block_data(Block* block, int group_id) {
-    // make and init src block here
-    // read column chunk
-    _row_group_reader->next_batch(block, batch_size);
 }
 
 Status ParquetReader::_init_row_group_reader(const TupleDescriptor* tuple_desc,
