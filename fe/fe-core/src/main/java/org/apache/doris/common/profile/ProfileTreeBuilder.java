@@ -30,6 +30,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Formatter;
@@ -48,6 +50,7 @@ import java.util.regex.Pattern;
  * Each runtime profile of a query should be built once and be read every where.
  */
 public class ProfileTreeBuilder {
+    private static final Logger LOG = LogManager.getLogger(ProfileTreeBuilder.class);
 
     private static final String PROFILE_NAME_DATA_STREAM_SENDER = "DataStreamSender";
     private static final String PROFILE_NAME_VDATA_STREAM_SENDER = "VDataStreamSender";
@@ -228,6 +231,12 @@ public class ProfileTreeBuilder {
             }
         }
         if (senderNode == null || execNode == null) {
+            // TODO(cmy): This shouldn't happen, but there are sporadic errors. So I add a log to observe this error.
+            // Issue: https://github.com/apache/doris/issues/10095
+            StringBuilder sb = new StringBuilder();
+            instanceProfile.prettyPrint(sb, "");
+            LOG.warn("Invalid instance profile, sender is null: {}, execNode is null: {}, instance profile: {}",
+                    (senderNode == null), (execNode == null), sb.toString());
             throw new UserException("Invalid instance profile, without sender or exec node: " + instanceProfile);
         }
         senderNode.addChild(execNode);
