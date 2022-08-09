@@ -53,6 +53,15 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
     }
     if (need_download) {
         std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+        bool cache_dir_exist = false;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->exists(_cache_dir, &cache_dir_exist),
+                fmt::format("Check local cache dir exist failed. {}", _cache_dir.native()));
+        if (!cache_dir_exist) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    io::global_local_filesystem()->create_directory(_cache_dir),
+                    fmt::format("Create local cache dir failed. {}", _cache_dir.native()));
+        }
         for (vector<size_t>::const_iterator iter = need_cache_offsets.cbegin();
              iter != need_cache_offsets.cend(); ++iter) {
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end() ||
