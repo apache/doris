@@ -1862,11 +1862,21 @@ public class OlapTable extends Table {
                         curMap.put(be.getLocationTag(), (short) (num + 1));
                     }
                     if (!curMap.equals(allocMap)) {
-                        throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"
-                                + ", expected: " + allocMap.toString() + ", actual: " + curMap.toString());
+                        throw new UserException(
+                                "replica allocation of tablet " + tablet.getId() + " is not expected" + ", expected: "
+                                        + allocMap.toString() + ", actual: " + curMap.toString());
                     }
                 }
             }
         }
+    }
+
+    public void setReplicaAllocation(Map<String, String> properties) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(properties);
+        } else {
+            tableProperty.modifyTableProperties(properties);
+        }
+        tableProperty.buildReplicaAllocation();
     }
 }

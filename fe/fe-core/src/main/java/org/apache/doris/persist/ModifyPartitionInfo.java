@@ -25,11 +25,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 
 public class ModifyPartitionInfo implements Writable {
 
@@ -50,6 +52,8 @@ public class ModifyPartitionInfo implements Writable {
 
     @SerializedName(value = "storagePolicy")
     private String storagePolicy;
+    @SerializedName(value = "tableProperties")
+    private Map<String, String> tblProperties;
 
     public String getStoragePolicy() {
         return storagePolicy;
@@ -59,9 +63,9 @@ public class ModifyPartitionInfo implements Writable {
         // for persist
     }
 
-    public ModifyPartitionInfo(long dbId, long tableId, long partitionId,
-                               DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                               boolean isInMemory, String storagePolicy) {
+    public ModifyPartitionInfo(long dbId, long tableId, long partitionId, DataProperty dataProperty,
+            ReplicaAllocation replicaAlloc, boolean isInMemory, String storagePolicy,
+            Map<String, String> tblProperties) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -69,6 +73,10 @@ public class ModifyPartitionInfo implements Writable {
         this.replicaAlloc = replicaAlloc;
         this.isInMemory = isInMemory;
         this.storagePolicy = storagePolicy;
+        this.tblProperties = tblProperties;
+        if (this.tblProperties == null) {
+            this.tblProperties = Maps.newHashMap();
+        }
     }
 
     public long getDbId() {
@@ -93,6 +101,14 @@ public class ModifyPartitionInfo implements Writable {
 
     public boolean isInMemory() {
         return isInMemory;
+    }
+
+    public void setTblProperties(Map<String, String> tblProperties) {
+        this.tblProperties = tblProperties;
+    }
+
+    public Map<String, String> getTblProperties() {
+        return tblProperties;
     }
 
     public static ModifyPartitionInfo read(DataInput in) throws IOException {

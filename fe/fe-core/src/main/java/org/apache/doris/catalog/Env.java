@@ -3310,13 +3310,10 @@ public class Env {
                                     partitionId);
 
                             // log
-                            ModifyPartitionInfo info =
-                                    new ModifyPartitionInfo(db.getId(), olapTable.getId(),
-                                            partition.getId(),
-                                            hddProperty,
-                                            ReplicaAllocation.NOT_SET,
-                                            partitionInfo.getIsInMemory(partition.getId()),
-                                            partitionInfo.getStoragePolicy(partitionId));
+                            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
+                                    partition.getId(), hddProperty, ReplicaAllocation.NOT_SET,
+                                    partitionInfo.getIsInMemory(partition.getId()),
+                                    partitionInfo.getStoragePolicy(partitionId), Maps.newHashMap());
 
                             editLog.logModifyPartition(info);
                         }
@@ -4039,9 +4036,16 @@ public class Env {
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
         DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
         partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
+
+        // set table's default replication number.
+        Map<String, String> tblProperties = Maps.newHashMap();
+        tblProperties.put("default.replication_allocation", replicaAlloc.toCreateStmt());
+        table.setReplicaAllocation(tblProperties);
+
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
-                newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()));
+                newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()),
+                tblProperties);
         editLog.logModifyPartition(info);
         LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(), partition.getName(),
                 replicaAlloc.toCreateStmt());
@@ -4058,16 +4062,7 @@ public class Env {
     // The caller need to hold the table write lock
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
-
-        TableProperty tableProperty = table.getTableProperty();
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(properties);
-            table.setTableProperty(tableProperty);
-        } else {
-            tableProperty.modifyTableProperties(properties);
-        }
-        tableProperty.buildReplicaAllocation();
-
+        table.setReplicaAllocation(properties);
         // log
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
                 properties);
