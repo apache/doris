@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_functions", "query") {
+suite("test_cast_array_function", "query") {
     def tableName = "tbl_test_cast_array_function"
     // open enable_array_type
     sql """ set enable_array_type = true """
