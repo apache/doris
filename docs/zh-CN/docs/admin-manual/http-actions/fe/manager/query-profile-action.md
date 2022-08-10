@@ -281,7 +281,7 @@ GET /rest/v2/manager/query/query_info
 
 ### Description
 
-同 `show proc "/current_query_stmts"`
+获取指定query id树状profile信息，同 `show query profile` 指令。
     
 ### Path parameters
 
