@@ -37,6 +37,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <future>
 
 #include "common/status.h"
 #include "common/config.h"
@@ -59,18 +60,24 @@ class ParquetFile : public arrow::io::RandomAccessFile {
 public:
     ParquetFile(FileReader* file);
     ~ParquetFile() override;
-    arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
-    arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
-    arrow::Result<int64_t> GetSize() override;
+
     arrow::Status Seek(int64_t position) override;
+    arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
     arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override;
+
+    arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
+    arrow::Result<std::shared_ptr<arrow::Buffer>> ReadAt(int64_t position, int64_t nbytes) override;
+
+    arrow::Result<int64_t> GetSize() override;
     arrow::Result<int64_t> Tell() const override;
     arrow::Status Close() override;
     bool closed() const override;
 
 private:
+    std::mutex _lock;
     FileReader* _file;
     int64_t _pos = 0;
+    bool _is_closed = false;
 };
 
 // Reader of broker parquet file
@@ -97,7 +104,7 @@ private:
                             int32_t* wbtyes);
 
 private:
-    void prefetch_batch();
+    void prefetch_batch(std::promise<Status>* status);
     Status read_next_batch();
 
 private:
@@ -129,6 +136,8 @@ private:
     std::condition_variable _queue_writer_cond;
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
+
+    std::promise<Status> thread_status;
 };
 
 } // namespace doris
