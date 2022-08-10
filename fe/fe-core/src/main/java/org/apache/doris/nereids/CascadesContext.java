@@ -60,7 +60,7 @@ public class CascadesContext {
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, new PhysicalProperties(), Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
     }
 
     public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
