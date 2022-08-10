@@ -128,7 +128,6 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new MergeConsecutiveProjectJob(plannerContext).execute();
         new NormalizeExpressionRulesJob(plannerContext).execute();
         new JoinReorderRulesJob(plannerContext).execute();
         new PredicatePushDownRulesJob(plannerContext).execute();

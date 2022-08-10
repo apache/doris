@@ -85,50 +85,14 @@ public class BindViewTest extends TestWithFeService {
     }
 
     @Test
-    public void testAllCase() throws AnalysisException {
+    public void testTranslateAllCase() throws AnalysisException {
         for (String sql : testSql) {
             System.out.println("\n\n***** " + sql + " *****\n\n");
-            System.out.println(getTranslateString(sql));
+            new PhysicalPlanTranslator().translatePlan(new NereidsPlanner(connectContext).plan(
+                    new NereidsParser().parseSingle(sql),
+                    PhysicalProperties.ANY,
+                    connectContext
+            ), new PlanTranslatorContext());
         }
-    }
-
-    @Test
-    public void testParseView() {
-        System.out.println(parse(testSql.get(currentTestCaseId)).treeString());
-    }
-
-    @Test
-    public void testAnalyzeView() {
-        System.out.println(analyze(parse(testSql.get(currentTestCaseId))).treeString());
-    }
-
-    @Test
-    public void testPlanView() throws AnalysisException {
-        System.out.println(plan(parse(testSql.get(currentTestCaseId))).treeString());
-    }
-
-    @Test
-    public void testTranslate() throws AnalysisException {
-        System.out.println(translate(plan(parse(testSql.get(currentTestCaseId)))).getPlanRoot().getExplainString());
-    }
-
-    private String getTranslateString(String sql) throws AnalysisException {
-        return translate(plan(parse(sql))).getPlanRoot().getExplainString();
-    }
-
-    private LogicalPlan parse(String sql) {
-        return new NereidsParser().parseSingle(sql);
-    }
-
-    private LogicalPlan analyze(LogicalPlan plan) {
-        return new NereidsAnalyzer(connectContext).analyze(plan);
-    }
-
-    private PhysicalPlan plan(LogicalPlan plan) throws AnalysisException {
-        return new NereidsPlanner(connectContext).plan(plan, new PhysicalProperties(), connectContext);
-    }
-
-    private PlanFragment translate(PhysicalPlan plan) {
-        return new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
     }
 }
