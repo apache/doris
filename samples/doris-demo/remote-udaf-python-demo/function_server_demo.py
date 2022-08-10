@@ -36,7 +36,7 @@ class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
         status = types_pb2.PStatus()
         status.status_code = 0
         response.status.CopyFrom(status)
-        
+
         if request.function_name == "rpc_sum_update":
             result = types_pb2.PValues()
             result.has_null = False
@@ -142,7 +142,6 @@ class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
 
 
 def serve(port):
-    print 3333
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     function_service_pb2_grpc.add_PFunctionServiceServicer_to_server(FunctionServerDemo(), server)
     server.add_insecure_port("0.0.0.0:%s" % port)
