@@ -40,8 +40,8 @@ import java.util.Optional;
 public class JoinCommuteTest {
     @Test
     public void testInnerJoinCommute(@Mocked PlannerContext plannerContext) {
-        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan("t2");
-        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan("t2");
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         Expression onCondition = new EqualTo(
                 new SlotReference("id", new BigIntType(), true, ImmutableList.of("table1")),

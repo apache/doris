@@ -44,10 +44,12 @@ public class CostCalculator {
      * Constructor.
      */
     public static double calculateCost(GroupExpression groupExpression) {
-        PlanContext planContext = new PlanContext(groupExpression);
-        CostEstimator costCalculator = new CostEstimator();
-        CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-        return costFormula(costEstimate);
+        // TODO: Enable following code after enable stats derive.
+        // PlanContext planContext = new PlanContext(groupExpression);
+        // CostEstimator costCalculator = new CostEstimator();
+        // CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
+        // return costFormula(costEstimate);
+        return 0;
     }
 
     private static double costFormula(CostEstimate costEstimate) {
