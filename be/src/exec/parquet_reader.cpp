@@ -37,8 +37,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
 #include "util/thrift_util.h"
-#include "util/stack_util.h"
-#include "util/stack_util.h"
 
 namespace doris {
 
