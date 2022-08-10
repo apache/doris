@@ -424,7 +424,8 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy enabled when predicate is subset of returned columns:
             // select c1, c2 where c2 = 30;
             Schema read_schema(tablet_schema);
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(1, 30));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(1, 30));
             const std::vector<ColumnPredicate*> predicates = {predicate.get()};
 
             OlapReaderStatistics stats;
@@ -448,8 +449,10 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy disabled when all return columns have predicates:
             // select c1, c2 where c1 = 10 and c2 = 100;
             Schema read_schema(tablet_schema);
-            std::unique_ptr<ColumnPredicate> p0(new EqualPredicate<int32_t>(0, 10));
-            std::unique_ptr<ColumnPredicate> p1(new EqualPredicate<int32_t>(1, 100));
+            std::unique_ptr<ColumnPredicate> p0(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
+            std::unique_ptr<ColumnPredicate> p1(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(1, 100));
             const std::vector<ColumnPredicate*> predicates = {p0.get(), p1.get()};
 
             OlapReaderStatistics stats;
@@ -503,7 +506,8 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy disabled when all predicates are removed by bitmap index:
             // select c1, c2 where c2 = 30;
             Schema read_schema(tablet_schema);
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 20));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 20));
             const std::vector<ColumnPredicate*> predicates = {predicate.get()};
 
             OlapReaderStatistics stats;
@@ -1153,7 +1157,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
         // test where v1=10
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -1174,8 +1179,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
         // test where v1=10 and v2=11
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
-            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(1, 11));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate2(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(1, 11));
             column_predicates.emplace_back(predicate.get());
             column_predicates.emplace_back(predicate2.get());
 
@@ -1197,8 +1204,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
         // test where v1=10 and v2=15
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
-            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(1, 15));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate2(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(1, 15));
             column_predicates.emplace_back(predicate.get());
             column_predicates.emplace_back(predicate2.get());
 
@@ -1224,7 +1233,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(20);
             values.insert(1);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new InListPredicate<int32_t>(0, std::move(values)));
+                    new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST>(0,
+                                                                              std::move(values)));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -1248,7 +1258,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(10);
             values.insert(20);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new NotInListPredicate<int32_t>(0, std::move(values)));
+                    new InListPredicateBase<TYPE_INT, PredicateType::NOT_IN_LIST>(
+                            0, std::move(values)));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
