@@ -65,9 +65,9 @@ public:
 
     Status init_reader(const TupleDescriptor* tuple_desc,
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                       const std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
+                       std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
 
-    Status read_next_batch(Block* block);
+    Status read_next_batch(Block* block, int64_t current_range_offset);
 
     bool has_next() const { return !*_batch_eof; };
 
@@ -81,6 +81,8 @@ private:
     Status _init_row_group_reader(const TupleDescriptor* tuple_desc, int64_t range_start_offset,
                                   int64_t range_size,
                                   const std::vector<ExprContext*>& conjunct_ctxs);
+    void _init_conjuncts(const TupleDescriptor* tuple_desc,
+                         const std::vector<ExprContext*>& conjunct_ctxs);
     bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
     Status _process_page_index(std::vector<tparquet::ColumnChunk> columns);
 
@@ -95,7 +97,9 @@ private:
     const int32_t _num_of_columns_from_file;
 
     std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::vector<int> _include_column_ids;   // columns that need to get from file
+    std::shared_ptr<std::vector<ExprContext*>> _conjunct_ctxs;
+    std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
+    std::vector<int> _include_column_ids; // columns that need to get from file
     std::vector<ParquetReadColumn> _read_columns;
     // parquet file reader object
     size_t _batch_size;

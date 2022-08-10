@@ -41,23 +41,23 @@ public:
     tparquet::ColumnMetaData t_metadata() { return _metadata; };
 
 private:
-    tparquet::ColumnMetaData _metadata;
     int64_t _chunk_start_offset;
     int64_t _chunk_length;
+    tparquet::ColumnMetaData _metadata;
 };
 
 class ParquetColumnReader {
 public:
     ParquetColumnReader(const ParquetReadColumn& column) : _column(column) {};
     virtual ~ParquetColumnReader() = 0;
-    virtual Status read_column_data(ColumnPtr* data, size_t batch_size) = 0;
+    virtual Status read_column_data(ColumnPtr* data, const TypeDescriptor& type,
+                                    size_t batch_size) = 0;
     static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
                          const tparquet::RowGroup& row_group, const ParquetColumnReader* reader);
+    void init_column_metadata(const tparquet::ColumnChunk& chunk);
     virtual void close() = 0;
 
 private:
-    void _init_column_metadata(tparquet::ColumnChunk* chunk);
-
 protected:
     const ParquetReadColumn& _column;
     std::unique_ptr<ParquetColumnMetadata> _metadata;
@@ -68,7 +68,8 @@ public:
     ScalarColumnReader(const ParquetReadColumn& column) : ParquetColumnReader(column) {};
     ~ScalarColumnReader() override = default;
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk);
-    Status read_column_data(ColumnPtr* data, size_t batch_size) override;
+    Status read_column_data(ColumnPtr* data, const TypeDescriptor& type,
+                            size_t batch_size) override;
     void close() override;
 
 private:

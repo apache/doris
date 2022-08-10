@@ -98,7 +98,7 @@ Status ColumnChunkReader::load_page_data() {
 Status ColumnChunkReader::_decode_dict_page() {
     int64_t dict_offset = _metadata.dictionary_page_offset;
     _page_reader->seek_to_page(dict_offset);
-    _page_reader->next_page();
+    _page_reader->next_page_header();
     const tparquet::PageHeader& header = *_page_reader->get_page_header();
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
     // TODO(gaoxin): decode dictionary page

@@ -36,21 +36,21 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
         return Status::Corruption("not supported array type yet");
     } else {
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
-        RETURN_IF_ERROR(_init_column_metadata(chunk));
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
+        scalar_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk));
         reader = scalar_reader;
     }
     return Status::OK();
 }
 
-void ParquetColumnReader::_init_column_metadata(tparquet::ColumnChunk* chunk) {
-    auto chunk_meta = chunk->meta_data;
+void ParquetColumnReader::init_column_metadata(const tparquet::ColumnChunk& chunk) {
+    auto chunk_meta = chunk.meta_data;
     int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
-    _metadata = _metadata.reset(new ParquetColumnMetadata(chunk_start, chunk_len, chunk_meta));
+    _metadata.reset(new ParquetColumnMetadata(chunk_start, chunk_len, chunk_meta));
 }
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field,
@@ -61,7 +61,8 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field,
     return Status::OK();
 }
 
-Status ScalarColumnReader::read_column_data(ColumnPtr* column, size_t batch_size) {
+Status ScalarColumnReader::read_column_data(ColumnPtr* column, const TypeDescriptor& type,
+                                            size_t batch_size) {
     while (_chunk_reader->has_next_page()) {
         // seek to next page header
         _chunk_reader->next_page();

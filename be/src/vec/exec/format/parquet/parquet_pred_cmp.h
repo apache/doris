@@ -79,8 +79,8 @@ namespace doris::vectorized {
         return true;                                                       \
     }
 
-bool RowGroupReader::_eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
-                                  const char* min_bytes, const char* max_bytes) {
+bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
+                  const char* min_bytes, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _FILTER_GROUP_BY_IN(int8_t, in_pred_values, min_bytes, max_bytes)
@@ -150,8 +150,8 @@ void RowGroupReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
     }
 }
 
-bool RowGroupReader::_eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
-                              const char* max_bytes) {
+bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
+              const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE(int16_t, value, min_bytes, max_bytes, conjunct_value, min, max)
@@ -200,7 +200,7 @@ bool RowGroupReader::_eval_eq(PrimitiveType conjunct_type, void* value, const ch
     return false;
 }
 
-bool RowGroupReader::_eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
@@ -250,7 +250,7 @@ bool RowGroupReader::_eval_gt(PrimitiveType conjunct_type, void* value, const ch
     return false;
 }
 
-bool RowGroupReader::_eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
@@ -300,7 +300,7 @@ bool RowGroupReader::_eval_ge(PrimitiveType conjunct_type, void* value, const ch
     return false;
 }
 
-bool RowGroupReader::_eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
@@ -350,7 +350,7 @@ bool RowGroupReader::_eval_lt(PrimitiveType conjunct_type, void* value, const ch
     return false;
 }
 
-bool RowGroupReader::_eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)

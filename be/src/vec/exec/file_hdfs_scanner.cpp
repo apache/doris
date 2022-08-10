@@ -21,47 +21,59 @@
 
 namespace doris::vectorized {
 
+ParquetFileHdfsScanner::ParquetFileHdfsScanner(RuntimeState* state, RuntimeProfile* profile,
+                                               const TFileScanRangeParams& params,
+                                               const std::vector<TFileRangeDesc>& ranges,
+                                               const std::vector<TExpr>& pre_filter_texprs,
+                                               ScannerCounter* counter)
+        : HdfsFileScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
+
 Status ParquetFileHdfsScanner::open() {
+    RETURN_IF_ERROR(_get_next_reader(_next_range));
     return Status();
 }
 
+void ParquetFileHdfsScanner::_init_profiles(RuntimeProfile* profile) {}
+
 Status ParquetFileHdfsScanner::get_next(vectorized::Block* block, bool* eof) {
     // todo: get block from queue
-    auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
     if (_next_range >= _ranges.size()) {
         _scanner_eof = true;
         return Status::OK();
     }
-    const TFileRangeDesc& range = _ranges[_next_range++];
+    RETURN_IF_ERROR(init_block(block));
+    if (_reader->has_next()) {
+        Status st = _reader->read_next_batch(block, _current_range_offset);
+        if (!st.ok() && !st.is_end_of_file()) {
+            return st;
+        }
+    }
+    const auto& cur_range = _ranges[_next_range];
+    if (_current_range_offset >= cur_range.start_offset + cur_range.size) {
+        RETURN_IF_ERROR(_get_next_reader(_next_range++));
+    }
+    return Status::OK();
+}
+
+Status ParquetFileHdfsScanner::_get_next_reader(int _next_range) {
+    const TFileRangeDesc& range = _ranges[_next_range];
+    _current_range_offset = range.start_offset;
     std::unique_ptr<FileReader> file_reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
                                                     file_reader));
     _reader.reset(new ParquetReader(file_reader.release(), _file_slot_descs.size(),
                                     _state->query_options().batch_size, range.start_offset,
                                     range.size));
+    auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
     Status status =
             _reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());
-    if (!status.ok() || !_reader->has_next()) {
+    if (!status.ok()) {
         _scanner_eof = true;
-        return Status::OK();
-    }
-    Status st = _reader->read_next_batch(block);
-    if (!st.ok()) {
-        if (!st.is_end_of_file()) {
-            return st;
-        }
-        *eof = true;
         return Status::OK();
     }
     return Status::OK();
 }
 
 void ParquetFileHdfsScanner::close() {}
-
-void ParquetFileHdfsScanner::_prefetch_batch() {
-    // todo: use thread parallel
-    // 1. call file reader next batch
-    // 2. push batch to queue, when get_next is called, pop batch
-}
 
 } // namespace doris::vectorized

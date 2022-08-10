@@ -23,16 +23,16 @@
 
 namespace doris::vectorized {
 
-RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
-                               const std::shared_ptr<FileMetaData>& file_metadata,
-                               const std::vector<ParquetReadColumn>& read_columns,
-                               const std::map<std::string, int>& map_column,
-                               const std::vector<ExprContext*>& conjunct_ctxs)
+RowGroupReader::RowGroupReader(
+        doris::FileReader* file_reader, const std::shared_ptr<FileMetaData>& file_metadata,
+        const std::vector<ParquetReadColumn>& read_columns,
+        const std::map<std::string, int>& map_column,
+        const std::unordered_map<int, std::vector<ExprContext*>>& slot_conjuncts)
         : _file_reader(file_reader),
           _file_metadata(file_metadata),
           _read_columns(read_columns),
           _map_column(map_column),
-          _conjunct_ctxs(conjunct_ctxs),
+          _slot_conjuncts(slot_conjuncts),
           _current_row_group(-1) {}
 
 RowGroupReader::~RowGroupReader() {
@@ -50,58 +50,12 @@ Status RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_sta
     _tuple_desc = tuple_desc;
     _split_start_offset = split_start_offset;
     _split_size = split_size;
-    _init_conjuncts(tuple_desc, _conjunct_ctxs);
     _total_group = _file_metadata->num_row_groups();
     RETURN_IF_ERROR(_init_column_readers());
     return Status::OK();
 }
 
-void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
-                                     const std::vector<ExprContext*>& conjunct_ctxs) {
-    if (tuple_desc->slots().empty()) {
-        return;
-    }
-    for (auto& read_col : _read_columns) {
-        _parquet_column_ids.emplace(read_col.parquet_column_id);
-    }
-
-    for (int i = 0; i < tuple_desc->slots().size(); i++) {
-        auto col_iter = _map_column.find(tuple_desc->slots()[i]->col_name());
-        if (col_iter == _map_column.end()) {
-            continue;
-        }
-        int parquet_col_id = col_iter->second;
-        if (_parquet_column_ids.end() == _parquet_column_ids.find(parquet_col_id)) {
-            continue;
-        }
-        for (int conj_idx = 0; conj_idx < conjunct_ctxs.size(); conj_idx++) {
-            Expr* conjunct = conjunct_ctxs[conj_idx]->root();
-            if (conjunct->get_num_children() == 0) {
-                continue;
-            }
-            Expr* raw_slot = conjunct->get_child(0);
-            if (TExprNodeType::SLOT_REF != raw_slot->node_type()) {
-                continue;
-            }
-            SlotRef* slot_ref = (SlotRef*)raw_slot;
-            SlotId conjunct_slot_id = slot_ref->slot_id();
-            if (conjunct_slot_id == tuple_desc->slots()[i]->id()) {
-                // Get conjuncts by conjunct_slot_id
-                auto iter = _slot_conjuncts.find(conjunct_slot_id);
-                if (_slot_conjuncts.end() == iter) {
-                    std::vector<ExprContext*> conjuncts;
-                    conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
-                    _slot_conjuncts.emplace(std::make_pair(conjunct_slot_id, conjuncts));
-                } else {
-                    std::vector<ExprContext*> conjuncts = iter->second;
-                    conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
-                }
-            }
-        }
-    }
-}
-
-Status RowGroupReader::_init_column_readers(int64_t batch_size) {
+Status RowGroupReader::_init_column_readers() {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col.slot_desc;
         FieldDescriptor schema = _file_metadata->schema();
@@ -138,10 +92,11 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
     const tparquet::RowGroup row_group =
             _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
     for (auto& read_col : _read_columns) {
-        auto& column_with_type_and_name = block->get_by_name(read_col.slot_desc->col_name());
+        auto slot_desc = read_col.slot_desc;
+        auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         auto column_ptr = column_with_type_and_name.column;
-        RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data(&column_ptr,
-                                                                                    batch_size));
+        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
+                &column_ptr, slot_desc->type(), batch_size));
         _current_batch_start_offset += batch_size;
         VLOG_DEBUG << "read column: " << column_with_type_and_name.name;
     }
@@ -161,7 +116,7 @@ Status RowGroupReader::get_next_row_group(const int32_t* group_id) {
             continue;
         }
         bool filter_group = false;
-        RETURN_IF_ERROR(_process_row_group_filter(row_group, _conjunct_ctxs, &filter_group));
+        RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
         if (!filter_group) {
             group_id = &_current_row_group;
             break;
@@ -185,9 +140,8 @@ bool RowGroupReader::_is_misaligned_range_group(const tparquet::RowGroup& row_gr
 }
 
 Status RowGroupReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
-                                                 const std::vector<ExprContext*>& conjunct_ctxs,
                                                  bool* filter_group) {
-    _process_column_stat_filter(row_group, conjunct_ctxs, filter_group);
+    _process_column_stat_filter(row_group, filter_group);
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();
@@ -196,11 +150,13 @@ Status RowGroupReader::_process_row_group_filter(const tparquet::RowGroup& row_g
 }
 
 Status RowGroupReader::_process_column_stat_filter(const tparquet::RowGroup& row_group,
-                                                   const std::vector<ExprContext*>& conjunct_ctxs,
                                                    bool* filter_group) {
     // It will not filter if head_group_offset equals tail_group_offset
     int64_t total_rows = 0;
     int64_t total_bytes = 0;
+    for (auto& read_col : _read_columns) {
+        _parquet_column_ids.emplace(read_col.parquet_column_id);
+    }
     for (int row_group_id = 0; row_group_id < _total_group; row_group_id++) {
         total_rows += row_group.num_rows;
         total_bytes += row_group.total_byte_size;
