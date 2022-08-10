@@ -245,7 +245,7 @@ public class MetadataViewer {
 
     private static String graph(long num, long totalNum) {
         StringBuilder sb = new StringBuilder();
-        long normalized = num == totalNum ? 100 : (int) Math.ceil(num * 100 / totalNum);
+        long normalized = num == totalNum ? (totalNum == 0L ? 0 : 100) : (int) Math.ceil(num * 100 / totalNum);
         for (int i = 0; i < normalized; ++i) {
             sb.append(">");
         }
@@ -309,8 +309,8 @@ public class MetadataViewer {
                 row.add(rowCountTabletInfos.get(i).toString());
                 row.add(dataSizeTabletInfos.get(i).toString());
                 row.add(graph(dataSizeTabletInfos.get(i), totalSize));
-                row.add(totalSize == dataSizeTabletInfos.get(i)
-                        ? "100.00%" : df.format((double) dataSizeTabletInfos.get(i) / totalSize));
+                row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
+                        df.format((double) dataSizeTabletInfos.get(i) / totalSize));
                 result.add(row);
             }
         } finally {
