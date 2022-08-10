@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -110,8 +111,8 @@ public class PlanEqualsTest {
 
     @Test
     public void testLogicalOlapScan() {
-        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan("table");
-        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan("table");
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "table", 0);
 
         Assertions.assertEquals(scan1, scan2);
     }
@@ -182,10 +183,14 @@ public class PlanEqualsTest {
     }
 
     @Test
-    public void testPhysicalOlapScan(@Mocked LogicalProperties logicalProperties, @Mocked OlapTable olapTable) {
+    public void testPhysicalOlapScan(
+            @Mocked LogicalProperties logicalProperties,
+            @Mocked OlapTable olapTable,
+            @Mocked DistributionSpecHash distributionSpecHash) {
         List<String> qualifier = Lists.newArrayList();
 
-        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties);
+        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, distributionSpecHash, Optional.empty(),
+                logicalProperties);
 
         Assertions.assertEquals(olapScan, olapScan);
     }

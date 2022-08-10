@@ -39,7 +39,7 @@ import java.util.Optional;
 public class PlanOutputTest {
     @Test
     public void testComputeOutput() {
-        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScanWithTable("a");
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
         List<Slot> output = relationPlan.getOutput();
         Assertions.assertEquals(2, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
@@ -67,7 +67,7 @@ public class PlanOutputTest {
 
     @Test
     public void testWithOutput() {
-        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScanWithTable("a");
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
 
         List<Slot> output = relationPlan.getOutput();
         // column prune
