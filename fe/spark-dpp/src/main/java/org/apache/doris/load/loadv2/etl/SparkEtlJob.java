@@ -90,12 +90,12 @@ public class SparkEtlJob {
     }
 
     private void initConfig() {
-        LOG.info("job config file path: " + jobConfigFilePath);
+        LOG.debug("job config file path: " + jobConfigFilePath);
         Dataset<String> ds = spark.read().textFile(jobConfigFilePath);
         String jsonConfig = ds.first();
-        LOG.info("rdd read json config: " + jsonConfig);
+        LOG.debug("rdd read json config: " + jsonConfig);
         etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
-        LOG.info("etl job config: " + etlJobConfig);
+        LOG.debug("etl job config: " + etlJobConfig);
     }
 
     /*
