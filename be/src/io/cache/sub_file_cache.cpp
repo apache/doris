@@ -52,7 +52,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
         }
     }
     if (need_download) {
-        std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
         bool cache_dir_exist = false;
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 io::global_local_filesystem()->exists(_cache_dir, &cache_dir_exist),
@@ -197,7 +197,7 @@ Status SubFileCache::clean_timeout_cache() {
         }
     }
     if (timeout_keys.size() > 0) {
-        std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
         for (std::vector<size_t>::const_iterator iter = timeout_keys.cbegin();
              iter != timeout_keys.cend(); ++iter) {
             RETURN_IF_ERROR(_clean_cache_internal(*iter));
@@ -208,7 +208,7 @@ Status SubFileCache::clean_timeout_cache() {
 }
 
 Status SubFileCache::clean_all_cache() {
-    std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+    std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
     for (std::map<size_t, int64_t>::const_iterator iter = _last_match_times.cbegin();
          iter != _last_match_times.cend(); ++iter) {
         RETURN_IF_ERROR(_clean_cache_internal(iter->first));
