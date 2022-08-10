@@ -1372,7 +1372,7 @@ bool VOlapScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprCont
 
 bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                       VExprContext* expr_ctx,
-                                                      std::string* constant_str,
+                                                      StringVal* constant_str,
                                                       doris_udf::FunctionContext** fn_ctx) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
@@ -1395,7 +1395,7 @@ bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
             DCHECK(children[1 - i]->type().is_string_type());
             if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
                         children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
-                *constant_str = const_column->get_data_at(0).to_string();
+                *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
                 return false;
             }
@@ -1711,11 +1711,10 @@ Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* exp
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
         doris_udf::FunctionContext* fn_ctx = nullptr;
-        std::string str;
+        StringVal val;
         if (_should_push_down_function_filter(reinterpret_cast<VectorizedFnCall*>(fn_expr),
-                                              expr_ctx, &str, &fn_ctx)) {
+                                              expr_ctx, &val, &fn_ctx)) {
             std::string col = slot->col_name();
-            StringVal val(reinterpret_cast<uint8_t*>(str.data()), str.size());
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
             *push_down = true;
         }

@@ -169,7 +169,7 @@ protected:
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
 
-    ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
+    virtual ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
 
     Status _init_delete_condition(const ReaderParams& read_params);
 
