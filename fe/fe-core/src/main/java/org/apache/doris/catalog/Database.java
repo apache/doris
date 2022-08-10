@@ -411,7 +411,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     /**
-     *  this method is used for get existed table list by table id list, if table not exist, just ignore it.
+     * this method is used for get existed table list by table id list, if table not exist, just ignore it.
      */
     public List<Table> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
         List<Table> tableList = Lists.newArrayListWithCapacity(tableIdList.size());
@@ -614,25 +614,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             return false;
         }
 
-        Database database = (Database) obj;
+        Database other = (Database) obj;
 
-        if (idToTable != database.idToTable) {
-            if (idToTable.size() != database.idToTable.size()) {
-                return false;
-            }
-            for (Entry<Long, Table> entry : idToTable.entrySet()) {
-                long key = entry.getKey();
-                if (!database.idToTable.containsKey(key)) {
-                    return false;
-                }
-                if (!entry.getValue().equals(database.idToTable.get(key))) {
-                    return false;
-                }
-            }
-        }
-
-        return (id == database.id) && (fullQualifiedName.equals(database.fullQualifiedName)
-                && dataQuotaBytes == database.dataQuotaBytes);
+        return id == other.id
+                && idToTable.equals(other.idToTable)
+                && fullQualifiedName.equals(other.fullQualifiedName)
+                && dataQuotaBytes == other.dataQuotaBytes;
     }
 
     public String getClusterName() {

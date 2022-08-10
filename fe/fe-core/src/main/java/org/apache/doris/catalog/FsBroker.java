@@ -87,13 +87,10 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
             return false;
         }
 
-        FsBroker that = (FsBroker) o;
+        FsBroker other = (FsBroker) o;
 
-        if (port != that.port) {
-            return false;
-        }
-        return ip.equals(that.ip);
-
+        return port == other.port
+                && ip.equals(other.ip);
     }
 
     @Override
