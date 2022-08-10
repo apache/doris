@@ -44,6 +44,8 @@ struct LikeSearchState {
     /// used.
     std::string search_string;
 
+    std::string pattern_str;
+
     /// Used for LIKE predicates if the pattern is a constant argument, and is either a
     /// constant string or has a constant string at the beginning or end of the pattern.
     /// This will be set in order to check for that pattern in the corresponding part of
@@ -84,6 +86,8 @@ struct LikeSearchState {
     }
 
     LikeSearchState() : escape_char('\\') {}
+
+    Status clone(LikeSearchState& cloned);
 
     void set_search_string(const std::string& search_string_arg) {
         search_string = search_string_arg;
@@ -154,6 +158,8 @@ public:
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
+    friend struct LikeSearchState;
+
 private:
     static Status like_fn(LikeSearchState* state, const StringValue& val,
                           const StringValue& pattern, unsigned char* result);
@@ -175,11 +181,4 @@ public:
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 };
 
-void register_function_like(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionLike>();
-}
-
-void register_function_regexp(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRegexp>();
-}
 } // namespace doris::vectorized
