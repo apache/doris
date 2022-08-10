@@ -49,7 +49,7 @@ private:
 class ParquetColumnReader {
 public:
     ParquetColumnReader(const ParquetReadColumn& column) : _column(column) {};
-    virtual ~ParquetColumnReader() = 0;
+    virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr* data, const TypeDescriptor& type,
                                     size_t batch_size) = 0;
     static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
