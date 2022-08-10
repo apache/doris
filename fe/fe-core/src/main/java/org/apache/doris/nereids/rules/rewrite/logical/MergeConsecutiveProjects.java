@@ -21,11 +21,12 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionReplacer;
+import org.apache.doris.nereids.trees.expressions.visitor.SlotReferenceReplacer;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.List;
@@ -56,14 +57,14 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
             List<NamedExpression> projectExpressions = project.getProjects();
             LogicalProject<GroupPlan> childProject = project.child();
             List<NamedExpression> childProjectExpressions = childProject.getProjects();
-            Map<Expression, Expression> childAliasMap = childProjectExpressions.stream()
+            Map<Integer, Expression> childAliasMap = childProjectExpressions.stream()
                     .filter(e -> e instanceof Alias)
                     .collect(Collectors.toMap(
-                            NamedExpression::toSlot, e -> e.child(0))
+                            expr -> expr.getExprId().asInt(), e -> e.child(0))
                     );
 
             projectExpressions = projectExpressions.stream()
-                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
+                    .map(e -> SlotReferenceReplacer.INSTANCE.visit(e, childAliasMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             return new LogicalProject<>(projectExpressions, childProject.children().get(0));
