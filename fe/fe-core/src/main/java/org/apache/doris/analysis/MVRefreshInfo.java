@@ -19,15 +19,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 
-import org.apache.hadoop.io.Writable;
+import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public class MVRefreshInfo implements Writable {
+public class MVRefreshInfo {
+    @SerializedName("neverRefresh")
     private boolean neverRefresh;
+    @SerializedName("refreshMethod")
     private RefreshMethod refreshMethod;
+    @SerializedName("triggerInfo")
     private MVRefreshTriggerInfo triggerInfo;
 
     // For deserialization
@@ -76,27 +75,6 @@ public class MVRefreshInfo implements Writable {
 
     public MVRefreshTriggerInfo getTriggerInfo() {
         return triggerInfo;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeBoolean(neverRefresh);
-        out.writeByte(refreshMethod.ordinal());
-        out.writeBoolean(triggerInfo != null);
-        if (triggerInfo != null) {
-            triggerInfo.write(out);
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        neverRefresh = in.readBoolean();
-        refreshMethod = RefreshMethod.values()[in.readByte()];
-        boolean hasTriggerInfo = in.readBoolean();
-        if (hasTriggerInfo) {
-            triggerInfo = new MVRefreshTriggerInfo();
-            triggerInfo.readFields(in);
-        }
     }
 
     enum RefreshMethod {

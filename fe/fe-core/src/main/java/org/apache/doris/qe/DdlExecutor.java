@@ -160,8 +160,6 @@ public class DdlExecutor {
             env.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
-            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStatsStmt) {

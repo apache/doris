@@ -21,14 +21,12 @@ import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-import org.apache.hadoop.io.Writable;
+import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public class MVRefreshTriggerInfo implements Writable {
+public class MVRefreshTriggerInfo {
+    @SerializedName("refreshTrigger")
     private RefreshTrigger refreshTrigger;
+    @SerializedName("intervalTrigger")
     private MVRefreshIntervalTriggerInfo intervalTrigger;
 
     // For deserialization
@@ -75,24 +73,5 @@ public class MVRefreshTriggerInfo implements Writable {
             sb.append(intervalTrigger.toString());
         }
         return sb.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeByte(refreshTrigger.ordinal());
-        out.writeBoolean(intervalTrigger != null);
-        if (intervalTrigger != null) {
-            intervalTrigger.write(out);
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        refreshTrigger = RefreshTrigger.values()[in.readByte()];
-        boolean hasIntervalTrigger = in.readBoolean();
-        if (hasIntervalTrigger) {
-            intervalTrigger = new MVRefreshIntervalTriggerInfo();
-            intervalTrigger.readFields(in);
-        }
     }
 }

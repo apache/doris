@@ -17,13 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
-
-import com.google.common.base.Preconditions;
 
 /**
  * This is a result of semantic analysis for AddMaterializedViewClause.
@@ -43,6 +42,11 @@ public class MVColumnItem {
     private String baseTableName;
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
+            Expr defineExpr, String baseColumnName) {
+        this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr, baseColumnName, null);
+    }
+
+    public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
             Expr defineExpr, String baseColumnName, String baseTableName) {
         this.name = name;
         this.type = type;
@@ -54,13 +58,9 @@ public class MVColumnItem {
     }
 
     public MVColumnItem(String name, Type type) {
-        this(name, type, name);
-    }
-
-    public MVColumnItem(String name, Type type, String baseColumnName) {
         this.name = name;
         this.type = type;
-        this.baseColumnName = baseColumnName;
+        this.baseColumnName = name;
     }
 
     public String getName() {
@@ -113,21 +113,24 @@ public class MVColumnItem {
     }
 
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
-        Column baseColumn = olapTable.getBaseColumn(baseColumnName);
-        if (baseColumn == null) {
-            Preconditions.checkNotNull(defineExpr != null);
-            Column result = new Column(name, type, isKey, aggregationType, ColumnDef.DefaultValue.ZERO, "");
+        Column result;
+        if (defineExpr != null) {
+            result = new Column(name, type, isKey, aggregationType, DefaultValue.ZERO, "");
             result.setDefineExpr(defineExpr);
-            return result;
         } else {
-            Column result = new Column(baseColumn);
+            Column baseColumn = olapTable.getBaseColumn(baseColumnName);
+            result = new Column(baseColumn);
             result.setName(name);
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily test will core.
             // So, I comment this line firstly.
             // result.setType(type);
             result.setAggregationType(aggregationType, isAggregationTypeImplicit);
-            return result;
         }
+        return result;
+    }
+
+    public void setBaseTableName(String baseTableName) {
+        this.baseTableName = baseTableName;
     }
 }

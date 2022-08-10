@@ -1146,13 +1146,6 @@ public class MaterializedViewHandler extends AlterHandler {
         Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
         try {
             olapTables.values().forEach(Table::writeLock);
-            for (OlapTable table : olapTables.values()) {
-                table.checkStableAndNormal(addMVClause.getDatabase().getClusterName());
-                if (table.existTempPartitions()) {
-                    throw new DdlException("Can not alter table when there are temp partitions in table");
-                }
-                Preconditions.checkState(table.getState() == OlapTableState.NORMAL);
-            }
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
             olapTables.values().forEach(Table::writeUnlock);

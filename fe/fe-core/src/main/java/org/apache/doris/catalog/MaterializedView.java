@@ -20,13 +20,18 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class MaterializedView extends OlapTable {
+    @SerializedName("refreshInfo")
     private MVRefreshInfo refreshInfo;
+    @SerializedName("query")
     private String query;
 
     // For deserialization
@@ -59,15 +64,14 @@ public class MaterializedView extends OlapTable {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        refreshInfo.write(out);
-        Text.writeString(out, query);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        refreshInfo = new MVRefreshInfo();
-        refreshInfo.readFields(in);
-        query = Text.readString(in);
+        MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        refreshInfo = materializedView.refreshInfo;
+        query = materializedView.query;
     }
 }

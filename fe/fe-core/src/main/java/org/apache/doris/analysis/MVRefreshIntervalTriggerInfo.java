@@ -17,17 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Text;
+import com.google.gson.annotations.SerializedName;
 
-import org.apache.hadoop.io.Writable;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public class MVRefreshIntervalTriggerInfo implements Writable {
+public class MVRefreshIntervalTriggerInfo {
+    @SerializedName("startTime")
     private String startTime;
+    @SerializedName("interval")
     private long interval;
+    @SerializedName("timeUnit")
     private String timeUnit;
 
     // For deserialization
@@ -61,25 +58,5 @@ public class MVRefreshIntervalTriggerInfo implements Writable {
             sb.append(" NEXT ").append(interval).append(" ").append(timeUnit);
         }
         return sb.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, startTime);
-        out.writeLong(interval);
-        out.writeBoolean(timeUnit != null);
-        if (timeUnit != null) {
-            Text.writeString(out, timeUnit);
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        startTime = Text.readString(in);
-        interval = in.readLong();
-        boolean hasTimeUnit = in.readBoolean();
-        if (hasTimeUnit) {
-            timeUnit = Text.readString(in);
-        }
     }
 }

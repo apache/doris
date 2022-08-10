@@ -125,9 +125,9 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         if (itemExpr instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) itemExpr;
             String alias = item.getAlias();
-            String columnName = (alias != null) ? alias.toLowerCase() : slotRef.getColumnName().toLowerCase();
+            String name = (alias != null) ? alias.toLowerCase() : slotRef.getColumnName().toLowerCase();
             mvColumnItem = new MVColumnItem(
-                    columnName,
+                    name,
                     slotRef.getType(),
                     slotRef.getColumn().getAggregationType(),
                     slotRef.getColumn().isAggregationTypeImplicit(),
