@@ -94,7 +94,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     }
 
     @Test
-    public void testCase1() {
+    public void testCaseSubQuery() {
         FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
         new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(0)))
                 .applyTopDown(new EliminateAliasNode())
@@ -122,7 +122,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     }
 
     @Test
-    public void testCase2() {
+    public void testCaseMixed() {
         FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
         FieldChecker joinChecker = new FieldChecker(ImmutableList.of("joinType", "condition"));
         new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(1)))
@@ -158,7 +158,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     }
 
     @Test
-    public void testCase3() {
+    public void testCaseJoinSameTable() {
         FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
         FieldChecker joinChecker = new FieldChecker(ImmutableList.of("condition"));
         new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(5)))
