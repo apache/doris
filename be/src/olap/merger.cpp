@@ -41,6 +41,12 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+                  std::inserter(reader_params.delete_predicates,
+                                reader_params.delete_predicates.begin()));
+    }
 
     reader_params.tablet_schema = cur_tablet_schema;
     RETURN_NOT_OK(reader.init(reader_params));
@@ -103,6 +109,12 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
     reader_params.tablet_schema = cur_tablet_schema;
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+                  std::inserter(reader_params.delete_predicates,
+                                reader_params.delete_predicates.begin()));
+    }
     reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
