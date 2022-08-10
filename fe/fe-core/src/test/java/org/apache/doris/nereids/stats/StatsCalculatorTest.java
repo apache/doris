@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -224,16 +224,11 @@ public class StatsCalculatorTest {
                 result = statistics;
             }};
 
-        Table table1 = PlanConstructor.newTable(tableId1, "t1");
+        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
-                Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
-                    @Override
-                    public List<Slot> get() {
-                        return Arrays.asList(slot1);
-                    }
-                })));
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
         Group childGroup = new Group();
-        GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, Arrays.asList(childGroup));
+        GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
@@ -266,7 +261,7 @@ public class StatsCalculatorTest {
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalLimit logicalLimit = new LogicalLimit(1, 2, groupPlan);
+        LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(1, 2, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalLimit);
         groupExpression.addChild(childGroup);
         Group ownerGroup = new Group();

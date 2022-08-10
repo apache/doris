@@ -101,7 +101,7 @@ public class PlannerContext {
     }
 
     public PlannerContext setDefaultJobContext() {
-        this.currentJobContext = new JobContext(this, new PhysicalProperties(), Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
         return this;
     }
 

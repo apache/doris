@@ -168,7 +168,7 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        return children.equals(that.children) && plan.equals(that.plan);
+        return plan.equals(that.plan) && children.equals(that.children);
     }
 
     @Override
