@@ -46,7 +46,7 @@ rm -rf ./user_files/tables
 rm -rf ./user_files/tables.sql
 
 #reference tables to create tables.sql
-for table in $(awk -F '\n' '{print $1}' ./conf/tables)
+for table in $(cat ./conf/tables |grep -v '#' | awk -F '\n' '{print $1}')
         do
         sed -i "/${table}view/d" ./conf/tables
         echo "use $d_mysql; show create table ${table};" |mysql -h$mysql_host -uroot -p$mysql_password 2>/dev/null >> ./user_files/tables.sql
