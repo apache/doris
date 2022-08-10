@@ -72,7 +72,7 @@ public:
         if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
-                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit());
+                    _label, bytes, PerfCounters::get_vm_rss(), MemInfo::mem_limit());
         }
         return Status::OK();
     }
