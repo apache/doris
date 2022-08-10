@@ -18,6 +18,7 @@
 #include "vec/olap/block_reader.h"
 
 #include "common/status.h"
+#include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -378,6 +379,17 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->create(place);
         }
     }
+}
+
+ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
+    int32_t index = _tablet->field_index(function_filter._col_name);
+    if (index < 0) {
+        return nullptr;
+    }
+
+    // currently only support like predicate
+    return new LikeColumnPredicate<true>(function_filter._opposite, index, function_filter._fn_ctx,
+                                         function_filter._string_param);
 }
 
 } // namespace doris::vectorized
