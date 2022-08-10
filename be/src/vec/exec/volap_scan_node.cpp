@@ -1698,9 +1698,6 @@ Status VOlapScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ct
 
 Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ctx,
                                                   SlotDescriptor* slot, bool* push_down) {
-    if (!config::enable_function_pushdown) {
-        return Status::OK();
-    }
     bool opposite = false;
     VExpr* fn_expr = expr;
     if (TExprNodeType::COMPOUND_PRED == expr->node_type() &&
@@ -1794,8 +1791,11 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
                             if (is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
                                         cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
-                                RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
+                                if (state->enable_function_pushdown()) {
+                                    RETURN_IF_PUSH_DOWN(_normalize_function_filters(
+                                            cur_expr, *(_vconjunct_ctx_ptr.get()), slot,
+                                            &push_down));
+                                }
                             }
                         },
                         *range);

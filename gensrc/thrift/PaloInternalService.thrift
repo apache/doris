@@ -163,6 +163,8 @@ struct TQueryOptions {
 
   // trim tailing spaces while querying external table and stream load
   44: optional bool trim_tailing_spaces_for_external_table_query = false
+
+  45: optional bool enable_function_pushdown;
 }
     
 

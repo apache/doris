@@ -209,6 +209,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
+    public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -523,6 +525,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
     public boolean enableSingleReplicaInsert = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
+    public boolean enableFunctionPushdown;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -913,6 +918,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
+    public boolean getEnableFunctionPushdown() {
+        return this.enableFunctionPushdown;
+    }
+
     /**
      * getInsertVisibleTimeoutMs.
      **/
@@ -1117,6 +1126,8 @@ public class SessionVariable implements Serializable, Writable {
             resourceLimit.setCpuLimit(cpuResourceLimit);
             tResult.setResourceLimit(resourceLimit);
         }
+
+        tResult.setEnableFunctionPushdown(enableFunctionPushdown);
 
         return tResult;
     }
