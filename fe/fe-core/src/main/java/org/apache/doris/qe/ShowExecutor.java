@@ -718,6 +718,11 @@ public class ShowExecutor {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
         }
+        // sort by table name
+        rows.sort((x, y) -> {
+            return x.get(0).compareTo(y.get(0));
+        });
+
         resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
     }
 
