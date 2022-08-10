@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/object_pool.h"
+#include "util/defer_op.h"
 #include "exec/broker_scan_node.h"
 #include "exprs/cast_functions.h"
 #include "exprs/decimalv2_operators.h"
@@ -57,6 +58,7 @@ public:
     }
     void init();
     static void SetUpTestCase() {
+        config::enable_simdjson_reader = true;
         UserFunctionCache::instance()->init(
                 "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
@@ -541,6 +543,12 @@ void VJsonScannerTest::init() {
 }
 
 TEST_F(VJsonScannerTest, simple_array_json) {
+    auto test_fn = [&](bool using_simdjson) {
+    bool saved_flag = config::enable_simdjson_reader;
+    if (using_simdjson) {
+        config::enable_simdjson_reader = true;
+    }
+    Defer __defer([&] {config::enable_simdjson_reader = saved_flag;});
     VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
@@ -599,9 +607,18 @@ TEST_F(VJsonScannerTest, simple_array_json) {
     ASSERT_EQ(0, block.rows());
     ASSERT_TRUE(eof);
     scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_with_file_reader) {
+    auto test_fn = [&](bool using_simdjson) {
+    bool saved_flag = config::enable_simdjson_reader;
+    if (using_simdjson) {
+        config::enable_simdjson_reader = true;
+    }
+    Defer __defer([&] {config::enable_simdjson_reader = saved_flag;});
     VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
@@ -657,9 +674,18 @@ TEST_F(VJsonScannerTest, use_jsonpaths_with_file_reader) {
     ASSERT_EQ(0, block.rows());
     ASSERT_TRUE(eof);
     scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_with_line_reader) {
+    auto test_fn = [&](bool using_simdjson) {
+    bool saved_flag = config::enable_simdjson_reader;
+    if (using_simdjson) {
+        config::enable_simdjson_reader = true;
+    }
+    Defer __defer([&] {config::enable_simdjson_reader = saved_flag;});
     VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
@@ -716,9 +742,18 @@ TEST_F(VJsonScannerTest, use_jsonpaths_with_line_reader) {
     ASSERT_EQ(0, block.rows());
     ASSERT_TRUE(eof);
     scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
+    auto test_fn = [&](bool using_simdjson) {
+    bool saved_flag = config::enable_simdjson_reader;
+    if (using_simdjson) {
+        config::enable_simdjson_reader = true;
+    }
+    Defer __defer([&] {config::enable_simdjson_reader = saved_flag;});
     VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
@@ -768,6 +803,70 @@ TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
     ASSERT_EQ(columns[2].to_string(1), "NULL");
     block.clear();
     scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
+}
+
+TEST_F(VJsonScannerTest, use_nested_with_jsonpath) {
+    auto test_fn = [&](bool using_simdjson) {
+    bool saved_flag = config::enable_simdjson_reader;
+    if (using_simdjson) {
+        config::enable_simdjson_reader = true;
+    }
+    Defer __defer([&] {config::enable_simdjson_reader = saved_flag;});
+    VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
+    auto status = scan_node.prepare(&_runtime_state);
+    EXPECT_TRUE(status.ok());
+
+    // set scan range
+    std::vector<TScanRangeParams> scan_ranges;
+    {
+        TScanRangeParams scan_range_params;
+
+        TBrokerScanRange broker_scan_range;
+        broker_scan_range.params = _params;
+        TBrokerRangeDesc range;
+        range.start_offset = 0;
+        range.size = -1;
+        range.format_type = TFileFormatType::FORMAT_JSON;
+        range.strip_outer_array = true;
+        range.__isset.strip_outer_array = true;
+        range.splittable = true;
+        range.path = "./be/test/exec/test_data/json_scanner/test_nested.json";
+        range.file_type = TFileType::FILE_LOCAL;
+        range.jsonpaths = "[\"$.qid\", \"$.tag\", \"$.creationDate\", \"$.answers[0].user\"]";
+        range.__isset.jsonpaths = true;
+        broker_scan_range.ranges.push_back(range);
+        scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
+        scan_ranges.push_back(scan_range_params);
+    }
+
+    scan_node.set_scan_ranges(scan_ranges);
+    status = scan_node.open(&_runtime_state);
+    EXPECT_TRUE(status.ok());
+
+    bool eof = false;
+    vectorized::Block block;
+    status = scan_node.get_next(&_runtime_state, &block, &eof);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(2048, block.rows());
+    EXPECT_EQ(6, block.columns());
+
+    auto columns = block.get_columns_with_type_and_name();
+    ASSERT_EQ(columns.size(), 6);
+    EXPECT_EQ(columns[0].to_string(0), "1000000");
+    EXPECT_EQ(columns[0].to_string(1), "10000005");
+    EXPECT_EQ(columns[1].to_string(0), "[\"vb6\", \"progress-bar\"]");
+    EXPECT_EQ(columns[1].to_string(1), "[\"php\", \"arrays\", \"sorting\"]");
+    EXPECT_EQ(columns[2].to_string(0), "2009-06-16T07:28:42.770");
+    EXPECT_EQ(columns[2].to_string(1), "2012-04-03T19:25:46.213");
+    block.clear();
+    scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 } // namespace vectorized
