@@ -166,6 +166,7 @@ PROPERTIES (
 **注意：**
 - 若要使 Doris 访问开启kerberos认证方式的hadoop集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。
 - PROPERTIES 属性 `hadoop.kerberos.keytab` 的值需要指定 keytab 本地文件的绝对路径，并允许 Doris 进程访问该本地文件。
+- 关于HDFS集群的配置可以写入hdfs-site.xml文件中，该配置文件在fe和be的conf目录下，用户创建Hive表时，不需要再填写HDFS集群配置的相关信息。
 
 ## 类型匹配
 
