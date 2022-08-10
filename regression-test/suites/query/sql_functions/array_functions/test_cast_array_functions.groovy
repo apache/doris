@@ -113,10 +113,10 @@ suite("test_cast_array_functions", "query") {
         exception "errCode = 2,"
     }
 
-    // Not Vectorized
+    // Not Vectorized Engine
     sql """ set enable_vectorized_engine = false """
 
-    //  ========== cast scalar to array===========
+    //  ========== cast scalar to array ===========
 
     test {
         sql "select cast(cast('x' as char) as array<char>)"
@@ -190,4 +190,48 @@ suite("test_cast_array_functions", "query") {
         // check exception message contains
         exception "errCode = 2,"
     }
+
+    //  ========== cast array to array ===========
+    test {
+        sql "select cast(['x'] as array<int>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "select cast([0] as array<int>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "select cast(['1'] as array<tinyint>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "select cast(['100'] as array<smallint>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "select cast([999.999] as array<double>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "select cast([1] as array<char>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "select cast([1] as array<varchar>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+    
 }
