@@ -112,13 +112,10 @@ Status OlapScanner::prepare(
                    << ", backend=" << BackendOptions::get_localhost();
                 return Status::InternalError(ss.str().c_str());
             }
+            // Initialize _params
+            RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters,
+                                                       function_filters));
         }
-    }
-
-    {
-        // Initialize _params
-        RETURN_IF_ERROR(
-                _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
     }
 
     return Status::OK();
@@ -206,6 +203,9 @@ Status OlapScanner::_init_tablet_reader_params(
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
+    std::copy(_tablet->delete_predicates().cbegin(), _tablet->delete_predicates().cend(),
+              std::inserter(_tablet_reader_params.delete_predicates,
+                            _tablet_reader_params.delete_predicates.begin()));
 
     // Range
     for (auto key_range : key_ranges) {
