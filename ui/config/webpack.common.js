@@ -49,7 +49,7 @@ module.exports = {
         filename: '[name].[hash].js',
         chunkFilename: '[name].[hash].js'
     },
-    devtool: 'source-map',
+    devtool: 'none',
     resolve: {
         extensions: ['*', '.ts', '.tsx', 'jsx', '.js', 'json'],
         alias: {
