@@ -33,7 +33,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -70,12 +69,13 @@ import javax.servlet.http.HttpServletResponse;
  * 3. /profile/{format}/{query_id}
  * 4. /trace_id/{trace_id}
  * 5. /profile/fragments/{query_id}
- * 6. /current_queries/
+ * 6. /current_queries
+ * 7. /kill/{connection_id}
  */
 @RestController
 @RequestMapping("/rest/v2/manager/query")
-public class QueryAdminAction extends RestBaseController {
-    private static final Logger LOG = LogManager.getLogger(QueryAdminAction.class);
+public class QueryProfileAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(QueryProfileAction.class);
 
     public static final String QUERY_ID = "Query ID";
     public static final String NODE = "FE节点";
@@ -436,7 +436,7 @@ public class QueryAdminAction extends RestBaseController {
      * @param isAllNode
      * @return
      */
-    @RequestMapping(path = "/current_queries/", method = RequestMethod.GET)
+    @RequestMapping(path = "/current_queries", method = RequestMethod.GET)
     public Object currentQueries(HttpServletRequest request, HttpServletResponse response,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
@@ -466,13 +466,14 @@ public class QueryAdminAction extends RestBaseController {
                 CurrentQueryStatementsProcNode node = new CurrentQueryStatementsProcNode();
                 ProcResult result = node.fetchResult();
                 // add frontend info at first column.
-                result.getColumnNames().add(0, FRONTEND);
+                List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+                titles.add(0, FRONTEND);
                 List<List<String>> rows = result.getRows();
                 String feIp = FrontendOptions.getLocalHostAddress();
                 for (List<String> row : rows) {
                     row.add(0, feIp);
                 }
-                return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(result.getColumnNames(), rows));
+                return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, rows));
             } catch (AnalysisException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
@@ -480,32 +481,25 @@ public class QueryAdminAction extends RestBaseController {
     }
 
     /**
-     * kill queries in specified connection in specified FE.
+     * kill queries with specified connection id
      *
      * @param request
      * @param response
      * @param connectionId
-     * @param frontend
      * @return
      */
     @RequestMapping(path = "/kill/{connection_id}", method = RequestMethod.POST)
     public Object killQuery(HttpServletRequest request, HttpServletResponse response,
-            @PathVariable("connection_id") int connectionId,
-            @RequestParam(value = "frontend", required = true) String frontend) {
+            @PathVariable("connection_id") int connectionId) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        String curFeIp = FrontendOptions.getLocalHostAddress();
-        if (!curFeIp.equals(frontend)) {
-            return redirectTo(request, new TNetworkAddress(frontend, Config.http_port));
-        } else {
-            ExecuteEnv env = ExecuteEnv.getInstance();
-            ConnectContext ctx = env.getScheduler().getContext(connectionId);
-            if (ctx == null) {
-                return ResponseEntityBuilder.notFound("connection not found");
-            }
-            ctx.cancelQuery();
-            return ResponseEntityBuilder.ok();
+        ExecuteEnv env = ExecuteEnv.getInstance();
+        ConnectContext ctx = env.getScheduler().getContext(connectionId);
+        if (ctx == null) {
+            return ResponseEntityBuilder.notFound("connection not found");
         }
+        ctx.cancelQuery();
+        return ResponseEntityBuilder.ok();
     }
 }
