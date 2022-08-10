@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
@@ -149,7 +149,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(filter, context);
     }
 
-    public R visitPhysicalDistribution(PhysicalDistribution<Plan> distribution, C context) {
+    public R visitPhysicalDistribution(PhysicalDistribute<Plan> distribution, C context) {
         return visit(distribution, context);
     }
 }

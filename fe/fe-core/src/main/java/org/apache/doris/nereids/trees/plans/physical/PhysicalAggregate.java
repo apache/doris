@@ -37,6 +37,7 @@ import java.util.Optional;
 
 /**
  * Physical aggregation plan.
+ * TODO: change class name to PhysicalHashAggregate
  */
 public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Aggregate {
 

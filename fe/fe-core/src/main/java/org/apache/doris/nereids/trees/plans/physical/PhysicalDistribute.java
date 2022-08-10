@@ -34,22 +34,22 @@ import java.util.Optional;
 /**
  * Enforcer plan.
  */
-public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
     protected DistributionSpec distributionSpec;
 
-    public PhysicalDistribution(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
+    public PhysicalDistribute(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(spec, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalDistribution(DistributionSpec spec, Optional<GroupExpression> groupExpression,
+    public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
                                 LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalDistribution((PhysicalDistribution<Plan>) this, context);
+        return visitor.visitPhysicalDistribution((PhysicalDistribute<Plan>) this, context);
     }
 
     @Override
@@ -60,18 +60,18 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
+        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
             logicalProperties, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDistribution<>(distributionSpec, groupExpression, logicalProperties, child());
+        return new PhysicalDistribute<>(distributionSpec, groupExpression, logicalProperties, child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
+        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
             logicalProperties.get(), child());
     }
 }

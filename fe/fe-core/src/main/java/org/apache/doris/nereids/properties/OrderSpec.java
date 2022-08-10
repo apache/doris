@@ -61,7 +61,7 @@ public class OrderSpec {
 
     public GroupExpression addEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalHeapSort(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
+                new PhysicalHeapSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)
         );
     }

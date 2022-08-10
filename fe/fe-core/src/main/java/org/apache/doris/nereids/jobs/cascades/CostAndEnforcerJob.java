@@ -133,14 +133,14 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                         break;
                     }
 
-                    // This child isn't optimized, create new tasks to optimize it.
-                    // Meaning that optimize recursively by derive tasks.
+                    // This child isn't optimized, create new job to optimize it.
+                    // Meaning that optimize recursively by derive job.
                     prevChildIndex = curChildIndex;
-                    pushTask((CostAndEnforcerJob) clone());
+                    pushJob((CostAndEnforcerJob) clone());
                     double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
                     JobContext jobContext = new JobContext(context.getPlannerContext(), requestChildProperty,
                             newCostUpperBound);
-                    pushTask(new OptimizeGroupJob(childGroup, jobContext));
+                    pushJob(new OptimizeGroupJob(childGroup, jobContext));
                     return;
                 }
 
@@ -163,7 +163,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 // best expr from the child group
 
                 // TODO: it could update the cost.
-                PhysicalProperties outputProperty = ChildOutputPropertyDeriver.getProperties(
+                PhysicalProperties outputProperty = ChildOutputPropertyDeriver.getOutputProperties(
                         context.getRequiredProperties(),
                         childrenOutputProperty, groupExpression);
 
@@ -171,12 +171,11 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     break;
                 }
 
-                /* update current group statistics and re-compute costs. */
+                // update current group statistics and re-compute costs.
                 if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() != null)) {
                     return;
                 }
                 PlanContext planContext = new PlanContext(groupExpression);
-                // TODO: calculate stats. ??????
                 groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
 
                 enforce(outputProperty, requestChildrenProperty);
@@ -246,8 +245,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         CostAndEnforcerJob task;
         try {
             task = (CostAndEnforcerJob) super.clone();
-        } catch (CloneNotSupportedException ignored) {
-            ignored.printStackTrace();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
             return null;
         }
         return task;

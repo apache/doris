@@ -30,7 +30,7 @@ import java.util.List;
  */
 public class UnboundLogicalProperties extends LogicalProperties {
     public UnboundLogicalProperties() {
-        super(() -> ImmutableList.of());
+        super(ImmutableList::of);
     }
 
     @Override

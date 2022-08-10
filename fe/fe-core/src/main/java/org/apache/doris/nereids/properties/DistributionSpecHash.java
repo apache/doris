@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 
 /**
@@ -31,17 +33,32 @@ import java.util.Objects;
 @Developing
 public class DistributionSpecHash extends DistributionSpec {
 
-    private final List<SlotReference> shuffledColumns;
+    private final List<ExprId> shuffledColumns;
 
     private final ShuffleType shuffleType;
 
-    public DistributionSpecHash(List<SlotReference> shuffledColumns, ShuffleType shuffleType) {
+    private final long tableId;
+
+    private final Set<Long> partitionIds;
+
+    public DistributionSpecHash(List<ExprId> shuffledColumns, ShuffleType shuffleType) {
         // Preconditions.checkState(!shuffledColumns.isEmpty());
         this.shuffledColumns = shuffledColumns;
         this.shuffleType = shuffleType;
+        this.tableId = -1L;
+        this.partitionIds = Collections.emptySet();
     }
 
-    public List<SlotReference> getShuffledColumns() {
+    public DistributionSpecHash(List<ExprId> shuffledColumns, ShuffleType shuffleType,
+            long tableId, Set<Long> partitionIds) {
+        // Preconditions.checkState(!shuffledColumns.isEmpty());
+        this.shuffledColumns = shuffledColumns;
+        this.shuffleType = shuffleType;
+        this.tableId = tableId;
+        this.partitionIds = partitionIds;
+    }
+
+    public List<ExprId> getShuffledColumns() {
         return shuffledColumns;
     }
 
@@ -49,42 +66,50 @@ public class DistributionSpecHash extends DistributionSpec {
         return shuffleType;
     }
 
+    public long getTableId() {
+        return tableId;
+    }
+
+    public Set<Long> getPartitionIds() {
+        return partitionIds;
+    }
+
     @Override
-    public boolean satisfy(DistributionSpec other) {
-        if (other instanceof DistributionSpecAny) {
+    public boolean satisfy(DistributionSpec required) {
+        if (required instanceof DistributionSpecAny) {
             return true;
         }
 
-        if (!(other instanceof DistributionSpecHash)) {
+        if (!(required instanceof DistributionSpecHash)) {
             return false;
         }
 
-        DistributionSpecHash spec = (DistributionSpecHash) other;
+        DistributionSpecHash requiredHash = (DistributionSpecHash) required;
 
-        if (shuffledColumns.size() > spec.shuffledColumns.size()) {
+        if (this.shuffledColumns.size() > requiredHash.shuffledColumns.size()) {
             return false;
         }
 
         // TODO: need consider following logic whether is right, and maybe need consider more.
         // TODO: consider Agg.
-        // Current shuffleType is LOCAL/AGG, allow if current is contained by other
-        if (shuffleType == ShuffleType.LOCAL || spec.shuffleType == ShuffleType.AGG) {
-            return new HashSet<>(spec.shuffledColumns).containsAll(shuffledColumns);
+        // Current shuffleType is LOCAL/AGG, allow if current is contained by required
+        if (this.shuffleType == ShuffleType.NATURAL && requiredHash.shuffleType == ShuffleType.AGGREGATE) {
+            return new HashSet<>(requiredHash.shuffledColumns).containsAll(shuffledColumns);
         }
 
-        if (shuffleType == ShuffleType.AGG && spec.shuffleType == ShuffleType.JOIN) {
-            return shuffledColumns.size() == spec.shuffledColumns.size()
-                    && shuffledColumns.equals(spec.shuffledColumns);
-        } else if (shuffleType == ShuffleType.JOIN && spec.shuffleType == ShuffleType.AGG) {
-            return new HashSet<>(spec.shuffledColumns).containsAll(shuffledColumns);
+        if (this.shuffleType == ShuffleType.AGGREGATE && requiredHash.shuffleType == ShuffleType.JOIN) {
+            return this.shuffledColumns.size() == requiredHash.shuffledColumns.size()
+                    && this.shuffledColumns.equals(requiredHash.shuffledColumns);
+        } else if (this.shuffleType == ShuffleType.JOIN && requiredHash.shuffleType == ShuffleType.AGGREGATE) {
+            return new HashSet<>(requiredHash.shuffledColumns).containsAll(shuffledColumns);
         }
 
-        if (!shuffleType.equals(spec.shuffleType)) {
+        if (!this.shuffleType.equals(requiredHash.shuffleType)) {
             return false;
         }
 
-        return shuffledColumns.size() == spec.shuffledColumns.size()
-                && shuffledColumns.equals(spec.shuffledColumns);
+        return this.shuffledColumns.size() == requiredHash.shuffledColumns.size()
+                && this.shuffledColumns.equals(requiredHash.shuffledColumns);
     }
 
     @Override
@@ -95,7 +120,6 @@ public class DistributionSpecHash extends DistributionSpec {
         DistributionSpecHash that = (DistributionSpecHash) o;
         return shuffledColumns.equals(that.shuffledColumns)
                 && shuffleType.equals(that.shuffleType);
-        // && propertyInfo.equals(that.propertyInfo)
     }
 
     @Override
@@ -107,12 +131,15 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
-        LOCAL,
+        // for olap scan node and colocate join
+        NATURAL,
+        // for easy to translate to bucket shuffle join
         BUCKET,
-        // Shuffle Aggregation
-        AGG,
-        // Shuffle Join
+        // for shuffle to Aggregate node
+        AGGREGATE,
+        // for Shuffle to Join node
         JOIN,
+        // for add distribute node Explicitly
         ENFORCE
     }
 }

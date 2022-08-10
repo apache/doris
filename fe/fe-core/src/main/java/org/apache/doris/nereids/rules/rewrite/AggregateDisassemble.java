@@ -52,6 +52,7 @@ import java.util.stream.Collectors;
  *     1. use different class represent different phase aggregate
  *     2. if instance count is 1, shouldn't disassemble the agg plan
  *     3. we need another rule to removing duplicated expressions in group by expression list
+ *     4. add another rule to split agg to agg(project), in project we do pre compute of non-slot-ref expressions
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 

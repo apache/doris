@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -37,18 +38,19 @@ import com.google.common.collect.Lists;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Utils for join
  */
 public class JoinUtils {
-    public static boolean onlyBroadcast(PhysicalJoin join) {
+    public static boolean couldShuffle(PhysicalJoin join) {
         // Cross-join only can be broadcast join.
-        return join.getJoinType().isCrossJoin();
+        return !(join.getJoinType().isCrossJoin());
     }
 
-    public static boolean onlyShuffle(PhysicalJoin join) {
-        return join.getJoinType().isReturnUnmatchedRightJoin();
+    public static boolean couldBroadcast(PhysicalJoin join) {
+        return !(join.getJoinType().isReturnUnmatchedRightJoin());
     }
 
     /**
@@ -96,35 +98,41 @@ public class JoinUtils {
      * Get all used slots from onClause of join.
      * Return pair of left used slots and right used slots.
      */
-    public static Pair<List<SlotReference>, List<SlotReference>> getOnClauseUsedSlots(
+    public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
             PhysicalJoin<Plan, Plan> join) {
-        Pair<List<SlotReference>, List<SlotReference>> childSlots =
+        Pair<List<ExprId>, List<ExprId>> childSlotsExprId =
                 new Pair<>(Lists.newArrayList(), Lists.newArrayList());
 
-        List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
-        List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
+        List<ExprId> leftSlotsExprId = Utils.getOutputSlotReference(join.left()).stream()
+                .map(SlotReference::getExprId).collect(Collectors.toList());
+        List<ExprId> rightSlotsExprId = Utils.getOutputSlotReference(join.right()).stream()
+                .map(SlotReference::getExprId).collect(Collectors.toList());
         List<EqualTo> equalToList = getEqualTo(join);
 
         for (EqualTo equalTo : equalToList) {
             List<SlotReference> leftOnSlots = equalTo.left().collect(SlotReference.class::isInstance);
             List<SlotReference> rightOnSlots = equalTo.right().collect(SlotReference.class::isInstance);
+            List<ExprId> leftOnSlotsExprId = leftOnSlots.stream()
+                    .map(SlotReference::getExprId).collect(Collectors.toList());
+            List<ExprId> rightOnSlotsExprId = rightOnSlots.stream()
+                    .map(SlotReference::getExprId).collect(Collectors.toList());
 
-            if (new HashSet<>(leftSlots).containsAll(leftOnSlots)
-                    && new HashSet<>(rightSlots).containsAll(rightOnSlots)) {
+            if (new HashSet<>(leftSlotsExprId).containsAll(leftOnSlotsExprId)
+                    && new HashSet<>(rightSlotsExprId).containsAll(rightOnSlotsExprId)) {
                 // TODO: need rethink about `.get(0)`
-                childSlots.first.add(leftOnSlots.get(0));
-                childSlots.second.add(rightOnSlots.get(0));
-            } else if (new HashSet<>(leftSlots).containsAll(rightOnSlots)
-                    && new HashSet<>(rightSlots).containsAll(leftOnSlots)) {
-                childSlots.first.add(rightOnSlots.get(0));
-                childSlots.second.add(leftOnSlots.get(0));
+                childSlotsExprId.first.add(leftOnSlotsExprId.get(0));
+                childSlotsExprId.second.add(rightOnSlotsExprId.get(0));
+            } else if (new HashSet<>(leftSlotsExprId).containsAll(rightOnSlotsExprId)
+                    && new HashSet<>(rightSlotsExprId).containsAll(leftOnSlotsExprId)) {
+                childSlotsExprId.first.add(rightOnSlotsExprId.get(0));
+                childSlotsExprId.second.add(leftOnSlotsExprId.get(0));
             } else {
-                Preconditions.checkState(false, "error");
+                throw new RuntimeException("Could not generate valid equal on clause slot pairs for join: " + join);
             }
         }
 
-        Preconditions.checkState(childSlots.first.size() == childSlots.second.size());
-        return childSlots;
+        Preconditions.checkState(childSlotsExprId.first.size() == childSlotsExprId.second.size());
+        return childSlotsExprId;
     }
 
     public static boolean shouldNestedLoopJoin(Join join) {

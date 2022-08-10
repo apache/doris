@@ -38,7 +38,7 @@ public abstract class Job {
         this.context = context;
     }
 
-    public void pushTask(Job job) {
+    public void pushJob(Job job) {
         context.getPlannerContext().pushJob(job);
     }
 
