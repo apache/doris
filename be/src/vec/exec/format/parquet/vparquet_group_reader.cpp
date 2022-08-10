@@ -95,8 +95,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
         auto slot_desc = read_col.slot_desc;
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         auto column_ptr = column_with_type_and_name.column;
-        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
-                &column_ptr, slot_desc->type(), batch_size));
+        auto column_type = column_with_type_and_name.type;
+        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(column_ptr, column_type,
+                                                                           batch_size));
         _current_batch_start_offset += batch_size;
         VLOG_DEBUG << "read column: " << column_with_type_and_name.name;
     }

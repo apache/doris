@@ -50,7 +50,7 @@ class ParquetColumnReader {
 public:
     ParquetColumnReader(const ParquetReadColumn& column) : _column(column) {};
     virtual ~ParquetColumnReader() = default;
-    virtual Status read_column_data(ColumnPtr* data, const TypeDescriptor& type,
+    virtual Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t batch_size) = 0;
     static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
                          const tparquet::RowGroup& row_group, const ParquetColumnReader* reader);
@@ -68,7 +68,7 @@ public:
     ScalarColumnReader(const ParquetReadColumn& column) : ParquetColumnReader(column) {};
     ~ScalarColumnReader() override = default;
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk);
-    Status read_column_data(ColumnPtr* data, const TypeDescriptor& type,
+    Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             size_t batch_size) override;
     void close() override;
 

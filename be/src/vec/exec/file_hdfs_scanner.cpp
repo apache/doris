@@ -29,6 +29,10 @@ ParquetFileHdfsScanner::ParquetFileHdfsScanner(RuntimeState* state, RuntimeProfi
         : HdfsFileScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
 
 Status ParquetFileHdfsScanner::open() {
+    RETURN_IF_ERROR(FileScanner::open());
+    if (_ranges.empty()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_get_next_reader(_next_range));
     return Status();
 }
@@ -74,6 +78,8 @@ Status ParquetFileHdfsScanner::_get_next_reader(int _next_range) {
     return Status::OK();
 }
 
-void ParquetFileHdfsScanner::close() {}
+void ParquetFileHdfsScanner::close() {
+    FileScanner::close();
+}
 
 } // namespace doris::vectorized

@@ -19,6 +19,7 @@
 
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
+#include <vec/columns/columns_number.h>
 
 #include "schema_desc.h"
 #include "vparquet_column_chunk_reader.h"
@@ -61,21 +62,42 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field,
     return Status::OK();
 }
 
-Status ScalarColumnReader::read_column_data(ColumnPtr* column, const TypeDescriptor& type,
+Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                                             size_t batch_size) {
+    size_t read_values = 0;
     while (_chunk_reader->has_next_page()) {
         // seek to next page header
         _chunk_reader->next_page();
         // load data to decoder
         _chunk_reader->load_page_data();
         while (_chunk_reader->num_values() > 0) {
-            size_t num_values = _chunk_reader->num_values() < batch_size
-                                        ? _chunk_reader->num_values()
-                                        : batch_size;
-            _chunk_reader->decode_values(*column, num_values);
+            read_values = _chunk_reader->num_values() < batch_size ? _chunk_reader->num_values()
+                                                                   : batch_size;
+            _chunk_reader->decode_values(doris_column, read_values);
         }
     }
-    return Status::OK();
+    if (read_values != 0) {
+        CHECK(doris_column->is_nullable());
+        MutableColumnPtr data_column = nullptr;
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        //        fill_nullable_column(nullable_column, num_elements);
+        data_column = nullable_column->get_nested_column_ptr();
+        WhichDataType which_type(type);
+        switch (_metadata->t_metadata().type) {
+        case tparquet::Type::INT32: {
+            int8_t buff[read_values];
+            auto& column_data = static_cast<ColumnInt32&>(*data_column).get_data();
+            column_data.insert(buff, buff + read_values);
+        }
+        case tparquet::Type::INT64: {
+            // todo: test int64
+        }
+        default:
+            return Status::Corruption("unsupported parquet data type");
+        }
+        return Status::OK();
+    }
 }
 
 void ScalarColumnReader::close() {}
