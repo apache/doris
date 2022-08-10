@@ -135,7 +135,7 @@ private:
             int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
 
     bool _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-                                           std::string* constant_str,
+                                           StringVal* constant_str,
                                            doris_udf::FunctionContext** fn_ctx);
 
     Status _append_rf_into_conjuncts(RuntimeState* state, std::vector<VExpr*>& vexprs);

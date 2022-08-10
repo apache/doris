@@ -20,29 +20,30 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
-import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
-public class AnalyzeSubQueryTest extends TestWithFeService {
+// The test should run one by one.
+public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMatchSupported {
     private final NereidsParser parser = new NereidsParser();
 
-    private final List<String> testSql = Lists.newArrayList(
+    private final List<String> testSql = ImmutableList.of(
             "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT * FROM T1 TT1 JOIN (SELECT * FROM T2 TT2) T ON TT1.ID = T.ID",
             "SELECT * FROM T1 TT1 JOIN (SELECT TT2.ID FROM T2 TT2) T ON TT1.ID = T.ID",
@@ -78,117 +79,116 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         );
     }
 
-    /**
-     * TODO: check bound plan and expression details.
-     */
     @Test
-    public void testAnalyzeAllCase() {
+    public void testTranslateCase() throws AnalysisException {
         for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            checkAnalyze(sql);
+            System.out.println("\n\n***** " + sql + " *****\n\n");
+            PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
+                    parser.parseSingle(sql),
+                    new PhysicalProperties(),
+                    connectContext
+            );
+            // Just to check whether translate will throw exception
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         }
     }
 
     @Test
-    public void testAnalyze() {
-        checkAnalyze(testSql.get(0));
+    public void testCase1() {
+        FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
+        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(0)))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
+                        logicalProject(
+                                logicalProject(
+                                        logicalOlapScan().when(o -> true)
+                                ).when(
+                                        projectChecker.check(ImmutableList.of(
+                                                ImmutableList.of(
+                                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
+                                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))
+                                                ))
+                                        )
+                                )
+                        ).when(
+                                projectChecker.check(ImmutableList.of(
+                                        ImmutableList.of(
+                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T2")),
+                                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T2"))
+                                        ))
+                                )
+                        )
+                );
     }
 
     @Test
-    public void testParseAllCase() {
-        for (String sql : testSql) {
-            System.out.println(parser.parseSingle(sql).treeString());
-        }
+    public void testCase2() {
+        FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
+        FieldChecker joinChecker = new FieldChecker(ImmutableList.of("joinType", "condition"));
+        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(1)))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan(),
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ).when(projectChecker.check(ImmutableList.of(
+                                                ImmutableList.of(
+                                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("TT2")),
+                                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("TT2"))
+                                                ))
+                                        ))
+                                ).when(joinChecker.check(ImmutableList.of(
+                                        JoinType.INNER_JOIN,
+                                        Optional.of(new EqualTo(
+                                                new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
+                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T"))
+                                        ))
+                                )))
+                        ).when(projectChecker.check(ImmutableList.of(
+                                ImmutableList.of(
+                                        new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
+                                        new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("TT1")),
+                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
+                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))
+                                ))
+                        ))
+                );
     }
 
     @Test
-    public void testParse() {
-        System.out.println(parser.parseSingle(testSql.get(0)).treeString());
-    }
-
-    @Test
-    public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(0));
-    }
-
-    @Test
-    public void testFinalizeAnalyzeAllCase() {
-        for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            finalizeAnalyze(sql);
-        }
-    }
-
-    @Test
-    public void testPlan() throws AnalysisException {
-        testPlanCase(testSql.get(0));
-    }
-
-    @Test
-    public void testPlanAllCase() throws AnalysisException {
-        for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            testPlanCase(sql);
-        }
-    }
-
-    private void testPlanCase(String sql) throws AnalysisException {
-        PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
-                parser.parseSingle(sql),
-                new PhysicalProperties(),
-                connectContext
-        );
-        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
-        System.out.println(root.getPlanRoot().getPlanTreeExplainStr());
-    }
-
-    private void checkAnalyze(String sql) {
-        LogicalPlan analyzed = analyze(sql);
-        System.out.println(analyzed.treeString());
-        Assertions.assertTrue(checkBound(analyzed));
-    }
-
-    private void finalizeAnalyze(String sql) {
-        LogicalPlan plan = analyze(sql);
-        plan = (LogicalPlan) PlanRewriter.bottomUpRewrite(plan, connectContext, new EliminateAliasNode());
-        System.out.println(plan.treeString());
-    }
-
-    private LogicalPlan analyze(String sql) {
-        return new NereidsAnalyzer(connectContext).analyze(sql);
-    }
-
-    /**
-     * PlanNode and its expressions are all bound.
-     */
-    private boolean checkBound(LogicalPlan plan) {
-        if (plan instanceof Unbound) {
-            return false;
-        }
-
-        List<Plan> children = plan.children();
-        for (Plan child : children) {
-            if (!checkBound((LogicalPlan) child)) {
-                return false;
-            }
-        }
-
-        List<Expression> expressions = plan.getExpressions();
-        return expressions.stream().allMatch(this::checkExpressionBound);
-    }
-
-    private boolean checkExpressionBound(Expression expr) {
-        if (expr instanceof Unbound) {
-            return false;
-        }
-
-        List<Expression> children = expr.children();
-        for (Expression child : children) {
-            if (!checkExpressionBound(child)) {
-                return false;
-            }
-        }
-        return true;
+    public void testCase3() {
+        FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
+        FieldChecker joinChecker = new FieldChecker(ImmutableList.of("condition"));
+        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(5)))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalOlapScan(),
+                                        logicalOlapScan()
+                                ).when(joinChecker.check(ImmutableList.of(
+                                        Optional.of(new EqualTo(
+                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true,
+                                                        ImmutableList.of("default_cluster:test", "T1")),
+                                                new SlotReference(new ExprId(2), "id", new BigIntType(), true,
+                                                        ImmutableList.of("T2"))
+                                        ))
+                                )))
+                        ).when(projectChecker.check(ImmutableList.of(
+                                ImmutableList.of(
+                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true,
+                                                ImmutableList.of("default_cluster:test", "T1")),
+                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true,
+                                                ImmutableList.of("default_cluster:test", "T1")),
+                                        new SlotReference(new ExprId(2), "id", new BigIntType(), true,
+                                                ImmutableList.of("T2")),
+                                        new SlotReference(new ExprId(3), "score", new BigIntType(), true,
+                                                ImmutableList.of("T2"))
+                                ))
+                        ))
+                );
     }
 }
 

@@ -17,28 +17,36 @@
 
 package org.apache.doris.nereids.properties;
 
+import java.util.Objects;
+
 /**
  * Physical properties used in cascades.
- * TODO(wj): Do we need to `PhysicalPropertySpec` Interface like NoisePage?
  */
 public class PhysicalProperties {
+
+    public static PhysicalProperties ANY = new PhysicalProperties();
+
+    public static PhysicalProperties REPLICATED = new PhysicalProperties(DistributionSpecReplicated.INSTANCE);
+
+    public static PhysicalProperties GATHER = new PhysicalProperties(DistributionSpecGather.INSTANCE);
+
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;
 
-    public PhysicalProperties() {
+    private PhysicalProperties() {
         this.orderSpec = new OrderSpec();
-        this.distributionSpec = DistributionSpecAny.getInstance();
+        this.distributionSpec = DistributionSpecAny.INSTANCE;
     }
 
-    public PhysicalProperties(DistributionSpec distributionSpec) {
+    private PhysicalProperties(DistributionSpec distributionSpec) {
         this.distributionSpec = distributionSpec;
         this.orderSpec = new OrderSpec();
     }
 
     public PhysicalProperties(OrderSpec orderSpec) {
         this.orderSpec = orderSpec;
-        this.distributionSpec = DistributionSpecAny.getInstance();
+        this.distributionSpec = DistributionSpecAny.INSTANCE;
     }
 
     public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
@@ -46,9 +54,13 @@ public class PhysicalProperties {
         this.orderSpec = orderSpec;
     }
 
+    public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {
+        return new PhysicalProperties(distributionSpecHash);
+    }
+
     // Current properties satisfies other properties.
-    public boolean meet(PhysicalProperties other) {
-        return orderSpec.meet(other.orderSpec) && distributionSpec.satisfy(other.distributionSpec);
+    public boolean satisfy(PhysicalProperties other) {
+        return orderSpec.satisfy(other.orderSpec) && distributionSpec.satisfy(other.distributionSpec);
     }
 
     public OrderSpec getOrderSpec() {
@@ -70,5 +82,10 @@ public class PhysicalProperties {
         PhysicalProperties that = (PhysicalProperties) o;
         return orderSpec.equals(that.orderSpec)
                 && distributionSpec.equals(that.distributionSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderSpec, distributionSpec);
     }
 }

@@ -15,28 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.pattern.GeneratedPatterns;
+import org.apache.doris.nereids.rules.RulePromise;
 
-import com.google.common.collect.ImmutableList;
+public interface PatternMatchSupported extends GeneratedPatterns {
 
-import java.util.List;
-
-/**
- * Rule to bind relation when encounter sub query and alias
- */
-public class BindSubQueryAlias implements AnalysisRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
-                        logicalSubQueryAlias().then(alias ->
-                                new LogicalSubQueryAlias<>(alias.getAlias(), alias.child())
-                        )
-                )
-        );
+    default RulePromise defaultPromise() {
+        return RulePromise.PLAN_CHECK;
     }
 }

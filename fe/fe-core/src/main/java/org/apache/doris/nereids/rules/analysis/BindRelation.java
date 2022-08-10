@@ -49,7 +49,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
                 case 2: {
                     // Use database name from table name parts.
-                    return useDbNameFromNamePart(connectContext, nameParts);
+                    return bindWithDbNameFromNamePart(connectContext, nameParts);
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -82,7 +82,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         throw new RuntimeException("Unsupported tableType:" + table.getType());
     }
 
-    private LogicalPlan useDbNameFromNamePart(ConnectContext ctx, List<String> nameParts) {
+    private LogicalPlan bindWithDbNameFromNamePart(ConnectContext ctx, List<String> nameParts) {
         // if the relation is view, nameParts.get(0) is dbName.
         String dbName = nameParts.get(0);
         if (!dbName.equals(ctx.getDatabase())) {
