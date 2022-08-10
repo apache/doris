@@ -35,6 +35,8 @@ public class ProfileTreePrinter {
     public static String printFragmentTree(ProfileTreeNode root) {
         SimpleTreeNode rootNode = buildNode(root, PrintLevel.FRAGMENT);
         StringBuilder sb = new StringBuilder();
+        // for better format
+        sb.append("\n");
         new TraditionalTreePrinter().print(new BorderTreeNodeDecorator(rootNode), sb);
         return sb.toString();
     }
@@ -43,6 +45,8 @@ public class ProfileTreePrinter {
     public static String printInstanceTree(ProfileTreeNode root) {
         SimpleTreeNode rootNode = buildNode(root, PrintLevel.INSTANCE);
         StringBuilder sb = new StringBuilder();
+        // for better format
+        sb.append("\n");
         new TraditionalTreePrinter().print(new BorderTreeNodeDecorator(rootNode), sb);
         return sb.toString();
     }
