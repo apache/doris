@@ -827,8 +827,6 @@ CONF_Validator(file_cache_type, [](const std::string config) -> bool {
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
-CONF_Int32(doris_s3_scanner_thread_pool_thread_num, "64");
-CONF_Int32(doris_s3_scanner_thread_pool_queue_size, "102400");
 CONF_Bool(enable_simdjson_reader, "true");
 
 // number of s3 scanner thread pool size
