@@ -20,6 +20,9 @@ package org.apache.doris.persist;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
+/**
+ * Operation name and code mapping.
+ **/
 public class OperationType {
     // OP_LOCAL_EOF is only for local edit log, to indicate the end of a edit log run.
     public static final short OP_LOCAL_EOF = -1;
@@ -234,8 +237,11 @@ public class OperationType {
     public static final short OP_ALTER_DS_NAME = 314;
     public static final short OP_ALTER_DS_PROPS = 315;
     public static final short OP_ALTER_STORAGE_POLICY = 316;
+    public static final short OP_REFRESH_DS = 317;
 
-    // get opcode name by op codeStri
+    /**
+     * Get opcode name by op code.
+     **/
     public static String getOpName(short opCode) {
         try {
             Field[] fields = OperationType.class.getDeclaredFields();

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -94,6 +95,20 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         }
         return catalog;
     }
+
+    private void unprotectedRefreshCatalog(long catalogId) {
+        DataSourceIf catalog = idToCatalog.get(catalogId);
+        if (catalog != null) {
+            String catalogName = catalog.getName();
+            if (!catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+                ((ExternalDataSource) catalog).setInitialized(false);
+            }
+            catalog = nameToCatalog.get(catalogName);
+            ((ExternalDataSource) catalog).setInitialized(false);
+        }
+    }
+
+
 
     public InternalDataSource getInternalDataSource() {
         return internalDataSource;
@@ -309,6 +324,24 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     }
 
     /**
+     * Refresh the catalog meta and write the meta log.
+     */
+    public void refreshCatalog(RefreshCatalogStmt stmt) throws UserException {
+        writeLock();
+        try {
+            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+            replayRefreshCatalog(log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_REFRESH_DS, log);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
      * Reply for create catalog event.
      */
     public void replayCreateCatalog(CatalogLog log) throws DdlException {
@@ -328,6 +361,18 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             removeCatalog(log.getCatalogId());
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Reply for refresh catalog event.
+     */
+    public void replayRefreshCatalog(CatalogLog log) throws DdlException {
+        writeLock();
+        try {
+            unprotectedRefreshCatalog(log.getCatalogId());
         } finally {
             writeUnlock();
         }
