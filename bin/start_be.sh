@@ -187,7 +187,7 @@ if [ ${RUN_IN_AWS} -eq 0 ]; then
 fi
 
 ## set hdfs conf
-export LIBHDFS3_CONF=${DORIS_HOME}/conf/hdfs_site.xml
+export LIBHDFS3_CONF=${DORIS_HOME}/conf/hdfs-site.xml
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT ${DORIS_HOME}/lib/doris_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
