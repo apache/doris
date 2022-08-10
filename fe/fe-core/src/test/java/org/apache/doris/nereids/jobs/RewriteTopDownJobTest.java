@@ -51,7 +51,7 @@ public class RewriteTopDownJobTest {
         @Override
         public Rule build() {
             return unboundRelation().then(unboundRelation ->
-                    new LogicalBoundRelation(PlanConstructor.newTable(0L, "test"), Lists.newArrayList("test"))
+                    new LogicalBoundRelation(PlanConstructor.newOlapTable(0L, "test", 0), Lists.newArrayList("test"))
             ).toRule(RuleType.BINDING_RELATION);
         }
     }
@@ -59,7 +59,7 @@ public class RewriteTopDownJobTest {
     @Test
     public void testSimplestScene() {
         Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
-        LogicalProject project = new LogicalProject(ImmutableList.of(
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
         );

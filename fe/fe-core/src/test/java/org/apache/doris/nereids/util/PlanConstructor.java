@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
@@ -59,15 +58,15 @@ public class PlanConstructor {
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
-        course.setIndexMeta(-1,
-                "base",
-                course.getFullSchema(),
-                0, 0, (short) 0,
-                TStorageType.COLUMN,
-                KeysType.PRIMARY_KEYS);
         score.setIndexMeta(-1,
                 "base",
                 score.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
+        course.setIndexMeta(-1,
+                "base",
+                course.getFullSchema(),
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
@@ -90,14 +89,6 @@ public class PlanConstructor {
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
         return table;
-    }
-
-    public static Table newTable(long tableId, String tableName) {
-        return new Table(tableId, tableName, Table.TableType.OLAP,
-                ImmutableList.<Column>of(
-                        new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
-                ));
     }
 
     // With OlapTable.
