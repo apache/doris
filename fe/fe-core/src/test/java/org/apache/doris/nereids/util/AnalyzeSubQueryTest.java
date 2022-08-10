@@ -85,7 +85,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
             System.out.println("\n\n***** " + sql + " *****\n\n");
             PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
                     parser.parseSingle(sql),
-                    new PhysicalProperties(),
+                    PhysicalProperties.ANY,
                     connectContext
             );
             // Just to check whether translate will throw exception
