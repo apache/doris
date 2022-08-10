@@ -163,7 +163,7 @@ public class CreateTableStmt extends DdlStmt {
         this.ifNotExists = ifNotExists;
         this.comment = Strings.nullToEmpty(comment);
 
-        this.rollupAlterClauseList = rollupAlterClauseList;
+        this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
     // This is for iceberg/hudi table, which has no column schema

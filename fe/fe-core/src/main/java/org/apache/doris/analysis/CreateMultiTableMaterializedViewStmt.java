@@ -127,9 +127,14 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             String alias = item.getAlias();
             String columnName = (alias != null) ? alias.toLowerCase() : slotRef.getColumnName().toLowerCase();
             mvColumnItem = new MVColumnItem(
-                    columnName, slotRef.getType(), slotRef.getColumn().getAggregationType(),
-                    slotRef.getColumn().isAggregationTypeImplicit(), null,
-                    slotRef.getColumnName(), slotRef.getTableName().getTbl());
+                    columnName,
+                    slotRef.getType(),
+                    slotRef.getColumn().getAggregationType(),
+                    slotRef.getColumn().isAggregationTypeImplicit(),
+                    null,
+                    slotRef.getColumnName(),
+                    slotRef.getTableName().getTbl()
+            );
         }
         return mvColumnItem;
     }
