@@ -18,14 +18,13 @@
 package org.apache.doris.nereids.jobs.cascades;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
@@ -41,7 +40,6 @@ import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -102,14 +100,9 @@ public class DeriveStatsJobTest {
                 result = statistics;
             }};
 
-        Table table1 = PlanConstructor.newTable(tableId1, "t1");
+        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         return new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
-                Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
-                    @Override
-                    public List<Slot> get() {
-                        return Collections.singletonList(slot1);
-                    }
-                })));
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
     }
 
     private LogicalAggregate constructAgg(Plan child) {

@@ -22,6 +22,9 @@ package org.apache.doris.nereids.properties;
  * Like: broadcast join.
  */
 public class DistributionSpecReplicated extends DistributionSpec {
+
+    public static final DistributionSpecReplicated INSTANCE = new DistributionSpecReplicated();
+
     @Override
     public boolean satisfy(DistributionSpec other) {
         return other instanceof DistributionSpecReplicated || other instanceof DistributionSpecAny;

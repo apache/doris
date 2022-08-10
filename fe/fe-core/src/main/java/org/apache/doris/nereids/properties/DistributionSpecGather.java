@@ -22,6 +22,8 @@ package org.apache.doris.nereids.properties;
  */
 public class DistributionSpecGather extends DistributionSpec {
 
+    public static final DistributionSpecGather INSTANCE = new DistributionSpecGather();
+
     public DistributionSpecGather() {
         super();
     }

@@ -49,6 +49,10 @@ public abstract class DistributionSpec {
         return new GroupExpression(distribution, Lists.newArrayList(child));
     }
 
+    @Override
+    public String toString() {
+        return this.getClass().toString();
+    }
 
     @Override
     public boolean equals(Object o) {
@@ -62,7 +66,7 @@ public abstract class DistributionSpec {
     }
 
     @Override
-    public String toString() {
-        return this.getClass().toString();
+    public int hashCode() {
+        return 0;
     }
 }

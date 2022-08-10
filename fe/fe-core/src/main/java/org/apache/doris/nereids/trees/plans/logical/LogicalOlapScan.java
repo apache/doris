@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -24,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -53,6 +55,12 @@ public class LogicalOlapScan extends LogicalRelation  {
     public LogicalOlapScan(Table table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public OlapTable getTable() {
+        Preconditions.checkArgument(table instanceof OlapTable);
+        return (OlapTable) table;
     }
 
     @Override
