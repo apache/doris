@@ -40,7 +40,7 @@ suite("inpredicate") {
         SELECT * FROM supplier WHERE s_suppkey in (1, 2, 128, 32768, 32769);
     """
 
-    // currently, we can not process difference type, so temporarily comment it
+    // TODO: currently, we can not process difference type, so temporarily comment it
 //    order_qt_in_predicate_5 """
 //        SELECT * FROM supplier WHERE s_suppkey in (1, 2, 128, 32768, 2147483648);
 //    """

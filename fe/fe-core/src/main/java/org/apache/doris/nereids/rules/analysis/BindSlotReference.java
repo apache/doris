@@ -116,16 +116,17 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return new LogicalSort<>(sortItemList, sort.child());
                 })
             ),
+
+            // this rewrite is necessary because we should replace the logicalProperties which refer the child
+            // unboundLogicalProperties to a new LogicalProperties. This restriction is because we move the
+            // analysis stage after build the memo, and cause parent's plan can not update logical properties
+            // when the children are changed. we should discuss later and refactor it.
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
                 logicalSubQueryAlias().then(alias ->
                         alias.withChildren(ImmutableList.of(limit.child()))
                 )
             ),
             RuleType.BINDING_LIMIT_SLOT.build(
-                // this rewrite is necessary because we should replace the logicalProperties which refer the child
-                // unboundLogicalProperties to a new LogicalProperties. This restriction is because we move the
-                // analysis stage after build the memo, and cause parent's plan can not update logical properties
-                // when the children are changed. we should discuss later and refactor it.
                 logicalLimit().then(limit ->
                         limit.withChildren(ImmutableList.of(limit.child()))
                 )

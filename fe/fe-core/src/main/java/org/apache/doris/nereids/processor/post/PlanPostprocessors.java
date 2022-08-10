@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * pr
+ * PlanPostprocessors: after copy out the plan from the memo, we use this rewriter to rewrite plan by visitor.
  */
 public class PlanPostprocessors {
     private final CascadesContext cascadesContext;

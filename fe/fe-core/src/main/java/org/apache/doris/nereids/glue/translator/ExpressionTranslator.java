@@ -34,6 +34,7 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -192,7 +193,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBigIntLiteral(BigIntLiteral bigIntLiteral, PlanTranslatorContext context) {
-        return new IntLiteral(bigIntLiteral.getValue());
+        try {
+            return new IntLiteral(bigIntLiteral.getValue(), Type.BIGINT);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not translate BigIntLiteral: " + bigIntLiteral.getValue(), t);
+        }
     }
 
     @Override

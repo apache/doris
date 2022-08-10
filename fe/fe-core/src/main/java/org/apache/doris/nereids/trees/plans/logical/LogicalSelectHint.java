@@ -62,7 +62,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     public LogicalSelectHint(Map<String, Map<String, Optional<String>>> hints,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_HINT, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_SELECT_HINT, groupExpression, logicalProperties, child);
         // convert to immutable map
         this.hints = Objects.requireNonNull(hints, "hints can not be null")
                 .entrySet()

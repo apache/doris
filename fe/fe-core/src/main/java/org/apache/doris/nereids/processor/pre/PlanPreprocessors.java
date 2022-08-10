@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * before copy the plan into the memo, we use this rewriter to rewrite plan by visitor
+ * PlanPreprocessors: before copy the plan into the memo, we use this rewriter to rewrite plan by visitor.
  */
 public class PlanPreprocessors {
     private final StatementContext statementContext;

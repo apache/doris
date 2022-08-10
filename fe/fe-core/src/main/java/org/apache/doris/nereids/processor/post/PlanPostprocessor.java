@@ -21,7 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 /**
- * pr
+ * PlanPostprocessor: a PlanVisitor to rewrite PhysicalPlan to new PhysicalPlan.
  */
 public class PlanPostprocessor extends DefaultPlanRewriter<CascadesContext> {
 }
