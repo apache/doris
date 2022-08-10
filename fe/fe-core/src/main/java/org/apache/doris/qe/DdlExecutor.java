@@ -327,7 +327,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
             env.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
-            Env.getCurrentEnv().getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
+            env.getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterMaterializedViewStmt) {
             env.alterMaterializedView((AlterMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
