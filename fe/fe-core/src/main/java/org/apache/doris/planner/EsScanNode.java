@@ -338,15 +338,11 @@ public class EsScanNode extends ScanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
-            // reserved for later using: LOCAL_PREDICATES is processed by Doris EsScanNode
-            output.append(prefix).append("LOCAL_PREDICATES: ").append(" ").append("\n");
-            // reserved for later using: REMOTE_PREDICATES is processed by remote ES Cluster
-            output.append(prefix).append("REMOTE_PREDICATES: ").append(" ").append("\n");
+            output.append(prefix).append("LOCAL_PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
             buildQuery();
-            output.append(prefix).append("ES_QUERY_DSL: ").append(queryBuilder.toJson()).append("\n");
+            output.append(prefix).append("REMOTE_PREDICATES: ").append(queryBuilder.toJson()).append("\n");
         } else {
-            output.append(prefix).append("ES_QUERY_DSL: ").append("{\"match_all\": {}}").append("\n");
+            output.append(prefix).append("REMOTE_PREDICATES: ").append("{\"match_all\": {}}").append("\n");
         }
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
@@ -360,8 +356,9 @@ public class EsScanNode extends ScanNode {
         } else {
             boolean hasFilter = false;
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+            List<Expr> notPushDownList = new ArrayList<>();
             for (Expr expr : conjuncts) {
-                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr);
+                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr, notPushDownList);
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

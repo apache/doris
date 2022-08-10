@@ -98,6 +98,21 @@ public class EsExternalDataSource extends ExternalDataSource {
             throw new DdlException("Hosts of ES table is null.");
         }
         nodes = properties.get(PROP_HOSTS).trim().split(",");
+        // check protocol
+        for (String seed : nodes) {
+            if (!seed.startsWith("http")) {
+                throw new DdlException("the protocol must be used");
+            }
+            if (properties.containsKey(PROP_SSL)) {
+                enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
+                if (enableSsl && seed.startsWith("http://")) {
+                    throw new DdlException("if ssl_enabled is true, the https protocol must be used");
+                }
+                if (!enableSsl && seed.startsWith("https://")) {
+                    throw new DdlException("if ssl_enabled is false, the http protocol must be used");
+                }
+            }
+        }
 
         if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
             username = properties.get(PROP_USERNAME).trim();
@@ -119,18 +134,6 @@ public class EsExternalDataSource extends ExternalDataSource {
             enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
         }
 
-        if (properties.containsKey(PROP_SSL)) {
-            enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
-            // check protocol
-            for (String seed : nodes) {
-                if (enableSsl && seed.startsWith("http://")) {
-                    throw new DdlException("if ssl_enabled is true, the https protocol must be used");
-                }
-                if (!enableSsl && seed.startsWith("https://")) {
-                    throw new DdlException("if ssl_enabled is false, the http protocol must be used");
-                }
-            }
-        }
     }
 
     /**
@@ -155,7 +158,7 @@ public class EsExternalDataSource extends ExternalDataSource {
         this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
         long defaultDbId = Env.getCurrentEnv().getNextId();
         dbNameToId.put(DEFAULT_DB, defaultDbId);
-        idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, "default"));
+        idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, DEFAULT_DB));
     }
 
     @Override
@@ -177,7 +180,7 @@ public class EsExternalDataSource extends ExternalDataSource {
         if (!dbNameToId.containsKey(realDbName)) {
             return null;
         }
-        return new EsExternalDatabase(this, dbNameToId.get(realDbName), realDbName);
+        return idToDb.get(dbNameToId.get(realDbName));
     }
 
     @Override
