@@ -315,17 +315,10 @@ public class CastExpr extends Expr {
                         searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
         } else if (type.isArrayType()) {
-            if (VectorizedUtil.isVectorized()) {
-                // Vec engine don't need a scala cast function, but we still create one to pass the check.
-                fn = ScalarFunction.createBuiltin("CAST", type,  Lists.newArrayList(), false,
-                    "", null, null, true);
-            } else if (childType.isVarchar()) {
-                // only support varchar cast to array for origin exec engine.
-                fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
-                    type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
-                    "doris::CastFunctions::cast_to_array_val", null, null, true);
-            }
+            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+                type, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
 
         if (fn == null) {
