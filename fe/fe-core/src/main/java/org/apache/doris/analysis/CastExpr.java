@@ -271,17 +271,19 @@ public class CastExpr extends Expr {
 
         // this cast may result in loss of precision, but the user requested it
         if (childType.matchesType(type)) {
-            // For types which has precision and scale, we also need to check quality between precisions and scales
-            if (PrimitiveType.typeWithPrecision.contains(
-                    type.getPrimitiveType()) && ((((ScalarType) type).decimalPrecision()
-                    == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
-                    == ((ScalarType) childType).decimalScale()))) {
-                noOp = true;
-            // For types array, we also need to check contains null for case like
-            // cast(array<not_null(int)> as array<int>)
-            } else if (type.isArrayType() && ((ArrayType) type).getContainsNull()
-                    == ((ArrayType) childType).getContainsNull()) {
-                noOp = true;
+            if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+                // For types which has precision and scale, we also need to check quality between precisions and scales
+                if ((((ScalarType) type).decimalPrecision()
+                        == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
+                        == ((ScalarType) childType).decimalScale())) {
+                    noOp = true;
+                }
+            } else if (type.isArrayType()) {
+                // For types array, we also need to check contains null for case like
+                // cast(array<not_null(int)> as array<int>)
+                if (((ArrayType) type).getContainsNull() == ((ArrayType) childType).getContainsNull()) {
+                    noOp = true;
+                }
             } else {
                 noOp = true;
             }
