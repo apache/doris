@@ -33,6 +33,7 @@ import java.util.Set;
 @Developing
 public class DistributionSpecHash extends DistributionSpec {
 
+    // TODO: need to add equivalent ExprId list.
     private final List<ExprId> shuffledColumns;
 
     private final ShuffleType shuffleType;
@@ -90,18 +91,13 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
 
-        // TODO: need consider following logic whether is right, and maybe need consider more.
-        // TODO: consider Agg.
-        // Current shuffleType is LOCAL/AGG, allow if current is contained by required
-        if (this.shuffleType == ShuffleType.NATURAL && requiredHash.shuffleType == ShuffleType.AGGREGATE) {
+        if (requiredHash.shuffleType == ShuffleType.AGGREGATE) {
             return new HashSet<>(requiredHash.shuffledColumns).containsAll(shuffledColumns);
         }
 
-        if (this.shuffleType == ShuffleType.AGGREGATE && requiredHash.shuffleType == ShuffleType.JOIN) {
+        if (requiredHash.shuffleType == ShuffleType.JOIN) {
             return this.shuffledColumns.size() == requiredHash.shuffledColumns.size()
                     && this.shuffledColumns.equals(requiredHash.shuffledColumns);
-        } else if (this.shuffleType == ShuffleType.JOIN && requiredHash.shuffleType == ShuffleType.AGGREGATE) {
-            return new HashSet<>(requiredHash.shuffledColumns).containsAll(shuffledColumns);
         }
 
         if (!this.shuffleType.equals(requiredHash.shuffleType)) {

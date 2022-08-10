@@ -137,6 +137,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
         // broadcast
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
+            // TODO: need to merge right bucket column to output property, notice outer join and anti join
             return new PhysicalProperties(leftOutputProperty.getDistributionSpec());
         }
 
@@ -159,7 +160,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 if (noNeedCheckColocateGroup
                         || (colocateIndex.isSameGroup(leftTableId, rightTableId)
                         && colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
-                    // TODO: need to merge right bucket column to output property
+                    // TODO: need to merge right bucket column to output property, notice outer join and anti join
                     return new PhysicalProperties(leftOutputProperty.getDistributionSpec());
                 }
             }
@@ -170,7 +171,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
 
             // shuffle
-            // TODO: need to merge right bucket column to output property
+            // TODO: need to merge right bucket column to output property, notice outer join and anti join
             DistributionSpecHash outputHash
                     = new DistributionSpecHash(leftHashSpec.getShuffledColumns(), ShuffleType.JOIN);
             return new PhysicalProperties(outputHash);
