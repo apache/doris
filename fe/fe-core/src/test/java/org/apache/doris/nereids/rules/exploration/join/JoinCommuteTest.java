@@ -40,7 +40,7 @@ import java.util.Optional;
 public class JoinCommuteTest {
     @Test
     public void testInnerJoinCommute() {
-        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0));
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         Expression onCondition = new EqualTo(
