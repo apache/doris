@@ -316,9 +316,9 @@ public class CastExpr extends Expr {
             }
         } else if (type.isArrayType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
-                type, Function.NullableMode.ALWAYS_NULLABLE,
-                Lists.newArrayList(Type.VARCHAR), false,
-                "doris::CastFunctions::cast_to_array_val", null, null, true);
+                    type, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(Type.VARCHAR), false,
+                    "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
 
         if (fn == null) {
