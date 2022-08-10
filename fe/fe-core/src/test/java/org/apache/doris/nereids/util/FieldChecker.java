@@ -34,12 +34,21 @@ public class FieldChecker {
 
     public <T> Predicate<T> check(List<Object> valueList) {
         return (o) -> {
-            Assertions.assertEquals(valueList.size(), fields.size());
+            Assertions.assertEquals(fields.size(), valueList.size());
             Class<?> classInfo = o.getClass();
-            return !IntStream.range(0, valueList.size()).forEach(i -> {
-                Field field = classInfo.getField(this.fields.get(i));
+            IntStream.range(0, valueList.size()).forEach(i -> {
+                Field field;
+                try {
+                    field = classInfo.getDeclaredField(this.fields.get(i));
+                } catch (NoSuchFieldException e) {
+                    throw new RuntimeException(e);
+                }
                 field.setAccessible(true);
-                Assertions.assertEquals(field.get(o), valueList.get(i));
+                try {
+                    Assertions.assertEquals(valueList.get(i), field.get(o));
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                }
             });
             return true;
         };

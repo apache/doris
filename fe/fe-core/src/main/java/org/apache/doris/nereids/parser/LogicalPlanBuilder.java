@@ -610,16 +610,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan left = visitRelation(ctx.relation(0));
-            for (RelationContext relation : ctx.relation().subList(1, ctx.relation().size())) {
+            LogicalPlan left = null;
+            for (RelationContext relation : ctx.relation()) {
                 // build left deep join tree
-                left = withJoinRelations(
+                LogicalPlan right = visitRelation(relation);
+                left = left == null ? right :
                         new LogicalJoin<>(
-                                JoinType.CROSS_JOIN,
+                                JoinType.INNER_JOIN,
                                 Optional.empty(),
                                 left,
-                                visitRelation(relation)),
-                        relation);
+                                right);
+                left = withJoinRelations(left, relation);
                 // TODO: pivot and lateral view
             }
             return left;
