@@ -400,7 +400,7 @@ protected:
     }
 
 private:
-    const std::string kTestDir = "ut_dir/rowid_conversion_test";
+    const std::string kTestDir = "/ut_dir/rowid_conversion_test";
     string absolute_dir;
     std::unique_ptr<DataDir> _data_dir;
 };
