@@ -20,28 +20,23 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
-import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.function.BiFunction;
-import java.util.function.Predicate;
 
-public class AnalyzeSubQueryTest extends TestWithFeService {
+public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMatchSupported {
     private final NereidsParser parser = new NereidsParser();
 
     private final List<String> testSql = Lists.newArrayList(
@@ -53,7 +48,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID"
     );
 
-    private final int currentTestCase = 2;
+    private final int currentTestCase = 0;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -82,89 +77,30 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         );
     }
 
-    /**
-     * TODO: check bound plan and expression details.
-     */
     @Test
-    public void testAnalyzeAllCase() {
+    public void testTranslateCase() throws AnalysisException {
         for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            checkAnalyze(sql);
+            System.out.println("/n/n***** " + sql + " *****/n/n");
+            PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
+                    parser.parseSingle(sql),
+                    new PhysicalProperties(),
+                    connectContext
+            );
+            // Just to check whether translate will throw exception
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         }
     }
 
     @Test
-    public void testAnalyze() {
-        checkAnalyze(testSql.get(currentTestCase));
-    }
-
-    @Test
-    public void testParseAllCase() {
-        for (String sql : testSql) {
-            System.out.println(parser.parseSingle(sql).treeString());
-        }
-    }
-
-    @Test
-    public void testParse() {
-        System.out.println(parser.parseSingle(testSql.get(currentTestCase)).treeString());
-    }
-
-    @Test
-    public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(currentTestCase));
-    }
-
-    @Test
-    public void testFinalizeAnalyzeAllCase() {
-        for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            finalizeAnalyze(sql);
-        }
-    }
-
-    @Test
-    public void testPlan() throws AnalysisException {
-        testPlanCase(testSql.get(currentTestCase));
-    }
-
-    @Test
-    public void testPlanAllCase() throws AnalysisException {
-        for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            testPlanCase(sql);
-        }
-    }
-
-    private void testPlanCase(String sql) throws AnalysisException {
-        PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
-                parser.parseSingle(sql),
-                new PhysicalProperties(),
-                connectContext
-        );
-        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
-        System.out.println(root.getPlanRoot().getPlanTreeExplainStr());
-    }
-
-    private void finalizeAnalyze(String sql) {
-        LogicalPlan plan = analyze(sql);
-        plan = (LogicalPlan) PlanRewriter.bottomUpRewrite(plan, connectContext, new EliminateAliasNode());
-        System.out.println(plan.treeString());
-    }
-
-    private LogicalPlan analyze(String sql) {
-        return new NereidsAnalyzer(connectContext).analyze(sql);
-    }
-
-    private void checkAnalyze(String sql) {
-        CheckPlanTreeBase<Expression> exprCheck = new CheckPlanTreeBase<>(
-                expr -> !(expr instanceof Unbound),
-                expr -> true
-        );
-        Assertions.assertTrue(new CheckPlanTreeBase<Plan>(
-                plan -> !(plan instanceof Unbound),
-                plan -> ((Plan) plan).getExpressions().stream().allMatch(exprCheck::execute)
-        ).execute(analyze(sql)));
+    public void testCase1() {
+        FieldChecker projectChecker = new FieldChecker(Lists.newArrayList());
+        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(0)))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
+                        logicalProject(
+                                logicalProject().when(projectChecker.check(Lists.newArrayList()))
+                        ).when(projectChecker.check(Lists.newArrayList()))
+                );
     }
 }
 
