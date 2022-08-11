@@ -335,7 +335,7 @@ This term does not match any term in the dictionary, and will not return any res
 
 The type of `k4.keyword` is `keyword`, and writing data into ES is a complete term, so it can be matched
 
-### Enable node discovery mechanism, default is true(es\_nodes\_discovery=true)
+### Enable node discovery mechanism, default is true(nodes\_discovery=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
@@ -358,7 +358,7 @@ Parameter Description：
 
 Parameter | Description
 ---|---
-**es\_nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
+**nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
 
 Doris would find all available related data nodes (shards allocated on)from ES when this is true.  Just set false if address of  ES data nodes are not accessed by Doris BE, eg. the ES cluster is deployed in the intranet which isolated from your public Internet, and users access through a proxy
 
