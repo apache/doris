@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -55,6 +56,10 @@ public abstract class PlanVisitor<R, C> {
     // *******************************
     // Logical plans
     // *******************************
+
+    public R visitSubQueryAlias(LogicalSubQueryAlias<Plan> alias, C context) {
+        return visit(alias, context);
+    }
 
     public R visitUnboundRelation(UnboundRelation relation, C context) {
         return visit(relation, context);

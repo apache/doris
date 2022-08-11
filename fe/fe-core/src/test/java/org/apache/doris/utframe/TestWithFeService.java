@@ -66,6 +66,7 @@ import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
@@ -112,10 +113,18 @@ public abstract class TestWithFeService {
         cleanDorisFeDir(runningDir);
     }
 
+    @BeforeEach
+    public final void beforeEach() throws Exception {
+        runBeforeEach();
+    }
+
     protected void runBeforeAll() throws Exception {
     }
 
     protected void runAfterAll() throws Exception {
+    }
+
+    protected void runBeforeEach() throws Exception {
     }
 
     // Help to create a mocked ConnectContext.
