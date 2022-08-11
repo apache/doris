@@ -43,7 +43,10 @@
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
 
+#define error_default_str "#$@"
+
 constexpr int64_t max_buffered_rows = 4096;
+
 struct AggregateRpcUdafData {
 private:
     std::string _update_fn;
@@ -54,6 +57,7 @@ private:
     std::shared_ptr<PFunctionService_Stub> _client;
     PFunctionCallResponse _res;
     std::vector<PFunctionCallRequest> _buffer_request;
+    bool _error;
 
 public:
     AggregateRpcUdafData() = default;
@@ -64,6 +68,10 @@ public:
     void set_last_result(bool flag) { _saved_last_result = flag; }
 
     ~AggregateRpcUdafData() {}
+
+    void set_error(bool flag) { _error = flag; }
+
+    bool has_error() { return _error == true; }
 
     Status merge(AggregateRpcUdafData& rhs) {
         send_buffer_to_rpc_server();
@@ -94,10 +102,12 @@ public:
         _merge_fn = fn.aggregate_fn.merge_fn_symbol;
         _server_addr = fn.hdfs_location;
         _finalize_fn = fn.aggregate_fn.finalize_fn_symbol;
+        set_error(false);
         _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
         if (_client == nullptr) {
             std::string err_msg = "init rpc error, addr:" + _server_addr;
             LOG(ERROR) << err_msg;
+            set_error(true);
             return Status::InternalError(err_msg);
         }
         return Status::OK();
@@ -107,19 +117,34 @@ public:
                             PFunctionCallResponse& response) {
         _client->fn_call(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
-            return Status::InternalError(fmt::format("call to rpc function {} failed: {}",
-                                                     request.function_name(), cntl.ErrorText())
-                                                 .c_str());
+            set_error(true);
+            std::stringstream err_msg;
+            err_msg << " call rpc function failed";
+            err_msg << " _server_addr:" << _server_addr;
+            err_msg << " function_name:" << request.function_name();
+            err_msg << " err:" << cntl.ErrorText();
+            LOG(ERROR) << err_msg.str();
+            return Status::InternalError(err_msg.str());
         }
         if (!response.has_status() || response.result_size() == 0) {
-            return Status::InternalError(
-                    fmt::format("call rpc function {} failed: status or result is not set.",
-                                request.function_name()));
+            set_error(true);
+            std::stringstream err_msg;
+            err_msg << " call rpc function failed, status or result is not set";
+            err_msg << " _server_addr:" << _server_addr;
+            err_msg << " function_name:" << request.function_name();
+            err_msg << " err:" << cntl.ErrorText();
+            LOG(ERROR) << err_msg.str();
+            return Status::InternalError(err_msg.str());
         }
         if (response.status().status_code() != 0) {
-            return Status::InternalError(fmt::format("call to rpc function {} failed: {}",
-                                                     request.function_name(),
-                                                     response.status().DebugString()));
+            set_error(true);
+            std::stringstream err_msg;
+            err_msg << " call rpc function failed";
+            err_msg << " _server_addr:" << _server_addr;
+            err_msg << " function_name:" << request.function_name();
+            err_msg << " err:" << response.status().DebugString();
+            LOG(ERROR) << err_msg.str();
+            return Status::InternalError(err_msg.str());
         }
         return Status::OK();
     }
@@ -224,7 +249,12 @@ public:
 
     void serialize(BufferWritable& buf) {
         send_buffer_to_rpc_server();
-        std::string serialize_data = _res.SerializeAsString();
+        std::string serialize_data = error_default_str;
+        if (!has_error()) {
+            serialize_data = _res.SerializeAsString();
+        } else {
+            LOG(ERROR) << "serialize empty buf";
+        }
         write_binary(serialize_data, buf);
     }
 
@@ -232,11 +262,21 @@ public:
         send_buffer_to_rpc_server();
         std::string serialize_data;
         read_binary(serialize_data, buf);
-        _res.ParseFromString(serialize_data);
-        set_last_result(true);
+        if (error_default_str != serialize_data) {
+            _res.ParseFromString(serialize_data);
+            set_last_result(true);
+        } else {
+            LOG(ERROR) << "deserialize empty buf";
+            set_error(true);
+        }
     }
 
+    //if any unexpected thing happen will return NULL
     Status get(IColumn& to, const DataTypePtr& return_type) {
+        if (has_error()) {
+            to.insert_default();
+            return Status::OK();
+        }
         send_buffer_to_rpc_server();
         PFunctionCallRequest request;
         PFunctionCallResponse response;
@@ -245,7 +285,10 @@ public:
         request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
                 _res.result());
         send_rpc_request(cntl, request, response);
-
+        if (has_error()) {
+            to.insert_default();
+            return Status::OK();
+        }
         DataTypePtr result_type = return_type;
         if (return_type->is_nullable()) {
             result_type =
