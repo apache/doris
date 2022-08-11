@@ -49,7 +49,7 @@ public class LogicalProjectToPhysicalProjectTest {
             .put(LogicalJoin.class.getName(), (new LogicalJoinToHashJoin()).build())
             .put(LogicalOlapScan.class.getName(), (new LogicalOlapScanToPhysicalOlapScan()).build())
             .put(LogicalFilter.class.getName(), (new LogicalFilterToPhysicalFilter()).build())
-            .put(LogicalSort.class.getName(), (new LogicalSortToPhysicalHeapSort()).build())
+            .put(LogicalSort.class.getName(), (new LogicalSortToPhysicalQuickSort()).build())
             .build();
 
     private static PhysicalPlan rewriteLogicalToPhysical(Group group, CascadesContext cascadesContext) {

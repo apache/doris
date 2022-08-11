@@ -19,18 +19,20 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
 /**
- * Implementation rule that convert logical sort to physical sort.
+ * Implementation rule that convert logical top-n to physical top-n.
  */
-public class LogicalSortToPhysicalHeapSort extends OneImplementationRuleFactory {
+public class LogicalTopNToPhysicalTopN extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalSort().then(sort -> new PhysicalQuickSort<>(
-                sort.getOrderKeys(),
-                sort.getLogicalProperties(),
-                sort.child())
-            ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_HEAP_SORT_RULE);
+        return logicalTopN().then(topN -> new PhysicalTopN<>(
+                topN.getOrderKeys(),
+                topN.getLimit(),
+                topN.getOffset(),
+                topN.getLogicalProperties(),
+                topN.child())
+        ).toRule(RuleType.LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE);
     }
 }
