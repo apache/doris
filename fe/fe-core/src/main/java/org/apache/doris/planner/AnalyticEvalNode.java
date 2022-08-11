@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -262,12 +261,5 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         return output.toString();
-    }
-
-    public void computeCosts(TQueryOptions queryOptions) {
-        Preconditions.checkNotNull(fragmentId,
-                                   "PlanNode must be placed into a fragment before calling this method.");
-        // TODO: come up with estimate based on window
-        cardinality = 0;
     }
 }

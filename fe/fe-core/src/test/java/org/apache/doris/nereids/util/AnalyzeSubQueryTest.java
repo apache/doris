@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -27,6 +26,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -39,7 +39,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
-// The test should run one by one.
 public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMatchSupported {
     private final NereidsParser parser = new NereidsParser();
 
@@ -79,9 +78,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
         );
     }
 
+    @Override
+    protected void runBeforeEach() throws Exception {
+        NamedExpressionUtil.clear();
+    }
+
     @Test
-    public void testTranslateCase() throws AnalysisException {
+    public void testTranslateCase() throws Exception {
         for (String sql : testSql) {
+            NamedExpressionUtil.clear();
             System.out.println("\n\n***** " + sql + " *****\n\n");
             PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
                     parser.parseSingle(sql),
@@ -94,7 +99,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     }
 
     @Test
-    public void testCase1() {
+    public void testCaseSubQuery() {
         FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
         new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(0)))
                 .applyTopDown(new EliminateAliasNode())
@@ -102,27 +107,19 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                         logicalProject(
                                 logicalProject(
                                         logicalOlapScan().when(o -> true)
-                                ).when(
-                                        projectChecker.check(ImmutableList.of(
-                                                ImmutableList.of(
-                                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
-                                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))
-                                                ))
-                                        )
+                                ).when(projectChecker.check(ImmutableList.of(ImmutableList.of(
+                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
+                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T")))))
                                 )
-                        ).when(
-                                projectChecker.check(ImmutableList.of(
-                                        ImmutableList.of(
-                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T2")),
-                                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T2"))
-                                        ))
-                                )
+                        ).when(projectChecker.check(ImmutableList.of(ImmutableList.of(
+                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T2")),
+                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T2")))))
                         )
                 );
     }
 
     @Test
-    public void testCase2() {
+    public void testCaseMixed() {
         FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
         FieldChecker joinChecker = new FieldChecker(ImmutableList.of("joinType", "condition"));
         new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(1)))
@@ -133,34 +130,29 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                                         logicalOlapScan(),
                                         logicalProject(
                                                 logicalOlapScan()
-                                        ).when(projectChecker.check(ImmutableList.of(
-                                                ImmutableList.of(
-                                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("TT2")),
-                                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("TT2"))
-                                                ))
-                                        ))
+                                        ).when(projectChecker.check(ImmutableList.of(ImmutableList.of(
+                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("TT2")),
+                                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("TT2")))))
+                                        )
                                 ).when(joinChecker.check(ImmutableList.of(
                                         JoinType.INNER_JOIN,
                                         Optional.of(new EqualTo(
                                                 new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
-                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T"))
-                                        ))
-                                )))
-                        ).when(projectChecker.check(ImmutableList.of(
-                                ImmutableList.of(
-                                        new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
-                                        new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("TT1")),
-                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
-                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))
-                                ))
-                        ))
+                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T"))))))
+                                )
+                        ).when(projectChecker.check(ImmutableList.of(ImmutableList.of(
+                                new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
+                                new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("TT1")),
+                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
+                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T")))))
+                        )
                 );
     }
 
     @Test
-    public void testCase3() {
+    public void testCaseJoinSameTable() {
         FieldChecker projectChecker = new FieldChecker(ImmutableList.of("projects"));
-        FieldChecker joinChecker = new FieldChecker(ImmutableList.of("condition"));
+        FieldChecker joinChecker = new FieldChecker(ImmutableList.of("joinType", "condition"));
         new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(5)))
                 .applyTopDown(new EliminateAliasNode())
                 .matches(
@@ -169,25 +161,17 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                                         logicalOlapScan(),
                                         logicalOlapScan()
                                 ).when(joinChecker.check(ImmutableList.of(
+                                        JoinType.INNER_JOIN,
                                         Optional.of(new EqualTo(
-                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true,
-                                                        ImmutableList.of("default_cluster:test", "T1")),
-                                                new SlotReference(new ExprId(2), "id", new BigIntType(), true,
-                                                        ImmutableList.of("T2"))
-                                        ))
-                                )))
-                        ).when(projectChecker.check(ImmutableList.of(
-                                ImmutableList.of(
-                                        new SlotReference(new ExprId(0), "id", new BigIntType(), true,
-                                                ImmutableList.of("default_cluster:test", "T1")),
-                                        new SlotReference(new ExprId(1), "score", new BigIntType(), true,
-                                                ImmutableList.of("default_cluster:test", "T1")),
-                                        new SlotReference(new ExprId(2), "id", new BigIntType(), true,
-                                                ImmutableList.of("T2")),
-                                        new SlotReference(new ExprId(3), "score", new BigIntType(), true,
-                                                ImmutableList.of("T2"))
-                                ))
-                        ))
+                                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
+                                                new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2"))))))
+                                )
+                        ).when(projectChecker.check(ImmutableList.of(ImmutableList.of(
+                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
+                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
+                                new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2")),
+                                new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("T2")))))
+                        )
                 );
     }
 }

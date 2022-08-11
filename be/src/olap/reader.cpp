@@ -653,17 +653,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
         _filter_delete = true;
     }
 
-    auto delete_init = [&]() -> Status {
-        return _delete_handler.init(_tablet_schema, _tablet->delete_predicates(),
-                                    read_params.version.second, this);
-    };
-
-    if (read_params.reader_type == READER_ALTER_TABLE) {
-        return delete_init();
-    }
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    return delete_init();
+    return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
+                                read_params.version.second, this);
 }
 
 } // namespace doris
