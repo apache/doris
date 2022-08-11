@@ -77,7 +77,7 @@ sed -i '/UNIQUE KEY/d' ./user_files/tables.sql
 sed -i '/,\s*$/{:loop; N; /,\(\s*\|\n\))/! bloop; s/,\s*[\n]\?\s*)/\n)/}' ./user_files/tables.sql
 
 #delete a line on keyword
-sed -i -e '$!N;/\n.*ENGINE=MYSQL/!P;D' ./user_files/tables.sql
+sed -i -e '$!N;/\n.*ENGINE=ODBC/!P;D' ./user_files/tables.sql
 
 #replace mysql password、database、table、host
 for t_name in $(cat ./conf/tables |grep -v '#' | awk -F '\n' '{print $1}')
