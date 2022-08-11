@@ -167,6 +167,9 @@ public:
     // Returns the rounded up to 64 multiple. Used for conversions of bits to i64.
     static inline uint32_t round_up_numi64(uint32_t bits) { return (bits + 63) >> 6; }
 
+    // Returns the rounded up to 32 multiple. Used for conversions of bits to i32.
+    constexpr static inline uint32_t round_up_numi32(uint32_t bits) { return (bits + 31) >> 5; }
+
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     // Converts to big endian format (if not already in big endian).
     static inline int64_t big_endian(int64_t value) { return byte_swap(value); }
@@ -311,6 +314,11 @@ public:
     static inline size_t RoundUpToPowerOf2Int32(size_t value, size_t factor) {
         DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
         return (value + (factor - 1)) & ~(factor - 1);
+    }
+
+    static inline int64_t RoundDownToPowerOf2(int64_t value, int64_t factor) {
+        DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
+        return value & ~(factor - 1);
     }
 
     // Returns the ceil of value/divisor
