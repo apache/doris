@@ -100,6 +100,7 @@ public:
     int get_cloumn_index(std::string column_name);
 
     void prefetch_batch();
+    bool is_case_sensitive() {return _caseSensitive; }
 
 protected:
     virtual Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
