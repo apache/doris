@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
 
 import com.google.common.collect.ImmutableList;
@@ -29,10 +29,10 @@ public class FinalizeAnalyzeJob extends BatchRulesJob {
 
     /**
      * constructor
-     * @param plannerContext ctx
+     * @param cascadesContext ctx
      */
-    public FinalizeAnalyzeJob(PlannerContext plannerContext) {
-        super(plannerContext);
+    public FinalizeAnalyzeJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(new EliminateAliasNode()))
         ));

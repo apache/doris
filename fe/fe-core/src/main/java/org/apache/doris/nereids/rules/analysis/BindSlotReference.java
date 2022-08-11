@@ -121,7 +121,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             // analysis stage after build the memo, and cause parent's plan can not update logical properties
             // when the children are changed. we should discuss later and refactor it.
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
-                logicalSubQueryAlias().then(alias -> alias.withChildren(ImmutableList.of(limit.child())))
+                logicalSubQueryAlias().then(alias -> alias.withChildren(ImmutableList.of(alias.child())))
             ),
             RuleType.BINDING_LIMIT_SLOT.build(
                 logicalLimit().then(limit -> limit.withChildren(ImmutableList.of(limit.child())))

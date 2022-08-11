@@ -138,7 +138,7 @@ public class NereidsPlanner extends Planner {
 
     private void analyze() {
         cascadesContext.newAnalyzer().analyze();
-        new FinalizeAnalyzeJob(plannerContext).execute();
+        new FinalizeAnalyzeJob(cascadesContext).execute();
     }
 
     /**
