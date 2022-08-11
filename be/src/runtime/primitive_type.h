@@ -221,7 +221,7 @@ struct PredicatePrimitiveTypeTraits<TYPE_DECIMALV2> {
 
 template <>
 struct PredicatePrimitiveTypeTraits<TYPE_DATE> {
-    using PredicateFieldType = uint24_t;
+    using PredicateFieldType = uint32_t;
 };
 
 template <>

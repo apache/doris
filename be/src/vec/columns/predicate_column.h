@@ -34,12 +34,13 @@ namespace doris::vectorized {
  *
  *  T = predicate column type
  */
-template <typename T>
-class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<T>> {
+template <PrimitiveType Type>
+class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<Type>> {
 private:
     PredicateColumnType() {}
     PredicateColumnType(const size_t n) : data(n) {}
-    friend class COWHelper<IColumn, PredicateColumnType<T>>;
+    friend class COWHelper<IColumn, PredicateColumnType<Type>>;
+    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
 
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
 
@@ -241,9 +242,7 @@ public:
             insert_many_in_copy_way(data_ptr, num);
         } else if constexpr (std::is_same_v<T, StringValue>) {
             // here is unreachable, just for compilation to be able to pass
-        } else if constexpr (std::is_same_v<
-                                     T,
-                                     uint32_t>) { // todo(wb) a trick type judge here,need refactor
+        } else if constexpr (Type == TYPE_DATE) {
             insert_many_date(data_ptr, num);
         } else {
             insert_many_default_type(data_ptr, num);
@@ -484,6 +483,5 @@ private:
     // manages the memory for slice's data(For string type)
     std::unique_ptr<MemPool> _pool;
 };
-using ColumnStringValue = PredicateColumnType<StringValue>;
 
 } // namespace doris::vectorized

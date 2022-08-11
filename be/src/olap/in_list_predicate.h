@@ -76,9 +76,11 @@ struct equal_to<doris::uint24_t> {
 
 namespace doris {
 
-template <class T, PredicateType PT>
+template <PrimitiveType Type, PredicateType PT>
 class InListPredicateBase : public ColumnPredicate {
 public:
+    using T = std::conditional_t<Type == TYPE_DATE, uint24_t,
+                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>&& values,
                         bool is_opposite = false)
             : ColumnPredicate(column_id, is_opposite), _values(std::move(values)) {}
@@ -238,7 +240,7 @@ private:
 
         if constexpr (std::is_same_v<T, uint24_t>) {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<uint32_t>>(
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TYPE_DATE>>(
                             column);
             auto& data_array = nested_col_ptr->get_data();
 
@@ -299,7 +301,7 @@ private:
             }
         } else {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -333,11 +335,5 @@ private:
     phmap::flat_hash_set<T> _values;
     mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
 };
-
-template <class T>
-using InListPredicate = InListPredicateBase<T, PredicateType::IN_LIST>;
-
-template <class T>
-using NotInListPredicate = InListPredicateBase<T, PredicateType::NOT_IN_LIST>;
 
 } //namespace doris
