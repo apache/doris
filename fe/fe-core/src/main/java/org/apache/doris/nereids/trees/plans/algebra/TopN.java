@@ -15,22 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
-
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+package org.apache.doris.nereids.trees.plans.algebra;
 
 /**
- * Implementation rule that convert logical sort to physical sort.
+ * Common interface for logical/physical TopN.
  */
-public class LogicalSortToPhysicalHeapSort extends OneImplementationRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalSort().then(sort -> new PhysicalQuickSort<>(
-                sort.getOrderKeys(),
-                sort.getLogicalProperties(),
-                sort.child())
-            ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_HEAP_SORT_RULE);
-    }
+public interface TopN extends Sort {
+
+    int getOffset();
+
+    int getLimit();
 }
