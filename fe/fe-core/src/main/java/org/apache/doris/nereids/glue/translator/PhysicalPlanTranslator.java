@@ -21,6 +21,8 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableName;
@@ -240,10 +242,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Create OlapScanNode
         List<Slot> slotList = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
-        List<Expr> execConjunctsList = olapScan
-                .getExpressions()
-                .stream()
-                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
@@ -259,7 +257,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new AnalysisException(e.getMessage());
         }
         Utils.execWithUncheckedException(olapScanNode::init);
-        olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
         // Create PlanFragment
         // TODO: add data partition after we have physical properties
@@ -453,7 +450,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
+        TupleDescriptor tupleDescriptor = createTupleForExprList(execExprList, context);
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<Integer> requiredSlotIdList = new HashSet<>();
         for (Expr expr : predicateList) {
@@ -464,7 +463,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 requiredSlotIdList.add(((SlotRef) expr).getDesc().getId().asInt());
             }
         }
+        if (inputPlanNode instanceof OlapScanNode) {
+            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
+        }
         return inputFragment;
+    }
+
+    private void updateChildSlotsMaterialization(PlanNode execPlan,
+            Set<Integer> requiredSlotIdList,
+            PlanTranslatorContext context) {
+        Set<SlotRef> slotRefSet = new HashSet<>();
+        for (Expr expr : execPlan.getConjuncts()) {
+            expr.collect(SlotRef.class, slotRefSet);
+        }
+        Set<Integer> slotIdSet = slotRefSet.stream()
+                .map(SlotRef::getSlotId).map(SlotId::asInt).collect(Collectors.toSet());
+        slotIdSet.addAll(requiredSlotIdList);
+        execPlan.getTupleIds().stream()
+                .map(context::getTupleDesc)
+                .map(TupleDescriptor::getSlots)
+                .flatMap(List::stream)
+                .forEach(s -> {
+                    s.setIsMaterialized(slotIdSet.contains(s.getId().asInt()));
+                });
     }
 
     @Override
@@ -599,5 +620,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         inputFragment.setDestination(mergePlan);
         context.addPlanFragment(fragment);
         return fragment;
+    }
+
+    private TupleDescriptor createTupleForExprList(List<Expr> exprList, PlanTranslatorContext context) {
+        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
+        tupleDescriptor.setIsMaterialized(true);
+        for (Expr expr : exprList) {
+            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor);
+            slotDescriptor.initFromExpr(expr);
+            slotDescriptor.setIsMaterialized(true);
+        }
+        return tupleDescriptor;
     }
 }

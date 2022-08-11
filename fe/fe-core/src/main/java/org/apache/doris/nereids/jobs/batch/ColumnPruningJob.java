@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.nereids.jobs.batch;
+
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * All job types in Nereids.
+ * -...
  */
-public enum JobType {
-    OPTIMIZE_PLAN_SET,
-    OPTIMIZE_PLAN,
-    OPTIMIZE_CHILDREN,
-    EXPLORE_PLAN_SET,
-    EXPLORE_PLAN,
-    APPLY_RULE,
-    DERIVE_STATS,
-    TOP_DOWN_REWRITE,
-    BOTTOM_UP_REWRITE,
-    CLEAN_UP
-    ;
+public class ColumnPruningJob extends BatchRulesJob {
+
+    public ColumnPruningJob(CascadesContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(
+                        new ColumnPruning()
+                ))));
+    }
 }

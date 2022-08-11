@@ -49,8 +49,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -74,7 +72,6 @@ import java.util.Set;
  * its children (= are bound by tupleIds).
  */
 public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
-    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
 
@@ -141,6 +138,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected StatisticalType statisticalType = StatisticalType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult;
+
+    protected TupleDescriptor outputTupleDesc;
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
@@ -1008,5 +1007,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      */
     public void finalizeForNereids() {
 
+    }
+
+    public void setOutputTupleDesc(TupleDescriptor outputTupleDesc) {
+        this.outputTupleDesc = outputTupleDesc;
     }
 }

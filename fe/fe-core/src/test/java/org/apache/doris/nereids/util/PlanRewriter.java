@@ -40,14 +40,14 @@ public class PlanRewriter {
     public static Memo bottomUpRewriteMemo(Plan plan, ConnectContext connectContext, RuleFactory... rules) {
         return new Memo(plan)
                 .newCascadesContext(new StatementContext(connectContext, new OriginStatement("", 0)))
-                .topDownRewrite(rules)
+                .bottomUpRewrite(rules)
                 .getMemo();
     }
 
     public static Memo bottomUpRewriteMemo(Plan plan, ConnectContext connectContext, Rule... rules) {
         return new Memo(plan)
                 .newCascadesContext(new StatementContext(connectContext, new OriginStatement("", 0)))
-                .topDownRewrite(rules)
+                .bottomUpRewrite(rules)
                 .getMemo();
     }
 

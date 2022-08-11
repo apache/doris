@@ -65,6 +65,11 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     }
 
     @Override
+    public Plan child(int index) {
+        return super.child(index);
+    }
+
+    @Override
     public LogicalProperties getLogicalProperties() {
         return logicalProperties;
     }

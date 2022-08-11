@@ -41,6 +41,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -1080,11 +1081,15 @@ public class HashJoinNode extends PlanNode {
         }
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
                 // Enable it after we support new optimizers
-                // msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                    msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                } else {
+                    msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                }
             }
         }
+        msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
             // Enable it after we support new optimizers

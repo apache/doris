@@ -64,6 +64,7 @@ public enum RuleType {
     COLUMN_PRUNE_FILTER_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_SORT_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_JOIN_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_REMOVE_SLOTS(RuleTypeClass.REWRITE),
     // expression of plan rewrite
     REWRITE_PROJECT_EXPRESSION(RuleTypeClass.REWRITE),
     REWRITE_AGG_EXPRESSION(RuleTypeClass.REWRITE),
