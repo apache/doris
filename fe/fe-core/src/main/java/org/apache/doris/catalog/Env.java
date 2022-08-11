@@ -2891,9 +2891,9 @@ public class Env {
             }
 
             // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
-                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite() ? "true" : "false").append("\"");
+                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }
 
             // show lightSchemaChange only when it is set true
