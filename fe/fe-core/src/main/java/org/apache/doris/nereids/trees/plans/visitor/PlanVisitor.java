@@ -161,7 +161,7 @@ public abstract class PlanVisitor<R, C> {
     }
 
     public R visitPhysicalQuickSort(PhysicalQuickSort<Plan> sort, C context) {
-        return visit(sort, context);
+        return visitAbstractPhysicalSort(sort, context);
     }
 
     public R visitPhysicalTopN(PhysicalTopN<Plan> topN, C context) {

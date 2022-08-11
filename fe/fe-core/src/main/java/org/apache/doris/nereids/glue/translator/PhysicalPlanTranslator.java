@@ -292,7 +292,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment childFragment = visitAbstractPhysicalSort(sort, context);
         SortNode sortNode = (SortNode) childFragment.getPlanRoot();
-        //isPartitioned()==true means there is only one instance, so no merge phase
+        // isPartitioned() == false means there is only one instance, so no merge phase
         if (!childFragment.isPartitioned()) {
             return childFragment;
         }
@@ -309,7 +309,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SortNode sortNode = (SortNode) childFragment.getPlanRoot();
         sortNode.setOffset(topN.getOffset());
         sortNode.setLimit(topN.getLimit());
-        //isPartitioned()==true means there is only one instance, so no merge phase
+        // isPartitioned() == false means there is only one instance, so no merge phase
         if (!childFragment.isPartitioned()) {
             return childFragment;
         }
