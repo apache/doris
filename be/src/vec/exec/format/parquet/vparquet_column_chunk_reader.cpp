@@ -23,6 +23,7 @@ ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* fieldSchema)
         : _max_rep_level(fieldSchema->repetition_level),
           _max_def_level(fieldSchema->definition_level),
+          _parquet_logical_type(fieldSchema->logical_type),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data) {}
 
@@ -85,6 +86,9 @@ Status ColumnChunkReader::load_page_data() {
     // change the deprecated encoding to RLE_DICTIONARY
     if (encoding == tparquet::Encoding::PLAIN_DICTIONARY) {
         encoding = tparquet::Encoding::RLE_DICTIONARY;
+    }
+    if (_parquet_logical_type.__isset.UNKNOWN) {
+        return Status::Corruption("unknown logical type to decode")
     }
     Decoder::getDecoder(_metadata.type, encoding, _page_decoder);
     _page_decoder->set_data(&_page_data);

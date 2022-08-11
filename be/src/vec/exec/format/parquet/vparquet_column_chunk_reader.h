@@ -112,6 +112,7 @@ private:
 
     level_t _max_rep_level;
     level_t _max_def_level;
+    tparquet::LogicalType _parquet_logical_type;
 
     BufferedStreamReader* _stream_reader;
     // tparquet::ColumnChunk* _column_chunk;
