@@ -96,7 +96,7 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                 }
             } else {
                 auto* data_array = vectorized::check_and_get_column<
-                                           vectorized::PredicateColumnType<StringValue>>(column)
+                                           vectorized::PredicateColumnType<TYPE_STRING>>(column)
                                            ->get_data()
                                            .data();
                 for (uint16_t i = 0; i != size; i++) {
@@ -129,7 +129,7 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                 }
             } else {
                 auto* data_array = vectorized::check_and_get_column<
-                                           vectorized::PredicateColumnType<StringValue>>(column)
+                                           vectorized::PredicateColumnType<TYPE_STRING>>(column)
                                            ->get_data()
                                            .data();
 
