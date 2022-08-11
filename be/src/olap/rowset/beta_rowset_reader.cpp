@@ -46,9 +46,6 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         // only statistics of this RowsetReader is necessary.
         _stats = _context->stats;
     }
-    // SegmentIterator will load seek columns on demand
-    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(),
-                                       *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
@@ -62,11 +59,27 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                                  read_context->is_upper_keys_included->at(i));
         }
     }
+    // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
+    // or predicates when it is not inited.
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), &read_options.delete_conditions,
                 read_options.delete_condition_predicates.get());
     }
+    std::vector<uint32_t> read_columns;
+    std::set<uint32_t> read_columns_set;
+    std::set<uint32_t> delete_columns_set;
+    for (int i = 0; i < _context->return_columns->size(); ++i) {
+        read_columns.push_back(_context->return_columns->at(i));
+        read_columns_set.insert(_context->return_columns->at(i));
+    }
+    read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    for (auto cid : delete_columns_set) {
+        if (read_columns_set.find(cid) == read_columns_set.end()) {
+            read_columns.push_back(cid);
+        }
+    }
+    _input_schema = std::make_unique<Schema>(_context->tablet_schema->columns(), read_columns);
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
                                               read_context->predicates->begin(),
@@ -109,7 +122,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*_schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(*_input_schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_ROWSET_READER_INIT);
@@ -156,7 +169,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(*_schema, std::min(1024, read_context->batch_size)));
+    _input_block.reset(new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
 
     if (!read_context->is_vec) {
         // init input/output block and row
@@ -165,12 +178,10 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         RowBlockInfo output_block_info;
         output_block_info.row_num = std::min(1024, read_context->batch_size);
         output_block_info.null_supported = true;
-        // the output block's schema should be seek_columns to conform to v1
-        // TODO(hkp): this should be optimized to use return_columns
-        output_block_info.column_ids = *(_context->seek_columns);
+        output_block_info.column_ids = *(_context->return_columns);
         _output_block->init(output_block_info);
         _row.reset(new RowCursor());
-        RETURN_NOT_OK(_row->init(read_context->tablet_schema, *(_context->seek_columns)));
+        RETURN_NOT_OK(_row->init(read_context->tablet_schema, *(_context->return_columns)));
     }
 
     return Status::OK();

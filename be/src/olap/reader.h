@@ -175,7 +175,6 @@ protected:
     Status _init_delete_condition(const ReaderParams& read_params);
 
     Status _init_return_columns(const ReaderParams& read_params);
-    void _init_seek_columns();
 
     void _init_load_bf_columns(const ReaderParams& read_params);
     void _init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
@@ -194,7 +193,6 @@ protected:
     // only use in outer join which change the column nullable which must keep same in
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
-    std::vector<uint32_t> _seek_columns;
 
     TabletSharedPtr _tablet;
     RowsetReaderContext _reader_context;

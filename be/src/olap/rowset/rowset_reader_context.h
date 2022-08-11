@@ -42,9 +42,6 @@ struct RowsetReaderContext {
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
-    // set of columns used to prune rows that doesn't satisfy key ranges and `conditions`.
-    // currently it contains all columns from `return_columns`, `conditions`, `lower_bound_keys`, and `upper_bound_keys`
-    const std::vector<uint32_t>* seek_columns = nullptr;
     // columns to load bloom filter index
     // including columns in "=" or "in" conditions
     const std::set<uint32_t>* load_bf_columns = nullptr;

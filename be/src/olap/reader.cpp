@@ -212,7 +212,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
-    _reader_context.seek_columns = &_seek_columns;
     _reader_context.load_bf_columns = &_load_bf_columns;
     _reader_context.load_bf_all_columns = &_load_bf_all_columns;
     _reader_context.conditions = &_conditions;
@@ -270,15 +269,11 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
         LOG(WARNING) << "fail to init keys param. res=" << res;
         return res;
     }
-
     res = _init_orderby_keys_param(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init orderby keys param. res=" << res;
         return res;
     }
-
-    _init_seek_columns();
-
     if (_tablet_schema->has_sequence_col()) {
         auto sequence_col_idx = _tablet_schema->sequence_col_idx();
         DCHECK_NE(sequence_col_idx, -1);
@@ -298,19 +293,6 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
-
-        if (!_delete_handler.empty()) {
-            // We need to fetch columns which there are deletion conditions on them.
-            std::set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
-            for (const auto& conds : _delete_handler.get_delete_conditions()) {
-                for (const auto& cond_column : conds.del_cond->columns()) {
-                    if (column_set.find(cond_column.first) == column_set.end()) {
-                        column_set.insert(cond_column.first);
-                        _return_columns.push_back(cond_column.first);
-                    }
-                }
-            }
-        }
         for (auto id : read_params.return_columns) {
             if (_tablet_schema->column(id).is_key()) {
                 _key_cids.push_back(id);
@@ -358,26 +340,6 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
 
     return Status::OK();
-}
-
-void TabletReader::_init_seek_columns() {
-    std::unordered_set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
-    for (auto& it : _conditions.columns()) {
-        column_set.insert(it.first);
-    }
-    size_t max_key_column_count = 0;
-    for (const auto& key : _keys_param.start_keys) {
-        max_key_column_count = std::max(max_key_column_count, key.field_count());
-    }
-    for (const auto& key : _keys_param.end_keys) {
-        max_key_column_count = std::max(max_key_column_count, key.field_count());
-    }
-
-    for (size_t i = 0; i < _tablet_schema->num_columns(); i++) {
-        if (i < max_key_column_count || column_set.find(i) != column_set.end()) {
-            _seek_columns.push_back(i);
-        }
-    }
 }
 
 Status TabletReader::_init_keys_param(const ReaderParams& read_params) {

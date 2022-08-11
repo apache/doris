@@ -304,7 +304,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path
                      << ", err: " << st.get_error_msg();
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return st;
     }
 
     DCHECK(file_writer != nullptr);
@@ -322,7 +322,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return s;
     }
     return Status::OK();
 }
