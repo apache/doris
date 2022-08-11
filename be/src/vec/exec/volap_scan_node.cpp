@@ -365,6 +365,16 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 }
             } else {
                 if (_scanner_done) {
+                    // We should close eof scanners before transfer done, otherwise,
+                    // they are closed until scannode is closed. Because plan is closed
+                    // after the plan is finished, so query profile would leak stats from
+                    // scanners closed by scannode::close.
+                    while (!_volap_scanners.empty()) {
+                        auto scanner = _volap_scanners.front();
+                        _volap_scanners.pop_front();
+                        DCHECK(scanner->need_to_close());
+                        scanner->close(state);
+                    }
                     break;
                 }
             }
