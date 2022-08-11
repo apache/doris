@@ -35,19 +35,35 @@ import org.apache.logging.log4j.Logger;
  */
 public class UseStmt extends StatementBase {
     private static final Logger LOG = LogManager.getLogger(UseStmt.class);
+    private String catalogName;
     private String database;
 
     public UseStmt(String db) {
         database = db;
     }
 
+    public UseStmt(String catalogName, String db) {
+        this.catalogName = catalogName;
+        this.database = db;
+    }
+
     public String getDatabase() {
         return database;
     }
 
+    public String getCatalogName() {
+        return catalogName;
+    }
+
     @Override
     public String toSql() {
-        return "USE `" + database + "`";
+        StringBuilder sb = new StringBuilder();
+        sb.append("USE ");
+        if (catalogName != null) {
+            sb.append("`").append(catalogName).append("`.");
+        }
+        sb.append("`").append(database).append("`");
+        return sb.toString();
     }
 
     @Override

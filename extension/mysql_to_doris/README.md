@@ -1,11 +1,4 @@
----
-{
-    "title": "USE",
-    "language": "en"
-}
----
-
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,43 +17,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## USE
+How to do?
 
-### Name
+1、To configure mysql.conf and doris.conf in the conf directory,the conf including
+host、port and password
 
-USE
+2、sh all_tables.sh and give it two args,it is mysql database and doris database
 
-### Description
+In addition
 
-The USE command allows us to use the database
+user can add mysql tables to the conf directory tables by sh user_define_tables.sh
+can also be export mysql tables to doris
 
-grammar:
-
-````SQL
-USE <[CATALOG_NAME].DATABASE_NAME>
-````
-
-illustrate:
-1. `USE CATALOG_NAME.DATABASE_NAME` will switch the current catalog into `CATALOG_NAME` and then change the current database into `DATABASE_NAME`
-
-### Example
-
-1. If the demo database exists in current catalog, try accessing it:
-
-    ```sql
-    mysql> use demo;
-    Database changed
-    ````
-2. If the demo database exists in catalog hms_catalog, try switching the catalog and accessing it:
-
-    ```sql
-    mysql> use hms_catalog.demo;
-    Database changed
-    ````
-
-### Keywords
-
-    USE
-
-### Best Practice
-
+just do it
