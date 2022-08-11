@@ -15,40 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-/**
- * Types for all Plan in Nereids.
- */
-public enum PlanType {
-    UNKNOWN,
+import org.apache.doris.nereids.properties.OrderKey;
 
-    // logical plan
-    LOGICAL_UNBOUND_RELATION,
-    LOGICAL_BOUND_RELATION,
-    LOGICAL_PROJECT,
-    LOGICAL_FILTER,
-    LOGICAL_JOIN,
-    LOGICAL_AGGREGATE,
-    LOGICAL_SORT,
-    LOGICAL_LIMIT,
-    LOGICAL_OLAP_SCAN,
-    LOGICAL_APPLY,
-    LOGICAL_CORRELATED_JOIN,
-    LOGICAL_ENFORCE_SINGLE_ROW,
-    GROUP_PLAN,
+import java.util.List;
 
-    // physical plan
-    PHYSICAL_OLAP_SCAN,
-    PHYSICAL_PROJECT,
-    PHYSICAL_FILTER,
-    PHYSICAL_BROADCAST_HASH_JOIN,
-    PHYSICAL_AGGREGATE,
-    PHYSICAL_SORT,
-    PHYSICAL_LOCAL_QUICK_SORT,
-    PHYSICAL_LIMIT,
-    PHYSICAL_HASH_JOIN,
-    PHYSICAL_NESTED_LOOP_JOIN,
-    PHYSICAL_EXCHANGE,
-    PHYSICAL_DISTRIBUTION;
+public interface Sort {
+    List<OrderKey> getOrderKeys();
 }

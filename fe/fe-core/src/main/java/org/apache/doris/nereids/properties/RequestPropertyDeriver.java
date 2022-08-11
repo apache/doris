@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -108,7 +109,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, PlanContext context) {
-        addToRequestPropertyToChildren(PhysicalProperties.GATHER);
+        addToRequestPropertyToChildren(PhysicalProperties.ANY);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<Plan> sort, PlanContext context) {
+        addToRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 

@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -330,6 +331,42 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //exchangeNode.limit/offset will be set in when translating  PhysicalLimit
         exchangeNode.setMergeInfo(sortNode.getSortInfo());
         return mergeFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<Plan> sort, PlanTranslatorContext context) {
+        PlanFragment childFragment = sort.child(0).accept(this, context);
+        // TODO: need to discuss how to process field: SortNode::resolvedTupleExprs
+        List<Expr> oldOrderingExprList = Lists.newArrayList();
+        List<Boolean> ascOrderList = Lists.newArrayList();
+        List<Boolean> nullsFirstParamList = Lists.newArrayList();
+        List<OrderKey> orderKeyList = sort.getOrderKeys();
+        // 1.Get previous slotRef
+        orderKeyList.forEach(k -> {
+            oldOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
+            ascOrderList.add(k.isAsc());
+            nullsFirstParamList.add(k.isNullFirst());
+        });
+        List<Expr> sortTupleOutputList = new ArrayList<>();
+        List<Slot> outputList = sort.getOutput();
+        outputList.forEach(k -> {
+            sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
+        });
+        // 2. Generate new Tuple
+        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, context, null);
+        // 3. Get current slotRef
+        List<Expr> newOrderingExprList = Lists.newArrayList();
+        orderKeyList.forEach(k -> {
+            newOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
+        });
+        // 4. fill in SortInfo members
+        SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
+        PlanNode childNode = childFragment.getPlanRoot();
+        // TODO: notice topN
+        SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
+        sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
+        childFragment.addPlanRoot(sortNode);
+        return childFragment;
     }
 
     // TODO: 1. support shuffle join / co-locate / bucket shuffle join later

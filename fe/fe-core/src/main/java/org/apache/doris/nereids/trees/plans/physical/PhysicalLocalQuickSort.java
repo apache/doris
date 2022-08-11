@@ -34,15 +34,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/**
- * Physical sort plan.
- */
-public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Sort {
+public class PhysicalLocalQuickSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Sort {
 
     private final List<OrderKey> orderKeys;
 
 
-    public PhysicalHeapSort(List<OrderKey> orderKeys,
+    public PhysicalLocalQuickSort(List<OrderKey> orderKeys,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(orderKeys, Optional.empty(), logicalProperties, child);
     }
@@ -50,10 +47,10 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalHeapSort(List<OrderKey> orderKeys,
+    public PhysicalLocalQuickSort(List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_SORT, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_LOCAL_QUICK_SORT, groupExpression, logicalProperties, child);
         this.orderKeys = orderKeys;
     }
 
@@ -69,7 +66,7 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalHeapSort that = (PhysicalHeapSort) o;
+        PhysicalLocalQuickSort that = (PhysicalLocalQuickSort) o;
         return Objects.equals(orderKeys, that.orderKeys);
     }
 
@@ -80,7 +77,7 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalHeapSort((PhysicalHeapSort<Plan>) this, context);
+        return visitor.visitPhysicalLocalQuickSort((PhysicalLocalQuickSort<Plan>) this, context);
     }
 
     @Override
@@ -93,22 +90,22 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalHeapSort<>(orderKeys, logicalProperties, children.get(0));
+        return new PhysicalLocalQuickSort<>(orderKeys, logicalProperties, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHeapSort<>(orderKeys, groupExpression, logicalProperties, child());
+        return new PhysicalLocalQuickSort<>(orderKeys, groupExpression, logicalProperties, child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHeapSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
+        return new PhysicalLocalQuickSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
     }
 
     @Override
     public String toString() {
-        return "PhysicalHeapSort ("
+        return "PhysicalLocalQuickSort ("
                 + StringUtils.join(orderKeys, ", ") + ")";
     }
 }
