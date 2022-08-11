@@ -177,7 +177,7 @@ public class InlineViewRef extends TableRef {
 
         // Analyze the inline view query statement with its own analyzer
         inlineViewAnalyzer = new Analyzer(analyzer);
-
+        inlineViewAnalyzer.setInlineView(true);
         queryStmt.analyze(inlineViewAnalyzer);
         correlatedTupleIds_.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
