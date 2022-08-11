@@ -266,7 +266,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k1 = 10
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
             column_predicates.emplace_back(predicate.get());
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;
@@ -350,7 +351,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k3 < 100
-            ColumnPredicate* predicate = new LessPredicate<int32_t>(2, 100);
+            ColumnPredicate* predicate =
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(2, 100);
             column_predicates.emplace_back(predicate);
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;

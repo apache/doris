@@ -425,10 +425,18 @@ public class ConnectContext {
 
     public DataSourceIf getCurrentDataSource() {
         // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
+        return getDataSource(defaultCatalog);
+    }
+
+    /**
+     * Maybe return when catalogName is not exist. So need to check nullable.
+     */
+    public DataSourceIf getDataSource(String catalogName) {
+        String realCatalogName = catalogName == null ? defaultCatalog : catalogName;
         if (env == null) {
-            return Env.getCurrentEnv().getDataSourceMgr().getCatalog(defaultCatalog);
+            return Env.getCurrentEnv().getDataSourceMgr().getCatalog(realCatalogName);
         }
-        return env.getDataSourceMgr().getCatalog(defaultCatalog);
+        return env.getDataSourceMgr().getCatalog(realCatalogName);
     }
 
     public void changeDefaultCatalog(String catalogName) {
@@ -512,7 +520,11 @@ public class ConnectContext {
             // Close channel to break connection with client
             getMysqlChannel().close();
         }
-        // Now, cancel running process.
+        // Now, cancel running query.
+        cancelQuery();
+    }
+
+    public void cancelQuery() {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
             executorRef.cancel();

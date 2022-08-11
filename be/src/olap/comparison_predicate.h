@@ -24,9 +24,11 @@
 
 namespace doris {
 
-template <class T, PredicateType PT>
+template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
+    using T = std::conditional_t<Type == TYPE_DATE, uint24_t,
+                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite), _value(value) {
         if constexpr (std::is_same_v<T, uint24_t>) {
@@ -186,7 +188,7 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<TReal>&>(
+                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<Type>&>(
                                            nested_column)
                                            .get_data()
                                            .data();
@@ -209,7 +211,7 @@ public:
                 }
             } else {
                 auto* data_array =
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(
+                        vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(
                                 column)
                                 ->get_data()
                                 .data();
@@ -236,7 +238,7 @@ public:
     }
 
 private:
-    using TReal = std::conditional_t<std::is_same_v<T, uint24_t>, uint32_t, T>;
+    using TReal = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
 
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
@@ -389,7 +391,7 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column)
                             ->get_data()
                             .data();
 
@@ -436,7 +438,7 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column)
                             ->get_data()
                             .data();
 
@@ -447,18 +449,5 @@ private:
     T _value;
     TReal _value_real;
 };
-
-template <class T>
-using EqualPredicate = ComparisonPredicateBase<T, PredicateType::EQ>;
-template <class T>
-using NotEqualPredicate = ComparisonPredicateBase<T, PredicateType::NE>;
-template <class T>
-using LessPredicate = ComparisonPredicateBase<T, PredicateType::LT>;
-template <class T>
-using LessEqualPredicate = ComparisonPredicateBase<T, PredicateType::LE>;
-template <class T>
-using GreaterPredicate = ComparisonPredicateBase<T, PredicateType::GT>;
-template <class T>
-using GreaterEqualPredicate = ComparisonPredicateBase<T, PredicateType::GE>;
 
 } //namespace doris
