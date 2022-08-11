@@ -21,12 +21,13 @@ on:
   push:
     branches:
       - master
-  pull_request_target:
+    types: [closed]
 
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.merged }}
     env:
       SONAR_SCANNER_VERSION: 4.7.0.2747
       SONAR_SERVER_URL: "https://sonarcloud.io"
