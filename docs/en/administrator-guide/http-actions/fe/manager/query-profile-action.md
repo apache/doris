@@ -306,3 +306,63 @@ Get the tree profile information of the specified query id, same as `show query 
     "count": 0
 }
 ```
+
+## Current running queries
+
+`GET /rest/v2/manager/query/current_queries`
+
+### Description
+
+Same as `show proc "/current_query_stmts"`, return current running queries.
+    
+### Path parameters
+
+### Query parameters
+
+* `is_all_node`
+  
+    Optional. Return current running queries from all FE if set to true. Default is true.
+
+### Response
+
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"columnNames": ["Frontend", "QueryId", "ConnectionId", "Database", "User", "ExecTime", "SqlHash", "Statement"],
+		"rows": [
+			["172.19.0.3", "108e47ab438a4560-ab1651d16c036491", "2", "", "root", "6074", "1a35f62f4b14b9d7961b057b77c3102f", "select sleep(60)"],
+			["172.19.0.11", "3606cad4e34b49c6-867bf6862cacc645", "3", "", "root", "9306", "1a35f62f4b14b9d7961b057b77c3102f", "select sleep(60)"]
+		]
+	},
+	"count": 0
+}
+```
+
+## Cancel query
+
+`POST /rest/v2/manager/query/kill/{connection_id}`
+
+### Description
+
+Cancel query of specified connection.
+    
+### Path parameters
+
+* `{connection_id}`
+
+    connection id
+
+### Query parameters
+
+### Response
+
+```
+{
+    "msg": "success",
+    "code": 0,
+    "data": "",
+    "count": 0
+}
+```
