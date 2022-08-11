@@ -25,6 +25,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Before;
@@ -40,19 +41,38 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class TableTest {
+
+    public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""));
+
+        return newOlapTable(tableId, tableName, hashColumn, columns);
+    }
+
+    public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, List<Column> columns) {
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
+                ImmutableList.of(columns.get(hashColumn)));
+
+        OlapTable table = new OlapTable(tableId, tableName, columns,
+                KeysType.PRIMARY_KEYS, null, hashDistributionInfo);
+        table.setIndexMeta(-1,
+                "base",
+                table.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
+        return table;
+    }
+
     private FakeEnv fakeEnv;
 
-    private Env env;
-
     private Table table;
-    private long tableId = 10000;
 
     @Before
     public void setUp() {
+        table = newOlapTable(10000, "test", 0);
         fakeEnv = new FakeEnv();
-        env = Deencapsulation.newInstance(Env.class);
-        table = new Table(Table.TableType.OLAP);
-        table.setName("test");
+        Env env = Deencapsulation.newInstance(Env.class);
         FakeEnv.setEnv(env);
         FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
@@ -118,22 +138,22 @@ public class TableTest {
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         columns.add(column2);
         columns.add(new Column("column3",
-                        ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
+                ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4",
-                        ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column5",
-                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column6",
-                        ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
+                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column7",
-                        ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
+                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
         columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
 
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
-                                                  new SinglePartitionInfo(), new RandomDistributionInfo(10));
+                new SinglePartitionInfo(), new RandomDistributionInfo(10));
         short shortKeyColumnCount = 1;
         table1.setIndexMeta(1000, "group1", columns, 1, 1,
                 shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
