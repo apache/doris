@@ -97,13 +97,13 @@ And a Fragment will be further divided into multiple Instances. Instance is the 
 
 You can view the execution plan of a SQL through the following two commands.
 
-- `EXPLAIN GRAPH select ...;`
+- `EXPLAIN GRAPH select ...;` OR `DESC GRAPH select ...;`
 - `EXPLAIN select ...;`
 
 The first command displays a query plan graphically. This command can more intuitively display the tree structure of the query plan and the division of Fragments:
 
 ```sql
-mysql> desc graph select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
+mysql> explain graph select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
 +---------------------------------------------------------------------------------------------------------------------------------+
 | Explain String                                                                                                                  |
 +---------------------------------------------------------------------------------------------------------------------------------+

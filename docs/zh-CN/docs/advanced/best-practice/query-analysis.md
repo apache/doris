@@ -96,13 +96,13 @@ Doris 的查询规划过程是先将一个 SQL 语句转换成一个单机执行
 
 可以通过以下两种命令查看一个 SQL 的执行计划。
 
-- `EXPLAIN GRAPH select ...;`
+- `EXPLAIN GRAPH select ...;` 或者 `DESC GRAPH select ...;`
 - `EXPLAIN select ...;`
 
 其中第一个命令以图形化的方式展示一个查询计划，这个命令可以比较直观的展示查询计划的树形结构，以及 Fragment 的划分情况：
 
 ```sql
-mysql> desc graph select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
+mysql> explain graph select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
 +---------------------------------------------------------------------------------------------------------------------------------+
 | Explain String                                                                                                                  |
 +---------------------------------------------------------------------------------------------------------------------------------+
