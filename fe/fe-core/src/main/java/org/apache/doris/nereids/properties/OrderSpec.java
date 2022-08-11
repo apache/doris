@@ -60,6 +60,8 @@ public class OrderSpec {
     }
 
     public GroupExpression addEnforcer(Group child) {
+        // TODO: should not add global sort node, instead, we need a local sort node.
+        //  NOTICE: if we has both order and gather, then a global sort node is needed.
         return new GroupExpression(
                 new PhysicalHeapSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)

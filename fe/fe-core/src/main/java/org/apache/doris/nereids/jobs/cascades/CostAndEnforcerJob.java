@@ -136,7 +136,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     // This child isn't optimized, create new job to optimize it.
                     // Meaning that optimize recursively by derive job.
                     prevChildIndex = curChildIndex;
-                    pushJob((CostAndEnforcerJob) clone());
+                    pushJob(clone());
                     double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
                     JobContext jobContext = new JobContext(context.getPlannerContext(), requestChildProperty,
                             newCostUpperBound);
@@ -205,6 +205,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         PhysicalProperties requestedProperties = context.getRequiredProperties();
         if (!outputProperty.satisfy(requestedProperties)) {
+            // TODO: some times we cannot add enforce to satisfied requestedProperties
+            //  In this case, we need to return directly.
             Pair<PhysicalProperties, Double> pair = enforceMissingPropertiesHelper.enforceProperty(outputProperty,
                     requestedProperties);
             PhysicalProperties addEnforcedProperty = pair.first;
@@ -241,14 +243,15 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
      * Shallow clone (ignore clone propertiesListList and groupExpression).
      */
     @Override
-    public Object clone() {
-        CostAndEnforcerJob task;
+    public CostAndEnforcerJob clone() {
+        CostAndEnforcerJob job;
         try {
-            task = (CostAndEnforcerJob) super.clone();
+            // TODO: need to implement this method
+            job = (CostAndEnforcerJob) super.clone();
         } catch (CloneNotSupportedException e) {
             e.printStackTrace();
-            return null;
+            throw new RuntimeException("clone cost and enforcer job failed.");
         }
-        return task;
+        return job;
     }
 }

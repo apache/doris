@@ -31,8 +31,8 @@ import com.google.common.collect.Lists;
  */
 public class EnforceMissingPropertiesHelper {
 
-    private JobContext context;
-    private GroupExpression groupExpression;
+    private final JobContext context;
+    private final GroupExpression groupExpression;
     private double curTotalCost;
 
     public EnforceMissingPropertiesHelper(JobContext context, GroupExpression groupExpression,
@@ -46,40 +46,40 @@ public class EnforceMissingPropertiesHelper {
      * Enforce missing property.
      */
     public Pair<PhysicalProperties, Double> enforceProperty(PhysicalProperties output, PhysicalProperties required) {
-        boolean isMeetOrder = output.getOrderSpec().satisfy(required.getOrderSpec());
-        boolean isMeetDistribution = output.getDistributionSpec().satisfy(required.getDistributionSpec());
+        boolean isSatisfyOrder = output.getOrderSpec().satisfy(required.getOrderSpec());
+        boolean isSatisfyDistribution = output.getDistributionSpec().satisfy(required.getDistributionSpec());
 
-        if (!isMeetDistribution && !isMeetOrder) {
+        if (!isSatisfyDistribution && !isSatisfyOrder) {
             // Both Distribution and Order don't satisfy.
-            return new Pair<>(enforceSortAndDistribution(output, required), curTotalCost);
-        } else if (isMeetDistribution && isMeetOrder) {
+            return new Pair<>(enforceOrderAndDistribution(output, required), curTotalCost);
+        } else if (isSatisfyDistribution && isSatisfyOrder) {
             // Both satisfy.
             // TODO: can't reach here.
             return new Pair<>(null, curTotalCost);
-        } else if (!isMeetDistribution) {
+        } else if (!isSatisfyDistribution) {
             // Distribution don't satisfy.
             if (required.getOrderSpec().getOrderKeys().isEmpty()) {
                 return new Pair<>(enforceDistribution(output), curTotalCost);
             } else {
                 // TODO
-                // It's wrong that SortSpec is empty.
-                // After redistribute data , original order requirement may be wrong. Need enforce "SortNode" here.
-                // PhysicalProperties newProperty =
-                //         new PhysicalProperties(new DistributionSpec(), new OrderSpec(Lists.newArrayList()));
-                // groupExpression.getParent().
-                // return enforceSortAndDistribution(newProperty, required);
+                //   It's wrong that SortSpec is empty.
+                //   After redistribute data , original order requirement may be wrong. Need enforce "SortNode" here.
+                //   PhysicalProperties newProperty =
+                //           new PhysicalProperties(new DistributionSpec(), new OrderSpec(Lists.newArrayList()));
+                //   groupExpression.getParent().
+                //   return enforceSortAndDistribution(newProperty, required);
                 return new Pair<>(enforceDistribution(output), curTotalCost);
             }
         } else {
             // Order don't satisfy.
-            return new Pair<>(enforceSort(output), curTotalCost);
+            return new Pair<>(enforceOrder(output), curTotalCost);
         }
+
     }
 
-    private PhysicalProperties enforceSort(PhysicalProperties oldOutputProperty) {
+    private PhysicalProperties enforceOrder(PhysicalProperties oldOutputProperty) {
         // clone
         PhysicalProperties newOutputProperty = new PhysicalProperties(
-                oldOutputProperty.getDistributionSpec(),
                 context.getRequiredProperties().getOrderSpec());
         GroupExpression enforcer =
                 context.getRequiredProperties().getOrderSpec().addEnforcer(groupExpression.getOwnerGroup());
@@ -91,8 +91,7 @@ public class EnforceMissingPropertiesHelper {
 
     private PhysicalProperties enforceDistribution(PhysicalProperties oldOutputProperty) {
         PhysicalProperties newOutputProperty = new PhysicalProperties(
-                context.getRequiredProperties().getDistributionSpec(),
-                oldOutputProperty.getOrderSpec());
+                context.getRequiredProperties().getDistributionSpec());
         GroupExpression enforcer =
                 context.getRequiredProperties().getDistributionSpec().addEnforcer(groupExpression.getOwnerGroup());
 
@@ -113,16 +112,16 @@ public class EnforceMissingPropertiesHelper {
         groupExpression.getOwnerGroup().setBestPlan(enforcer, curTotalCost, newOutputProperty);
     }
 
-    private PhysicalProperties enforceSortAndDistribution(PhysicalProperties outputProperty,
+    private PhysicalProperties enforceOrderAndDistribution(PhysicalProperties outputProperty,
             PhysicalProperties requiredProperty) {
         PhysicalProperties enforcedProperty;
         if (requiredProperty.getDistributionSpec()
                 .equals(new DistributionSpecGather())) {
-            enforcedProperty = enforceSort(outputProperty);
+            enforcedProperty = enforceOrder(outputProperty);
             enforcedProperty = enforceDistribution(enforcedProperty);
         } else {
             enforcedProperty = enforceDistribution(outputProperty);
-            enforcedProperty = enforceSort(enforcedProperty);
+            enforcedProperty = enforceOrder(enforcedProperty);
         }
 
         return enforcedProperty;
