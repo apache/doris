@@ -25,8 +25,8 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Context of physical plan.
@@ -53,6 +54,8 @@ public class PlanTranslatorContext {
     private final Map<ExprId, SlotRef> exprIdSlotRefMap = new HashMap<>();
 
     private final List<ScanNode> scanNodeList = new ArrayList<>();
+
+    private final Map<PhysicalPlan, Set<ExprId>> requiredSlotOfEachPhysicalOperator = new HashMap<>();
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
@@ -114,14 +117,6 @@ public class PlanTranslatorContext {
         return slotDescriptor;
     }
 
-    /**
-     * Create slotDesc with Expression.
-     */
-    public void createSlotDesc(TupleDescriptor tupleDesc, Expression expression) {
-        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-        slotDescriptor.setType(expression.getDataType().toCatalogDataType());
-    }
-
     public TupleDescriptor getTupleDesc(TupleId tupleId) {
         return descTable.getTupleDesc(tupleId);
     }
@@ -129,4 +124,13 @@ public class PlanTranslatorContext {
     public DescriptorTable getDescTable() {
         return descTable;
     }
+
+    public void putPlanToExprIdMapping(PhysicalPlan plan, Set<ExprId> exprId) {
+        requiredSlotOfEachPhysicalOperator.put(plan, exprId);
+    }
+
+    public Set<ExprId> getRequiredExprId(PhysicalPlan plan) {
+        return requiredSlotOfEachPhysicalOperator.get(plan);
+    }
+
 }

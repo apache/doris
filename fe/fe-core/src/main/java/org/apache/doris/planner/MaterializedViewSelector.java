@@ -74,7 +74,7 @@ public class MaterializedViewSelector {
      * `columnNamesInPredicates` means that the column names in where clause.
      * And so on.
      */
-    private Map<Long, Set<String>> columnNamesInPredicates = Maps.newHashMap();
+    private final Map<Long, Set<String>> tableIdToColumnName = Maps.newHashMap();
     private boolean isSPJQuery;
     private Map<Long, Set<String>> columnNamesInGrouping = Maps.newHashMap();
     private Map<Long, Set<FunctionCallExpr>> aggColumnsInQuery = Maps.newHashMap();
@@ -138,7 +138,7 @@ public class MaterializedViewSelector {
         Preconditions.checkState(table != null);
         long tableId = table.getId();
         // Step2: check all columns in compensating predicates are available in the view output
-        checkCompensatingPredicates(columnNamesInPredicates.get(tableId), candidateIndexIdToMeta);
+        checkCompensatingPredicates(tableIdToColumnName.get(tableId), candidateIndexIdToMeta);
         // Step3: group by list in query is the subset of group by list in view or view contains no aggregation
         checkGrouping(table, columnNamesInGrouping.get(tableId), candidateIndexIdToMeta);
         // Step4: aggregation functions are available in the view output
@@ -220,6 +220,7 @@ public class MaterializedViewSelector {
             for (Column col : indexSchema) {
                 if (equivalenceColumns.contains(col.getName())) {
                     prefixMatchCount++;
+                    // TODO: Why below is a else if rather than another if branch
                 } else if (unequivalenceColumns.contains(col.getName())) {
                     // Unequivalence predicate's columns can match only first column in rollup.
                     prefixMatchCount++;
@@ -426,13 +427,13 @@ public class MaterializedViewSelector {
         // Step1: compute the columns in compensating predicates
         Expr whereClause = selectStmt.getWhereClause();
         if (whereClause != null) {
-            whereClause.getTableIdToColumnNames(columnNamesInPredicates);
+            whereClause.getTableIdToColumnNames(tableIdToColumnName);
         }
         for (TableRef tableRef : selectStmt.getTableRefs()) {
             if (tableRef.getOnClause() == null) {
                 continue;
             }
-            tableRef.getOnClause().getTableIdToColumnNames(columnNamesInPredicates);
+            tableRef.getOnClause().getTableIdToColumnNames(tableIdToColumnName);
         }
 
         if (selectStmt.getAggInfo() == null) {

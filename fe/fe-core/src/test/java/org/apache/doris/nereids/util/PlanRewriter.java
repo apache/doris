@@ -39,7 +39,7 @@ public class PlanRewriter {
         return new Memo(plan)
                 .newPlannerContext(connectContext)
                 .setDefaultJobContext()
-                .topDownRewrite(rules)
+                .bottomUpRewrite(rules)
                 .getMemo();
     }
 
@@ -47,7 +47,7 @@ public class PlanRewriter {
         return new Memo(plan)
                 .newPlannerContext(connectContext)
                 .setDefaultJobContext()
-                .topDownRewrite(rules)
+                .bottomUpRewrite(rules)
                 .getMemo();
     }
 

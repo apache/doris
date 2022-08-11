@@ -318,7 +318,6 @@ public class OlapScanNode extends ScanNode {
             }
             situation = "The key type of table is aggregated.";
             update = false;
-            break CHECK;
         } // CHECKSTYLE IGNORE THIS LINE
 
         if (update) {
