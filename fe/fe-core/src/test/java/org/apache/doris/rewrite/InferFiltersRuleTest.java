@@ -140,14 +140,23 @@ public class InferFiltersRuleTest {
     }
 
     @Test
-    public void testOn2TablesLeftAntiJoinEqLiteralAt1st() throws Exception {
+    public void testOn2TablesLeftJoinNotInferable() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 left anti join tb2 on tb1.k1 = tb2.k1 and tb1.k1 = 1";
+        String query = "select * from tb1 left join tb2 on tb1.k1 = tb2.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
+        Assert.assertFalse(planString.contains("`tb1`.`k1` = 1"));
     }
+
+    /*
+    the following 3 test case is valid. But we cannot tell them from other incorrect inferences.
+    In origin design we made a mistake: we assume inference is symmetrical.
+    For example, t1.x=t2.x and t1.x=1 => t2.x=1
+    this is not always true.
+    if this is left join, t1 is left, t2.x=1 is not valid.
+    However, in inferFilterRule, we do not know whether t1.x is from left or right table.
+    And hence, we have to skip inference for outer/anti join for quick fix.
 
     @Test
     public void testOn3Tables1stInner2ndRightJoinEqLiteralAt2nd() throws Exception {
@@ -172,7 +181,16 @@ public class InferFiltersRuleTest {
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
     }
-
+    @Test
+    public void testOn2TablesLeftAntiJoinEqLiteralAt1st() throws Exception {
+        SessionVariable sessionVariable = dorisAssert.getSessionVariable();
+        sessionVariable.setEnableInferPredicate(true);
+        Assert.assertTrue(sessionVariable.isEnableInferPredicate());
+        String query = "select * from tb1 left anti join tb2 on tb1.k1 = tb2.k1 and tb1.k1 = 1";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
+    }
+     */
     @Test
     public void testOnIsNotNullPredicate() throws Exception {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
