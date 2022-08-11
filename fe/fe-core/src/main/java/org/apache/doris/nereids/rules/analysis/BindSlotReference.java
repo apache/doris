@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -53,8 +54,12 @@ import java.util.stream.Stream;
 public class BindSlotReference implements AnalysisRuleFactory {
     private final Optional<Scope> outerScope;
 
+    public BindSlotReference() {
+        this(Optional.empty());
+    }
+
     public BindSlotReference(Optional<Scope> outputScope) {
-        this.outerScope = outputScope;
+        this.outerScope = Objects.requireNonNull(outputScope, "outerScope can not be null");
     }
 
     private Scope toScope(List<Slot> slots) {
