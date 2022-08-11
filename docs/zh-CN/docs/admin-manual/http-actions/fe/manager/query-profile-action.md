@@ -34,9 +34,16 @@ under the License.
 
 `GET /rest/v2/manager/query/profile/text/{query_id}`
 
+`GET /rest/v2/manager/query/profile/graph/{query_id}`
+
+`GET /rest/v2/manager/query/profile/json/{query_id}`
+
 `GET /rest/v2/manager/query/profile/fragments/{query_id}`
 
-`GET /rest/v2/manager/query/profile/graph/{query_id}`
+`GET /rest/v2/manager/query/current_queries`
+
+`GET /rest/v2/manager/query/kill/{connection_id}`
+
 
 ## 获取查询信息
 
@@ -303,6 +310,66 @@ GET /rest/v2/manager/query/query_info
     "data": {
         "graph":""
     },
+    "count": 0
+}
+```
+
+## 正在执行的query
+
+`GET /rest/v2/manager/query/current_queries`
+
+### Description
+
+同 `show proc "/current_query_stmts"`，返回当前正在执行的 query
+    
+### Path parameters
+
+### Query parameters
+
+* `is_all_node`
+  
+    可选，若为 true 则返回所有FE节点当前正在执行的 query 信息。默认为 true。
+
+### Response
+
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"columnNames": ["Frontend", "QueryId", "ConnectionId", "Database", "User", "ExecTime", "SqlHash", "Statement"],
+		"rows": [
+			["172.19.0.3", "108e47ab438a4560-ab1651d16c036491", "2", "", "root", "6074", "1a35f62f4b14b9d7961b057b77c3102f", "select sleep(60)"],
+			["172.19.0.11", "3606cad4e34b49c6-867bf6862cacc645", "3", "", "root", "9306", "1a35f62f4b14b9d7961b057b77c3102f", "select sleep(60)"]
+		]
+	},
+	"count": 0
+}
+```
+
+## 取消query
+
+`POST /rest/v2/manager/query/kill/{connection_id}`
+
+### Description
+
+取消执行连接中正在执行的 query
+    
+### Path parameters
+
+* `{connection_id}`
+
+    connection id
+
+### Query parameters
+
+### Response
+
+```
+{
+    "msg": "success",
+    "code": 0,
+    "data": "",
     "count": 0
 }
 ```
