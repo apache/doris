@@ -38,6 +38,7 @@ public class ShowDbStmt extends ShowStmt {
                     .build();
 
     private String pattern;
+    private String catalogName;
     private Expr where;
     private SelectStmt selectStmt;
 
@@ -50,8 +51,18 @@ public class ShowDbStmt extends ShowStmt {
         this.where = where;
     }
 
+    public ShowDbStmt(String pattern, Expr where, String catalogName) {
+        this.pattern = pattern;
+        this.where = where;
+        this.catalogName = catalogName;
+    }
+
     public String getPattern() {
         return pattern;
+    }
+
+    public String getCatalogName() {
+        return catalogName;
     }
 
     @Override
@@ -86,6 +97,9 @@ public class ShowDbStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder("SHOW DATABASES");
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
+        }
+        if (catalogName != null) {
+            sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();
     }

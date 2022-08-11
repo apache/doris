@@ -156,6 +156,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -658,7 +659,11 @@ public class ShowExecutor {
         ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // cluster feature is deprecated.
-        List<String> dbNames = ctx.getCurrentDataSource().getDbNames();
+        DataSourceIf dataSourceIf = ctx.getDataSource(showDbStmt.getCatalogName());
+        if (dataSourceIf == null) {
+            throw new AnalysisException("No catalog found with name " + showDbStmt.getCatalogName());
+        }
+        List<String> dbNames = dataSourceIf.getDbNames();
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),

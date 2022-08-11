@@ -1494,6 +1494,9 @@ public class StmtExecutor implements ProfileWriter {
             if (Strings.isNullOrEmpty(useStmt.getClusterName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
             }
+            if (useStmt.getCatalogName() != null) {
+                context.getEnv().changeCatalog(context, useStmt.getCatalogName());
+            }
             context.getEnv().changeDb(context, useStmt.getDatabase());
         } catch (DdlException e) {
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
