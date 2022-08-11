@@ -50,7 +50,7 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, child);
-        this.orderKeys = orderKeys;
+        this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
     }
 
     public List<OrderKey> getOrderKeys() {
