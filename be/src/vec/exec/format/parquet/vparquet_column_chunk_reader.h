@@ -59,7 +59,7 @@ namespace doris::vectorized {
 class ColumnChunkReader {
 public:
     ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* fieldSchema);
+                      FieldSchema* field_schema);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.

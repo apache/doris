@@ -20,10 +20,10 @@
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* fieldSchema)
-        : _max_rep_level(fieldSchema->repetition_level),
-          _max_def_level(fieldSchema->definition_level),
-          _parquet_logical_type(fieldSchema->logical_type),
+                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema)
+        : _max_rep_level(field_schema->repetition_level),
+          _max_def_level(field_schema->definition_level),
+          _parquet_logical_type(field_schema->logical_type),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data) {}
 
