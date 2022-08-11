@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
@@ -30,7 +31,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
@@ -41,8 +41,8 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
     private Logger logger = LoggerFactory.getLogger(getClass());
 
     @Override
-    public LogicalPlan visitLogicalSelectHint(LogicalSelectHint<Plan> selectHint, StatementContext context) {
-        for (Entry<String, Map<String, Optional<String>>> hint : selectHint.getHints().entrySet()) {
+    public LogicalPlan visitLogicalSelectHint(LogicalSelectHint<Plan> selectHintPlan, StatementContext context) {
+        for (Entry<String, SelectHint> hint : selectHintPlan.getHints().entrySet()) {
             String hintName = hint.getKey();
             if (hintName.equalsIgnoreCase("SET_VAR")) {
                 setVar(hint.getValue(), context);
@@ -51,13 +51,13 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
             }
         }
 
-        return (LogicalPlan) selectHint.child();
+        return (LogicalPlan) selectHintPlan.child();
     }
 
-    private void setVar(Map<String, Optional<String>> parameters, StatementContext context) {
+    private void setVar(SelectHint selectHint, StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         sessionVariable.setIsSingleSetVar(true);
-        for (Entry<String, Optional<String>> kv : parameters.entrySet()) {
+        for (Entry<String, Optional<String>> kv : selectHint.getParameters().entrySet()) {
             String key = kv.getKey();
             Optional<String> value = kv.getValue();
             if (value.isPresent()) {

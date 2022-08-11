@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -41,13 +41,13 @@ import java.util.stream.Collectors;
  * e.g. LogicalSelectHint (set_var(query_timeout='1800', exec_mem_limit='2147483648'))
  */
 public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-    private final Map<String, Map<String, Optional<String>>> hints;
+    private final Map<String, SelectHint> hints;
 
-    public LogicalSelectHint(Map<String, Map<String, Optional<String>>> hints, CHILD_TYPE child) {
+    public LogicalSelectHint(Map<String, SelectHint> hints, CHILD_TYPE child) {
         this(hints, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalSelectHint(Map<String, Map<String, Optional<String>>> hints,
+    public LogicalSelectHint(Map<String, SelectHint> hints,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         this(hints, Optional.empty(), logicalProperties, child);
     }
@@ -59,19 +59,14 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
      * @param logicalProperties logicalProperties is use for compute output
      * @param child child plan
      */
-    public LogicalSelectHint(Map<String, Map<String, Optional<String>>> hints,
+    public LogicalSelectHint(Map<String, SelectHint> hints,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SELECT_HINT, groupExpression, logicalProperties, child);
-        // convert to immutable map
-        this.hints = Objects.requireNonNull(hints, "hints can not be null")
-                .entrySet()
-                .stream()
-                .map(kv -> new Pair<>(kv.getKey(), ImmutableMap.copyOf(kv.getValue())))
-                .collect(ImmutableMap.toImmutableMap(Pair::getFirst, Pair::getSecond));
+        this.hints = ImmutableMap.copyOf(Objects.requireNonNull(hints, "hints can not be null"));
     }
 
-    public Map<String, Map<String, Optional<String>>> getHints() {
+    public Map<String, SelectHint> getHints() {
         return hints;
     }
 
@@ -110,18 +105,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     public String toString() {
         String hintStr = this.hints.entrySet()
                 .stream()
-                .map(hintKv -> {
-                    String kvString = hintKv.getValue()
-                            .entrySet()
-                            .stream()
-                            .map(kv ->
-                                kv.getValue().isPresent()
-                                    ? kv.getKey() + "='" + kv.getValue().get() + "'"
-                                    : kv.getKey()
-                            )
-                            .collect(Collectors.joining(", "));
-                    return hintKv.getKey() + "(" + kvString + ")";
-                })
+                .map(entry -> entry.getValue().toString())
                 .collect(Collectors.joining(", "));
         return "LogicalSelectHint (" + hintStr + ")";
     }

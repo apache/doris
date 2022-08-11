@@ -78,6 +78,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -822,9 +823,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (hintContext == null) {
             return logicalPlan;
         }
-        Map<String, Map<String, Optional<String>>> hints = Maps.newLinkedHashMap();
+        Map<String, SelectHint> hints = Maps.newLinkedHashMap();
         for (HintStatementContext hintStatement : hintContext.hintStatements) {
-            String hintName = hintStatement.hintName.getText();
+            String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
             for (HintAssignmentContext kv : hintStatement.parameters) {
                 String parameterName = kv.key.getText();
@@ -838,7 +839,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 parameters.put(parameterName, value);
             }
-            hints.put(hintName.toLowerCase(Locale.ROOT), parameters);
+            hints.put(hintName, new SelectHint(hintName, parameters));
         }
         return new LogicalSelectHint<>(hints, logicalPlan);
     }
