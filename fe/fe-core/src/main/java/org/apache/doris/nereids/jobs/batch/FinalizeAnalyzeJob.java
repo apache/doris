@@ -15,25 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.jobs.batch;
 
-import java.util.List;
+import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * Abstract class for all slot in expression.
+ * Job to eliminate the logical node of sub query and alias
  */
-public abstract class Slot extends NamedExpression implements LeafExpression {
+public class FinalizeAnalyzeJob extends BatchRulesJob {
 
-    @Override
-    public Slot toSlot() {
-        return this;
-    }
-
-    public Slot withNullable(boolean newNullable) {
-        throw new RuntimeException("Do not implement");
-    }
-
-    public Slot withQualifier(List<String> qualifiers) {
-        throw new RuntimeException("Do not implement");
+    /**
+     * constructor
+     * @param plannerContext ctx
+     */
+    public FinalizeAnalyzeJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                bottomUpBatch(ImmutableList.of(new EliminateAliasNode()))
+        ));
     }
 }
