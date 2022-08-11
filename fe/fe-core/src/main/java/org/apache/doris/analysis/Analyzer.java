@@ -152,6 +152,17 @@ public class Analyzer {
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
 
+    public boolean isInlineView() {
+        return isInlineView;
+    }
+
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    // Flag indicating if this analyzer instance belongs to an inlineview.
+    private boolean isInlineView = false;
+
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
 
@@ -776,6 +787,21 @@ public class Analyzer {
             d = resolveColumnRef(colName);
         } else {
             d = resolveColumnRef(newTblName, colName);
+            //in reanalyze, the inferred expr may contain upper level table alias, and the upper level alias has not
+            // been PROCESSED. So we resolve this column without tbl name.
+            // For example: a view V "select * from t where t.a>1"
+            // sql: select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2)
+            // after first analyze, sql becomes:
+            //  select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2) and t2.a in (1, 2)
+            // in reanalyze, when we process V as t2, we indeed process sql like this:
+            //    select * from t where t.a>1 and t2.a in (1, 2)
+            //  in order to resolve t2.a, we have to ignore "t2"
+            // ===================================================
+            // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
+            // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
+            if (d == null && isInlineView) {
+                d = resolveColumnRef(colName);
+            }
         }
         /*
          * Now, we only support the columns in the subquery to associate the outer query columns in parent level.
