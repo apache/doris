@@ -62,6 +62,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      *
      * @return all project of this node.
      */
+    @Override
     public List<NamedExpression> getProjects() {
         return projects;
     }

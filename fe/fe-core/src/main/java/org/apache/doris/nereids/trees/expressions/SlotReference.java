@@ -149,4 +149,9 @@ public class SlotReference extends Slot {
         }
         return new SlotReference(exprId, name, dataType, newNullable, qualifier);
     }
+
+    @Override
+    public Slot withQualifier(List<String> qualifiers) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifiers);
+    }
 }

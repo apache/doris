@@ -26,6 +26,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
+import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
@@ -106,6 +107,7 @@ public class NereidsPlanner extends Planner {
                 // cascades style optimize phase.
                 .setJobContext(outputProperties);
 
+        finalizeAnalyze();
         rewrite();
         // TODO: remove this condition, when stats collector is fully developed.
         if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
@@ -114,6 +116,10 @@ public class NereidsPlanner extends Planner {
         optimize();
         // Get plan directly. Just for SSB.
         return getRoot().extractPlan();
+    }
+
+    private void finalizeAnalyze() {
+        new FinalizeAnalyzeJob(plannerContext).execute();
     }
 
     /**

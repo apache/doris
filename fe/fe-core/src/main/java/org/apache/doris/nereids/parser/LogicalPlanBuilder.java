@@ -21,6 +21,8 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -59,6 +61,7 @@ import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
+import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
@@ -69,6 +72,8 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -118,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -212,11 +218,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
+    @Developing
+    private LogicalPlan withTableAlias(LogicalPlan plan, TableAliasContext ctx) {
+        String alias = ctx.strictIdentifier().getText();
+        if (null != ctx.identifierList()) {
+            throw new ParseException("Do not implemented", ctx);
+            // TODO: multi-colName
+        }
+        return new LogicalSubQueryAlias<>(alias, plan);
+    }
+
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        // TODO: sample and time travel, alias, sub query
-        return new UnboundRelation(tableId);
+        if (null == ctx.tableAlias().strictIdentifier()) {
+            return new UnboundRelation(tableId);
+        }
+        return withTableAlias(new UnboundRelation(tableId), ctx.tableAlias());
+    }
+
+    @Override
+    public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
+        return withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
+    }
+
+    @Override
+    public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
+        return withTableAlias(visitRelation(ctx.relation()), ctx.tableAlias());
     }
 
     /**
@@ -569,18 +597,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitRelation(RelationContext ctx) {
+        LogicalPlan right = plan(ctx.relationPrimary());
+        if (ctx.LATERAL() != null) {
+            if (!(right instanceof LogicalSubQueryAlias)) {
+                throw new IllegalStateException("lateral join right table should be sub-query");
+            }
+        }
+        return right;
+    }
+
+    @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan left = null;
-            // build left deep join tree
             for (RelationContext relation : ctx.relation()) {
-                LogicalPlan right = plan(relation.relationPrimary());
-                left = (left == null)
-                        ? right
-                        : new LogicalJoin<>(JoinType.CROSS_JOIN, Optional.empty(), left, right);
+                // build left deep join tree
+                LogicalPlan right = visitRelation(relation);
+                left = (left == null) ? right :
+                        new LogicalJoin<>(
+                                JoinType.CROSS_JOIN,
+                                Optional.empty(),
+                                left,
+                                right);
                 left = withJoinRelations(left, relation);
+                // TODO: pivot and lateral view
             }
-            // TODO: pivot and lateral view
             return left;
         });
     }
