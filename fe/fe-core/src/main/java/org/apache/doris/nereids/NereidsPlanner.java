@@ -36,7 +36,6 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -128,6 +127,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
+        new MergeConsecutiveProjectJob(plannerContext).execute();
         new NormalizeExpressionRulesJob(plannerContext).execute();
         new JoinReorderRulesJob(plannerContext).execute();
         new PredicatePushDownRulesJob(plannerContext).execute();

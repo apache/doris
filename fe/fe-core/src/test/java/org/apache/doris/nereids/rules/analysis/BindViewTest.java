@@ -19,14 +19,10 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -94,5 +90,10 @@ public class BindViewTest extends TestWithFeService {
                     connectContext
             ), new PlanTranslatorContext());
         }
+    }
+
+    @Test
+    public void testSimpleView() {
+
     }
 }

@@ -18,22 +18,24 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import java.util.Map;
 
 /**
  * replace slot reference
  */
-public class SlotReferenceReplacer extends DefaultExpressionRewriter<Map<Integer, Expression>> {
-    public static final SlotReferenceReplacer INSTANCE = new SlotReferenceReplacer();
+public class NamedExpressionReplacer extends DefaultExpressionRewriter<Map<Integer, Expression>> {
+    public static final NamedExpressionReplacer INSTANCE = new NamedExpressionReplacer();
 
     @Override
-    public Expression visit(Expression slot, Map<Integer, Expression> substitutionMap) {
-        int id = ((SlotReference) slot).getExprId().asInt();
-        if (substitutionMap.containsKey(id)) {
-            return substitutionMap.get(id);
+    public Expression visit(Expression expr, Map<Integer, Expression> substitutionMap) {
+        if (expr instanceof NamedExpression) {
+            int id = ((NamedExpression) expr).getExprId().asInt();
+            if (substitutionMap.containsKey(id)) {
+                return substitutionMap.get(id);
+            }
         }
-        return super.visit(slot, substitutionMap);
+        return super.visit(expr, substitutionMap);
     }
 }
