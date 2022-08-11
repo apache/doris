@@ -42,7 +42,7 @@ The same resolve error occurs when re-analyze v2.
              "storage_format" = "V2"
          );
      """
-     sql "drop view V;"
+     sql "drop view if exists V;"
      sql """
          create view V as select * from T where id > 0;
      """
