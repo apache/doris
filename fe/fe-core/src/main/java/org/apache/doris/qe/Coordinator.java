@@ -2222,6 +2222,7 @@ public class Coordinator {
             try {
                 TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
                 for (BackendExecState state : states) {
+                    state.initiated = true;
                     paramsList.addToParamsList(state.rpcParams);
                 }
                 return BackendServiceProxy.getInstance()
