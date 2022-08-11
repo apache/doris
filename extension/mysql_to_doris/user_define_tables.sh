@@ -67,8 +67,8 @@ rm -rf ./user_files/tables.sql
 rm -rf ./user_files/tables1.sql
 mv ./user_files/tables2.sql ./user_files/tables.sql
 #start transform tables struct
-sed -i '/ENGINE=/a) ENGINE=MYSQL\n COMMENT "MYSQL"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "root",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables");' ./user_files/tables.sql
-
+sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "root",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' ./user_files/tables.sql
+sed -i "s/\"driver\"=\"MySQL\"/$doris_odbc_name/g" ./user_files/tables.sq
 #delete match line
 sed -i '/ENGINT=/d' ./user_files/tables.sql
 sed -i '/PRIMARY KEY/d' ./user_files/tables.sql
