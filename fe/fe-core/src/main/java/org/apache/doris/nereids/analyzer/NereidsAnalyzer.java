@@ -17,15 +17,9 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.analysis.Scope;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Optional;
 
@@ -44,18 +38,7 @@ public class NereidsAnalyzer {
         new AnalyzeRulesJob(cascadesContext, Optional.empty()).execute();
     }
 
-    /**
-     * copyIn the plan, and analyze plan with scope then copyOut the plan.
-     */
-    public Plan analyze(Plan plan, Optional<Scope> scope) {
-        Memo memo = cascadesContext.getMemo();
-        Pair<Boolean, GroupExpression> copyInResult = memo.copyIn(plan, null, false);
-
-        if (!copyInResult.first) {
-            throw new AnalysisException("Subquery can not copy into memo");
-        }
-        Group newGroup = copyInResult.second.getOwnerGroup();
-        new AnalyzeRulesJob(cascadesContext, scope, Optional.of(newGroup)).execute();
-        return memo.copyOut(newGroup);
+    public void analyze(Optional<Scope> scope) {
+        new AnalyzeRulesJob(cascadesContext, scope).execute();
     }
 }

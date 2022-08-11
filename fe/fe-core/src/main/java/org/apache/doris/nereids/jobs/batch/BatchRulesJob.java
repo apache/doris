@@ -22,14 +22,12 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Base class for executing all jobs.
@@ -37,17 +35,11 @@ import java.util.Optional;
  * Each batch of rules will be uniformly executed.
  */
 public abstract class BatchRulesJob {
-    protected Optional<Group> rootGroup;
     protected CascadesContext cascadesContext;
     protected List<Job> rulesJob = new ArrayList<>();
 
     BatchRulesJob(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
-    }
-
-    BatchRulesJob(CascadesContext cascadesContext, Optional<Group> rootGroup) {
-        this.cascadesContext = Objects.requireNonNull(cascadesContext, "plannerContext can not null");
-        this.rootGroup = Objects.requireNonNull(rootGroup, "rootGroup can not be null");
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not null");
     }
 
     protected Job bottomUpBatch(List<RuleFactory> ruleFactories) {
@@ -56,7 +48,7 @@ public abstract class BatchRulesJob {
             rules.addAll(ruleFactory.buildRules());
         }
         return new RewriteBottomUpJob(
-                rootGroup.orElseGet(() -> cascadesContext.getMemo().getRoot()),
+                cascadesContext.getMemo().getRoot(),
                 rules,
                 cascadesContext.getCurrentJobContext());
     }
@@ -67,14 +59,14 @@ public abstract class BatchRulesJob {
             rules.addAll(ruleFactory.buildRules());
         }
         return new RewriteTopDownJob(
-                rootGroup.orElseGet(() -> cascadesContext.getMemo().getRoot()),
+                cascadesContext.getMemo().getRoot(),
                 rules,
                 cascadesContext.getCurrentJobContext());
     }
 
     protected Job optimize() {
         return new OptimizeGroupJob(
-                rootGroup.orElseGet(() -> cascadesContext.getMemo().getRoot()),
+                cascadesContext.getMemo().getRoot(),
                 cascadesContext.getCurrentJobContext());
     }
 

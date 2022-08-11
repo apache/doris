@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.SubqueryExprRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultSubExprRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -160,7 +160,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         return (E) new SlotBinder(toScope(boundedSlots), plan, cascadesContext).bind(expr);
     }
 
-    private class SlotBinder extends SubqueryExprRewriter<Void> {
+    private class SlotBinder extends DefaultSubExprRewriter<Void> {
         private final Plan plan;
 
         public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {

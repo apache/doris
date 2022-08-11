@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
@@ -34,18 +33,13 @@ import java.util.Optional;
  */
 public class AnalyzeRulesJob extends BatchRulesJob {
 
-    public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
-        this(cascadesContext, Optional.empty(), Optional.empty());
-    }
-
     /**
      * Execute the analysis job with scope.
      * @param cascadesContext planner context for execute job
      * @param scope Parse the symbolic scope of the field
-     * @param rootGroup the group which the job start to execute
      */
-    public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope, Optional<Group> rootGroup) {
-        super(cascadesContext, rootGroup);
+    public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
