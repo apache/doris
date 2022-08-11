@@ -44,6 +44,8 @@ import com.google.gson.reflect.TypeToken;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -350,7 +352,6 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok(graph);
     }
 
-    @NotNull
     private ResponseEntity getJsonProfile(HttpServletRequest request, String queryId, String fragmentId,
             String instanceId, boolean isAllNode) {
         Map<String, String> graph = Maps.newHashMap();
@@ -376,7 +377,6 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok(graph);
     }
 
-    @NotNull
     private ResponseEntity getProfileFromAllFrontends(HttpServletRequest request, String format, String queryId,
             String fragmentId, String instanceId) {
         String httpPath = "/rest/v2/manager/query/profile/" + format + "/" + queryId;
