@@ -919,14 +919,14 @@ alter_stmt ::=
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
     :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN
+    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterTableStatsStmt(tbl, map);
+        RESULT = new AlterTableStatsStmt(tbl, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
-      KW_SET KW_STATS LPAREN key_value_map:map RPAREN
+      KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -2842,6 +2842,10 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
     :}
+    | KW_DATABASES KW_FROM ident:catalogName
+    {:
+        RESULT = new ShowDbStmt(null, null, catalogName);
+    :}
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
     {:
@@ -2850,6 +2854,10 @@ show_param ::=
     | KW_SCHEMAS opt_wild_where
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
+    :}
+    | KW_SCHEMAS KW_FROM ident:catalogName
+    {:
+        RESULT = new ShowDbStmt(null, null, catalogName);
     :}
     /* Catalog */
     | KW_CATALOGS
@@ -3568,6 +3576,10 @@ use_stmt ::=
     KW_USE ident:db
     {:
         RESULT = new UseStmt(db);
+    :}
+    | KW_USE ident:ctl DOT ident:db
+    {:
+        RESULT = new UseStmt(ctl, db);
     :}
     ;
 

@@ -22,14 +22,10 @@ package org.apache.doris.nereids.properties;
  */
 public class DistributionSpecAny extends DistributionSpec {
 
-    private static DistributionSpecAny instance = new DistributionSpecAny();
+    public static final DistributionSpecAny INSTANCE = new DistributionSpecAny();
 
     private DistributionSpecAny() {
         super();
-    }
-
-    public static DistributionSpecAny getInstance() {
-        return instance;
     }
 
     @Override

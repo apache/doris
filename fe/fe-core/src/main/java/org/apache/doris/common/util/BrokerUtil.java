@@ -63,6 +63,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -185,7 +186,7 @@ public class BrokerUtil {
             }
             String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
             String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
-            Configuration conf = new Configuration();
+            Configuration conf = new HdfsConfiguration();
             boolean isSecurityEnabled = false;
             for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
                 conf.set(propEntry.getKey(), propEntry.getValue());

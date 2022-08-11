@@ -1031,9 +1031,39 @@ public class SingleNodePlanner {
 
             for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
                 TableRef innerRef = selectStmt.getTableRefs().get(i);
+                // Optimization of CountStar would change the materialization of some outputSlot,
+                // it would cause the materilization inconsistent of SlotRef between outputTupleDesc
+                // and agg/groupBy expr. So if some not materialized slots in outputTuple of aggInfo
+                // is set to materialized after the optimization of CountStar, we need to call
+                // aggregateInfo.materializeRequiredSlots again to make sure all required slots is
+                // materialized.
+                boolean aggOutputNotHaveMaterializedSlot = false;
+                AggregateInfo aggregateInfo = null;
+                TupleDescriptor output = null;
+                if (innerRef instanceof InlineViewRef) {
+                    InlineViewRef inlineViewRef = (InlineViewRef) innerRef;
+                    QueryStmt queryStmt = inlineViewRef.getViewStmt();
+                    if (queryStmt instanceof SelectStmt) {
+                        aggregateInfo = ((SelectStmt) queryStmt).getAggInfo();
+                        if (aggregateInfo != null) {
+                            output = aggregateInfo.getOutputTupleDesc();
+                            aggOutputNotHaveMaterializedSlot =
+                                    output.getSlots().stream().noneMatch(SlotDescriptor::isMaterialized);
+                        }
+                    }
+                }
+
                 root = createJoinNode(analyzer, root, innerRef, selectStmt);
                 // Have the build side of a join copy data to a compact representation
                 // in the tuple buffer.
+                if (aggOutputNotHaveMaterializedSlot
+                        && aggregateInfo
+                        .getOutputTupleDesc()
+                        .getSlots()
+                        .stream()
+                        .anyMatch(SlotDescriptor::isMaterialized)) {
+                    aggregateInfo.materializeRequiredSlots(analyzer, null);
+                }
                 root.getChildren().get(1).setCompactData(true);
                 root.assignConjuncts(analyzer);
             }
@@ -1559,24 +1589,24 @@ public class SingleNodePlanner {
                 // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
                 for (int i = select.getTableRefs().size(); i > 1; i--) {
                     final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
+                    final TableRef joinOuterChild = select.getTableRefs().get(i - 2);
                     if (!joinInnerChild.getJoinOp().isOuterJoin()) {
-                        // lowest join is't outer join.
+                        // lowest join isn't outer join.
                         if (i == 2) {
                             // Register constant for inner.
                             viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
                             // Register constant for outer.
-                            final TableRef joinOuterChild = select.getTableRefs().get(0);
                             final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
                             viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
                         }
                         continue;
                     }
-                    viewAnalyzer.registerOnClauseConjuncts(newConjuncts, joinInnerChild);
+                    viewAnalyzer.registerConjuncts(newConjuncts, joinOuterChild.getId());
                     break;
                 }
             } else {
                 Preconditions.checkArgument(select.getTableRefs().size() == 1);
-                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getDesc().getId().asList());
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getId());
             }
         } else {
             Preconditions.checkArgument(stmt instanceof SetOperationStmt);
@@ -1701,7 +1731,12 @@ public class SingleNodePlanner {
                 scanNode = new MysqlScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());
                 break;
             case SCHEMA:
-                scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
+                        tblRef.getDesc().getTable().getName())) {
+                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                } else {
+                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                }
                 break;
             case BROKER:
                 scanNode = new BrokerScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
@@ -2288,6 +2323,7 @@ public class SingleNodePlanner {
         for (SlotId id : slotIds) {
             final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
             slot.setIsMaterialized(true);
+            slot.materializeSrcExpr();
         }
         for (TupleId id : tupleIds) {
             final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);

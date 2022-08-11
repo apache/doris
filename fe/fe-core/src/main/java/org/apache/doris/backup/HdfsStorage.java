@@ -30,6 +30,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -86,7 +87,7 @@ public class HdfsStorage extends BlobStorage {
             checkHDFS(caseInsensitiveProperties);
             String hdfsFsName = caseInsensitiveProperties.get(BrokerUtil.HADOOP_FS_NAME).toString();
             String username = caseInsensitiveProperties.get(BrokerUtil.HADOOP_USER_NAME).toString();
-            Configuration conf = new Configuration();
+            Configuration conf = new HdfsConfiguration();
             boolean isSecurityEnabled = false;
             for (Map.Entry<String, String> propEntry : caseInsensitiveProperties.entrySet()) {
                 conf.set(propEntry.getKey(), propEntry.getValue());

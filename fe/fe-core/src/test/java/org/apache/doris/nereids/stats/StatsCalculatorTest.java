@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.plans.FakeJoin;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -190,11 +191,13 @@ public class StatsCalculatorTest {
         StatsDeriveResult rightStats = new StatsDeriveResult(rightRowCount, slotColumnStatsMap2);
 
         EqualTo equalTo = new EqualTo(slot1, slot2);
-        StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
-                rightStats, equalTo, JoinType.LEFT_SEMI_JOIN);
+
+        FakeJoin fakeSemiJoin = new FakeJoin(JoinType.LEFT_SEMI_JOIN, Optional.of(equalTo));
+        FakeJoin fakeInnerJoin = new FakeJoin(JoinType.INNER_JOIN, Optional.of(equalTo));
+
+        StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
         Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
-        StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
-                rightStats, equalTo, JoinType.INNER_JOIN);
+        StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);
         Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
     }
 
@@ -221,16 +224,11 @@ public class StatsCalculatorTest {
                 result = statistics;
             }};
 
-        Table table1 = PlanConstructor.newTable(tableId1, "t1");
+        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
-                Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
-                    @Override
-                    public List<Slot> get() {
-                        return Arrays.asList(slot1);
-                    }
-                })));
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
         Group childGroup = new Group();
-        GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, Arrays.asList(childGroup));
+        GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
@@ -239,7 +237,6 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, stats.getSlotToColumnStats().size());
         Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
     }
-
 
     @Test
     public void testLimit() {
@@ -264,7 +261,7 @@ public class StatsCalculatorTest {
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalLimit logicalLimit = new LogicalLimit(1, 2, groupPlan);
+        LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(1, 2, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalLimit);
         groupExpression.addChild(childGroup);
         Group ownerGroup = new Group();
@@ -276,6 +273,5 @@ public class StatsCalculatorTest {
         ColumnStats slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
         Assertions.assertEquals(1, slot1Stats.getNdv());
         Assertions.assertEquals(1, slot1Stats.getNumNulls());
-
     }
 }

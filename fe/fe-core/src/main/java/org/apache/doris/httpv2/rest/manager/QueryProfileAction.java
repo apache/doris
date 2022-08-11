@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
+import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ProfileManager;
@@ -29,6 +31,8 @@ import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +63,14 @@ import javax.servlet.http.HttpServletResponse;
 
 /*
  * Used to return query information and query profile.
+ * base: /rest/v2/manager/query
+ * 1. /query_info
+ * 2. /sql/{query_id}
+ * 3. /profile/{format}/{query_id}
+ * 4. /trace_id/{trace_id}
+ * 5. /profile/fragments/{query_id}
+ * 6. /current_queries
+ * 7. /kill/{connection_id}
  */
 @RestController
 @RequestMapping("/rest/v2/manager/query")
@@ -82,10 +94,11 @@ public class QueryProfileAction extends RestBaseController {
     private static final String FRAGMENT_ID = "fragment_id";
     private static final String INSTANCE_ID = "instance_id";
 
-    public static final ImmutableList<String> QUERY_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add(QUERY_ID).add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT)
-            .add(QUERY_TYPE).add(START_TIME).add(END_TIME).add(TOTAL).add(QUERY_STATE)
-            .build();
+    private static final String FRONTEND = "Frontend";
+
+    public static final ImmutableList<String> QUERY_TITLE_NAMES = new ImmutableList.Builder<String>().add(QUERY_ID)
+            .add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT).add(QUERY_TYPE).add(START_TIME).add(END_TIME)
+            .add(TOTAL).add(QUERY_STATE).build();
 
     private List<String> requestAllFe(String httpPath, Map<String, String> arguments, String authorization) {
         List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
@@ -413,5 +426,80 @@ public class QueryProfileAction extends RestBaseController {
             }
         }
         return ResponseEntityBuilder.ok(result);
+    }
+
+    /**
+     * return the result of CurrentQueryStatementsProcNode.
+     *
+     * @param request
+     * @param response
+     * @param isAllNode
+     * @return
+     */
+    @RequestMapping(path = "/current_queries", method = RequestMethod.GET)
+    public Object currentQueries(HttpServletRequest request, HttpServletResponse response,
+            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        if (isAllNode) {
+            // Get current queries from all FE
+            String httpPath = "/rest/v2/manager/query/current_queries";
+            Map<String, String> arguments = Maps.newHashMap();
+            arguments.put(IS_ALL_NODE_PARA, "false");
+            List<List<String>> queries = Lists.newArrayList();
+            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
+            for (String data : dataList) {
+                try {
+                    NodeAction.NodeInfo nodeInfo = GsonUtils.GSON.fromJson(data, new TypeToken<NodeAction.NodeInfo>() {
+                    }.getType());
+                    queries.addAll(nodeInfo.getRows());
+                } catch (Exception e) {
+                    LOG.warn("parse query info error: {}", data, e);
+                }
+            }
+            List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+            titles.add(0, FRONTEND);
+            return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, queries));
+        } else {
+            try {
+                CurrentQueryStatementsProcNode node = new CurrentQueryStatementsProcNode();
+                ProcResult result = node.fetchResult();
+                // add frontend info at first column.
+                List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+                titles.add(0, FRONTEND);
+                List<List<String>> rows = result.getRows();
+                String feIp = FrontendOptions.getLocalHostAddress();
+                for (List<String> row : rows) {
+                    row.add(0, feIp);
+                }
+                return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, rows));
+            } catch (AnalysisException e) {
+                return ResponseEntityBuilder.badRequest(e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * kill queries with specified connection id
+     *
+     * @param request
+     * @param response
+     * @param connectionId
+     * @return
+     */
+    @RequestMapping(path = "/kill/{connection_id}", method = RequestMethod.POST)
+    public Object killQuery(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable("connection_id") int connectionId) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        ExecuteEnv env = ExecuteEnv.getInstance();
+        ConnectContext ctx = env.getScheduler().getContext(connectionId);
+        if (ctx == null) {
+            return ResponseEntityBuilder.notFound("connection not found");
+        }
+        ctx.cancelQuery();
+        return ResponseEntityBuilder.ok();
     }
 }

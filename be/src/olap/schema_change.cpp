@@ -1757,6 +1757,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
     // begin to find deltas to convert from base tablet to new tablet so that
     // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
+    RowsetReaderContext reader_context;
     {
         std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
         std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
@@ -1772,7 +1773,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
         // reader_context is stack variables, it's lifetime should keep the same
         // with rs_readers
-        RowsetReaderContext reader_context;
         reader_context.reader_type = READER_ALTER_TABLE;
         reader_context.tablet_schema = base_tablet_schema;
         reader_context.need_ordered_result = true;
