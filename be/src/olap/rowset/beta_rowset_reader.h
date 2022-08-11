@@ -66,7 +66,7 @@ public:
 private:
     bool _should_push_down_value_predicates() const;
 
-    std::unique_ptr<Schema> _schema;
+    std::unique_ptr<Schema> _input_schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 
