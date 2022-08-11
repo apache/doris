@@ -103,12 +103,8 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             if (!catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
                 ((ExternalDataSource) catalog).setInitialized(false);
             }
-            catalog = nameToCatalog.get(catalogName);
-            ((ExternalDataSource) catalog).setInitialized(false);
         }
     }
-
-
 
     public InternalDataSource getInternalDataSource() {
         return internalDataSource;
@@ -207,7 +203,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
             replayCreateCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_CREATE_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -229,7 +225,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_DROP_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_DROP_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -247,7 +243,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_NAME, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_CATALOG_NAME, log);
         } finally {
             writeUnlock();
         }
@@ -268,7 +264,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogProps(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_PROPS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
         }
@@ -335,7 +331,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayRefreshCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_REFRESH_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_REFRESH_CATALOG, log);
         } finally {
             writeUnlock();
         }

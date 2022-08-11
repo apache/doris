@@ -230,14 +230,14 @@ public class OperationType {
     // policy 310-320
     public static final short OP_CREATE_POLICY = 310;
     public static final short OP_DROP_POLICY = 311;
+    public static final short OP_ALTER_STORAGE_POLICY = 312;
 
-    // datasource 312-315
-    public static final short OP_CREATE_DS = 312;
-    public static final short OP_DROP_DS = 313;
-    public static final short OP_ALTER_DS_NAME = 314;
-    public static final short OP_ALTER_DS_PROPS = 315;
-    public static final short OP_ALTER_STORAGE_POLICY = 316;
-    public static final short OP_REFRESH_DS = 317;
+    // catalog 320-330
+    public static final short OP_CREATE_CATALOG = 320;
+    public static final short OP_DROP_CATALOG = 321;
+    public static final short OP_ALTER_CATALOG_NAME = 322;
+    public static final short OP_ALTER_CATALOG_PROPS = 323;
+    public static final short OP_REFRESH_CATALOG = 324;
 
     /**
      * Get opcode name by op code.

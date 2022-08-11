@@ -844,27 +844,27 @@ public class EditLog {
                     env.getPolicyMgr().replayStoragePolicyAlter(log);
                     break;
                 }
-                case OperationType.OP_CREATE_DS: {
+                case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getDataSourceMgr().replayCreateCatalog(log);
                     break;
                 }
-                case OperationType.OP_DROP_DS: {
+                case OperationType.OP_DROP_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getDataSourceMgr().replayDropCatalog(log);
                     break;
                 }
-                case OperationType.OP_ALTER_DS_NAME: {
+                case OperationType.OP_ALTER_CATALOG_NAME: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getDataSourceMgr().replayAlterCatalogName(log);
                     break;
                 }
-                case OperationType.OP_ALTER_DS_PROPS: {
+                case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getDataSourceMgr().replayAlterCatalogProps(log);
                     break;
                 }
-                case OperationType.OP_REFRESH_DS: {
+                case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getDataSourceMgr().replayRefreshCatalog(log);
                     break;
