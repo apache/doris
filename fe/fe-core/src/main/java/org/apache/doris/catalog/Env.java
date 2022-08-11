@@ -2909,6 +2909,11 @@ public class Env {
                 sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
+            if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
+                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
