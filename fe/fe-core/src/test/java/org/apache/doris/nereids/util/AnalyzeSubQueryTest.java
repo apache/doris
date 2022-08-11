@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 
 public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMatchSupported {
+
     private final NereidsParser parser = new NereidsParser();
 
     private final List<String> testSql = ImmutableList.of(
