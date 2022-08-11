@@ -879,9 +879,12 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
 }
 
 bool VOlapScanNode::is_key_column(const std::string& key_name) {
-    // all column in dup_keys table olap scan node threat
+    // all column in dup_keys table or unique_keys with merge on write table olap scan node threat
     // as key column
-    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS) {
+    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+        (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+         _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+         _olap_scan_node.enable_unique_key_merge_on_write)) {
         return true;
     }
 
