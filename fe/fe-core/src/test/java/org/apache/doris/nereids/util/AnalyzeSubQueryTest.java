@@ -90,8 +90,8 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
             NamedExpressionUtil.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
-                parser.parseSingle(sql),
-                PhysicalProperties.ANY
+                    parser.parseSingle(sql),
+                    PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
             new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
@@ -101,77 +101,77 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     @Test
     public void testCaseSubQuery() {
         PlanChecker.from(connectContext)
-            .analyze(testSql.get(0))
-            .applyTopDown(new EliminateAliasNode())
-            .matches(
-                logicalProject(
+                .analyze(testSql.get(0))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
                     logicalProject(
-                        logicalOlapScan().when(o -> true)
+                        logicalProject(
+                            logicalOlapScan().when(o -> true)
+                        ).when(FieldChecker.check("projects", ImmutableList.of(
+                            new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
+                            new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))))
+                        )
                     ).when(FieldChecker.check("projects", ImmutableList.of(
-                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
-                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))))
+                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T2")),
+                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T2"))))
                     )
-                ).when(FieldChecker.check("projects", ImmutableList.of(
-                    new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T2")),
-                    new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T2"))))
-                )
-            );
+                );
     }
 
     @Test
     public void testCaseMixed() {
         PlanChecker.from(connectContext)
-            .analyze(testSql.get(1))
-            .applyTopDown(new EliminateAliasNode())
-            .matches(
-                logicalProject(
-                    logicalJoin(
-                        logicalOlapScan(),
-                        logicalProject(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("projects", ImmutableList.of(
-                            new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("TT2")),
-                            new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("TT2"))))
+                .analyze(testSql.get(1))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
+                    logicalProject(
+                        logicalJoin(
+                            logicalOlapScan(),
+                            logicalProject(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("projects", ImmutableList.of(
+                                new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("TT2")),
+                                new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("TT2"))))
+                            )
                         )
+                        .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
+                        .when(FieldChecker.check("condition",
+                            Optional.of(new EqualTo(
+                                    new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
+                                    new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")))))
+                        )
+                    ).when(FieldChecker.check("projects", ImmutableList.of(
+                        new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
+                        new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("TT1")),
+                        new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
+                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))))
                     )
-                    .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                    .when(FieldChecker.check("condition",
-                        Optional.of(new EqualTo(
-                            new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
-                            new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")))))
-                    )
-                ).when(FieldChecker.check("projects", ImmutableList.of(
-                    new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
-                    new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("TT1")),
-                    new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")),
-                    new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("T"))))
-                )
-            );
+                );
     }
 
     @Test
     public void testCaseJoinSameTable() {
         PlanChecker.from(connectContext)
-            .analyze(testSql.get(5))
-            .applyTopDown(new EliminateAliasNode())
-            .matches(
-                logicalProject(
-                    logicalJoin(
-                        logicalOlapScan(),
-                        logicalOlapScan()
-                    )
-                    .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                    .when(FieldChecker.check("condition", Optional.of(new EqualTo(
+                .analyze(testSql.get(5))
+                .applyTopDown(new EliminateAliasNode())
+                .matches(
+                    logicalProject(
+                        logicalJoin(
+                            logicalOlapScan(),
+                            logicalOlapScan()
+                        )
+                        .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
+                        .when(FieldChecker.check("condition", Optional.of(new EqualTo(
+                            new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
+                            new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2")))))
+                        )
+                    ).when(FieldChecker.check("projects", ImmutableList.of(
                         new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
-                        new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2")))))
+                        new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
+                        new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2")),
+                        new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("T2"))))
                     )
-                ).when(FieldChecker.check("projects", ImmutableList.of(
-                    new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
-                    new SlotReference(new ExprId(1), "score", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
-                    new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2")),
-                    new SlotReference(new ExprId(3), "score", new BigIntType(), true, ImmutableList.of("T2"))))
-                )
-            );
+                );
     }
 }
 
