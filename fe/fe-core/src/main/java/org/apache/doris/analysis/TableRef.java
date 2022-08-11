@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -573,7 +574,7 @@ public class TableRef implements ParseNode, Writable {
         Preconditions.checkState(isAnalyzed);
         if (onClause != null) {
             Expr expr = onClause.clone();
-            onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+            onClause = rewriter.rewrite(onClause, analyzer, ClauseType.fromJoinType(joinOp));
             if (joinOp.isOuterJoin() || joinOp.isSemiAntiJoin()) {
                 if (onClause instanceof BoolLiteral && !((BoolLiteral) onClause).getValue()) {
                     onClause = expr;
