@@ -33,9 +33,13 @@ class TabletSchema;
 struct RowsetReaderContext {
     ReaderType reader_type = READER_QUERY;
     Version version {-1, -1};
-    const TabletSchema* tablet_schema = nullptr;
+    TabletSchemaSPtr tablet_schema = nullptr;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
+    // used for special optimization for query : ORDER BY key DESC LIMIT n
+    bool read_orderby_key_reverse = false;
+    // columns for orderby keys
+    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     // set of columns used to prune rows that doesn't satisfy key ranges and `conditions`.

@@ -162,6 +162,10 @@ private:
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
+
+    DeleteBitmapPtr _delete_bitmap;
+    // current rowset_ids, used to do diff in publish_version
+    RowsetIdUnorderedSet _rowset_ids;
 };
 
 } // namespace doris

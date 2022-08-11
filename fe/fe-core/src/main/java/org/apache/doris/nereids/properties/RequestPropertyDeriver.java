@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -53,7 +54,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
-    public List<List<PhysicalProperties>> getRequiredPropertyListList(GroupExpression groupExpression) {
+    public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         return requestPropertyToChildren;
@@ -63,7 +64,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visit(Plan plan, PlanContext context) {
         List<PhysicalProperties> requiredPropertyList = Lists.newArrayList();
         for (int i = 0; i < context.getGroupExpression().arity(); i++) {
-            requiredPropertyList.add(new PhysicalProperties());
+            requiredPropertyList.add(PhysicalProperties.ANY);
         }
         requestPropertyToChildren.add(requiredPropertyList);
         return null;
@@ -71,21 +72,47 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
-        // for broadcast join
-        List<PhysicalProperties> propertiesForBroadcast = Lists.newArrayList(
-                new PhysicalProperties(),
-                new PhysicalProperties(new DistributionSpecReplicated())
-        );
         // for shuffle join
-        Pair<List<SlotReference>, List<SlotReference>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-        List<PhysicalProperties> propertiesForShuffle = Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
-
         if (!JoinUtils.onlyBroadcast(hashJoin)) {
+            Pair<List<SlotReference>, List<SlotReference>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
+            List<PhysicalProperties> propertiesForShuffle = Lists.newArrayList(
+                    PhysicalProperties.createHash(new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+
             requestPropertyToChildren.add(propertiesForShuffle);
         }
+        // for broadcast join
         if (!JoinUtils.onlyShuffle(hashJoin)) {
+            List<PhysicalProperties> propertiesForBroadcast = Lists.newArrayList(
+                    PhysicalProperties.ANY,
+                    PhysicalProperties.REPLICATED
+            );
+            requestPropertyToChildren.add(propertiesForBroadcast);
+        }
+
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin, PlanContext context) {
+        // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
+        // for broadcast join
+        List<PhysicalProperties> propertiesForBroadcast = Lists.newArrayList(
+                PhysicalProperties.ANY,
+                PhysicalProperties.REPLICATED
+        );
+        // for shuffle join
+        Pair<List<SlotReference>, List<SlotReference>> onClauseUsedSlots
+                = JoinUtils.getOnClauseUsedSlots(nestedLoopJoin);
+        List<PhysicalProperties> propertiesForShuffle = Lists.newArrayList(
+                PhysicalProperties.createHash(new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
+                PhysicalProperties.createHash(new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+
+        if (!JoinUtils.onlyBroadcast(nestedLoopJoin)) {
+            requestPropertyToChildren.add(propertiesForShuffle);
+        }
+        if (!JoinUtils.onlyShuffle(nestedLoopJoin)) {
             requestPropertyToChildren.add(propertiesForBroadcast);
         }
 
@@ -101,8 +128,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 && ((DistributionSpecHash) requestedProperty.getDistributionSpec()).getShuffleType()
                 == ShuffleType.JOIN)) {
             return Lists.newArrayList(
-                    new PhysicalProperties(new DistributionSpecHash(leftShuffleColumns, ShuffleType.JOIN)),
-                    new PhysicalProperties(new DistributionSpecHash(rightShuffleColumns, ShuffleType.JOIN)));
+                    PhysicalProperties.createHash(new DistributionSpecHash(leftShuffleColumns, ShuffleType.JOIN)),
+                    PhysicalProperties.createHash(new DistributionSpecHash(rightShuffleColumns, ShuffleType.JOIN)));
         }
 
         // adjust the required property shuffle columns based on the column order required by parent
@@ -113,15 +140,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         boolean adjustBasedOnRight = Utils.equalsIgnoreOrder(rightShuffleColumns, requestedColumns);
         if (!adjustBasedOnLeft && !adjustBasedOnRight) {
             return Lists.newArrayList(
-                    new PhysicalProperties(new DistributionSpecHash(leftShuffleColumns, ShuffleType.JOIN)),
-                    new PhysicalProperties(new DistributionSpecHash(rightShuffleColumns, ShuffleType.JOIN)));
+                    PhysicalProperties.createHash(new DistributionSpecHash(leftShuffleColumns, ShuffleType.JOIN)),
+                    PhysicalProperties.createHash(new DistributionSpecHash(rightShuffleColumns, ShuffleType.JOIN)));
         }
 
         return Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(leftShuffleColumns, ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(rightShuffleColumns, ShuffleType.JOIN)));
-
+                PhysicalProperties.createHash(new DistributionSpecHash(leftShuffleColumns, ShuffleType.JOIN)),
+                PhysicalProperties.createHash(new DistributionSpecHash(rightShuffleColumns, ShuffleType.JOIN)));
     }
-
 }
 

@@ -365,7 +365,7 @@ public:
         return pool->add(new BloomFilterPredicate(*this));
     }
     using Predicate::prepare;
-    Status prepare(RuntimeState* state, IBloomFilterFuncBase* bloomfilterfunc);
+    Status prepare(RuntimeState* state, std::shared_ptr<IBloomFilterFuncBase> bloomfilterfunc);
 
     std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() { return _filter; }
 

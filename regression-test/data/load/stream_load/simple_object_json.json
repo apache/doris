@@ -8,3 +8,5 @@
 {"id": 8, "city": "chengdu", "code": 2345678}
 {"id": 9, "city": "xian", "code": 2345679}
 {"id": 10, "city": "hefei", "code": 23456710}
+{"id": 10, "city": null, "code": 23456711}
+{"id": 10, "city": "hefei", "code": null}

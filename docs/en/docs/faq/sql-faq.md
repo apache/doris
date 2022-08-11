@@ -66,3 +66,13 @@ For example, the table is defined as k1, v1. A batch of imported data is as foll
 Then maybe the result of copy 1 is `1, "abc"`, and the result of copy 2 is `1, "def"`. As a result, the query results are inconsistent.
 
 To ensure that the data sequence between different replicas is unique, you can refer to the [Sequence Column](../data-operate/update-delete/sequence-column-manual.md) function.
+
+### Q5. The problem of querying bitmap/hll type data returns NULL
+
+In version 1.1.x, when vectorization is enabled, and the bitmp type field in the query data table returns a NULL result,
+
+1. First you have to `set return_object_data_as_binary=true;`
+2. Turn off vectorization `set enable_vectorized_engine=false;`
+3. Turn off SQL cache `set [global] enable_sql_cache = false;`
+
+This is because the bitmap / hll type is in the vectorized execution engine: the input is all NULL, and the output result is also NULL instead of 0

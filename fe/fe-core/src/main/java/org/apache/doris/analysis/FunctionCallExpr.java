@@ -438,23 +438,6 @@ public class FunctionCallExpr extends Expr {
         return fnParams.isDistinct();
     }
 
-    public boolean isCountStar() {
-        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
-            if (fnParams.isStar()) {
-                return true;
-            } else if (fnParams.exprs() == null || fnParams.exprs().isEmpty()) {
-                return true;
-            } else {
-                for (Expr expr : fnParams.exprs()) {
-                    if (expr.isConstant()) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
     public boolean isCountDistinctBitmapOrHLL() {
         if (!fnParams.isDistinct()) {
             return false;
@@ -1394,15 +1377,20 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
             Type childType = getChild(0).type.getMaxResolutionType();
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else if (fnName.getFunction().equalsIgnoreCase("count")) {
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("substring")
                 || fnName.getFunction().equalsIgnoreCase("cast")) {
             Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("year")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("year")
+                || fnName.getFunction().equalsIgnoreCase("min")
+                || fnName.getFunction().equalsIgnoreCase("avg")) {
             Type childType = getChild(0).type;
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

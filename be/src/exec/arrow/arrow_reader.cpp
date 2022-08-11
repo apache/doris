@@ -30,6 +30,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
+#include "util/string_util.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -37,8 +38,10 @@ namespace doris {
 // Broker
 
 ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                 int32_t num_of_columns_from_file)
-        : _batch_size(batch_size), _num_of_columns_from_file(num_of_columns_from_file) {
+                                 int32_t num_of_columns_from_file, bool caseSensitive)
+        : _batch_size(batch_size),
+          _num_of_columns_from_file(num_of_columns_from_file),
+          _caseSensitive(caseSensitive) {
     _arrow_file = std::shared_ptr<ArrowFile>(new ArrowFile(file_reader));
     _rb_reader = nullptr;
     _total_groups = 0;
@@ -79,6 +82,19 @@ Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple
         }
     }
     return Status::OK();
+}
+
+int ArrowReaderWrap::get_cloumn_index(std::string column_name) {
+    std::string real_column_name = _caseSensitive ? column_name : to_lower(column_name);
+    auto iter = _map_column.find(real_column_name);
+    if (iter != _map_column.end()) {
+        return iter->second;
+    } else {
+        std::stringstream str_error;
+        str_error << "Invalid Column Name:" << real_column_name;
+        LOG(WARNING) << str_error.str();
+        return -1;
+    }
 }
 
 Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {

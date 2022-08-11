@@ -22,6 +22,7 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
@@ -53,9 +54,47 @@ public class ExprRewriter {
     // The type of clause that executes the rule.
     // This type is only used in InferFiltersRule, RewriteDateLiteralRule, other rules are not used
     public enum ClauseType {
-        ON_CLAUSE,
+        INNER_JOIN_CLAUSE,
+        LEFT_OUTER_JOIN_CLAUSE,
+        RIGHT_OUTER_JOIN_CLAUSE,
+        FULL_OUTER_JOIN_CLAUSE,
+        LEFT_SEMI_JOIN_CLAUSE,
+        RIGHT_SEMI_JOIN_CLAUSE,
+        LEFT_ANTI_JOIN_CLAUSE,
+        RIGHT_ANTI_JOIN_CLAUSE,
+        CROSS_JOIN_CLAUSE,
         WHERE_CLAUSE,
-        OTHER_CLAUSE,    // All other clauses that are not on and not where
+        OTHER_CLAUSE; // All other clauses that are not on and not where
+
+        public static ClauseType fromJoinType(JoinOperator joinOp) {
+            switch (joinOp) {
+                case INNER_JOIN: return INNER_JOIN_CLAUSE;
+                case LEFT_OUTER_JOIN: return LEFT_OUTER_JOIN_CLAUSE;
+                case RIGHT_OUTER_JOIN: return RIGHT_OUTER_JOIN_CLAUSE;
+                case FULL_OUTER_JOIN: return FULL_OUTER_JOIN_CLAUSE;
+                case LEFT_SEMI_JOIN: return LEFT_SEMI_JOIN_CLAUSE;
+                case RIGHT_SEMI_JOIN: return RIGHT_SEMI_JOIN_CLAUSE;
+                case LEFT_ANTI_JOIN: return LEFT_ANTI_JOIN_CLAUSE;
+                case RIGHT_ANTI_JOIN: return RIGHT_ANTI_JOIN_CLAUSE;
+                case CROSS_JOIN: return CROSS_JOIN_CLAUSE;
+                default: return OTHER_CLAUSE;
+            }
+        }
+
+        public boolean isInferable() {
+            if (this == INNER_JOIN_CLAUSE
+                    || this == LEFT_SEMI_JOIN_CLAUSE
+                    || this == RIGHT_SEMI_JOIN_CLAUSE
+                    || this == WHERE_CLAUSE
+                    || this == OTHER_CLAUSE) {
+                return true;
+            }
+            return false;
+        }
+
+        public boolean isOnClause() {
+            return this.compareTo(WHERE_CLAUSE) < 0;
+        }
     }
 
     // Once-only Rules

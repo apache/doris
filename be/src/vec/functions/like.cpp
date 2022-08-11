@@ -49,6 +49,25 @@ static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\%)|(\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_]))+)(?:%+)");
 static const re2::RE2 LIKE_EQUALS_RE("(((\\\\%)|(\\\\_)|([^%_]))+)");
 
+Status LikeSearchState::clone(LikeSearchState& cloned) {
+    cloned.escape_char = escape_char;
+    cloned.set_search_string(search_string);
+
+    if (hs_database) {
+        std::string re_pattern;
+        FunctionLike::convert_like_pattern(this, pattern_str, &re_pattern);
+
+        hs_database_t* database = nullptr;
+        hs_scratch_t* scratch = nullptr;
+        RETURN_IF_ERROR(FunctionLike::hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
+
+        cloned.hs_database.reset(database);
+        cloned.hs_scratch.reset(scratch);
+    }
+
+    return Status::OK();
+}
+
 Status FunctionLikeBase::constant_starts_with_fn(LikeSearchState* state, const StringValue& val,
                                                  const StringValue& pattern,
                                                  unsigned char* result) {
@@ -77,8 +96,7 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
         *result = true;
         return Status::OK();
     }
-    StringValue pattern_value = StringValue::from_string_val(val.ptr);
-    *result = state->substring_pattern.search(&pattern_value) != -1;
+    *result = state->substring_pattern.search(&val) != -1;
     return Status::OK();
 }
 
@@ -314,6 +332,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
         const auto& pattern = pattern_col->get_data_at(0);
 
         std::string pattern_str = pattern.to_string();
+        state->search_state.pattern_str = pattern_str;
         std::string search_string;
         if (RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
             remove_escape_character(&search_string);
@@ -386,6 +405,14 @@ Status FunctionRegexp::prepare(FunctionContext* context,
         }
     }
     return Status::OK();
+}
+
+void register_function_like(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionLike>();
+}
+
+void register_function_regexp(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionRegexp>();
 }
 
 } // namespace doris::vectorized

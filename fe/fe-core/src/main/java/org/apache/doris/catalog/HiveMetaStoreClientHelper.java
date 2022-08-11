@@ -31,6 +31,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -44,6 +45,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -205,7 +207,7 @@ public class HiveMetaStoreClientHelper {
 
     // create Configuration for the given properties
     private static Configuration getConfiguration(Map<String, String> properties, boolean onS3) {
-        Configuration configuration = new Configuration(false);
+        Configuration configuration = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
                 configuration.set(entry.getKey(), entry.getValue());
@@ -234,7 +236,7 @@ public class HiveMetaStoreClientHelper {
             throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> allIterators = new ArrayList<>();
         for (Partition p : partitions) {
-            String location = p.getSd().getLocation();
+            String location = normalizeS3LikeSchema(p.getSd().getLocation());
             Path path = new Path(location);
             allIterators.addAll(getRemoteIterator(path, configuration, properties, isSecurityEnabled));
         }
@@ -244,7 +246,7 @@ public class HiveMetaStoreClientHelper {
     // Get remote iterators for given table
     private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Configuration configuration,
             boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
-        String location = table.getSd().getLocation();
+        String location = normalizeS3LikeSchema(table.getSd().getLocation());
         Path path = new Path(location);
         return getRemoteIterator(path, configuration, properties, isSecurityEnabled);
     }
@@ -263,10 +265,21 @@ public class HiveMetaStoreClientHelper {
             FileSystem fileSystem = path.getFileSystem(conf);
             iterators.add(fileSystem.listLocatedStatus(path));
         } catch (IOException e) {
-            LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
+            LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
             throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
         }
         return iterators;
+    }
+
+    public static String normalizeS3LikeSchema(String location) {
+        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
+        for (String objectStorage : objectStorages) {
+            if (location.startsWith(objectStorage + "://")) {
+                location = location.replaceFirst(objectStorage, "s3");
+                break;
+            }
+        }
+        return location;
     }
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
@@ -335,7 +348,7 @@ public class HiveMetaStoreClientHelper {
                     null, (short) -1, hivePartitions);
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed: " + e.getMessage());
         } finally {
             client.close();
         }

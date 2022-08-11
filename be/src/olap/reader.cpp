@@ -198,13 +198,20 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
             // it's ok for rowset to return unordered result
             need_ordered_result = false;
         }
+
+        if (read_params.read_orderby_key) {
+            need_ordered_result = true;
+        }
     }
 
     _reader_context.reader_type = read_params.reader_type;
     _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
+    _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.return_columns = &_return_columns;
+    _reader_context.read_orderby_key_columns =
+            _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.seek_columns = &_seek_columns;
     _reader_context.load_bf_columns = &_load_bf_columns;
     _reader_context.load_bf_all_columns = &_load_bf_all_columns;
@@ -261,6 +268,12 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     res = _init_keys_param(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init keys param. res=" << res;
+        return res;
+    }
+
+    res = _init_orderby_keys_param(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init orderby keys param. res=" << res;
         return res;
     }
 
@@ -402,7 +415,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
-                *_tablet_schema, read_params.start_key[i].values(), schema);
+                _tablet_schema, read_params.start_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -424,7 +437,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(*_tablet_schema,
+        Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
                                                            read_params.end_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
@@ -439,6 +452,34 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     }
 
     //TODO:check the valid of start_key and end_key.(eg. start_key <= end_key)
+
+    return Status::OK();
+}
+
+Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
+    if (read_params.start_key.empty()) {
+        return Status::OK();
+    }
+
+    // UNIQUE_KEYS will compare all keys as before
+    if (_tablet_schema->keys_type() == DUP_KEYS) {
+        // find index in vector _return_columns
+        //   for the read_orderby_key_num_prefix_columns orderby keys
+        for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
+            for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
+                if (_return_columns[idx] == i) {
+                    _orderby_key_columns.push_back(idx);
+                    break;
+                }
+            }
+        }
+        if (read_params.read_orderby_key_num_prefix_columns != _orderby_key_columns.size()) {
+            LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
+                         << read_params.read_orderby_key_num_prefix_columns << " vs. "
+                         << _orderby_key_columns.size();
+            return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+        }
+    }
 
     return Status::OK();
 }
@@ -491,8 +532,8 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
-                                   function_filter._string_param);
+    return new LikeColumnPredicate<false>(function_filter._opposite, index, function_filter._fn_ctx,
+                                          function_filter._string_param);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
@@ -549,13 +590,14 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
                                          std::set<uint32_t>* load_bf_columns) {
     // add all columns with condition to load_bf_columns
     for (const auto& cond_column : conditions->columns()) {
-        if (!_tablet_schema->column(cond_column.first).is_bf_column()) {
+        int32_t column_id = _tablet_schema->field_index(cond_column.first);
+        if (!_tablet_schema->column(column_id).is_bf_column()) {
             continue;
         }
         for (const auto& cond : cond_column.second->conds()) {
             if (cond->op == OP_EQ ||
                 (cond->op == OP_IN && cond->operand_set.size() < MAX_OP_IN_FIELD_NUM)) {
-                load_bf_columns->insert(cond_column.first);
+                load_bf_columns->insert(column_id);
             }
         }
     }
@@ -611,17 +653,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
         _filter_delete = true;
     }
 
-    auto delete_init = [&]() -> Status {
-        return _delete_handler.init(*_tablet_schema, _tablet->delete_predicates(),
-                                    read_params.version.second, this);
-    };
-
-    if (read_params.reader_type == READER_ALTER_TABLE) {
-        return delete_init();
-    }
-
-    std::shared_lock rdlock(_tablet->get_header_lock());
-    return delete_init();
+    return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
+                                read_params.version.second, this);
 }
 
 } // namespace doris

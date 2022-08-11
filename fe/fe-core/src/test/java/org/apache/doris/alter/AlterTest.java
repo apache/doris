@@ -48,6 +48,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -68,6 +70,7 @@ public class AlterTest {
     private static String runningDir = "fe/mocked/AlterTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext connectContext;
+    private static Backend be;
 
     @BeforeClass
     public static void beforeClass() throws Exception {
@@ -77,6 +80,8 @@ public class AlterTest {
         Config.disable_storage_medium_check = true;
         UtFrameUtils.createDorisCluster(runningDir);
 
+        be = Env.getCurrentSystemInfo().getIdToBackend().values().asList().get(0);
+
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
@@ -84,63 +89,26 @@ public class AlterTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Env.getCurrentEnv().createDb(createDbStmt);
 
-        createTable("CREATE TABLE test.tbl1\n"
-                + "(\n"
-                + "    k1 date,\n"
-                + "    k2 int,\n"
-                + "    v1 int sum\n"
-                + ")\n"
-                + "PARTITION BY RANGE(k1)\n"
-                + "(\n"
-                + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+        createTable("CREATE TABLE test.tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n" + ")\n"
+                + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.tbl2\n"
-                + "(\n"
-                + "    k1 date,\n"
-                + "    v1 int sum\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH (k1) BUCKETS 3\n"
+        createTable("CREATE TABLE test.tbl2\n" + "(\n" + "    k1 date,\n" + "    v1 int sum\n" + ")\n"
+                + "DISTRIBUTED BY HASH (k1) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
+
+        createTable("CREATE TABLE test.tbl3\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n" + ")\n"
+                + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.tbl3\n"
-                + "(\n"
-                + "    k1 date,\n"
-                + "    k2 int,\n"
-                + "    v1 int sum\n"
-                + ")\n"
-                + "PARTITION BY RANGE(k1)\n"
-                + "(\n"
-                + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
-                + "PROPERTIES('replication_num' = '1');");
-
-        createTable("CREATE TABLE test.tbl4\n"
-                + "(\n"
-                + "    k1 date,\n"
-                + "    k2 int,\n"
-                + "    v1 int sum\n"
-                + ")\n"
-                + "PARTITION BY RANGE(k1)\n"
-                + "(\n"
-                + "    PARTITION p1 values less than('2020-02-01'),\n"
+        createTable("CREATE TABLE test.tbl4\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n" + ")\n"
+                + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
                 + "    PARTITION p2 values less than('2020-03-01'),\n"
                 + "    PARTITION p3 values less than('2020-04-01'),\n"
-                + "    PARTITION p4 values less than('2020-05-01')\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
-                + "PROPERTIES"
-                + "("
-                + "    'replication_num' = '1',\n"
-                + "    'in_memory' = 'false',\n"
-                + "    'storage_medium' = 'SSD',\n"
-                + "    'storage_cooldown_time' = '2999-12-31 00:00:00'\n"
-                + ");");
+                + "    PARTITION p4 values less than('2020-05-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES" + "(" + "    'replication_num' = '1',\n" + "    'in_memory' = 'false',\n"
+                + "    'storage_medium' = 'SSD',\n" + "    'storage_cooldown_time' = '2999-12-31 00:00:00'\n" + ");");
 
         createTable("CREATE TABLE test.tbl5\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
                 + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
@@ -386,18 +354,30 @@ public class AlterTest {
 
         // set range table's real replication num
         Partition p1 = tbl.getPartition("p1");
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum()));
+        Assert.assertEquals(Short.valueOf("1"),
+                Short.valueOf(tbl.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum()));
         stmt = "alter table test.tbl1 set ('replication_num' = '3');";
         alterTable(stmt, true);
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum()));
+        Assert.assertEquals(Short.valueOf("1"),
+                Short.valueOf(tbl.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum()));
 
         // set un-partitioned table's real replication num
+        // first we need to change be's tag
+        Map<String, String> originTagMap = be.getTagMap();
+        Map<String, String> tagMap = Maps.newHashMap();
+        tagMap.put(Tag.TYPE_LOCATION, "group1");
+        be.setTagMap(tagMap);
         OlapTable tbl2 = (OlapTable) db.getTableOrMetaException("tbl2");
         Partition partition = tbl2.getPartition(tbl2.getName());
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl2.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
-        stmt = "alter table test.tbl2 set ('replication_num' = '3');";
-        alterTable(stmt, true);
-        // Assert.assertEquals(Short.valueOf("3"), Short.valueOf(tbl2.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
+        Assert.assertEquals(Short.valueOf("1"),
+                Short.valueOf(tbl2.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
+        stmt = "alter table test.tbl2 set ('replication_allocation' = 'tag.location.group1:1');";
+        alterTable(stmt, false);
+        Assert.assertEquals((short) 1, (short) tbl2.getPartitionInfo().getReplicaAllocation(partition.getId())
+                .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group1")));
+        Assert.assertEquals((short) 1, (short) tbl2.getTableProperty().getReplicaAllocation()
+                .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group1")));
+        be.setTagMap(originTagMap);
 
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
         // add partition without set replication num, and default num is 3.
