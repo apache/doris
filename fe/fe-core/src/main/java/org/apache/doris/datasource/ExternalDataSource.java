@@ -49,6 +49,7 @@ public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabas
     // save properties of this data source, such as hive meta store url.
     @SerializedName(value = "dsProperty")
     protected DataSourceProperty dsProperty = new DataSourceProperty();
+    protected boolean initialized = false;
 
     /**
      * @return names of database in this data source.

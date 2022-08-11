@@ -60,8 +60,6 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     private EsRestClient esRestClient;
 
-    private boolean initialized = false;
-
     private String[] nodes;
 
     private String username = null;

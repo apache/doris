@@ -44,7 +44,6 @@ public class HMSExternalDataSource extends ExternalDataSource {
     // Cache of db name to db id.
     private Map<String, Long> dbNameToId;
     private Map<Long, HMSExternalDatabase> idToDb;
-    private boolean initialized = false;
     protected HiveMetaStoreClient client;
 
     /**
