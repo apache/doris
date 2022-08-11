@@ -95,6 +95,7 @@ import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
@@ -116,7 +117,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.sync.SyncJobManager;
 
+/**
+ * Use for execute ddl.
+ **/
 public class DdlExecutor {
+    /**
+     * Execute ddl.
+     **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
@@ -153,8 +160,6 @@ public class DdlExecutor {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMultiTableMaterializedViewStmt) {
             env.createMultiTableMaterializedView((CreateMultiTableMaterializedViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
-            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStatsStmt) {
@@ -322,13 +327,15 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
             env.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
-            env.getCurrentEnv().getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
+            env.getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterMaterializedViewStmt) {
             env.alterMaterializedView((AlterMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshMaterializedViewStmt) {
             env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshCatalogStmt) {
+            env.getDataSourceMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }
