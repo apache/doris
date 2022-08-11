@@ -138,6 +138,8 @@ sed -i 's/varbinary([0-9][0-9][0-9])/varchar(65533)/g' ./user_files/tables.sql
 sed -i 's/varbinary([0-9][0-9])/varchar(65533)/g' ./user_files/tables.sql
 sed -i 's/varbinary([0-9])/varchar(65533)/g' ./user_files/tables.sql
 sed -i 's/\<varbinary\>/varchar(65533)/g' ./user_files/tables.sql
+sed -i 's/decimal([^)]*)/double/g' ./user_files/tables.sql
+
 
 
 #######################################
