@@ -44,6 +44,7 @@ public enum RuleType {
     // predicate push down rules
     PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_DOWN_PREDICATE_THROUGH_AGGREGATION(RuleTypeClass.REWRITE),
+    PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION(RuleTypeClass.REWRITE),
     // column prune rules,
     COLUMN_PRUNE_AGGREGATION_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_FILTER_CHILD(RuleTypeClass.REWRITE),
