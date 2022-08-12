@@ -74,6 +74,7 @@ struct RowsetReaderContext {
     const DeleteBitmap* delete_bitmap = nullptr;
     bool record_rowids = false;
     std::shared_ptr<RowBlockV2> reuse_block;
+    std::shared_ptr<Schema> reuse_input_schema;
 };
 
 } // namespace doris

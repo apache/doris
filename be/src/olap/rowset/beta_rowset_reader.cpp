@@ -66,20 +66,26 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                 _rowset->end_version(), &read_options.delete_conditions,
                 read_options.delete_condition_predicates.get());
     }
-    std::vector<uint32_t> read_columns;
-    std::set<uint32_t> read_columns_set;
-    std::set<uint32_t> delete_columns_set;
-    for (int i = 0; i < _context->return_columns->size(); ++i) {
-        read_columns.push_back(_context->return_columns->at(i));
-        read_columns_set.insert(_context->return_columns->at(i));
-    }
-    read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
-    for (auto cid : delete_columns_set) {
-        if (read_columns_set.find(cid) == read_columns_set.end()) {
-            read_columns.push_back(cid);
+
+    if (_context->reuse_input_schema != nullptr) {
+        _input_schema = _context->reuse_input_schema;
+    } else {
+        std::vector<uint32_t> read_columns;
+        std::set < uint32_t > read_columns_set;
+        std::set < uint32_t > delete_columns_set;
+        for (int i = 0; i < _context->return_columns->size(); ++i) {
+            read_columns.push_back(_context->return_columns->at(i));
+            read_columns_set.insert(_context->return_columns->at(i));
         }
+        read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+        for (auto cid : delete_columns_set) {
+            if (read_columns_set.find(cid) == read_columns_set.end()) {
+                read_columns.push_back(cid);
+            }
+        }
+        _input_schema = std::make_unique<Schema>(_context->tablet_schema->columns(), read_columns);
     }
-    _input_schema = std::make_unique<Schema>(_context->tablet_schema->columns(), read_columns);
+
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
                                               read_context->predicates->begin(),

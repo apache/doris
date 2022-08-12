@@ -29,7 +29,6 @@
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
 #include "olap/row.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
