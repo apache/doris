@@ -79,10 +79,8 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(parquet_col_id);
         } else {
-            std::stringstream str_error;
-            str_error << "Invalid Column Name:" << slot_desc->col_name();
-            LOG(WARNING) << str_error.str();
-            return Status::InvalidArgument(str_error.str());
+            // just continue, as the invalid column will be set to null by default
+            continue;
         }
         ParquetReadColumn column;
         column.slot_desc = slot_desc;
