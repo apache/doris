@@ -36,9 +36,6 @@ public class MergeConsecutiveProjectJob extends BatchRulesJob {
         super(ctx);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
-                        new MergeConsecutiveProjects()
-                        )
-                )
-        ));
+                        new MergeConsecutiveProjects()))));
     }
 }

@@ -400,7 +400,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
 
-        project.getProjects().stream().filter(p -> p instanceof Alias).forEach(p -> {
+        // TODO: handle p.child(0) is not NamedExpression.
+        project.getProjects().stream().filter(Alias.class::isInstance).forEach(p -> {
             SlotRef ref = context.findSlotRef(((NamedExpression) p.child(0)).getExprId());
             context.addExprIdPair(p.getExprId(), ref);
         });
