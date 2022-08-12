@@ -40,15 +40,15 @@ namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                     TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output) {
+Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
+                     uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+                     std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
     if (config::file_cache_type.empty()) {
         segment->_file_reader = std::move(file_reader);
     } else {
-        std::string cache_path = path.substr(0, path.size() - 4);
         io::FileReaderSPtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
