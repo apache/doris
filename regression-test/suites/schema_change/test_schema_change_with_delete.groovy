@@ -19,8 +19,8 @@
 suite("test_schema_change_with_delete") {
 
     def tbName = "test_schema_change_with_delete"
-    def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+    def getJobState = { tbName ->
+          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
           return jobStateResult[0][9]
      }
 
@@ -43,8 +43,8 @@ suite("test_schema_change_with_delete") {
      sql """ delete from ${tbName} where username='aaa';"""
      sql """ insert into ${tbName} values(3, 3, 3, 'ccc');"""
 
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
+    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName};"""
+    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tbName};"""
 
     // Change column type to string
     sql """ alter  table ${tbName} modify column citycode string """
@@ -62,7 +62,7 @@ suite("test_schema_change_with_delete") {
           }
      }
     sql """ insert into ${tbName} values(4, 4, '4', 'ddd');"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tableName};"""
+    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName};"""
+    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tbName};"""
     sql """ DROP TABLE  ${tbName} force"""
 }
