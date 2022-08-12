@@ -196,19 +196,19 @@ private:
         for (uint16_t i = 0; i < *size; ++i) {
             uint16_t idx = sel[i];
             sel[new_size] = idx;
-            const T* cell_value = nullptr;
             if constexpr (Type == TYPE_DATE) {
                 T tmp_uint32_value = 0;
                 memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
                 if constexpr (is_nullable) {
-                    new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                             _operator(_values.find(*cell_value), _values.end()));
+                    new_size +=
+                            _opposite ^ (!block->cell(idx).is_null() &&
+                                         _operator(_values.find(tmp_uint32_value), _values.end()));
                 } else {
-                    new_size += _opposite ^ _operator(_values.find(*cell_value), _values.end());
+                    new_size +=
+                            _opposite ^ _operator(_values.find(tmp_uint32_value), _values.end());
                 }
             } else {
-                cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                 if constexpr (is_nullable) {
                     new_size += _opposite ^ (!block->cell(idx).is_null() &&
                                              _operator(_values.find(*cell_value), _values.end()));
@@ -229,18 +229,16 @@ private:
             }
 
             uint16_t idx = sel[i];
-            const T* cell_value = nullptr;
             auto result = true;
             if constexpr (Type == TYPE_DATE) {
                 T tmp_uint32_value = 0;
                 memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
                 if constexpr (is_nullable) {
                     result &= !block->cell(idx).is_null();
                 }
-                result &= _operator(_values.find(*cell_value), _values.end());
+                result &= _operator(_values.find(tmp_uint32_value), _values.end());
             } else {
-                cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                 if constexpr (is_nullable) {
                     result &= !block->cell(idx).is_null();
                 }

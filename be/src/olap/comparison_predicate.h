@@ -39,16 +39,15 @@ public:
             for (uint16_t i = 0; i < *size; ++i) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                const T* cell_value = nullptr;
                 if constexpr (Type == TYPE_DATE) {
                     T tmp_uint32_value = 0;
                     memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
                            sizeof(uint24_t));
-                    cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
-                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
                     new_size += _opposite ? !result : result;
                 } else {
-                    cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                     auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
                     new_size += _opposite ? !result : result;
                 }
@@ -57,16 +56,14 @@ public:
             for (uint16_t i = 0; i < *size; ++i) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                const T* cell_value = nullptr;
                 if constexpr (Type == TYPE_DATE) {
                     T tmp_uint32_value = 0;
                     memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
                            sizeof(uint24_t));
-                    cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
-                    auto result = _operator(*cell_value, _value);
+                    auto result = _operator(tmp_uint32_value, _value);
                     new_size += _opposite ? !result : result;
                 } else {
-                    cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                     auto result = _operator(*cell_value, _value);
                     new_size += _opposite ? !result : result;
                 }
@@ -82,16 +79,15 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = nullptr;
                 if constexpr (Type == TYPE_DATE) {
                     T tmp_uint32_value = 0;
                     memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
                            sizeof(uint24_t));
-                    cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
-                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
                     flags[i] = flags[i] | (_opposite ? !result : result);
                 } else {
-                    cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                     auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
                     flags[i] = flags[i] | (_opposite ? !result : result);
                 }
@@ -102,16 +98,14 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = nullptr;
                 if constexpr (Type == TYPE_DATE) {
                     T tmp_uint32_value = 0;
                     memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
                            sizeof(uint24_t));
-                    cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
-                    auto result = _operator(*cell_value, _value);
+                    auto result = _operator(tmp_uint32_value, _value);
                     flags[i] = flags[i] | (_opposite ? !result : result);
                 } else {
-                    cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                     auto result = _operator(*cell_value, _value);
                     flags[i] = flags[i] | (_opposite ? !result : result);
                 }
@@ -127,16 +121,15 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = nullptr;
                 if constexpr (Type == TYPE_DATE) {
                     T tmp_uint32_value = 0;
                     memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
                            sizeof(uint24_t));
-                    cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
-                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
                     flags[i] = flags[i] & (_opposite ? !result : result);
                 } else {
-                    cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                     auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
                     flags[i] = flags[i] & (_opposite ? !result : result);
                 }
@@ -147,16 +140,14 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = nullptr;
                 if constexpr (Type == TYPE_DATE) {
                     T tmp_uint32_value = 0;
                     memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
                            sizeof(uint24_t));
-                    cell_value = reinterpret_cast<const T*>(&tmp_uint32_value);
-                    auto result = _operator(*cell_value, _value);
+                    auto result = _operator(tmp_uint32_value, _value);
                     flags[i] = flags[i] & (_opposite ? !result : result);
                 } else {
-                    cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
                     auto result = _operator(*cell_value, _value);
                     flags[i] = flags[i] & (_opposite ? !result : result);
                 }
