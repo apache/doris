@@ -30,12 +30,10 @@ import org.junit.jupiter.api.Assertions;
  * Utility to apply rules to plan and check output plan matches the expected pattern.
  */
 public class PlanChecker {
-
-    private Plan inputPlan;
     private Memo memo;
 
     public PlanChecker plan(Plan plan) {
-        this.inputPlan = plan;
+        this.memo = new Memo(plan);
         return this;
     }
 
@@ -44,7 +42,7 @@ public class PlanChecker {
     }
 
     public PlanChecker applyTopDown(RuleFactory rule, ConnectContext connectContext) {
-        memo = PlanRewriter.topDownRewriteMemo(inputPlan, connectContext, rule);
+        memo = PlanRewriter.topDownRewriteMemo(memo.copyOut(), connectContext, rule);
         return this;
     }
 
@@ -53,7 +51,7 @@ public class PlanChecker {
     }
 
     public PlanChecker applyBottomUp(RuleFactory rule, ConnectContext connectContext) {
-        memo = PlanRewriter.bottomUpRewriteMemo(inputPlan, connectContext, rule);
+        memo = PlanRewriter.bottomUpRewriteMemo(memo.copyOut(), connectContext, rule);
         return this;
     }
 

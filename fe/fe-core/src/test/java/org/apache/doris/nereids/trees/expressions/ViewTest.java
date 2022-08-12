@@ -15,14 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -30,17 +36,16 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class BindViewTest extends TestWithFeService {
+public class ViewTest extends TestWithFeService implements PatternMatchSupported {
     private final List<String> testSql = Lists.newArrayList(
             "SELECT * FROM V1",
+            "SELECT * FROM V2",
             "SELECT * FROM V3",
             "SELECT * FROM T1 JOIN (SELECT * FROM V1) T ON T1.ID1 = T.ID1",
             "SELECT * FROM T2 JOIN (SELECT * FROM V2) T ON T2.ID2 = T.ID2",
             "SELECT Y.ID2 FROM (SELECT * FROM V3) Y",
             "SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3"
     );
-
-    private final int currentTestCaseId = 0;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -80,20 +85,74 @@ public class BindViewTest extends TestWithFeService {
         createView("CREATE VIEW V3 AS SELECT * FROM T3 JOIN (SELECT * FROM V2) T ON T3.ID3 = T.ID2");
     }
 
+    @Override
+    protected void runBeforeEach() throws Exception {
+        NamedExpressionUtil.clear();
+    }
+
     @Test
     public void testTranslateAllCase() throws AnalysisException {
+        // check whether they can be translated.
         for (String sql : testSql) {
+            sql = testSql.get(0);
             System.out.println("\n\n***** " + sql + " *****\n\n");
-            new PhysicalPlanTranslator().translatePlan(new NereidsPlanner(connectContext).plan(
+            PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
                     new NereidsParser().parseSingle(sql),
                     PhysicalProperties.ANY,
                     connectContext
-            ), new PlanTranslatorContext());
+            );
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         }
     }
 
     @Test
-    public void testSimpleView() {
+    public void testSimpleViewMergeProjects() {
+        // FieldChecker projectCheck = new FieldChecker(ImmutableList.of("projects"));
+        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(0)))
+                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new MergeConsecutiveProjects())
+                .matches(
+                      logicalProject(
+                              logicalOlapScan()
+                      )
+                );
+    }
 
+    @Test
+    public void testNestedView() {
+        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(6)))
+                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new MergeConsecutiveProjects())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject(
+                                                                logicalOlapScan()
+                                                        ),
+                                                        logicalProject(
+                                                                logicalOlapScan()
+                                                        )
+                                                )
+                                        ),
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject(
+                                                                logicalOlapScan()
+                                                        ),
+                                                        logicalProject(
+                                                                logicalJoin(
+                                                                        logicalOlapScan(),
+                                                                        logicalProject(
+                                                                                logicalOlapScan()
+                                                                        )
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                )
+                        )
+                );
     }
 }

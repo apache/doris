@@ -35,7 +35,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     private final ExprId exprId;
     private final String name;
-    private final List<String> qualifier;
+    private List<String> qualifier;
 
     /**
      * constructor of Alias.
@@ -53,6 +53,13 @@ public class Alias extends NamedExpression implements UnaryExpression {
         this.exprId = exprId;
         this.name = name;
         this.qualifier = ImmutableList.of();
+    }
+
+    private Alias(ExprId exprId, Expression child, String name, List<String> qualifier) {
+        super(child);
+        this.exprId = exprId;
+        this.name = name;
+        this.qualifier = qualifier;
     }
 
     @Override
@@ -119,6 +126,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Alias(exprId, children.get(0), name);
+    }
+
+    public Expression withQualifier(List<String> qualifier) {
+        return new Alias(this.exprId, this.child(0), this.name, qualifier);
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

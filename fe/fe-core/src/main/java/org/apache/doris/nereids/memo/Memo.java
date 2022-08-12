@@ -169,7 +169,8 @@ public class Memo {
             GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
         boolean newGroupExpressionGenerated = true;
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null) {
+        if (existedGroupExpression != null
+                && (target == null || existedGroupExpression.getOwnerGroup().equals(target))) {
             target = existedGroupExpression.getOwnerGroup();
             newGroupExpressionGenerated = false;
         }
