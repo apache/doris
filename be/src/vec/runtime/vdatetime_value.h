@@ -1140,6 +1140,9 @@ public:
         }
     };
 
+    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
+                              const char** sub_val_end);
+
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
@@ -1150,9 +1153,6 @@ private:
 
     // Helper to set max, min, zero
     void set_zero();
-
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
 
     union {
         T date_v2_value_;
