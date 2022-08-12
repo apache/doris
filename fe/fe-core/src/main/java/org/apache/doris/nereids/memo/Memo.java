@@ -169,6 +169,32 @@ public class Memo {
             GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
         boolean newGroupExpressionGenerated = true;
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
+        /*
+         * here we need to handle one situation that original target is not the same with
+         * existedGroupExpression.getOwnerGroup(). In this case, if we change target to
+         * existedGroupExpression.getOwnerGroup(), we could not rewrite plan as we expected and the plan
+         * will not be changed anymore.
+         * Think below example:
+         * We have a plan like this:
+         * Original (Group 2 is root):
+         * Group2: Project(outside)
+         * Group1: |---Project(inside)
+         * Group0:     |---UnboundRelation
+         *
+         * and we want to rewrite group 2 by Project(inside, GroupPlan(group 0))
+         *
+         * After rewriting we should get (Group 2 is root):
+         * Group2: Project(inside)
+         * Group0: |---UnboundRelation
+         *
+         * Group1: Project(inside)
+         *
+         * After rewriting, Group 1's GroupExpression is not in GroupExpressionsMap anymore and Group 1 is unreachable.
+         * Merge Group 1 into Group 2 is better, but in consideration of there is others way to let a Group take into
+         * unreachable. There's no need to complicate to add a merge step. Instead, we need to have a clear step to
+         * remove unreachable groups and GroupExpressions after rewrite.
+         * TODO: add a clear groups function to memo.
+         */
         if (existedGroupExpression != null
                 && (target == null || target.equals(existedGroupExpression.getOwnerGroup()))) {
             target = existedGroupExpression.getOwnerGroup();

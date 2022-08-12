@@ -122,14 +122,16 @@ public class MemoTest {
     /**
      * Test rewrite current Plan with its child.
      *
-     * Original:
-     * Project(outside)
-     * |---Project(inside)
-     *     |---UnboundRelation
+     * Original(Group 2 is root):
+     * Group2: Project(outside)
+     * Group1: |---Project(inside)
+     * Group0:     |---UnboundRelation
      *
-     * After rewrite:
-     * Project(inside)
-     * |---UnboundRelation
+     * and we want to rewrite group 2 by Project(inside, GroupPlan(group 0))
+     *
+     * After rewriting we should get(Group 2 is root):
+     * Group2: Project(inside)
+     * Group0: |---UnboundRelation
      */
     @Test
     public void testRewriteByChild() {
@@ -157,6 +159,11 @@ public class MemoTest {
         node = node.child(0);
         Assertions.assertTrue(node instanceof UnboundRelation);
         Assertions.assertEquals("test", ((UnboundRelation) node).getTableName());
+
+        // check Group 1's GroupExpression is not in GroupExpressionMaps anymore
+        GroupExpression groupExpression = new GroupExpression(rewriteProject, Lists.newArrayList(leafGroup));
+        Assertions.assertEquals(2,
+                memo.getGroupExpressions().get(groupExpression).getOwnerGroup().getGroupId().asInt());
     }
 
     /**
