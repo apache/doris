@@ -815,14 +815,20 @@ public:
 
     // Return true if range or date is invalid
     static bool is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                           uint8_t minute, uint8_t second, uint32_t microsecond);
+                           uint8_t minute, uint8_t second, uint32_t microsecond,
+                           bool only_time_part = false);
 
     bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                  uint8_t minute, uint8_t second, uint32_t microsecond) {
-        if (is_invalid(year, month, day, hour, minute, second, microsecond)) {
+                                  uint8_t minute, uint8_t second, uint32_t microsecond,
+                                  bool only_time_part = false) {
+        if (is_invalid(year, month, day, hour, minute, second, microsecond, only_time_part)) {
             return false;
         }
-        set_time(year, month, day, hour, minute, second, microsecond);
+        if (only_time_part) {
+            set_time(0, 0, 0, hour, minute, second, microsecond);
+        } else {
+            set_time(year, month, day, hour, minute, second, microsecond);
+        }
         return true;
     };
 
