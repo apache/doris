@@ -61,6 +61,12 @@ public:
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
 
+    void discard_conjuncts() {
+        _vconjunct_ctx->mark_as_stale();
+        _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
+        _vconjunct_ctx = nullptr;
+    }
+
     void mark_to_need_to_close() { _need_to_close = true; }
 
     bool need_to_close() { return _need_to_close; }
@@ -83,11 +89,9 @@ public:
 
     int64_t update_wait_worker_timer() const { return _watcher.elapsed_time(); }
 
-    void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
-        _use_pushdown_conjuncts = has_pushdown_conjuncts;
-    }
-
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
+
+    TabletStorageType get_storage_type();
 
 private:
     Status _init_tablet_reader_params(
@@ -110,12 +114,13 @@ private:
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
 
+    int64_t _limit = -1;
+
     int _id;
     bool _is_open;
     bool _aggregation;
     bool _need_agg_finalize = true;
     bool _has_update_counter = false;
-    bool _use_pushdown_conjuncts = false;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
@@ -143,7 +148,9 @@ private:
     VExprContext* _vconjunct_ctx = nullptr;
     bool _need_to_close = false;
 
-    TabletSchema _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
+
+    std::vector<VExprContext*> _stale_vexpr_ctxs;
 };
 
 } // namespace vectorized

@@ -136,7 +136,6 @@ Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("SetOperation, while constructing the hash table.");
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
     for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {

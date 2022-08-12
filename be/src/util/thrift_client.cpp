@@ -42,7 +42,7 @@ Status ThriftClientImpl::open() {
         const std::string& err_msg = strings::Substitute("Couldn't open transport for $0:$1 ($2)",
                                                          ipaddress(), port(), e.what());
         VLOG_CRITICAL << err_msg;
-        return Status::ThriftRpcError(err_msg);
+        return Status::RpcError(err_msg);
     }
     return Status::OK();
 }

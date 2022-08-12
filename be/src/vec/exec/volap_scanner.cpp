@@ -38,7 +38,9 @@ VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, b
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
-          _mem_tracker(tracker) {}
+          _mem_tracker(tracker) {
+    _tablet_schema = std::make_shared<TabletSchema>();
+}
 
 Status VOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
@@ -68,16 +70,16 @@ Status VOlapScanner::prepare(
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_schema = _tablet->tablet_schema();
+        _tablet_schema->copy_from(*_tablet->tablet_schema());
         if (!_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             // Originally scanner get TabletSchema from tablet object in BE.
             // To support lightweight schema change for adding / dropping columns,
             // tabletschema is bounded to rowset and tablet's schema maybe outdated,
             //  so we have to use schema from a query plan witch FE puts it in query plans.
-            _tablet_schema.clear_columns();
+            _tablet_schema->clear_columns();
             for (const auto& column_desc : _parent->_olap_scan_node.columns_desc) {
-                _tablet_schema.append_column(TabletColumn(column_desc));
+                _tablet_schema->append_column(TabletColumn(column_desc));
             }
         }
         {
@@ -102,15 +104,13 @@ Status VOlapScanner::prepare(
                 ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
                    << ", res=" << acquire_reader_st
                    << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str().c_str());
+                return Status::InternalError(ss.str());
             }
-        }
-    }
 
-    {
-        // Initialize tablet_reader_params
-        RETURN_IF_ERROR(
-                _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
+            // Initialize tablet_reader_params
+            RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters,
+                                                       function_filters));
+        }
     }
 
     return Status::OK();
@@ -120,10 +120,6 @@ Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
-        _use_pushdown_conjuncts = true;
-    }
-
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
@@ -132,9 +128,26 @@ Status VOlapScanner::open() {
         ss << "failed to initialize storage reader. tablet="
            << _tablet_reader_params.tablet->full_name() << ", res=" << res
            << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str().c_str());
+        return Status::InternalError(ss.str());
     }
     return Status::OK();
+}
+
+TabletStorageType VOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 // it will be called under tablet read lock because capture rs readers need
@@ -163,7 +176,7 @@ Status VOlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
-    _tablet_reader_params.tablet_schema = &_tablet_schema;
+    _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     _tablet_reader_params.version = Version(0, _version);
@@ -179,6 +192,10 @@ Status VOlapScanner::_init_tablet_reader_params(
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
+
+    std::copy(_tablet->delete_predicates().cbegin(), _tablet->delete_predicates().cend(),
+              std::inserter(_tablet_reader_params.delete_predicates,
+                            _tablet_reader_params.delete_predicates.begin()));
 
     // Range
     for (auto key_range : key_ranges) {
@@ -204,11 +221,11 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.return_columns = _return_columns;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
-        for (size_t i = 0; i < _tablet_schema.num_key_columns(); ++i) {
+        for (size_t i = 0; i < _tablet_schema->num_key_columns(); ++i) {
             _tablet_reader_params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_tablet_schema.column(index).is_key()) {
+            if (_tablet_schema->column(index).is_key()) {
                 continue;
             } else {
                 _tablet_reader_params.return_columns.push_back(index);
@@ -225,7 +242,20 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.use_page_cache = true;
     }
 
-    _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
+    }
+
+    if (_parent->_olap_scan_node.__isset.sort_info &&
+        _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
+        _limit = _parent->_limit_per_scanner;
+        _tablet_reader_params.read_orderby_key = true;
+        if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
+            _tablet_reader_params.read_orderby_key_reverse = true;
+        }
+        _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                _parent->_olap_scan_node.sort_info.is_asc_order.size();
+    }
 
     return Status::OK();
 }
@@ -235,9 +265,11 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         if (!slot->is_materialized()) {
             continue;
         }
+
         int32_t index = slot->col_unique_id() >= 0
-                                ? _tablet_schema.field_index(slot->col_unique_id())
-                                : _tablet_schema.field_index(slot->col_name());
+                                ? _tablet_schema->field_index(slot->col_unique_id())
+                                : _tablet_schema->field_index(slot->col_name());
+
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -245,21 +277,22 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
+        }
     }
 
     // expand the sequence column
-    if (_tablet_schema.has_sequence_col() && need_seq_col) {
+    if (_tablet_schema->has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
-            if (_tablet_schema.column(col).aggregation() ==
+            if (_tablet_schema->column(col).aggregation() ==
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 has_replace_col = true;
                 break;
             }
         }
-        if (auto sequence_col_idx = _tablet_schema.sequence_col_idx();
+        if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
             has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
                                          sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
@@ -309,6 +342,12 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     // But checking raw_bytes_threshold is still added here for consistency with raw_rows_threshold
     // and olap_scanner.cpp.
 
+    // set eof to true if per scanner limit is reached
+    // currently for query: ORDER BY key LIMIT n
+    if (_limit > 0 && _num_rows_read > _limit) {
+        *eof = true;
+    }
+
     return Status::OK();
 }
 
@@ -328,7 +367,12 @@ Status VOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    if (_vconjunct_ctx) _vconjunct_ctx->close(state);
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        ctx->close(state);
+    }
+    if (_vconjunct_ctx) {
+        _vconjunct_ctx->close(state);
+    }
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here

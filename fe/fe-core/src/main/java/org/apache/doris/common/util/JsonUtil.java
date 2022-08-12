@@ -47,11 +47,19 @@ public class JsonUtil {
         return objectMapper.valueToTree(obj);
     }
 
+    public static JsonNode readTree(String str) {
+        try {
+            return objectMapper.readTree(str);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("readTree exception.", e);
+        }
+    }
+
     public static ArrayNode parseArray(String text) {
         try {
             return (ArrayNode) objectMapper.readTree(text);
         } catch (Exception e) {
-            throw new RuntimeException("Json deserialization exception.", e);
+            throw new RuntimeException("parseArray exception.", e);
         }
     }
 

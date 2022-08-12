@@ -63,6 +63,5 @@ public class OptimizeGroupExpressionJob extends Job {
                 }
             }
         }
-
     }
 }

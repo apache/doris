@@ -32,27 +32,20 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
                                      int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                     int64_t range_size)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
+                                     int64_t range_size, bool case_sensitive)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {}
-
-ParquetReaderWrap::~ParquetReaderWrap() {
-    _closed = true;
-    _queue_writer_cond.notify_one();
-    if (_thread.joinable()) {
-        _thread.join();
-    }
-}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
@@ -92,12 +85,14 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         // map
         auto* schemaDescriptor = _file_metadata->schema();
         for (int i = 0; i < _file_metadata->num_columns(); ++i) {
+            std::string schemaName;
             // Get the Column Reader for the boolean column
             if (schemaDescriptor->Column(i)->max_definition_level() > 1) {
-                _map_column.emplace(schemaDescriptor->Column(i)->path()->ToDotVector()[0], i);
+                schemaName = schemaDescriptor->Column(i)->path()->ToDotVector()[0];
             } else {
-                _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
+                schemaName = schemaDescriptor->Column(i)->name();
             }
+            _map_column.emplace(_case_sensitive ? schemaName : to_lower(schemaName), i);
         }
 
         _timezone = timezone;
@@ -111,7 +106,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
             _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
                                                   file_size);
         }
-        _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
+        _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
         return Status::OK();
     } catch (parquet::ParquetException& e) {
         std::stringstream str_error;
@@ -181,26 +176,6 @@ Status ParquetReaderWrap::read_record_batch(bool* eof) {
         RETURN_IF_ERROR(read_next_batch());
         _current_line_of_batch = 0;
     }
-    return Status::OK();
-}
-
-Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
-    std::unique_lock<std::mutex> lock(_mtx);
-    while (!_closed && _queue.empty()) {
-        if (_batch_eof) {
-            _include_column_ids.clear();
-            *eof = true;
-            _batch_eof = false;
-            return Status::OK();
-        }
-        _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
-    }
-    if (UNLIKELY(_closed)) {
-        return Status::InternalError(_status.message());
-    }
-    *batch = _queue.front();
-    _queue.pop_front();
-    _queue_writer_cond.notify_one();
     return Status::OK();
 }
 
@@ -546,50 +521,6 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     return read_record_batch(eof);
 }
 
-void ParquetReaderWrap::prefetch_batch() {
-    auto insert_batch = [this](const auto& batch) {
-        std::unique_lock<std::mutex> lock(_mtx);
-        while (!_closed && _queue.size() == _max_queue_size) {
-            _queue_writer_cond.wait_for(lock, std::chrono::seconds(1));
-        }
-        if (UNLIKELY(_closed)) {
-            return;
-        }
-        _queue.push_back(batch);
-        _queue_reader_cond.notify_one();
-    };
-    int current_group = 0;
-    int total_groups = _total_groups;
-    while (true) {
-        if (_closed || current_group >= total_groups) {
-            _batch_eof = true;
-            _queue_reader_cond.notify_one();
-            return;
-        }
-        if (config::parquet_predicate_push_down) {
-            auto filter_group_set = _row_group_reader->filter_groups();
-            if (filter_group_set.end() != filter_group_set.find(current_group)) {
-                // find filter group, skip
-                current_group++;
-                continue;
-            }
-        }
-        _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
-        if (!_status.ok()) {
-            _closed = true;
-            return;
-        }
-        arrow::RecordBatchVector batches;
-        _status = _rb_reader->ReadAll(&batches);
-        if (!_status.ok()) {
-            _closed = true;
-            return;
-        }
-        std::for_each(batches.begin(), batches.end(), insert_batch);
-        current_group++;
-    }
-}
-
 Status ParquetReaderWrap::read_next_batch() {
     std::unique_lock<std::mutex> lock(_mtx);
     while (!_closed && _queue.empty()) {
@@ -607,6 +538,26 @@ Status ParquetReaderWrap::read_next_batch() {
     _queue.pop_front();
     _queue_writer_cond.notify_one();
     return Status::OK();
+}
+
+void ParquetReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
+    _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
+    if (!_status.ok()) {
+        _closed = true;
+        return;
+    }
+    _status = _rb_reader->ReadAll(&batches);
+}
+
+bool ParquetReaderWrap::filter_row_group(int current_group) {
+    if (config::parquet_predicate_push_down) {
+        auto filter_group_set = _row_group_reader->filter_groups();
+        if (filter_group_set.end() != filter_group_set.find(current_group)) {
+            // find filter group, skip
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace doris

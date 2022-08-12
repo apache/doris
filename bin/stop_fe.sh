@@ -31,6 +31,11 @@ export PID_DIR=$(
     pwd
 )
 
+signum=9
+if [ "x"$1 = "x--grace" ]; then
+    signum=15
+fi
+
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
     envline=$(eval "echo $envline")
@@ -44,29 +49,29 @@ pidfile=$PID_DIR/fe.pid
 if [ -f $pidfile ]; then
     pid=$(cat $pidfile)
 
-    #check if pid valid
+    # check if pid valid
     if test -z "$pid"; then
         echo "ERROR: invalid pid."
         exit 1
     fi
 
-    #check if pid process exist
-    if ! kill -0 $pid; then
+    # check if pid process exist
+    if ! kill -0 $pid  2>&1; then
         echo "ERROR: fe process $pid does not exist."
         exit 1
     fi
 
     pidcomm=$(ps -p $pid -o comm=)
-    #check if pid process is frontend process
+    # check if pid process is frontend process
     if [ "java"x != "$pidcomm"x ]; then
         echo "ERROR: pid process may not be fe. "
         exit 1
     fi
 
-    #kill pid process and check it
-    if kill $pid >/dev/null 2>&1; then
+    # kill pid process and check it
+    if kill -${signum} $pid >/dev/null 2>&1; then
         while true; do
-            if ps -p $pid >/dev/null; then
+            if kill -0 $pid >/dev/null 2>&1; then
                 echo "waiting fe to stop, pid: $pid"
                 sleep 2
             else

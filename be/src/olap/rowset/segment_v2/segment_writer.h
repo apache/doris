@@ -25,6 +25,7 @@
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 #include "vec/olap/olap_data_convertor.h"
 
@@ -62,7 +63,7 @@ struct SegmentWriterOptions {
 class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                           const TabletSchema* tablet_schema, DataDir* data_dir,
+                           TabletSchemaSPtr tablet_schema, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
@@ -82,7 +83,7 @@ public:
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
     static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                 const TabletColumn& column, const TabletSchema* tablet_schema);
+                                 const TabletColumn& column, TabletSchemaSPtr tablet_schema);
     Slice min_encoded_key();
     Slice max_encoded_key();
 
@@ -102,7 +103,7 @@ private:
 
 private:
     uint32_t _segment_id;
-    const TabletSchema* _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     DataDir* _data_dir;
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;

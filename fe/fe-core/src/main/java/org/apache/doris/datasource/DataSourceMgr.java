@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -93,6 +94,16 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             nameToCatalog.remove(catalog.getName());
         }
         return catalog;
+    }
+
+    private void unprotectedRefreshCatalog(long catalogId) {
+        DataSourceIf catalog = idToCatalog.get(catalogId);
+        if (catalog != null) {
+            String catalogName = catalog.getName();
+            if (!catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+                ((ExternalDataSource) catalog).setInitialized(false);
+            }
+        }
     }
 
     public InternalDataSource getInternalDataSource() {
@@ -192,7 +203,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
             replayCreateCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_CREATE_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -214,7 +225,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_DROP_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_DROP_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -232,7 +243,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_NAME, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_CATALOG_NAME, log);
         } finally {
             writeUnlock();
         }
@@ -253,7 +264,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogProps(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_PROPS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
         }
@@ -309,6 +320,24 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     }
 
     /**
+     * Refresh the catalog meta and write the meta log.
+     */
+    public void refreshCatalog(RefreshCatalogStmt stmt) throws UserException {
+        writeLock();
+        try {
+            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+            replayRefreshCatalog(log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_REFRESH_CATALOG, log);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
      * Reply for create catalog event.
      */
     public void replayCreateCatalog(CatalogLog log) throws DdlException {
@@ -328,6 +357,18 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             removeCatalog(log.getCatalogId());
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Reply for refresh catalog event.
+     */
+    public void replayRefreshCatalog(CatalogLog log) throws DdlException {
+        writeLock();
+        try {
+            unprotectedRefreshCatalog(log.getCatalogId());
         } finally {
             writeUnlock();
         }

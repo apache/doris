@@ -26,6 +26,7 @@ import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
+import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
@@ -155,6 +156,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -166,6 +168,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -356,6 +359,8 @@ public class ShowExecutor {
             handleShowPolicy();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
+        } else if (stmt instanceof ShowAnalyzeStmt) {
+            handleShowAnalyze();
         } else {
             handleEmtpy();
         }
@@ -654,7 +659,11 @@ public class ShowExecutor {
         ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // cluster feature is deprecated.
-        List<String> dbNames = ctx.getCurrentDataSource().getDbNames();
+        DataSourceIf dataSourceIf = ctx.getDataSource(showDbStmt.getCatalogName());
+        if (dataSourceIf == null) {
+            throw new AnalysisException("No catalog found with name " + showDbStmt.getCatalogName());
+        }
+        List<String> dbNames = dataSourceIf.getDbNames();
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
@@ -714,6 +723,11 @@ public class ShowExecutor {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
         }
+        // sort by table name
+        rows.sort((x, y) -> {
+            return x.get(0).compareTo(y.get(0));
+        });
+
         resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
     }
 
@@ -2241,5 +2255,13 @@ public class ShowExecutor {
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getDataSourceMgr().showCatalogs(showStmt);
+    }
+
+    private void handleShowAnalyze() throws AnalysisException {
+        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
+        StatisticsJobManager jobManager = Env.getCurrentEnv()
+                .getStatisticsJobManager();
+        List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }

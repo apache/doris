@@ -34,6 +34,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -420,7 +421,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testFunctionViewGroupingSet() throws Exception {
         String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup("
                 + "query_id, client_ip, concat);";
-        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]");
+        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [8], [8, 9], [8, 9, 10]]");
     }
 
     @Test
@@ -682,7 +683,7 @@ public class QueryPlanTest extends TestWithFeService {
         String castSql = "select * from test.baseall where k11 < cast('2020-03-26' as date)";
         SelectStmt selectStmt = (SelectStmt) parseAndAnalyzeStmt(castSql);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
-        Assert.assertTrue(rightExpr.getType().equals(Type.DATETIME));
+        Assert.assertTrue(rightExpr.getType().equals(ScalarType.getDefaultDateType(Type.DATETIME)));
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
@@ -1017,7 +1018,6 @@ public class QueryPlanTest extends TestWithFeService {
     public void testJoinPredicateTransitivityWithSubqueryInWhereClause() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT *\n"
-
                 + "FROM test.pushdown_test\n"
                 + "WHERE 0 < (\n"
                 + "    SELECT MAX(k9)\n" + "    FROM test.pushdown_test);";
@@ -1036,7 +1036,7 @@ public class QueryPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testConstInParitionPrune() throws Exception {
+    public void testConstInPartitionPrune() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9"
                 + " group by kk1)tt where kk1 in ('aa');";
@@ -1662,57 +1662,6 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
-
-        //format yyyy-MM-dd HH:mm:ss or %Y-%m-%d %H:%i:%s
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm:ss') > '2021-03-02 10:01:28'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
-        sql = "select * from test1 where from_unixtime(query_time, '%Y-%m-%d %H:%i:%s') > '2021-03-02 10:01:28'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
-
-        //format yyyy-MM-dd or %Y-%m-%d
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') > '2021-03-02'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-        sql = "select * from test1 where from_unixtime(query_time, '%Y-%m-%d') > '2021-03-02'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-
-        // format yyyyMMdd or %Y%m%d
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyyMMdd') > '20210302'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-        sql = "select * from test1 where from_unixtime(query_time, '%Y%m%d') > '20210302'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-
-        //format less than
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
-
-        // Do not support other format
-        //format yyyy-MM-dd HH:mm
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm') > '2021-03-02 10:01'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        //format yyyy-MM-dd HH
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH') > '2021-03-02 10'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        //format yyyy-MM
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM') > '2021-03'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        //format yyyy
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy') > '2021'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        // parse error
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyyMMdd') > '2021-03-02 10:01:28'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
     }
 
     @Test
@@ -1740,7 +1689,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01.111111'"));
+        } else {
+            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
+        }
         //invalid date
 
         sql = "select day from tbl_int_date where day = '2020-10-32'";
@@ -1794,7 +1747,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid datetime contains micro second
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01.111111'"));
+        } else {
+            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
+        }
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);

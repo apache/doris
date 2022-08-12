@@ -19,11 +19,13 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
@@ -33,6 +35,7 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
+import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -116,7 +119,15 @@ public class Alter {
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
+    public void processCreateMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt)
+            throws AnalysisException {
+        throw new AnalysisException("Create multi table materialized view is unsupported : " + stmt.toSql());
+    }
+
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
+        if (stmt.getTableName() == null) {
+            throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
+        }
         // check db
         String dbName = stmt.getTableName().getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
@@ -125,6 +136,10 @@ public class Alter {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         // drop materialized view
         ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+    }
+
+    public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException {
+        throw new DdlException("Refresh materialized view is not implemented: " + stmt.toSql());
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -451,6 +466,10 @@ public class Alter {
         }
     }
 
+    public void processAlterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
+        throw new DdlException("ALTER MATERIALIZED VIEW is not implemented: " + stmt.toSql());
+    }
+
     // entry of processing replace table
     private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses)
             throws UserException {
@@ -736,7 +755,8 @@ public class Alter {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, currentStoragePolicy);
+                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, currentStoragePolicy,
+                    Maps.newHashMap());
             modifyPartitionInfos.add(info);
         }
 
@@ -760,6 +780,11 @@ public class Alter {
             Optional.ofNullable(info.getStoragePolicy()).filter(p -> !p.isEmpty())
                     .ifPresent(p -> partitionInfo.setStoragePolicy(info.getPartitionId(), p));
             partitionInfo.setIsInMemory(info.getPartitionId(), info.isInMemory());
+
+            Map<String, String> tblProperties = info.getTblProperties();
+            if (tblProperties != null && !tblProperties.isEmpty()) {
+                olapTable.setReplicaAllocation(tblProperties);
+            }
         } finally {
             olapTable.writeUnlock();
         }

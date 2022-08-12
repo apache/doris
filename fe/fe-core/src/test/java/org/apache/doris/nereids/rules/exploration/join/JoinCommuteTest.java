@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,25 +27,21 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
 
 public class JoinCommuteTest {
     @Test
-    public void testInnerJoinCommute(@Mocked PlannerContext plannerContext) {
-        Table table1 = new Table(0L, "table1", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan1 = new LogicalOlapScan(table1, ImmutableList.of());
-
-        Table table2 = new Table(0L, "table2", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan2 = new LogicalOlapScan(table2, ImmutableList.of());
+    public void testInnerJoinCommute() {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         Expression onCondition = new EqualTo(
                 new SlotReference("id", new BigIntType(), true, ImmutableList.of("table1")),
@@ -57,14 +49,14 @@ public class JoinCommuteTest {
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
                 JoinType.INNER_JOIN, Optional.of(onCondition), scan1, scan2);
 
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
         Rule rule = new JoinCommute(true).build();
 
-        List<Plan> transform = rule.transform(join, plannerContext);
-        Assert.assertEquals(1, transform.size());
+        List<Plan> transform = rule.transform(join, cascadesContext);
+        Assertions.assertEquals(1, transform.size());
         Plan newJoin = transform.get(0);
 
-        Assert.assertEquals(join.child(0), newJoin.child(1));
-        Assert.assertEquals(join.child(1), newJoin.child(0));
+        Assertions.assertEquals(join.child(0), newJoin.child(1));
+        Assertions.assertEquals(join.child(1), newJoin.child(0));
     }
-
 }

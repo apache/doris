@@ -44,6 +44,8 @@ public:
         return _impl->get_const_col(context);
     }
 
+    const VExpr* get_impl() const override { return _impl; }
+
 private:
     VExpr* _impl;
 
@@ -59,5 +61,7 @@ private:
     constexpr static double EXPECTED_FILTER_RATE = 0.2;
 
     std::string _expr_name;
+
+    bool _is_closed;
 };
 } // namespace doris::vectorized

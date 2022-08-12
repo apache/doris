@@ -35,6 +35,11 @@ CONF_Int32(brpc_port, "8060");
 // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
 
+// port to brpc server for single replica load
+CONF_Int32(single_replica_load_brpc_port, "8070");
+// the number of bthreads to brpc server for single replica load
+CONF_Int32(single_replica_load_brpc_num_threads, "64");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -159,10 +164,6 @@ CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
-// number of etl thread pool size
-CONF_Int32(etl_thread_pool_size, "8");
-// number of etl thread pool size
-CONF_Int32(etl_thread_pool_queue_size, "256");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
 // default thrift client retry interval (in milliseconds)
@@ -251,7 +252,7 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
-// whether enable vectorized schema change, material-view or rollup task will fail if this config open.
+// whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "false");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
@@ -261,6 +262,11 @@ CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
 CONF_mDouble(base_cumulative_delta_ratio, "0.3");
 CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
+CONF_Bool(enable_base_compaction_idle_sched, "true");
+
+// dup key not compaction big files
+CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
+CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
 // config the cumulative compaction policy
 // Valid configs: num_based, size_based
@@ -360,11 +366,19 @@ CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 
+CONF_Bool(enable_single_replica_load, "false");
+
+// Port to download server for single replica load
+CONF_Int32(single_replica_load_download_port, "8050");
+// Number of download workers for single replica load
+CONF_Int32(single_replica_load_download_num_workers, "64");
+
 // Used for mini Load. mini load data file will be removed after this time.
 CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 CONF_mInt64(load_error_log_reserve_hours, "48");
 CONF_Int32(number_tablet_writer_threads, "16");
+CONF_Int32(number_slave_replica_download_threads, "64");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");
@@ -381,6 +395,7 @@ CONF_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
+CONF_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 CONF_mBool(enable_stream_load_record, "false");
@@ -732,9 +747,25 @@ CONF_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 CONF_String(rpc_load_balancer, "rr");
 
+// Enable tracing
+// If this configuration is enabled, you should also specify the trace_export_url.
 CONF_Bool(enable_tracing, "false");
 
+// Enable opentelemtry collector
+CONF_Bool(enable_otel_collector, "false");
+
+// Current support for exporting traces:
+// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+// collector: The collector can be used to receive and process traces and support export to a variety of
+//   third-party systems.
+CONF_mString(trace_exporter, "zipkin");
+CONF_Validator(trace_exporter, [](const std::string& config) -> bool {
+    return config == "zipkin" || config == "collector";
+});
+
 // The endpoint to export spans to.
+// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
+// export to collector like: http://127.0.0.1:4318/v1/traces
 CONF_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
 
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
@@ -761,6 +792,7 @@ CONF_Int32(object_pool_buffer_size, "100");
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
 CONF_Bool(parquet_predicate_push_down, "true");
+CONF_Int32(parquet_header_max_size, "8388608");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -777,17 +809,40 @@ CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
 
-CONF_mBool(enable_function_pushdown, "false");
-
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
 CONF_Int32(concurrency_per_dir, "2");
-CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
+CONF_mInt64(cooldown_lag_time_sec, "10800");        // 3h
+CONF_mInt64(max_sub_cache_file_size, "1073741824"); // 1GB
+CONF_mInt64(file_cache_alive_time_sec, "604800");   // 1 week
+// file_cache_type is used to set the type of file cache for remote files.
+// "": no cache, "sub_file_cache": split sub files from remote file.
+// "whole_file_cache": the whole file.
+CONF_mString(file_cache_type, "");
+CONF_Validator(file_cache_type, [](const std::string config) -> bool {
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+});
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
+
+// number of s3 scanner thread pool size
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+// number of s3 scanner thread pool queue size
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+
+#ifdef BE_TEST
+// test s3
+CONF_String(test_s3_resource, "resource");
+CONF_String(test_s3_ak, "ak");
+CONF_String(test_s3_sk, "sk");
+CONF_String(test_s3_endpoint, "endpoint");
+CONF_String(test_s3_region, "region");
+CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_prefix, "prefix");
+#endif
 
 } // namespace config
 

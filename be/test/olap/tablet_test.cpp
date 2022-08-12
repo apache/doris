@@ -26,6 +26,7 @@
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema_cache.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 
@@ -281,7 +282,7 @@ TEST_F(TestTablet, cooldown_policy) {
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
-    _tablet->set_cooldown_resource("test_policy_name");
+    _tablet->set_storage_policy("test_policy_name");
 
     _tablet->_rs_version_map[ptr1->version()] = rowset1;
     _tablet->_rs_version_map[ptr2->version()] = rowset2;
@@ -375,45 +376,55 @@ TEST_F(TestTablet, rowset_tree_update) {
     tschema.keys_type = TKeysType::UNIQUE_KEYS;
     TabletMetaSharedPtr tablet_meta = new_tablet_meta(tschema, true);
     TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
+    RowsetIdUnorderedSet rowset_ids;
     tablet->init();
 
     RowsetMetaSharedPtr rsm1(new RowsetMeta());
     init_rs_meta(rsm1, 6, 7, convert_key_bounds({{"100", "200"}, {"300", "400"}}));
+    rsm1->set_tablet_schema(tablet->tablet_schema());
     RowsetId id1;
     id1.init(10010);
     RowsetSharedPtr rs_ptr1;
-    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm1, &rs_ptr1, false);
+    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm1, &rs_ptr1, false);
     tablet->add_inc_rowset(rs_ptr1);
+    rowset_ids.insert(id1);
 
     RowsetMetaSharedPtr rsm2(new RowsetMeta());
     init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
+    rsm2->set_tablet_schema(tablet->tablet_schema());
     RowsetId id2;
     id2.init(10086);
     rsm2->set_rowset_id(id2);
     RowsetSharedPtr rs_ptr2;
-    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm2, &rs_ptr2, false);
+    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm2, &rs_ptr2, false);
     tablet->add_inc_rowset(rs_ptr2);
+    rowset_ids.insert(id2);
+
+    RowsetId id3;
+    id3.init(540081);
+    rowset_ids.insert(id3);
 
     RowLocation loc;
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("99", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is_not_found());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &loc, 3).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is_not_found());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &loc, 7).precise_code() ==
+    LOG(INFO) << tablet->lookup_row_key("101", &rowset_ids, &loc, 7).to_string();
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("201", &loc, 7).is_not_found());
-    ASSERT_TRUE(tablet->lookup_row_key("300", &loc, 7).precise_code() ==
+    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("499", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is_not_found());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is_not_found());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 8).precise_code() ==
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
 }
 

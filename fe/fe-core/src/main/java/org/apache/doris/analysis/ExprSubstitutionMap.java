@@ -25,10 +25,11 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Map of expression substitutions: lhs[i] gets substituted with rhs[i].
@@ -39,7 +40,7 @@ import java.util.List;
  * See Expr.substitute() and related functions for details on the actual substitution.
  */
 public final class ExprSubstitutionMap {
-    private static final Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
+    private static final Logger LOG = LogManager.getLogger(ExprSubstitutionMap.class);
 
     private boolean checkAnalyzed = true;
     private List<Expr> lhs; // left-hand side
@@ -162,7 +163,7 @@ public final class ExprSubstitutionMap {
      * f [A.id, B.id] g [A.id, C.id]
      * return: g-f [B,id, C,id]
      */
-    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g, Analyzer analyzer) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -176,8 +177,16 @@ public final class ExprSubstitutionMap {
         for (int i = 0; i < g.size(); i++) {
             if (f.containsMappingFor(g.lhs.get(i))) {
                 result.put(f.get(g.lhs.get(i)), g.rhs.get(i));
+                if (f.get(g.lhs.get(i)) instanceof SlotRef && g.rhs.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs.get(i)).getSlotId(),
+                            ((SlotRef) Objects.requireNonNull(f.get(g.lhs.get(i)))).getSlotId());
+                }
             } else {
                 result.put(g.lhs.get(i), g.rhs.get(i));
+                if (g.lhs.get(i) instanceof SlotRef && g.rhs.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs.get(i)).getSlotId(),
+                            ((SlotRef) g.lhs.get(i)).getSlotId());
+                }
             }
         }
         return result;
@@ -209,7 +218,9 @@ public final class ExprSubstitutionMap {
                 Expr fRhs = f.getRhs().get(j);
                 if (fRhs.contains(gLhs)) {
                     Expr newRhs = fRhs.trySubstitute(g, analyzer, false);
-                    result.put(f.getLhs().get(j), newRhs);
+                    if (!result.containsMappingFor(f.getLhs().get(j))) {
+                        result.put(f.getLhs().get(j), newRhs);
+                    }
                     findGMatch = true;
                 }
             }
@@ -249,7 +260,11 @@ public final class ExprSubstitutionMap {
     }
 
     public void substituteLhs(ExprSubstitutionMap lhsSmap, Analyzer analyzer) {
-        lhs = Expr.substituteList(lhs, lhsSmap, analyzer, false);
+        substituteLhs(lhsSmap, analyzer, false);
+    }
+
+    public void substituteLhs(ExprSubstitutionMap lhsSmap, Analyzer analyzer, boolean preserveRootTypes) {
+        lhs = Expr.substituteList(lhs, lhsSmap, analyzer, preserveRootTypes);
     }
 
     public List<Expr> getLhs() {

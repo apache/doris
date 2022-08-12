@@ -26,7 +26,7 @@ under the License.
 
 # 数据导出
 
-数据导出（Export）是 Doris 提供的一种将数据导出的功能。该功能可以将用户指定的表或分区的数据，以文本的格式，通过 Broker 进程导出到远端存储上，如 HDFS/BOS 等。
+数据导出（Export）是 Doris 提供的一种将数据导出的功能。该功能可以将用户指定的表或分区的数据，以文本的格式，通过 Broker 进程导出到远端存储上，如 HDFS / 对象存储（支持S3协议） 等。
 
 本文档主要介绍 Export 的基本原理、使用方式、最佳实践以及注意事项。
 
@@ -126,6 +126,28 @@ WITH BROKER "hdfs"
 * `timeout`：作业超时时间。默认 2小时。单位秒。
 * `tablet_num_per_task`：每个查询计划分配的最大分片数。默认为 5。
 
+### 导出到对象存储
+
+创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+
+```sql
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
+    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+    "AWS_REGION" = "REGION"
+);
+```
+
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问OSS API 的密钥.
+- `AWS_ENDPOINT`：表示OSS的数据中心所在的地域.
+- `AWS_REGION`：Endpoint表示OSS对外服务的访问域名.
+
+
 ### 查看导出状态
 
 提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令查询导入作业状态。结果举例如下：
@@ -137,7 +159,7 @@ mysql> show EXPORT\G;
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
-      Path: bos://bj-test-cmy/export/
+      Path: hdfs://host/path/to/export/
 CreateTime: 2019-06-25 17:08:24
  StartTime: 2019-06-25 17:08:28
 FinishTime: 2019-06-25 17:08:34
@@ -184,7 +206,7 @@ FinishTime: 2019-06-25 17:08:34
 * 如果表数据量过大，建议按照分区导出。
 * 在 Export 作业运行过程中，如果 FE 发生重启或切主，则 Export 作业会失败，需要用户重新提交。
 * 如果 Export 作业运行失败，在远端存储中产生的 `__doris_export_tmp_xxx` 临时目录，以及已经生成的文件不会被删除，需要用户手动删除。
-* 如果 Export 作业运行成功，在远端存储中产生的 `__doris_export_tmp_xxx` 目录，根据远端存储的文件系统语义，可能会保留，也可能会被清除。比如在百度对象存储（BOS）中，通过 rename 操作将一个目录中的最后一个文件移走后，该目录也会被删除。如果该目录没有被清除，用户可以手动清除。
+* 如果 Export 作业运行成功，在远端存储中产生的 `__doris_export_tmp_xxx` 目录，根据远端存储的文件系统语义，可能会保留，也可能会被清除。比如对象存储（支持S3协议）中，通过 rename 操作将一个目录中的最后一个文件移走后，该目录也会被删除。如果该目录没有被清除，用户可以手动清除。
 * 当 Export 运行完成后（成功或失败），FE 发生重启或切主，则  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 展示的作业的部分信息会丢失，无法查看。
 * Export 作业只会导出 Base 表的数据，不会导出 Rollup Index 的数据。
 * Export 作业会扫描数据，占用 IO 资源，可能会影响系统的查询延迟。

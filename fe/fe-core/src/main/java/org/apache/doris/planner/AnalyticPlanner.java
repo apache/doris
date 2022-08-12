@@ -411,7 +411,8 @@ public class AnalyticPlanner {
             }
 
             SortInfo sortInfo = createSortInfo(newRoot, sortExprs, isAsc, nullsFirst);
-            SortNode sortNode = new SortNode(ctx.getNextNodeId(), newRoot, sortInfo, false, false, 0);
+            SortNode sortNode = new SortNode(ctx.getNextNodeId(), newRoot, sortInfo, false);
+            sortNode.setDefaultLimit(false);
 
             // if this sort group does not have partitioning exprs, we want the sort
             // to be executed like a regular distributed sort

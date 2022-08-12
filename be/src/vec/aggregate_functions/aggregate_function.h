@@ -94,6 +94,11 @@ public:
     virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
                            Arena* arena, const size_t num_rows) const = 0;
 
+    // same as merge_vec, but only call "merge" function when place is not nullptr
+    virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                    ConstAggregateDataPtr rhs, Arena* arena,
+                                    const size_t num_rows) const = 0;
+
     /// Serializes state (to transmit it over the network, for example).
     virtual void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
 
@@ -106,6 +111,10 @@ public:
 
     virtual void deserialize_vec(AggregateDataPtr places, ColumnString* column, Arena* arena,
                                  size_t num_rows) const = 0;
+
+    /// Deserializes state and merge it with current aggregation function.
+    virtual void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                                       Arena* arena) const = 0;
 
     /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
     virtual bool allocates_memory_in_arena() const { return false; }
@@ -127,6 +136,11 @@ public:
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena* arena) const = 0;
+
+    // same as add_batch, but only call "add" function when place is not nullptr
+    virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
+                                    size_t place_offset, const IColumn** columns,
+                                    Arena* arena) const = 0;
 
     /** The same for single place.
       */
@@ -162,6 +176,15 @@ public:
                    const IColumn** columns, Arena* arena) const override {
         for (size_t i = 0; i < batch_size; ++i) {
             static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+        }
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena* arena) const override {
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+            }
         }
     }
 
@@ -224,6 +247,18 @@ public:
                                                      arena);
         }
     }
+
+    void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                            ConstAggregateDataPtr rhs, Arena* arena,
+                            const size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
+                                                         arena);
+            }
+        }
+    }
 };
 
 /// Implements several methods for manipulation with data. T - type of structure with data for aggregation.
@@ -253,6 +288,18 @@ public:
     size_t align_of_data() const override { return alignof(Data); }
 
     void reset(AggregateDataPtr place) const override {}
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {
+        char deserialized_data[size_of_data()];
+        AggregateDataPtr deserialized_place = (AggregateDataPtr)deserialized_data;
+
+        auto derived = static_cast<const Derived*>(this);
+        derived->create(deserialized_place);
+        derived->deserialize(deserialized_place, buf, arena);
+        derived->merge(place, deserialized_place, arena);
+        derived->destroy(deserialized_place);
+    }
 };
 
 using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;

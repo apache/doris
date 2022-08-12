@@ -290,6 +290,16 @@ public class ShowExecutorTest {
     }
 
     @Test
+    public void testShowDbFromCatalog() throws AnalysisException {
+        ShowDbStmt stmt = new ShowDbStmt(null, null, InternalDataSource.INTERNAL_DS_NAME);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("testDb", resultSet.getString(0));
+    }
+
+    @Test
     public void testShowDbPriv() throws AnalysisException {
         ShowDbStmt stmt = new ShowDbStmt(null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);

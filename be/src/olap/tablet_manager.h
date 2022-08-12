@@ -61,12 +61,9 @@ public:
     // task to be fail, even if there is enough space on other disks
     Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
 
-    // Drop a tablet by description
-    // If set keep_files == true, files will NOT be deleted when deconstruction.
-    // Return OLAP_SUCCESS, if run ok
-    //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if tablet not exist
-    //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
-    Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files = false);
+    // Drop a tablet by description.
+    // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
+    Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
     Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
@@ -80,6 +77,8 @@ public:
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
+
+    std::vector<TabletSharedPtr> get_all_tablet();
 
     // Extract tablet_id and schema_hash from given path.
     //
@@ -141,6 +140,8 @@ public:
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
+    std::set<int64_t> check_all_tablet_segment(bool repair);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
@@ -156,7 +157,8 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files);
+    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
+                                 bool is_drop_table_or_partition);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,

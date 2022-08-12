@@ -58,7 +58,7 @@ public:
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
         TabletSharedPtr tablet;
-        const TabletSchema* tablet_schema;
+        TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;
@@ -79,8 +79,9 @@ public:
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
         std::vector<FunctionFilter> function_filters;
+        std::vector<DeletePredicatePB> delete_predicates;
 
-        // For primary-key table
+        // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
@@ -94,6 +95,12 @@ public:
 
         // used for comapction to record row ids
         bool record_rowids = false;
+        // used for special optimization for query : ORDER BY key LIMIT n
+        bool read_orderby_key = false;
+        // used for special optimization for query : ORDER BY key DESC LIMIT n
+        bool read_orderby_key_reverse = false;
+        // num of columns for orderby key
+        size_t read_orderby_key_num_prefix_columns = 0;
 
         void check_validation() const;
 
@@ -154,6 +161,8 @@ protected:
 
     Status _init_keys_param(const ReaderParams& read_params);
 
+    Status _init_orderby_keys_param(const ReaderParams& read_params);
+
     void _init_conditions_param(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
@@ -161,12 +170,11 @@ protected:
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
 
-    ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
+    virtual ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
 
     Status _init_delete_condition(const ReaderParams& read_params);
 
     Status _init_return_columns(const ReaderParams& read_params);
-    void _init_seek_columns();
 
     void _init_load_bf_columns(const ReaderParams& read_params);
     void _init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
@@ -179,14 +187,16 @@ protected:
     std::set<uint32_t> _load_bf_columns;
     std::set<uint32_t> _load_bf_all_columns;
     std::vector<uint32_t> _return_columns;
+    // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
+    // columns for orderby keys
+    std::vector<uint32_t> _orderby_key_columns;
     // only use in outer join which change the column nullable which must keep same in
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
-    std::vector<uint32_t> _seek_columns;
 
     TabletSharedPtr _tablet;
     RowsetReaderContext _reader_context;
-    const TabletSchema* _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;

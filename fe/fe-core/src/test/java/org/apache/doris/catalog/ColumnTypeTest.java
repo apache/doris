@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
 import org.junit.Assert;
@@ -97,7 +98,11 @@ public class ColumnTypeTest {
         TypeDef type = TypeDef.createDecimal(12, 5);
         type.analyze(null);
         Assert.assertEquals("decimal(12, 5)", type.toString());
-        Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertEquals(PrimitiveType.DECIMAL64, type.getType().getPrimitiveType());
+        } else {
+            Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
+        }
         Assert.assertEquals(12, ((ScalarType) type.getType()).getScalarPrecision());
         Assert.assertEquals(5, ((ScalarType) type.getType()).getScalarScale());
 
@@ -188,13 +193,23 @@ public class ColumnTypeTest {
 
     @Test(expected = AnalysisException.class)
     public void testDecimalPreFail() throws AnalysisException {
-        TypeDef type = TypeDef.createDecimal(28, 3);
+        TypeDef type;
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            type = TypeDef.createDecimal(39, 3);
+        } else {
+            type = TypeDef.createDecimal(28, 3);
+        }
         type.analyze(null);
     }
 
     @Test(expected = AnalysisException.class)
     public void testDecimalScaleFail() throws AnalysisException {
-        TypeDef type = TypeDef.createDecimal(27, 10);
+        TypeDef type;
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            type = TypeDef.createDecimal(27, 28);
+        } else {
+            type = TypeDef.createDecimal(27, 10);
+        }
         type.analyze(null);
     }
 

@@ -25,6 +25,7 @@
 #include "olap/field.h"
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.hpp"
 #include "util/logging.h"
 
@@ -110,7 +111,7 @@ public:
 
     void SetTabletSchema(std::string name, const std::string& type, const std::string& aggregation,
                          uint32_t length, bool is_allow_null, bool is_key,
-                         TabletSchema* tablet_schema) {
+                         TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
         ColumnPB* column = tablet_schema_pb.add_column();
@@ -128,8 +129,8 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void init_row_block(const TabletSchema* tablet_schema, int size) {
-        _schema = std::make_unique<Schema>(*tablet_schema);
+    void init_row_block(TabletSchemaSPtr tablet_schema, int size) {
+        _schema = std::make_unique<Schema>(tablet_schema);
         _row_block.reset(new RowBlockV2(*_schema, size));
     }
 
@@ -138,11 +139,11 @@ public:
     std::unique_ptr<Schema> _schema;
 };
 
-#define TEST_IN_LIST_PREDICATE_V2(TYPE, TYPE_NAME, FIELD_TYPE)                                    \
+#define TEST_IN_LIST_PREDICATE_V2(PRIMITIVE_TYPE, TYPE, TYPE_NAME, FIELD_TYPE)                    \
     TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) {                                          \
-        TabletSchema tablet_schema;                                                               \
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();                        \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, false, true, \
-                        &tablet_schema);                                                          \
+                        tablet_schema);                                                           \
         int size = 10;                                                                            \
         Schema schema(tablet_schema);                                                             \
         RowBlockV2 block(schema, size);                                                           \
@@ -150,7 +151,8 @@ public:
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
+        ColumnPredicate* pred = new InListPredicateBase<PRIMITIVE_TYPE, PredicateType::IN_LIST>(  \
+                0, std::move(values));                                                            \
         uint16_t sel[10];                                                                         \
         for (int i = 0; i < 10; ++i) {                                                            \
             sel[i] = i;                                                                           \
@@ -171,9 +173,9 @@ public:
         EXPECT_EQ(*((TYPE*)column.cell_ptr(sel[2])), 6);                                          \
                                                                                                   \
         /* for has nulls */                                                                       \
-        TabletSchema tablet_schema2;                                                              \
+        TabletSchemaSPtr tablet_schema2 = std::make_shared<TabletSchema>();                       \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, true, true,  \
-                        &tablet_schema2);                                                         \
+                        tablet_schema2);                                                          \
         Schema schema2(tablet_schema2);                                                           \
         RowBlockV2 block2(schema2, size);                                                         \
         ColumnBlock column2 = block2.column_block(0);                                             \
@@ -197,28 +199,29 @@ public:
         delete pred;                                                                              \
     }
 
-TEST_IN_LIST_PREDICATE_V2(int8_t, TINYINT, "TINYINT")
-TEST_IN_LIST_PREDICATE_V2(int16_t, SMALLINT, "SMALLINT")
-TEST_IN_LIST_PREDICATE_V2(int32_t, INT, "INT")
-TEST_IN_LIST_PREDICATE_V2(int64_t, BIGINT, "BIGINT")
-TEST_IN_LIST_PREDICATE_V2(int128_t, LARGEINT, "LARGEINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_TINYINT, int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_SMALLINT, int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_INT, int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_BIGINT, int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_LARGEINT, int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestInListPredicate, FLOAT_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<float> values;
     values.insert(4.1);
     values.insert(5.1);
     values.insert(6.1);
-    ColumnPredicate* pred = new InListPredicate<float>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_FLOAT, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -252,12 +255,12 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<double> values;
@@ -265,10 +268,11 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     values.insert(5.1);
     values.insert(6.1);
 
-    ColumnPredicate* pred = new InListPredicate<double>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DOUBLE, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -302,12 +306,12 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<decimal12_t> values;
@@ -319,10 +323,11 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     decimal12_t value3 = {6, 6};
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DECIMALV2, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -358,11 +363,11 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, CHAR_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("STRING_COLUMN"), "CHAR", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("STRING_COLUMN"), "CHAR", "REPLACE", 1, true, true, tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<StringValue> values;
@@ -384,10 +389,11 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     value3.len = 5;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_CHAR, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -434,12 +440,12 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<StringValue> values;
@@ -461,10 +467,11 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     value3.len = 3;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_VARCHAR, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -511,11 +518,11 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DATE_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<uint24_t> values;
@@ -527,7 +534,8 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 
     uint24_t value3 = datetime::timestamp_from_date("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred = new InListPredicate<uint24_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST>(0, std::move(values));
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -538,7 +546,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -582,12 +590,12 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DATE_V2_COLUMN"), "DATEV2", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<uint32_t> values;
@@ -599,7 +607,8 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
 
     uint32_t value3 = datetime::timestamp_from_date_v2("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred = new InListPredicate<uint32_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DATEV2, PredicateType::IN_LIST>(0, std::move(values));
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -610,7 +619,7 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -654,12 +663,12 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DATETIME_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     phmap::flat_hash_set<uint64_t> values;
@@ -672,7 +681,8 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     uint64_t value3 = datetime::timestamp_from_datetime("2017-09-11 01:01:00");
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST>(0, std::move(values));
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
@@ -683,7 +693,7 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     date_array.push_back("2017-09-12 01:01:01");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);

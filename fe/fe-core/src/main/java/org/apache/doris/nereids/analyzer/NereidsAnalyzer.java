@@ -17,63 +17,41 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
+import org.apache.doris.nereids.rules.analysis.Scope;
+
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
  * TODO: revisit the interface after subquery analysis is supported.
  */
 public class NereidsAnalyzer {
-    private final ConnectContext connectContext;
+    private final CascadesContext cascadesContext;
+    private final Optional<Scope> outerScope;
 
-    public NereidsAnalyzer(ConnectContext connectContext) {
-        this.connectContext = connectContext;
+    public NereidsAnalyzer(CascadesContext cascadesContext) {
+        this(cascadesContext, Optional.empty());
     }
 
-    /**
-     * Analyze plan.
-     */
-    public LogicalPlan analyze(Plan plan) {
-        return (LogicalPlan) analyzeWithPlannerContext(plan).getMemo().copyOut();
+    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
     }
 
-    /**
-     * Convert SQL String to analyzed plan.
-     */
-    public LogicalPlan analyze(String sql) {
-        return analyze(parse(sql));
+    public void analyze() {
+        new AnalyzeRulesJob(cascadesContext, outerScope).execute();
+        new FinalizeAnalyzeJob(cascadesContext).execute();
     }
 
-    /**
-     * Analyze plan and return {@link PlannerContext}.
-     * Thus returned {@link PlannerContext} could be reused to do
-     * further plan optimization without creating new {@link Memo} and {@link PlannerContext}.
-     */
-    public PlannerContext analyzeWithPlannerContext(Plan plan) {
-        PlannerContext plannerContext = new Memo(plan)
-                .newPlannerContext(connectContext)
-                .setDefaultJobContext();
-
-        new AnalyzeRulesJob(plannerContext).execute();
-        return plannerContext;
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
     }
 
-    /**
-     * Convert SQL String to analyzed plan without copying out of {@link Memo}.
-     * Thus returned {@link PlannerContext} could be reused to do
-     * further plan optimization without creating new {@link Memo} and {@link PlannerContext}.
-     */
-    public PlannerContext analyzeWithPlannerContext(String sql) {
-        return analyzeWithPlannerContext(parse(sql));
-    }
-
-    private Plan parse(String sql) {
-        return new NereidsParser().parseSingle(sql);
+    public Optional<Scope> getOuterScope() {
+        return outerScope;
     }
 }

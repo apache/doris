@@ -550,4 +550,34 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
     return st;
 }
 
+Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
+                                   std::unique_ptr<BlockCompressionCodec>& codec) {
+    BlockCompressionCodec* ptr = nullptr;
+    switch (parquet_codec) {
+    case tparquet::CompressionCodec::UNCOMPRESSED:
+        codec.reset(nullptr);
+        return Status::OK();
+    case tparquet::CompressionCodec::SNAPPY:
+        ptr = new SnappyBlockCompression();
+        break;
+    case tparquet::CompressionCodec::LZ4:
+        ptr = new Lz4BlockCompression();
+        break;
+    case tparquet::CompressionCodec::ZSTD:
+        ptr = new ZstdBlockCompression();
+        break;
+    default:
+        return Status::NotFound("unknown compression type({})", parquet_codec);
+    }
+
+    Status st = ptr->init();
+    if (st.ok()) {
+        codec.reset(ptr);
+    } else {
+        delete ptr;
+    }
+
+    return st;
+}
+
 } // namespace doris

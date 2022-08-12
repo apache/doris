@@ -37,7 +37,7 @@ public:
     virtual ~PredicateCreator() = default;
 };
 
-template <typename CppType, PredicateType PT, typename ConditionType>
+template <PrimitiveType Type, typename CppType, PredicateType PT, typename ConditionType>
 class IntegerPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
@@ -47,10 +47,10 @@ public:
             for (const auto& condition : conditions) {
                 values.insert(convert(condition));
             }
-            return new InListPredicateBase<CppType, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<CppType, PT>(index, convert(conditions), opposite);
+            return new ComparisonPredicateBase<Type, PT>(index, convert(conditions), opposite);
         }
     }
 
@@ -62,7 +62,7 @@ private:
     }
 };
 
-template <typename CppType, PredicateType PT, typename ConditionType>
+template <PrimitiveType Type, typename CppType, PredicateType PT, typename ConditionType>
 class DecimalPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
@@ -72,11 +72,11 @@ public:
             for (const auto& condition : conditions) {
                 values.insert(convert(column, condition));
             }
-            return new InListPredicateBase<CppType, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<CppType, PT>(index, convert(column, conditions),
-                                                            opposite);
+            return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions),
+                                                         opposite);
         }
     }
 
@@ -89,7 +89,7 @@ private:
     }
 };
 
-template <PredicateType PT, typename ConditionType>
+template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class StringPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     StringPredicateCreator(bool should_padding) : _should_padding(should_padding) {};
@@ -101,11 +101,11 @@ public:
             for (const auto& condition : conditions) {
                 values.insert(convert(column, condition, pool));
             }
-            return new InListPredicateBase<StringValue, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<StringValue, PT>(
-                    index, convert(column, conditions, pool), opposite);
+            return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions, pool),
+                                                         opposite);
         }
     }
 
@@ -125,7 +125,7 @@ private:
     }
 };
 
-template <typename CppType, PredicateType PT, typename ConditionType>
+template <PrimitiveType Type, typename CppType, PredicateType PT, typename ConditionType>
 struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
@@ -138,10 +138,10 @@ public:
             for (const auto& condition : conditions) {
                 values.insert(_convert(condition));
             }
-            return new InListPredicateBase<CppType, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<CppType, PT>(index, _convert(conditions), opposite);
+            return new ComparisonPredicateBase<Type, PT>(index, _convert(conditions), opposite);
         }
     }
 
@@ -153,22 +153,25 @@ template <PredicateType PT, typename ConditionType>
 inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& type) {
     switch (type) {
     case OLAP_FIELD_TYPE_TINYINT: {
-        return std::make_unique<IntegerPredicateCreator<int8_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<TYPE_TINYINT, int8_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_SMALLINT: {
-        return std::make_unique<IntegerPredicateCreator<int16_t, PT, ConditionType>>();
+        return std::make_unique<
+                IntegerPredicateCreator<TYPE_SMALLINT, int16_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_INT: {
-        return std::make_unique<IntegerPredicateCreator<int32_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<TYPE_INT, int32_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_BIGINT: {
-        return std::make_unique<IntegerPredicateCreator<int64_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<TYPE_BIGINT, int64_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
-        return std::make_unique<IntegerPredicateCreator<int128_t, PT, ConditionType>>();
+        return std::make_unique<
+                IntegerPredicateCreator<TYPE_LARGEINT, int128_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
-        return std::make_unique<CustomPredicateCreator<decimal12_t, PT, ConditionType>>(
+        return std::make_unique<
+                CustomPredicateCreator<TYPE_DECIMALV2, decimal12_t, PT, ConditionType>>(
                 [](const std::string& condition) {
                     decimal12_t value = {0, 0};
                     value.from_string(condition);
@@ -176,39 +179,43 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
                 });
     }
     case OLAP_FIELD_TYPE_DECIMAL32: {
-        return std::make_unique<DecimalPredicateCreator<int32_t, PT, ConditionType>>();
+        return std::make_unique<
+                DecimalPredicateCreator<TYPE_DECIMAL32, int32_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL64: {
-        return std::make_unique<DecimalPredicateCreator<int64_t, PT, ConditionType>>();
+        return std::make_unique<
+                DecimalPredicateCreator<TYPE_DECIMAL64, int64_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL128: {
-        return std::make_unique<DecimalPredicateCreator<int128_t, PT, ConditionType>>();
+        return std::make_unique<
+                DecimalPredicateCreator<TYPE_DECIMAL128, int128_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_CHAR: {
-        return std::make_unique<StringPredicateCreator<PT, ConditionType>>(true);
+        return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>(true);
     }
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING: {
-        return std::make_unique<StringPredicateCreator<PT, ConditionType>>(false);
+        return std::make_unique<StringPredicateCreator<TYPE_STRING, PT, ConditionType>>(false);
     }
     case OLAP_FIELD_TYPE_DATE: {
-        return std::make_unique<CustomPredicateCreator<uint24_t, PT, ConditionType>>(
+        return std::make_unique<CustomPredicateCreator<TYPE_DATE, uint24_t, PT, ConditionType>>(
                 timestamp_from_date);
     }
     case OLAP_FIELD_TYPE_DATEV2: {
-        return std::make_unique<CustomPredicateCreator<uint32_t, PT, ConditionType>>(
+        return std::make_unique<CustomPredicateCreator<TYPE_DATEV2, uint32_t, PT, ConditionType>>(
                 timestamp_from_date_v2);
     }
     case OLAP_FIELD_TYPE_DATETIME: {
-        return std::make_unique<CustomPredicateCreator<uint64_t, PT, ConditionType>>(
+        return std::make_unique<CustomPredicateCreator<TYPE_DATETIME, uint64_t, PT, ConditionType>>(
                 timestamp_from_datetime);
     }
     case OLAP_FIELD_TYPE_DATETIMEV2: {
-        return std::make_unique<CustomPredicateCreator<uint64_t, PT, ConditionType>>(
+        return std::make_unique<
+                CustomPredicateCreator<TYPE_DATETIMEV2, uint64_t, PT, ConditionType>>(
                 timestamp_from_datetime_v2);
     }
     case OLAP_FIELD_TYPE_BOOL: {
-        return std::make_unique<CustomPredicateCreator<bool, PT, ConditionType>>(
+        return std::make_unique<CustomPredicateCreator<TYPE_BOOLEAN, bool, PT, ConditionType>>(
                 [](const std::string& condition) {
                     int32_t ivalue = 0;
                     auto result = std::from_chars(condition.data(),

@@ -102,7 +102,7 @@ public class OlapTableSinkTest {
             }
         };
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L));
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L), false);
         sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
         sink.complete();
         LOG.info("sink is {}", sink.toThrift());
@@ -139,7 +139,7 @@ public class OlapTableSinkTest {
             }
         };
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()), false);
         sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
         try {
             sink.complete();
@@ -164,7 +164,7 @@ public class OlapTableSinkTest {
             }
         };
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId));
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId), false);
         sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
         sink.complete();
         LOG.info("sink is {}", sink.toThrift());
@@ -201,7 +201,7 @@ public class OlapTableSinkTest {
             }
         };
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()), false);
         sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
         try {
             sink.complete();

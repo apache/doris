@@ -22,7 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalDataSource;
 import org.apache.doris.datasource.HMSExternalDataSource;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -41,8 +41,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
 
     // Cache of table name to table id.
-    private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
-    private Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
+    private final Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    private final Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
     private boolean initialized = false;
 
     /**

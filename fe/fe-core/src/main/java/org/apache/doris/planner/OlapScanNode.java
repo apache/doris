@@ -27,6 +27,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -67,6 +68,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -145,6 +147,12 @@ public class OlapScanNode extends ScanNode {
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
 
+    private SortInfo sortInfo = null;
+
+    // When scan match sort_info, we can push limit into OlapScanNode.
+    // It's limit for scanner instead of scanNode so we add a new limit.
+    private long sortLimit = -1;
+
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
@@ -203,8 +211,24 @@ public class OlapScanNode extends ScanNode {
         return selectedTabletsNum;
     }
 
+    public SortInfo getSortInfo() {
+        return sortInfo;
+    }
+
+    public void setSortInfo(SortInfo sortInfo) {
+        this.sortInfo = sortInfo;
+    }
+
+    public void setSortLimit(long sortLimit) {
+        this.sortLimit = sortLimit;
+    }
+
     public Collection<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
+    }
+
+    public void setTupleIds(ArrayList<TupleId> tupleIds) {
+        this.tupleIds = tupleIds;
     }
 
     // only used for UT
@@ -217,7 +241,7 @@ public class OlapScanNode extends ScanNode {
      * selectedIndexId.
      * It makes sure that the olap scan node must scan the base data rather than
      * scan the materialized view data.
-     *
+     * <p>
      * This function is mainly used to update stmt.
      * Update stmt also needs to scan data like normal queries.
      * But its syntax is different from ordinary queries,
@@ -275,8 +299,9 @@ public class OlapScanNode extends ScanNode {
         String situation;
         boolean update;
         CHECK: { // CHECKSTYLE IGNORE THIS LINE
-            if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-                situation = "The key type of table is duplicate.";
+            if (olapTable.getKeysType() == KeysType.DUP_KEYS || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                    && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                situation = "The key type of table is duplicate, or unique key with merge-on-write.";
                 update = true;
                 break CHECK;
             }
@@ -659,7 +684,8 @@ public class OlapScanNode extends ScanNode {
     public void selectBestRollupByRollupSelector(Analyzer analyzer) throws UserException {
         // Step2: select best rollup
         long start = System.currentTimeMillis();
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+        if (olapTable.getKeysType() == KeysType.DUP_KEYS || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                && olapTable.getEnableUniqueKeyMergeOnWrite())) {
             // This function is compatible with the INDEX selection logic of ROLLUP,
             // so the Duplicate table here returns base index directly
             // and the selection logic of materialized view is selected in
@@ -722,6 +748,40 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
+     * Check Parent sort node can push down to child olap scan.
+     */
+    public boolean checkPushSort(SortNode sortNode) {
+        // Ensure all isAscOrder is same, ande length != 0.
+        // Can't be zorder.
+        if (sortNode.getSortInfo().getIsAscOrder().stream().distinct().count() != 1
+                || olapTable.isZOrderSort()) {
+            return false;
+        }
+
+        // Tablet's order by key only can be the front part of schema.
+        // Like: schema: a.b.c.d.e.f.g order by key: a.b.c (no a,b,d)
+        // Do **prefix match** to check if order by key can be pushed down.
+        // olap order by key: a.b.c.d
+        // sort key: (a) (a,b) (a,b,c) (a,b,c,d) is ok
+        //           (a,c) (a,c,d), (a,c,b) (a,c,f) (a,b,c,d,e)is NOT ok
+        List<Expr> sortExprs = sortNode.getSortInfo().getMaterializedOrderingExprs();
+        if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
+            return false;
+        }
+        for (int i = 0; i < sortExprs.size(); i++) {
+            // table key.
+            Column tableKey = olapTable.getFullSchema().get(i);
+            // sort slot.
+            Expr sortExpr = sortExprs.get(i);
+            if (!(sortExpr instanceof SlotRef) || !tableKey.equals(((SlotRef) sortExpr).getColumn())) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * We query Palo Meta to get request's data location
      * extra result info will pass to backend ScanNode
      */
@@ -746,10 +806,18 @@ public class OlapScanNode extends ScanNode {
         }
         output.append("\n");
 
-        if (null != sortColumn) {
+        if (sortColumn != null) {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
         }
-
+        if (sortInfo != null) {
+            output.append(prefix).append("SORT INFO:\n");
+            sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (sortLimit != -1) {
+            output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
+        }
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
         }
@@ -790,7 +858,7 @@ public class OlapScanNode extends ScanNode {
         if (selectedIndexId != -1) {
             for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
                 TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, olapTable.getIndexes());
+                col.setIndexFlag(tColumn, olapTable);
                 columnsDesc.add(tColumn);
                 if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
                     keyColumnNames.add(col.getName());
@@ -805,8 +873,22 @@ public class OlapScanNode extends ScanNode {
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
+        if (sortInfo != null) {
+            TSortInfo tSortInfo = new TSortInfo(
+                    Expr.treesToThrift(sortInfo.getOrderingExprs()),
+                    sortInfo.getIsAscOrder(),
+                    sortInfo.getNullsFirst());
+            if (sortInfo.getSortTupleSlotExprs() != null) {
+                tSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(sortInfo.getSortTupleSlotExprs()));
+            }
+            msg.olap_scan_node.setSortInfo(tSortInfo);
+        }
+        if (sortLimit != -1) {
+            msg.olap_scan_node.setSortLimit(sortLimit);
+        }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
+        msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
     }
 
     // export some tablets

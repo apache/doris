@@ -18,16 +18,14 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.TreeNode;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class ExpressionParserTest {
     private static final NereidsParser PARSER = new NereidsParser();
 
-    private void assertSql(String sql) throws Exception {
-        TreeNode treeNode = PARSER.parseSingle(sql);
-        System.out.println(treeNode.toString());
+    private void assertSql(String sql) {
+        PARSER.parseSingle(sql);
     }
 
     private void assertExpr(String expr) {
@@ -36,7 +34,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testSqlBetweenPredicate() throws Exception {
+    public void testSqlBetweenPredicate() {
         String sql = "select * from test1 where d1 between 1 and 2";
         assertSql(sql);
     }
@@ -48,10 +46,18 @@ public class ExpressionParserTest {
     }
 
     @Test
+    public void testInPredicate() throws Exception {
+        String in = "select * from test1 where d1 in (1, 2, 3)";
+        assertSql(in);
+
+        String inExpr = "c IN (a, b)";
+        assertExpr(inExpr);
+    }
+
+    @Test
     public void testSqlAnd() throws Exception {
         String sql = "select * from test1 where a > 1 and b > 1";
-        TreeNode treeNode = PARSER.parseSingle(sql);
-        System.out.println(treeNode);
+        assertSql(sql);
     }
 
     @Test
@@ -97,7 +103,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testSqlFunction() throws Exception {
+    public void testSqlFunction() {
         String sum = "select sum(a) from test1";
         assertSql(sum);
 
@@ -109,10 +115,16 @@ public class ExpressionParserTest {
 
         String substring = "select substr(a, 1, 2), substring(b ,3 ,4) from test1";
         assertSql(substring);
+
+        String count = "select count(*), count(b) from test1";
+        assertSql(count);
+
+        String min = "select min(a), min(b) as m from test1";
+        assertSql(min);
     }
 
     @Test
-    public void testGroupByClause() throws Exception {
+    public void testGroupByClause() {
 
         String groupBy = "select a from test group by a";
         assertSql(groupBy);
@@ -129,7 +141,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testSortClause() throws Exception {
+    public void testSortClause() {
 
         String sort = "select a from test order by c, d";
         assertSql(sort);
@@ -139,7 +151,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testCaseWhen() throws Exception {
+    public void testCaseWhen() {
         String caseWhen = "select case a when 1 then 2 else 3 end from test";
         assertSql(caseWhen);
 
@@ -148,7 +160,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testInSubquery() throws Exception {
+    public void testInSubquery() {
         String in = "select * from test where a in (select * from test1 where a = 0)";
         assertSql(in);
 
@@ -163,7 +175,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testExist() throws Exception {
+    public void testExist() {
         String exist = "select * from test where exists (select * from test where a = 1)";
         assertSql(exist);
 
@@ -208,7 +220,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testExtract() throws Exception {
+    public void testExtract() {
         String extract = "SELECT EXTRACT(YEAR FROM TIMESTAMP '2022-02-21 00:00:00') AS year FROM TEST;";
         assertSql(extract);
 
@@ -220,7 +232,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testCast() throws Exception {
+    public void testCast() {
         String cast = "SELECT CAST(A AS STRING) FROM TEST;";
         assertSql(cast);
 

@@ -2,35 +2,29 @@
 
 Issue Number: close #xxx
 
-## Problem Summary:
+## Problem summary
+
+Describe your changes.
 
 ## Checklist(Required)
 
-1. Type of your changes:
-    - [ ] Improvement
-    - [ ] Fix
-    - [ ] Feature-WIP
-    - [ ] Feature
-    - [ ] Doc
-    - [ ] Refator
-    - [ ] Others: 
-2. Does it affect the original behavior: 
+1. Does it affect the original behavior: 
     - [ ] Yes
     - [ ] No
     - [ ] I don't know
-3. Has unit tests been added:
+2. Has unit tests been added:
     - [ ] Yes
     - [ ] No
     - [ ] No Need
-4. Has document been added or modified:
+3. Has document been added or modified:
     - [ ] Yes
     - [ ] No
     - [ ] No Need
-5. Does it need to update dependencies:
+4. Does it need to update dependencies:
     - [ ] Yes
     - [ ] No
-6. Are there any changes that cannot be rolled back:
-    - [ ] Yes
+5. Are there any changes that cannot be rolled back:
+    - [ ] Yes (If Yes, please explain WHY)
     - [ ] No
 
 ## Further comments

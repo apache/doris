@@ -74,6 +74,7 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
     RETURN_IF_ERROR(read_page(PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
                               local_compress_codec.get()));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
+    _mem_size += body.get_size();
     return Status::OK();
 }
 
@@ -194,7 +195,17 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     }
 
     // seek inside data page
-    RETURN_IF_ERROR(_data_page.data_decoder->seek_at_or_after_value(key, exact_match));
+    Status st = _data_page.data_decoder->seek_at_or_after_value(key, exact_match);
+    // return the first row of next page when not found
+    if (st.is_not_found() && _reader->_has_index_page) {
+        if (_value_iter.move_next()) {
+            _seeked = true;
+            *exact_match = false;
+            _current_ordinal = _data_page.first_ordinal + _data_page.num_rows;
+            return Status::OK();
+        }
+    }
+    RETURN_IF_ERROR(st);
     _data_page.offset_in_page = _data_page.data_decoder->current_index();
     _current_ordinal = _data_page.first_ordinal + _data_page.offset_in_page;
     DCHECK(_data_page.contains(_current_ordinal));

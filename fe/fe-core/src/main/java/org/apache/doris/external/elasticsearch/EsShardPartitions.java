@@ -54,12 +54,11 @@ public class EsShardPartitions {
     /**
      * Parse shardRoutings from the json
      *
-     * @param indexName    indexName(alias or really name)
+     * @param indexName indexName(alias or really name)
      * @param searchShards the return value of _search_shards
      * @return shardRoutings is used for searching
      */
     public static EsShardPartitions findShardPartitions(String indexName, String searchShards) throws DorisEsException {
-
         EsShardPartitions partitions = new EsShardPartitions(indexName);
         JSONObject jsonObject = (JSONObject) JSONValue.parse(searchShards);
         JSONArray shards = (JSONArray) jsonObject.get("shards");
@@ -67,23 +66,18 @@ public class EsShardPartitions {
         for (int i = 0; i < size; i++) {
             List<EsShardRouting> singleShardRouting = Lists.newArrayList();
             JSONArray shardsArray = (JSONArray) shards.get(i);
-            int arraySize = shardsArray.size();
-            for (int j = 0; j < arraySize; j++) {
-                JSONObject indexShard = (JSONObject) shardsArray.get(j);
+            for (Object o : shardsArray) {
+                JSONObject indexShard = (JSONObject) o;
                 String shardState = (String) indexShard.get("state");
                 if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
                     try {
-                        singleShardRouting.add(
-                                EsShardRouting.newSearchShard(
-                                        (String) indexShard.get("index"),
-                                        ((Long) indexShard.get("shard")).intValue(),
-                                        (Boolean) indexShard.get("primary"),
-                                        (String) indexShard.get("node"),
-                                        (JSONObject) jsonObject.get("nodes")));
+                        singleShardRouting.add(new EsShardRouting((String) indexShard.get("index"),
+                                ((Long) indexShard.get("shard")).intValue(), (Boolean) indexShard.get("primary"),
+                                (String) indexShard.get("node")));
                     } catch (Exception e) {
                         LOG.error("fetch index [{}] shard partitions failure", indexName, e);
-                        throw new DorisEsException("fetch [" + indexName
-                                + "] shard partitions failure [" + e.getMessage() + "]");
+                        throw new DorisEsException(
+                                "fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");
                     }
                 }
             }

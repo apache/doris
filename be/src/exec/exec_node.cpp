@@ -206,14 +206,16 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(), nullptr,
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
     }
-    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
+        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
+    }
 
     // TODO(zc):
     // AddExprCtxsToFree(_conjunct_ctxs);
@@ -229,7 +231,11 @@ Status ExecNode::open(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
-    return Expr::open(_conjunct_ctxs, state);
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
+        return Expr::open(_conjunct_ctxs, state);
+    } else {
+        return Status::OK();
+    }
 }
 
 Status ExecNode::reset(RuntimeState* state) {
@@ -267,7 +273,9 @@ Status ExecNode::close(RuntimeState* state) {
     }
 
     if (_vconjunct_ctx_ptr) (*_vconjunct_ctx_ptr)->close(state);
-    Expr::close(_conjunct_ctxs, state);
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
+        Expr::close(_conjunct_ctxs, state);
+    }
 
     if (_buffer_pool_client.is_registered()) {
         VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;

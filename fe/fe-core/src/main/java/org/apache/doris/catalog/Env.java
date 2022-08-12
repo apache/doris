@@ -34,6 +34,7 @@ import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -46,6 +47,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -67,6 +69,7 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -80,6 +83,7 @@ import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -341,7 +345,7 @@ public class Env {
     private int masterHttpPort;
     private String masterIp;
 
-    private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
+    private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
     private EditLog editLog;
     private int clusterId;
@@ -581,12 +585,12 @@ public class Env {
 
         // The pendingLoadTaskScheduler's queue size should not less than Config.desired_max_waiting_jobs.
         // So that we can guarantee that all submitted load jobs can be scheduled without being starved.
-        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler",
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending-load-task-scheduler",
                 Config.async_pending_load_task_pool_size, Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         // The loadingLoadTaskScheduler's queue size is unlimited, so that it can receive all loading tasks
         // created after pending tasks finish. And don't worry about the high concurrency, because the
         // concurrency is limited by Config.desired_max_waiting_jobs and Config.async_loading_load_task_pool_size.
-        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler",
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading-load-task-scheduler",
                 Config.async_loading_load_task_pool_size, Integer.MAX_VALUE, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
@@ -1532,7 +1536,7 @@ public class Env {
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
-                         localImageVersion, version);
+                        localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
@@ -2886,6 +2890,18 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // unique key table with merge on write
+            if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
+                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
+            }
+
+            // show lightSchemaChange only when it is set true
+            if (olapTable.getUseLightSchemaChange()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+                sb.append(olapTable.getUseLightSchemaChange()).append("\"");
+            }
+
             // storage policy
             if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
@@ -2895,7 +2911,7 @@ public class Env {
             // sequence type
             if (olapTable.hasSequenceCol()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
                 sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
@@ -3202,6 +3218,10 @@ public class Env {
         return idGenerator.getNextId();
     }
 
+    public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
+        return idGenerator.getIdGeneratorBuffer(bufferSize);
+    }
+
     public HashMap<Long, TStorageMedium> getPartitionIdToStorageMediumMap() {
         HashMap<Long, TStorageMedium> storageMediumMap = new HashMap<Long, TStorageMedium>();
 
@@ -3296,13 +3316,10 @@ public class Env {
                                     partitionId);
 
                             // log
-                            ModifyPartitionInfo info =
-                                    new ModifyPartitionInfo(db.getId(), olapTable.getId(),
-                                            partition.getId(),
-                                            hddProperty,
-                                            ReplicaAllocation.NOT_SET,
-                                            partitionInfo.getIsInMemory(partition.getId()),
-                                            partitionInfo.getStoragePolicy(partitionId));
+                            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
+                                    partition.getId(), hddProperty, ReplicaAllocation.NOT_SET,
+                                    partitionInfo.getIsInMemory(partition.getId()),
+                                    partitionInfo.getStoragePolicy(partitionId), Maps.newHashMap());
 
                             editLog.logModifyPartition(info);
                         }
@@ -3587,6 +3604,10 @@ public class Env {
         this.alter.processAlterTable(stmt);
     }
 
+    public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
+        this.alter.processAlterMaterializedView(stmt);
+    }
+
     /**
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
@@ -3599,8 +3620,16 @@ public class Env {
         this.alter.processCreateMaterializedView(stmt);
     }
 
+    public void createMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt) throws AnalysisException {
+        this.alter.processCreateMultiTableMaterializedView(stmt);
+    }
+
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
+    }
+
+    public void refreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
+        this.alter.processRefreshMaterializedView(stmt);
     }
 
     /*
@@ -3647,6 +3676,9 @@ public class Env {
 
                 String oldTableName = table.getName();
                 String newTableName = tableRenameClause.getNewTableName();
+                if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
+                    newTableName = newTableName.toLowerCase();
+                }
                 if (oldTableName.equals(newTableName)) {
                     throw new DdlException("Same table name");
                 }
@@ -4010,9 +4042,16 @@ public class Env {
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
         DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
         partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
+
+        // set table's default replication number.
+        Map<String, String> tblProperties = Maps.newHashMap();
+        tblProperties.put("default.replication_allocation", replicaAlloc.toCreateStmt());
+        table.setReplicaAllocation(tblProperties);
+
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
-                newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()));
+                newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()),
+                tblProperties);
         editLog.logModifyPartition(info);
         LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(), partition.getName(),
                 replicaAlloc.toCreateStmt());
@@ -4029,16 +4068,7 @@ public class Env {
     // The caller need to hold the table write lock
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
-
-        TableProperty tableProperty = table.getTableProperty();
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(properties);
-            table.setTableProperty(tableProperty);
-        } else {
-            tableProperty.modifyTableProperties(properties);
-        }
-        tableProperty.buildReplicaAllocation();
-
+        table.setReplicaAllocation(properties);
         // log
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
                 properties);
@@ -4095,7 +4125,7 @@ public class Env {
                     olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                     // storage policy re-use modify in memory
                     Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
-                        .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
+                            .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
                 }
             }
         } finally {
@@ -4980,7 +5010,7 @@ public class Env {
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent()) {
                 return new TableName(InternalDataSource.INTERNAL_DS_NAME,
-                                    db.getFullName(), table.get().getName());
+                        db.getFullName(), table.get().getName());
             }
         }
         return null;

@@ -44,7 +44,7 @@ public class RewriteBinaryPredicatesRuleTest extends TestWithFeService {
 
     @Test
     public void testNormal() throws Exception {
-        testBase(Operator.EQ, "2.0", Operator.EQ, 2L);
+        testRewrite(Operator.EQ, "2.0", Operator.EQ, 2L, true);
         testBoolean(Operator.EQ, "2.5", false);
 
         testBase(Operator.NE, "2.0", Operator.NE, 2L);
@@ -90,6 +90,17 @@ public class RewriteBinaryPredicatesRuleTest extends TestWithFeService {
         testBoolean(Operator.GT, "32768.1", false);
         testBoolean(Operator.GT, "-32769.1", true);
         testBase(Operator.GT, "32767.0", Operator.GT, 32767L);
+    }
+
+    private void testRewrite(Operator operator, String queryLiteral, Operator expectedOperator, long expectedChild1,
+            boolean expectedResultAfterRewritten)
+            throws Exception {
+        Expr expr1 = getExpr(operator, queryLiteral);
+        if (expr1 instanceof BoolLiteral) {
+            Assertions.assertEquals(((BoolLiteral) expr1).getValue(), expectedResultAfterRewritten);
+        } else {
+            testBase(operator, queryLiteral, expectedOperator, expectedChild1);
+        }
     }
 
     private void testBase(Operator operator, String queryLiteral, Operator expectedOperator, long expectedChild1)

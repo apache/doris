@@ -473,7 +473,7 @@ public class HashJoinNode extends PlanNode {
             }
         }
         // 2. compute srcToOutputMap
-        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap);
+        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
         for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
             Preconditions.checkState(vSrcToOutputSMap.getRhs().get(i) instanceof SlotRef);
             SlotRef rSlotRef = (SlotRef) vSrcToOutputSMap.getRhs().get(i);
@@ -626,7 +626,8 @@ public class HashJoinNode extends PlanNode {
         vIntermediateRightTupleDesc.computeMemLayout();
         // 3. replace srcExpr by intermediate tuple
         Preconditions.checkState(vSrcToOutputSMap != null);
-        vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
+        // Set `preserveRootTypes` to true because we should keep the consistent for types. See Issue-11314.
+        vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer, true);
         // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
         if (votherJoinConjunct != null) {
@@ -1055,10 +1056,12 @@ public class HashJoinNode extends PlanNode {
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
+            msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         }
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {

@@ -20,13 +20,13 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.SlotExtractor;
 
 import com.google.common.base.Preconditions;
 
@@ -168,7 +168,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     public Void visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
         Plan child = filter.child();
         if (child instanceof LogicalJoin) {
-            conjuncts.addAll(ExpressionUtils.extractConjunctive(filter.getPredicates()));
+            conjuncts.addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
         }
 
         child.accept(this, context);
@@ -184,7 +184,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         join.left().accept(this, context);
         join.right().accept(this, context);
 
-        join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunctive(cond)));
+        join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunction(cond)));
         if (!(join.left() instanceof LogicalJoin)) {
             joinInputs.add(join.left());
         }

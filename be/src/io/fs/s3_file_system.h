@@ -46,6 +46,7 @@ public:
 
     Status create_directory(const Path& path) override;
 
+    // Delete all objects start with path.
     Status delete_directory(const Path& path) override;
 
     Status link_file(const Path& src, const Path& dest) override;

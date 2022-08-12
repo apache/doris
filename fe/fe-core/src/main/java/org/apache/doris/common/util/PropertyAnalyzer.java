@@ -79,6 +79,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
+    public static final String PROPERTIES_USE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
+
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
     /*
@@ -158,12 +160,12 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
+                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
                 cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_POLICY)) {
                 remoteStoragePolicy = value;
             } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
+                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
                 dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 if (!Strings.isNullOrEmpty(value)) {
@@ -449,6 +451,25 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    public static Boolean analyzeUseLightSchemaChange(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
+        // set light schema change false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE
+                + " must be `true` or `false`");
     }
 
     // analyzeCompressionType will parse the compression type from properties
