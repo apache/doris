@@ -35,9 +35,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -218,12 +218,12 @@ public class PlanEqualsTest {
         // TODO: Depend on List<OrderKey> Equals
         List<OrderKey> orderKeyList = Lists.newArrayList();
 
-        PhysicalHeapSort physicalHeapSort = new PhysicalHeapSort(orderKeyList, logicalProperties, child);
-        Assertions.assertEquals(physicalHeapSort, physicalHeapSort);
+        PhysicalQuickSort physicalQuickSort = new PhysicalQuickSort(orderKeyList, logicalProperties, child);
+        Assertions.assertEquals(physicalQuickSort, physicalQuickSort);
 
         List<OrderKey> orderKeyListClone = Lists.newArrayList();
-        PhysicalHeapSort physicalHeapSortClone = new PhysicalHeapSort(orderKeyListClone, logicalProperties,
+        PhysicalQuickSort physicalQuickSortClone = new PhysicalQuickSort(orderKeyListClone, logicalProperties,
                 child);
-        Assertions.assertEquals(physicalHeapSort, physicalHeapSortClone);
+        Assertions.assertEquals(physicalQuickSort, physicalQuickSortClone);
     }
 }

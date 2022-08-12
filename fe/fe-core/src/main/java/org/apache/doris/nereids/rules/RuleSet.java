@@ -25,7 +25,8 @@ import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
-import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalHeapSort;
+import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
+import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 
 import com.google.common.collect.ImmutableList;
@@ -53,7 +54,8 @@ public class RuleSet {
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
-            .add(new LogicalSortToPhysicalHeapSort())
+            .add(new LogicalSortToPhysicalQuickSort())
+            .add(new LogicalTopNToPhysicalTopN())
             .build();
 
     public List<Rule> getExplorationRules() {
