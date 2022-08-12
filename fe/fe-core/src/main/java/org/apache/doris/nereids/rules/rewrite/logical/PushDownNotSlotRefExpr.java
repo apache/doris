@@ -37,4 +37,5 @@ public class PushDownNotSlotRefExpr extends OneRewriteRuleFactory {
                 }
         ).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
+
 }
