@@ -171,7 +171,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
     set(LIBRARY_OUTPUT_PATH "src/udf_samples")
 
     # where to put generated binaries
-    set(EXECUTABLE_OUTPUT_PATH "$src/udf_samples")
+    set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
 
     add_library(udfsample SHARED udf_sample.cpp)
         target_link_libraries(udfsample
