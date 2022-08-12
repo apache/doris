@@ -829,7 +829,7 @@ public class FunctionCallExpr extends Expr {
      */
     public void analyzeImplForDefaultValue() throws AnalysisException {
         fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        type = fn.getReturnType();
+        type = ScalarType.getDefaultDateType(fn.getReturnType());
         for (int i = 0; i < children.size(); ++i) {
             if (getChild(i).getType().isNull()) {
                 uncheckedCastChild(Type.BOOLEAN, i);

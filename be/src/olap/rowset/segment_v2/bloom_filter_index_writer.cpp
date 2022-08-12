@@ -210,6 +210,13 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
     case OLAP_FIELD_TYPE_DECIMAL:
         res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, type_info));
         break;
+    case OLAP_FIELD_TYPE_DATEV2:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATEV2>(bf_options, type_info));
+        break;
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        res->reset(
+                new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIMEV2>(bf_options, type_info));
+        break;
     default:
         return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
     }

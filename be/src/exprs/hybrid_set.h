@@ -51,6 +51,8 @@ public:
     virtual Status to_vexpr_list(doris::ObjectPool* pool,
                                  std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
                                  int scale) = 0;
+
+    virtual bool is_date_v2() { return false; }
     class IteratorBase {
     public:
         IteratorBase() {}
@@ -72,6 +74,8 @@ public:
     HybridSet() = default;
 
     ~HybridSet() override = default;
+
+    bool is_date_v2() override { return T == TYPE_DATEV2; }
 
     Status to_vexpr_list(doris::ObjectPool* pool,
                          std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
