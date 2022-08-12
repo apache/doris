@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
@@ -32,18 +33,23 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
           _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-          _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
           _intermediate_slot_desc(nullptr),
           _output_slot_desc(nullptr),
           _exec_timer(nullptr),
           _merge_timer(nullptr),
           _expr_timer(nullptr) {
-        if (desc.__isset.is_nullable) {
-          _data_type = IDataType::from_thrift(_return_type.type, desc.is_nullable);
-        } else {
-          _data_type = IDataType::from_thrift(_return_type.type);
+    if (desc.__isset.is_nullable) {
+        _data_type = IDataType::from_thrift(_return_type.type, desc.is_nullable);
+    } else {
+        _data_type = IDataType::from_thrift(_return_type.type);
+    }
+    if (desc.agg_expr.__isset.param_types) {
+        auto& param_types = desc.agg_expr.param_types;
+        for (auto raw_type : param_types) {
+            _argument_types.push_back(DataTypeFactory::instance().create_data_type(raw_type));
         }
     }
+}
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {
     *result = pool->add(new AggFnEvaluator(desc.nodes[0]));
@@ -73,21 +79,21 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     Status status = VExpr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
     RETURN_IF_ERROR(status);
 
-    DataTypes argument_types;
-    argument_types.reserve(_input_exprs_ctxs.size());
+    DataTypes tmp_argument_types;
+    tmp_argument_types.reserve(_input_exprs_ctxs.size());
 
     std::vector<std::string_view> child_expr_name;
 
-    doris::vectorized::Array params;
     // prepare for argument
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         auto data_type = _input_exprs_ctxs[i]->root()->data_type();
-        argument_types.emplace_back(data_type);
+        tmp_argument_types.emplace_back(data_type);
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
-    _function = AggregateFunctionSimpleFactory::instance().get(_fn.name.function_name, argument_types,
-                                                               params, _data_type->is_nullable());
+    _function = AggregateFunctionSimpleFactory::instance().get(
+            _fn.name.function_name, _argument_types.empty() ? tmp_argument_types : _argument_types,
+            {}, _data_type->is_nullable());
     if (_function == nullptr) {
         return Status::InternalError(
                 fmt::format("Agg Function {} is not implemented", _fn.name.function_name));

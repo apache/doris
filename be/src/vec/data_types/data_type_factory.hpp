@@ -21,7 +21,7 @@
 #pragma once
 #include <mutex>
 #include <string>
-
+#include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
@@ -72,6 +72,12 @@ public:
             }
         }
         return _empty_string;
+    }
+
+    DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
+
+    DataTypePtr create_data_type(const TTypeDesc& raw_type) {
+        return create_data_type(TypeDescriptor::from_thrift(raw_type), raw_type.is_nullable);
     }
 
 private:
