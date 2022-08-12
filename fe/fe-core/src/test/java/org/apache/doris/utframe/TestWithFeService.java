@@ -41,6 +41,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -130,6 +134,22 @@ public abstract class TestWithFeService {
     // Help to create a mocked ConnectContext.
     protected ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
+    }
+
+    protected StatementContext createStatementCtx(String sql) {
+        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+    }
+
+    protected CascadesContext createCascadesContext(String sql) {
+        StatementContext statementCtx = createStatementCtx(sql);
+        LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
+        return CascadesContext.newContext(statementCtx, initPlan);
+    }
+
+    public LogicalPlan analyze(String sql) {
+        CascadesContext cascadesContext = createCascadesContext(sql);
+        cascadesContext.newAnalyzer().analyze();
+        return (LogicalPlan) cascadesContext.getMemo().copyOut();
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {

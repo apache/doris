@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -35,8 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -63,14 +62,12 @@ public class RewriteTopDownJobTest {
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
         );
-        PlannerContext plannerContext = new Memo(project)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project);
 
         List<Rule> fakeRules = Lists.newArrayList(new FakeRule().build());
-        plannerContext.topDownRewrite(fakeRules);
+        cascadesContext.topDownRewrite(fakeRules);
 
-        Group rootGroup = plannerContext.getMemo().getRoot();
+        Group rootGroup = cascadesContext.getMemo().getRoot();
         Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
         GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
         List<Slot> output = rootGroup.getLogicalProperties().getOutput();

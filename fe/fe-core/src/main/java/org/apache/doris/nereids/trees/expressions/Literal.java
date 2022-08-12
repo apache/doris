@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -100,4 +101,6 @@ public abstract class Literal extends Expression implements LeafExpression {
     public String toString() {
         return String.valueOf(getValue());
     }
+
+    public abstract LiteralExpr toLegacyLiteral();
 }

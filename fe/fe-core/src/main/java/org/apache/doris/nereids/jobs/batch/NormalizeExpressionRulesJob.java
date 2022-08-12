@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 
 import com.google.common.collect.ImmutableList;
@@ -29,10 +29,10 @@ public class NormalizeExpressionRulesJob extends BatchRulesJob {
 
     /**
      * Constructor.
-     * @param plannerContext context for applying rules.
+     * @param cascadesContext context for applying rules.
      */
-    public NormalizeExpressionRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
+    public NormalizeExpressionRulesJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(
                         new ExpressionNormalization()

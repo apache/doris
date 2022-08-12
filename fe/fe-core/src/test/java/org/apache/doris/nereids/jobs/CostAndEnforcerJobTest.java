@@ -17,19 +17,18 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -93,12 +92,11 @@ public class CostAndEnforcerJobTest {
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
 
-        PlannerContext plannerContext = new Memo(bottomJoin).newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
-        plannerContext.pushJob(
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(bottomJoin);
+        cascadesContext.pushJob(
                 new OptimizeGroupJob(
-                        plannerContext.getMemo().getRoot(),
-                        plannerContext.getCurrentJobContext()));
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
+                        cascadesContext.getMemo().getRoot(),
+                        cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 }

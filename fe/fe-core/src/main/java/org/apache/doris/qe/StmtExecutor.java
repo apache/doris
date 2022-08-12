@@ -86,6 +86,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -156,6 +157,7 @@ public class StmtExecutor implements ProfileWriter {
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
 
     private ConnectContext context;
+    private StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -183,6 +185,7 @@ public class StmtExecutor implements ProfileWriter {
         this.originStmt = originStmt;
         this.serializer = context.getSerializer();
         this.isProxy = isProxy;
+        this.statementContext = new StatementContext(context, originStmt);
     }
 
     // this constructor is only for test now.
@@ -197,6 +200,8 @@ public class StmtExecutor implements ProfileWriter {
         this.originStmt = parsedStmt.getOrigStmt();
         this.serializer = context.getSerializer();
         this.isProxy = false;
+        this.statementContext = new StatementContext(ctx, originStmt);
+        this.statementContext.setParsedStatement(parsedStmt);
     }
 
     public void setCoord(Coordinator coord) {
@@ -600,7 +605,7 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
             if (selectStmt != null) {
-                parsedStmt = selectStmt;
+                setParsedStmt(selectStmt);
             }
         }
 
@@ -671,7 +676,7 @@ public class StmtExecutor implements ProfileWriter {
                     context.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             try {
-                parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
+                StatementBase parsedStmt = setParsedStmt(SqlParserUtils.getStmt(parser, originStmt.idx));
                 parsedStmt.setOrigStmt(originStmt);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
@@ -716,7 +721,7 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
             if (analyzer.containSubquery()) {
-                parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
+                parsedStmt = setParsedStmt(StmtRewriter.rewrite(analyzer, parsedStmt));
                 reAnalyze = true;
             }
             if (parsedStmt instanceof SelectStmt) {
@@ -771,7 +776,7 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // create plan
-            planner = new NereidsPlanner(context);
+            planner = new NereidsPlanner(statementContext);
         } else {
             planner = new OriginalPlanner(analyzer);
         }
@@ -921,7 +926,7 @@ public class StmtExecutor implements ProfileWriter {
                 analyzer = new Analyzer(context.getEnv(), context);
                 newSelectStmt.analyze(analyzer);
                 if (parsedStmt instanceof LogicalPlanAdapter) {
-                    planner = new NereidsPlanner(context);
+                    planner = new NereidsPlanner(statementContext);
                 } else {
                     planner = new OriginalPlanner(analyzer);
                 }
@@ -1650,7 +1655,7 @@ public class StmtExecutor implements ProfileWriter {
         // after success create table insert data
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
-                parsedStmt = ctasStmt.getInsertStmt();
+                parsedStmt = setParsedStmt(ctasStmt.getInsertStmt());
                 execute();
             } catch (Exception e) {
                 LOG.warn("CTAS insert data error, stmt={}", parsedStmt.toSql(), e);
@@ -1688,5 +1693,11 @@ public class StmtExecutor implements ProfileWriter {
 
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    }
+
+    private StatementBase setParsedStmt(StatementBase parsedStmt) {
+        this.parsedStmt = parsedStmt;
+        this.statementContext.setParsedStatement(parsedStmt);
+        return parsedStmt;
     }
 }

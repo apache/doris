@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.NullType;
 
@@ -42,5 +43,10 @@ public class NullLiteral extends Literal {
     @Override
     public String toString() {
         return "NULL";
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.NullLiteral();
     }
 }

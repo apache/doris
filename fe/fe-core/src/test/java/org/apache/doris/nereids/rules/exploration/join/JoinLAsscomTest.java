@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,11 +27,11 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -62,7 +62,7 @@ public class JoinLAsscomTest {
         outputs.add(t3Output);
     }
 
-    public Pair<LogicalJoin, LogicalJoin> testJoinLAsscom(PlannerContext plannerContext,
+    public Pair<LogicalJoin, LogicalJoin> testJoinLAsscom(
             Expression bottomJoinOnCondition, Expression topJoinOnCondition) {
         /*
          *      topJoin                newTopJoin
@@ -77,8 +77,9 @@ public class JoinLAsscomTest {
         LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> topJoin = new LogicalJoin<>(
                 JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), bottomJoin, scans.get(2));
 
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
         Rule rule = new JoinLAsscom().build();
-        List<Plan> transform = rule.transform(topJoin, plannerContext);
+        List<Plan> transform = rule.transform(topJoin, cascadesContext);
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
         LogicalJoin newTopJoin = (LogicalJoin) transform.get(0);
@@ -86,7 +87,7 @@ public class JoinLAsscomTest {
     }
 
     @Test
-    public void testStarJoinLAsscom(@Mocked PlannerContext plannerContext) {
+    public void testStarJoinLAsscom() {
         /*
          * Star-Join
          * t1 -- t2
@@ -108,8 +109,7 @@ public class JoinLAsscomTest {
         Expression bottomJoinOnCondition = new EqualTo(t1.get(0), t2.get(0));
         Expression topJoinOnCondition = new EqualTo(t1.get(1), t3.get(1));
 
-        Pair<LogicalJoin, LogicalJoin> pair = testJoinLAsscom(plannerContext, bottomJoinOnCondition,
-                topJoinOnCondition);
+        Pair<LogicalJoin, LogicalJoin> pair = testJoinLAsscom(bottomJoinOnCondition, topJoinOnCondition);
         LogicalJoin oldJoin = pair.first;
         LogicalJoin newTopJoin = pair.second;
 
@@ -123,7 +123,7 @@ public class JoinLAsscomTest {
     }
 
     @Test
-    public void testChainJoinLAsscom(@Mocked PlannerContext plannerContext) {
+    public void testChainJoinLAsscom() {
         /*
          * Chain-Join
          * t1 -- t2 -- t3
@@ -143,8 +143,7 @@ public class JoinLAsscomTest {
         Expression bottomJoinOnCondition = new EqualTo(t1.get(0), t2.get(0));
         Expression topJoinOnCondition = new EqualTo(t2.get(0), t3.get(0));
 
-        Pair<LogicalJoin, LogicalJoin> pair = testJoinLAsscom(plannerContext, bottomJoinOnCondition,
-                topJoinOnCondition);
+        Pair<LogicalJoin, LogicalJoin> pair = testJoinLAsscom(bottomJoinOnCondition, topJoinOnCondition);
         LogicalJoin oldJoin = pair.first;
         LogicalJoin newTopJoin = pair.second;
 
