@@ -53,10 +53,11 @@ public class CascadesContext {
      * Constructor of OptimizerContext.
      *
      * @param memo {@link Memo} reference
+     * @param statementContext {@link StatementContext} reference
      */
-    public CascadesContext(Memo memo, StatementContext connectContext) {
+    public CascadesContext(Memo memo, StatementContext statementContext) {
         this.memo = memo;
-        this.statementContext = connectContext;
+        this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();

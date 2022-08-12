@@ -25,7 +25,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
-import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
@@ -138,7 +137,6 @@ public class NereidsPlanner extends Planner {
 
     private void analyze() {
         cascadesContext.newAnalyzer().analyze();
-        new FinalizeAnalyzeJob(cascadesContext).execute();
     }
 
     /**

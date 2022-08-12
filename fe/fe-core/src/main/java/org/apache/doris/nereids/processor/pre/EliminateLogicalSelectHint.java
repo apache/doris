@@ -56,6 +56,7 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
 
     private void setVar(SelectHint selectHint, StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
+        // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
         for (Entry<String, Optional<String>> kv : selectHint.getParameters().entrySet()) {
             String key = kv.getKey();
