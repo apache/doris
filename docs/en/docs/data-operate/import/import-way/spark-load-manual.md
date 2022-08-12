@@ -483,6 +483,75 @@ PROPERTIES
 
 ```
 
+Example 4: Import data from hive partitioned table
+
+```sql
+-- hive create table statement
+create table test_partition(
+id int,
+name string,
+age int
+)
+partitioned by (dt string)
+row format delimited fields terminated by ','
+stored as textfile;
+
+-- doris create table statement
+CREATE TABLE IF NOT EXISTS test_partition_04
+(
+dt date,
+id int,
+name string,
+age int
+)
+UNIQUE KEY(`dt`, `id`)
+DISTRIBUTED BY HASH(`id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+-- spark load 
+CREATE EXTERNAL RESOURCE "spark_resource"
+PROPERTIES
+(
+"type" = "spark",
+"spark.master" = "yarn",
+"spark.submit.deployMode" = "cluster",
+"spark.executor.memory" = "1g",
+"spark.yarn.queue" = "default",
+"spark.hadoop.yarn.resourcemanager.address" = "localhost:50056",
+"spark.hadoop.fs.defaultFS" = "hdfs://localhost:9000",
+"working_dir" = "hdfs://localhost:9000/tmp/doris",
+"broker" = "broker_01"
+);
+LOAD LABEL demo.test_hive_partition_table_18
+(
+    DATA INFILE("hdfs://localhost:9000/user/hive/warehouse/demo.db/test/dt=2022-08-01/*")
+    INTO TABLE test_partition_04
+    COLUMNS TERMINATED BY ","
+    FORMAT AS "csv"
+    (id,name,age)
+    COLUMNS FROM PATH AS (`dt`)
+    SET
+    (
+        dt=dt,
+        id=id,
+        name=name,
+        age=age
+    )
+)
+WITH RESOURCE 'spark_resource'
+(
+    "spark.executor.memory" = "1g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+````
+
+
+
 You can view the details syntax about creating load by input `help spark load`. This paper mainly introduces the parameter meaning and precautions in the creation and load syntax of spark load.
 
 **Label**
@@ -647,6 +716,7 @@ The most suitable scenario to use spark load is that the raw data is in the file
 
 ## FAQ
 
+* Spark load does not yet support the import of Doris table fields that are of type String. If your table fields are of type String, please change them to type varchar, otherwise the import will fail, prompting `type:ETL_QUALITY_UNSATISFIED; msg:quality not good enough to cancel`
 * When using spark load, the `HADOOP_CONF_DIR` environment variable is no set in the `spark-env.sh`.
 
 If the `HADOOP_CONF_DIR` environment variable is not set, the error `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment` will be reported.
