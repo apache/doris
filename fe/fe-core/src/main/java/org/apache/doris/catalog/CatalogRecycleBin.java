@@ -220,14 +220,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public synchronized void replayEraseTable(long tableId) {
+        LOG.info("before replay erase table[{}]", tableId);
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
-
         Table table = tableInfo.getTable();
         if (table.getType() == TableType.OLAP && !Catalog.isCheckpointThread()) {
             Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, true);
         }
-
         LOG.info("replay erase table[{}]", tableId);
     }
 
