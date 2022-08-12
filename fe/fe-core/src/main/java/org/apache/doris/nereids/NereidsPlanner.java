@@ -115,7 +115,9 @@ public class NereidsPlanner extends Planner {
         if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
             deriveStats();
         }
+
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
+        // cascades style optimize phase.
 
         // cost-based optimize and explode plan space
         optimize();
