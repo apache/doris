@@ -292,4 +292,5 @@ suite("test_date_function", "query") {
     sql """ drop table ${tableName} """
 
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
+    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
 }
