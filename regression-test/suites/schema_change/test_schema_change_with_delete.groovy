@@ -19,8 +19,8 @@
 suite("test_schema_change_with_delete") {
 
     def tbName = "test_schema_change_with_delete"
-    def getJobState = { tbName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
+    def getJobState = { tableName ->
+          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
           return jobStateResult[0][9]
      }
 
