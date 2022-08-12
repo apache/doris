@@ -109,6 +109,7 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                         return new NumberMinAggregator();
                     case "char":
                     case "varchar":
+                    case "string":
                         return new StringMinAggregator();
                     case "largeint":
                         return new LargeIntMinAggregator();
