@@ -115,7 +115,11 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));
     }
-    reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+
+    if (tablet->enable_unique_key_merge_on_write()) {
+        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
+
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
     }
