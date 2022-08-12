@@ -62,9 +62,6 @@ public:
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
-    bool has_reference_column() const { return _has_referenced_column; }
-    int32_t referenced_column_id() const { return _referenced_column_id; }
-    std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
@@ -108,10 +105,6 @@ private:
     int32_t _index_length;
 
     bool _is_bf_column = false;
-
-    bool _has_referenced_column = false;
-    int32_t _referenced_column_id;
-    std::string _referenced_column;
 
     bool _has_bitmap_index = false;
     bool _visible = true;

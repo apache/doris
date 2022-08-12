@@ -58,7 +58,7 @@ public:
     int64_t replica_id() const;
     int32_t schema_hash() const;
     int16_t shard_id() const;
-    bool equal(int64_t tablet_id, int32_t schema_hash);
+    bool equal(int64_t tablet_id, int32_t schema_hash) const;
 
     const std::string& storage_policy() const { return _tablet_meta->storage_policy(); }
 
@@ -142,7 +142,7 @@ inline int16_t BaseTablet::shard_id() const {
     return _tablet_meta->shard_id();
 }
 
-inline bool BaseTablet::equal(int64_t id, int32_t hash) {
+inline bool BaseTablet::equal(int64_t id, int32_t hash) const {
     return (tablet_id() == id) && (schema_hash() == hash);
 }
 

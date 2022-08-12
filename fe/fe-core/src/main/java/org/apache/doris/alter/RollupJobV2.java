@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -78,6 +79,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -369,20 +371,28 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
 
                     Map<String, Expr> defineExprs = Maps.newHashMap();
-                    for (Column column : rollupSchema) {
-                        if (column.getDefineExpr() != null) {
-                            defineExprs.put(column.getName(), column.getDefineExpr());
-                        }
-                    }
 
-                    List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
                     TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-                    for (Column column : fullSchema) {
+                    Map<String, SlotDescriptor> descMap = Maps.newHashMap();
+                    for (Column column : tbl.getFullSchema()) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
+
+                        descMap.put(column.getName(), destSlotDesc);
+                    }
+
+                    for (Column column : tbl.getFullSchema()) {
+                        if (column.getDefineExpr() != null) {
+                            defineExprs.put(column.getName(), column.getDefineExpr());
+
+                            List<SlotRef> slots = new ArrayList<>();
+                            column.getDefineExpr().collect(SlotRef.class, slots);
+                            Preconditions.checkArgument(slots.size() == 1);
+                            slots.get(0).setDesc(descMap.get(slots.get(0).getColumnName()));
+                        }
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();

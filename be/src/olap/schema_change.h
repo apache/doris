@@ -50,7 +50,7 @@ public:
     const SchemaMapping& get_schema_mapping() const { return _schema_mapping; }
 
     Status change_row_block(const RowBlock* ref_block, int32_t data_version,
-                            RowBlock* mutable_block, uint64_t* filtered_rows) const;
+                            RowBlock* mutable_block, const uint64_t* filtered_rows) const;
 
     Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
 
