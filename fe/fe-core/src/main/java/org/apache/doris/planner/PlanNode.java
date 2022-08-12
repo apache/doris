@@ -141,6 +141,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected TupleDescriptor outputTupleDesc;
 
+    protected List<Expr> projectList;
+
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
         this.id = id;
@@ -557,6 +559,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             for (PlanNode child : children) {
                 child.treeToThriftHelper(container);
             }
+        }
+        if (projectList != null) {
+            for (Expr expr : projectList) {
+                msg.addToProjections(expr.treeToThrift());
+            }
+        }
+        if (outputTupleDesc != null) {
+            msg.setOutputTupleId(outputTupleDesc.getId().asInt());
         }
     }
 
@@ -1011,5 +1021,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setOutputTupleDesc(TupleDescriptor outputTupleDesc) {
         this.outputTupleDesc = outputTupleDesc;
+    }
+
+    public void setProjectList(List<Expr> projectList) {
+        this.projectList = projectList;
     }
 }
