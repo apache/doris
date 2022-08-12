@@ -78,7 +78,10 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public String toString() {
-        return "LogicalTopN (" + StringUtils.join(orderKeys, ", ") + ")";
+        return "LogicalTopN ("
+                + "limit=" + limit
+                + ", offset=" + offset
+                + ", " + StringUtils.join(orderKeys, ", ") + ")";
     }
 
     @Override
@@ -95,7 +98,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderKeys, offset);
+        return Objects.hash(orderKeys, limit, offset);
     }
 
 
