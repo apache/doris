@@ -576,7 +576,8 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 }
 
 Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data_version,
-                                         RowBlock* mutable_block, uint64_t* filtered_rows) const {
+                                         RowBlock* mutable_block,
+                                         const uint64_t* filtered_rows) const {
     if (mutable_block == nullptr) {
         LOG(FATAL) << "mutable block is uninitialized.";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
@@ -852,13 +853,8 @@ Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                           vectorized::ColumnPtr new_column) const {
     // TODO: rethink this check
     // This check is to prevent schema-change from causing data loss,
-    // But it is possible to generate null data in material-view or rollup.
 
-    if (ref_column->is_nullable() != new_column->is_nullable()) {
-        return Status::DataQualityError("column.is_nullable() is changed!");
-    }
-
-    if (ref_column->is_nullable()) {
+    if (ref_column->is_nullable() && new_column->is_nullable()) {
         auto* ref_null_map =
                 vectorized::check_and_get_column<vectorized::ColumnNullable>(ref_column)
                         ->get_null_map_column()
@@ -2131,22 +2127,6 @@ Status SchemaChangeHandler::_parse_request(
         const string& column_name = new_column.name();
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
-
-        if (new_column.has_reference_column()) {
-            int32_t column_index = base_tablet_schema->field_index(new_column.referenced_column());
-
-            if (column_index < 0) {
-                LOG(WARNING) << "referenced column was missing. "
-                             << "[column=" << column_name << " referenced_column=" << column_index
-                             << "]";
-                return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
-            }
-
-            column_mapping->ref_column = column_index;
-            VLOG_NOTICE << "A column refered to existed column will be added after schema changing."
-                        << "column=" << column_name << ", ref_column=" << column_index;
-            continue;
-        }
 
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
             auto mvParam = materialized_function_map.find(column_name)->second;
