@@ -181,7 +181,7 @@ protected:
             EXPECT_EQ("", writer.max_encoded_key().to_string());
         }
 
-        st = Segment::open(fs, path, 0, query_schema, res);
+        st = Segment::open(fs, path, "", 0, query_schema, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
@@ -947,7 +947,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     {
         std::shared_ptr<Segment> segment;
-        st = Segment::open(fs, fname, 0, tablet_schema, &segment);
+        st = Segment::open(fs, fname, "", 0, tablet_schema, &segment);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(4096, segment->num_rows());
         Schema schema(tablet_schema);
