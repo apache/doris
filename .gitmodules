@@ -19,3 +19,6 @@
 [submodule ".github/actions/ccache-action"]
 	path = .github/actions/ccache-action
 	url = https://github.com/hendrikmuhs/ccache-action
+[submodule ".github/actions/action-shellcheck"]
+	path = .github/actions/action-shellcheck
+	url = https://github.com/ludeeus/action-shellcheck
