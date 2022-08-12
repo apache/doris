@@ -149,6 +149,12 @@ public class ExpressionParserTest extends ParserTestBase {
 
         String min = "select min(a), min(b) as m from test1";
         assertSql(min);
+
+        String max = "select max(a), max(b) as m from test1";
+        assertSql(max);
+
+        String maxAndMin = "select max(a), min(b) from test1";
+        assertSql(maxAndMin);
     }
 
     @Test

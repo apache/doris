@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
+import org.apache.doris.nereids.trees.expressions.functions.Max;
 import org.apache.doris.nereids.trees.expressions.functions.Min;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
@@ -102,6 +103,12 @@ public class BindFunction implements AnalysisRuleFactory {
                     return new Count();
                 }
                 return new Count(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("max")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Max(unboundFunction.getArguments().get(0));
             } else if (name.equalsIgnoreCase("min")) {
                 List<Expression> arguments = unboundFunction.getArguments();
                 if (arguments.size() != 1) {
