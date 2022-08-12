@@ -27,63 +27,28 @@
 namespace doris::vectorized {
 class ParquetReadColumn;
 class ParquetColumnReader;
+struct RowRange;
+
 class RowGroupReader {
 public:
     RowGroupReader(doris::FileReader* file_reader,
-                   const std::shared_ptr<FileMetaData>& file_metadata,
-                   const std::vector<ParquetReadColumn>& read_columns,
-                   const std::map<std::string, int>& map_column,
-                   const std::unordered_map<int, std::vector<ExprContext*>>& _slot_conjuncts);
+                   const std::vector<ParquetReadColumn>& read_columns, const int32_t _row_group_id,
+                   tparquet::RowGroup& row_group);
     ~RowGroupReader();
-    Status init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size);
-    Status get_next_row_group(const int32_t* group_id);
+    Status init(FieldDescriptor* schema, const std::vector<RowRange>& row_ranges);
     Status next_batch(Block* block, size_t batch_size, bool* _batch_eof);
-    bool has_next_batch();
 
 private:
-    bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
-
-    Status _process_column_stat_filter(const tparquet::RowGroup& row_group, bool* filter_group);
-
-    Status _init_column_readers();
-
-    Status _process_row_group_filter(const tparquet::RowGroup& row_group, bool* filter_group);
-
-    void _init_chunk_dicts();
-
-    Status _process_dict_filter(bool* filter_group);
-
-    void _init_bloom_filter();
-
-    Status _process_bloom_filter(bool* filter_group);
-
-    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
-    int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
-
-    bool _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
-                                     const std::string& encoded_min,
-                                     const std::string& encoded_max);
-
-    void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                                bool& need_filter);
-
-    void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                            bool& need_filter);
+    Status _init_column_readers(FieldDescriptor* schema, const std::vector<RowRange>& row_ranges);
 
 private:
     doris::FileReader* _file_reader;
-    const std::shared_ptr<FileMetaData>& _file_metadata;
-    std::unordered_map<int32_t, ParquetColumnReader*> _column_readers;
-    const TupleDescriptor* _tuple_desc; // get all slot info
+    std::unordered_map<int32_t, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<ParquetReadColumn>& _read_columns;
-    const std::map<std::string, int>& _map_column;
-    std::unordered_set<int> _parquet_column_ids;
-    const std::unordered_map<int, std::vector<ExprContext*>>& _slot_conjuncts;
-    int64_t _split_start_offset;
-    int64_t _split_size;
-    int32_t _total_group;
-    int32_t _current_row_group;
+    const int32_t _row_group_id;
+    tparquet::RowGroup& _row_group_meta;
+    int64_t _read_rows = 0;
+    int64_t _total_rows;
     int64_t _current_batch_start_offset = 0;
-    int32_t _filtered_num_row_groups = 0;
 };
 } // namespace doris::vectorized

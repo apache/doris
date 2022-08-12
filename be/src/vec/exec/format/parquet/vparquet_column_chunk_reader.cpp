@@ -28,10 +28,12 @@ ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
           _metadata(column_chunk->meta_data) {}
 
 Status ColumnChunkReader::init(size_t type_length) {
+    LOG(WARNING) << "initColumnChunkReader ";
     size_t start_offset = _metadata.__isset.dictionary_page_offset
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
+    LOG(WARNING) << "create _page_reader";
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
 
     if (_metadata.__isset.dictionary_page_offset) {
@@ -45,6 +47,7 @@ Status ColumnChunkReader::init(size_t type_length) {
     // -1 means unfixed length type
     _type_length = type_length;
 
+    LOG(WARNING) << "initColumnChunkReader finish";
     return Status::OK();
 }
 
@@ -87,18 +90,10 @@ Status ColumnChunkReader::load_page_data() {
     if (encoding == tparquet::Encoding::PLAIN_DICTIONARY) {
         encoding = tparquet::Encoding::RLE_DICTIONARY;
     }
-    // Reuse page decoder
-    if (_decoders.find(static_cast<int>(encoding)) != _decoders.end()) {
-        _page_decoder = _decoders[static_cast<int>(encoding)].get();
-    } else {
-        std::unique_ptr<Decoder> page_decoder;
-        if (_parquet_logical_type.__isset.UNKNOWN) {
-            return Status::Corruption("unknown logical type to decode");
-        }
-        Decoder::getDecoder(_metadata.type, encoding, page_decoder);
-        _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
-        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+    if (_parquet_logical_type.__isset.UNKNOWN) {
+        return Status::Corruption("unknown logical type to decode");
     }
+    Decoder::getDecoder(_metadata.type, encoding, _page_decoder);
     _page_decoder->set_data(&_page_data);
     if (_type_length > 0) {
         _page_decoder->set_type_length(_type_length);
@@ -134,12 +129,12 @@ Status ColumnChunkReader::skip_values(size_t num_values) {
 
 size_t ColumnChunkReader::get_rep_levels(level_t* levels, size_t n) {
     DCHECK_GT(_max_rep_level, 0);
-    return _rep_level_decoder.get_levels(levels, n);
+    return _def_level_decoder.get_levels(levels, n);
 }
 
 size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     DCHECK_GT(_max_def_level, 0);
-    return _def_level_decoder.get_levels(levels, n);
+    return _rep_level_decoder.get_levels(levels, n);
 }
 
 Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, size_t num_values) {

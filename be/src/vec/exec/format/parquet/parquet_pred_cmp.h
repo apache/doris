@@ -125,8 +125,8 @@ bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values
     return false;
 }
 
-void RowGroupReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
-                                        const char* max_bytes, bool& need_filter) {
+void ParquetReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
+                                       const char* max_bytes, bool& need_filter) {
     Expr* conjunct = ctx->root();
     std::vector<void*> in_pred_values;
     const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
@@ -400,8 +400,8 @@ bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     return false;
 }
 
-void RowGroupReader::_eval_binary_predicate(ExprContext* ctx, const char* min_bytes,
-                                            const char* max_bytes, bool& need_filter) {
+void ParquetReader::_eval_binary_predicate(ExprContext* ctx, const char* min_bytes,
+                                           const char* max_bytes, bool& need_filter) {
     Expr* conjunct = ctx->root();
     Expr* expr = conjunct->get_child(1);
     if (expr == nullptr) {
@@ -433,9 +433,9 @@ void RowGroupReader::_eval_binary_predicate(ExprContext* ctx, const char* min_by
     }
 }
 
-bool RowGroupReader::_determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
-                                                 const std::string& encoded_min,
-                                                 const std::string& encoded_max) {
+bool ParquetReader::_determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
+                                              const std::string& encoded_min,
+                                              const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;

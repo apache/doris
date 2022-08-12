@@ -29,18 +29,19 @@ namespace doris::vectorized {
 Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
                                    const ParquetReadColumn& column,
                                    const tparquet::RowGroup& row_group,
-                                   const ParquetColumnReader* reader) {
+                                   std::unique_ptr<ParquetColumnReader>& reader) {
     if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
         return Status::Corruption("not supported type");
     }
     if (field->type.type == TYPE_ARRAY) {
         return Status::Corruption("not supported array type yet");
     } else {
+        LOG(WARNING) << "field->physical_column_index: " << field->physical_column_index;
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
         scalar_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk));
-        reader = scalar_reader;
+        reader.reset(scalar_reader);
     }
     return Status::OK();
 }
@@ -63,7 +64,7 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field,
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                                            size_t batch_size) {
+                                            size_t batch_size, bool* eof) {
     while (_chunk_reader->has_next_page()) {
         // seek to next page header
         _chunk_reader->next_page();

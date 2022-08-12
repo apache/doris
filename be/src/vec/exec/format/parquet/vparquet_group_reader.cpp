@@ -23,74 +23,48 @@
 
 namespace doris::vectorized {
 
-RowGroupReader::RowGroupReader(
-        doris::FileReader* file_reader, const std::shared_ptr<FileMetaData>& file_metadata,
-        const std::vector<ParquetReadColumn>& read_columns,
-        const std::map<std::string, int>& map_column,
-        const std::unordered_map<int, std::vector<ExprContext*>>& slot_conjuncts)
+RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
+                               const std::vector<ParquetReadColumn>& read_columns,
+                               const int32_t row_group_id, tparquet::RowGroup& row_group)
         : _file_reader(file_reader),
-          _file_metadata(file_metadata),
           _read_columns(read_columns),
-          _map_column(map_column),
-          _slot_conjuncts(slot_conjuncts),
-          _current_row_group(-1) {}
+          _row_group_id(row_group_id),
+          _row_group_meta(row_group),
+          _total_rows(row_group.num_rows) {}
 
 RowGroupReader::~RowGroupReader() {
-    for (auto& column_reader : _column_readers) {
-        auto reader = column_reader.second;
-        reader->close();
-        delete reader;
-        reader = nullptr;
-    }
     _column_readers.clear();
 }
 
-Status RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_start_offset,
-                            int64_t split_size) {
-    _tuple_desc = tuple_desc;
-    _split_start_offset = split_start_offset;
-    _split_size = split_size;
-    _total_group = _file_metadata->num_row_groups();
-    RETURN_IF_ERROR(_init_column_readers());
+Status RowGroupReader::init(FieldDescriptor* schema, const std::vector<RowRange>& row_ranges) {
+    RETURN_IF_ERROR(_init_column_readers(schema, row_ranges));
     return Status::OK();
 }
 
-Status RowGroupReader::_init_column_readers() {
+Status RowGroupReader::_init_column_readers(FieldDescriptor* schema,
+                                            const std::vector<RowRange>& row_ranges) {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col.slot_desc;
-        FieldDescriptor schema = _file_metadata->schema();
         TypeDescriptor col_type = slot_desc->type();
         auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
-        const tparquet::RowGroup row_group =
-                _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
-
-        ParquetColumnReader* reader = nullptr;
-        RETURN_IF_ERROR(
-                ParquetColumnReader::create(_file_reader, field, read_col, row_group, reader));
+        LOG(WARNING) << "field: " << field->debug_string();
+        std::unique_ptr<ParquetColumnReader> reader;
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
+                                                    reader));
         if (reader == nullptr) {
+            LOG(WARNING) << "Init row group reader failed";
             return Status::Corruption("Init row group reader failed");
         }
-        _column_readers[slot_desc->id()] = reader;
+        _column_readers[slot_desc->id()] = std::move(reader);
     }
     return Status::OK();
-}
-
-bool RowGroupReader::has_next_batch() {
-    auto metadata = _file_metadata->to_thrift_metadata();
-    int64_t row_group_end_offset =
-            _current_row_group == _total_group - 1
-                    ? _split_start_offset + _split_size
-                    : _get_row_group_start_offset(metadata.row_groups[_current_row_group + 1]);
-    return _current_batch_start_offset < row_group_end_offset;
 }
 
 Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_eof) {
-    int64_t left_read_size = _split_start_offset + _split_size - _current_batch_start_offset;
-    if (left_read_size <= 0) {
+    //    int64_t left_read_size = _split_start_offset + _split_size - _current_batch_start_offset;
+    if (_read_rows >= _total_rows) {
         *_batch_eof = true;
     }
-    const tparquet::RowGroup row_group =
-            _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
     for (auto& read_col : _read_columns) {
         auto slot_desc = read_col.slot_desc;
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
@@ -105,124 +79,4 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
     return Status::OK();
 }
 
-Status RowGroupReader::get_next_row_group(const int32_t* group_id) {
-    if (_total_group == 0 || _file_metadata->num_rows() == 0 || _split_size < 0) {
-        return Status::EndOfFile("No row group need read");
-    }
-    while (_current_row_group < _total_group) {
-        _current_row_group++;
-        const tparquet::RowGroup& row_group =
-                _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
-        if (!_is_misaligned_range_group(row_group)) {
-            continue;
-        }
-        bool filter_group = false;
-        RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
-        if (!filter_group) {
-            group_id = &_current_row_group;
-            break;
-        }
-    }
-    return Status::OK();
-}
-
-bool RowGroupReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) {
-    int64_t start_offset = _get_column_start_offset(row_group.columns[0].meta_data);
-
-    auto last_column = row_group.columns[row_group.columns.size() - 1].meta_data;
-    int64_t end_offset = _get_column_start_offset(last_column) + last_column.total_compressed_size;
-
-    int64_t row_group_mid = start_offset + (end_offset - start_offset) / 2;
-    if (!(row_group_mid >= _split_start_offset &&
-          row_group_mid < _split_start_offset + _split_size)) {
-        return true;
-    }
-    return false;
-}
-
-Status RowGroupReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
-                                                 bool* filter_group) {
-    _process_column_stat_filter(row_group, filter_group);
-    _init_chunk_dicts();
-    RETURN_IF_ERROR(_process_dict_filter(filter_group));
-    _init_bloom_filter();
-    RETURN_IF_ERROR(_process_bloom_filter(filter_group));
-    return Status::OK();
-}
-
-Status RowGroupReader::_process_column_stat_filter(const tparquet::RowGroup& row_group,
-                                                   bool* filter_group) {
-    // It will not filter if head_group_offset equals tail_group_offset
-    int64_t total_rows = 0;
-    int64_t total_bytes = 0;
-    for (auto& read_col : _read_columns) {
-        _parquet_column_ids.emplace(read_col.parquet_column_id);
-    }
-    for (int row_group_id = 0; row_group_id < _total_group; row_group_id++) {
-        total_rows += row_group.num_rows;
-        total_bytes += row_group.total_byte_size;
-        for (SlotId slot_id = 0; slot_id < _tuple_desc->slots().size(); slot_id++) {
-            const std::string& col_name = _tuple_desc->slots()[slot_id]->col_name();
-            auto col_iter = _map_column.find(col_name);
-            if (col_iter == _map_column.end()) {
-                continue;
-            }
-            int parquet_col_id = col_iter->second;
-            if (_parquet_column_ids.end() == _parquet_column_ids.find(parquet_col_id)) {
-                // Column not exist in parquet file
-                continue;
-            }
-            auto slot_iter = _slot_conjuncts.find(slot_id);
-            if (slot_iter == _slot_conjuncts.end()) {
-                continue;
-            }
-            auto statistic = row_group.columns[parquet_col_id].meta_data.statistics;
-            if (!statistic.__isset.max || !statistic.__isset.min) {
-                continue;
-            }
-            // Min-max of statistic is plain-encoded value
-            *filter_group =
-                    _determine_filter_row_group(slot_iter->second, statistic.min, statistic.max);
-            if (*filter_group) {
-                _filtered_num_row_groups++;
-                VLOG_DEBUG << "Filter row group id: " << row_group_id;
-                break;
-            }
-        }
-    }
-    VLOG_DEBUG << "DEBUG total_rows: " << total_rows;
-    VLOG_DEBUG << "DEBUG total_bytes: " << total_bytes;
-    VLOG_DEBUG << "Parquet file: " << _file_metadata->schema().debug_string()
-               << ", Num of read row group: " << _total_group
-               << ", and num of skip row group: " << _filtered_num_row_groups;
-    return Status::OK();
-}
-
-void RowGroupReader::_init_chunk_dicts() {}
-
-Status RowGroupReader::_process_dict_filter(bool* filter_group) {
-    return Status();
-}
-
-void RowGroupReader::_init_bloom_filter() {}
-
-Status RowGroupReader::_process_bloom_filter(bool* filter_group) {
-    RETURN_IF_ERROR(_file_reader->seek(0));
-    return Status();
-}
-
-int64_t RowGroupReader::_get_row_group_start_offset(const tparquet::RowGroup& row_group) {
-    if (row_group.__isset.file_offset) {
-        return row_group.file_offset;
-    }
-    return row_group.columns[0].meta_data.data_page_offset;
-}
-
-int64_t RowGroupReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
-    if (column.__isset.dictionary_page_offset) {
-        DCHECK_LT(column.dictionary_page_offset, column.data_page_offset);
-        return column.dictionary_page_offset;
-    }
-    return column.data_page_offset;
-}
 } // namespace doris::vectorized
