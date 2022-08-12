@@ -1738,6 +1738,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     }
 
     std::vector<Version> versions_to_be_changed;
+    vectorized::BlockReader reader;
     std::vector<RowsetReaderSharedPtr> rs_readers;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
@@ -1849,7 +1850,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 break;
             }
 
-            vectorized::BlockReader reader;
             TabletReader::ReaderParams reader_params;
             reader_params.tablet = base_tablet;
             reader_params.reader_type = READER_ALTER_TABLE;
