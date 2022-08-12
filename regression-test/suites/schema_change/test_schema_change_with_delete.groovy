@@ -24,7 +24,7 @@ suite("test_schema_change_with_delete") {
           return jobStateResult[0][9]
      }
 
-     sql """ DROP TABLE IF EXISTS ${tbName} """
+     sql """ DROP TABLE IF EXISTS ${tbName} FORCE"""
      // Create table and disable light weight schema change
      sql """
             CREATE TABLE IF NOT EXISTS ${tbName}
