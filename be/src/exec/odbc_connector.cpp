@@ -48,7 +48,7 @@ static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
 // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
 static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
-static doris::Status utf8_to_wstring(const std::string& str, std::u16string& out ) {
+static doris::Status utf8_to_wstring(const std::string& str, std::u16string& out) {
     std::wstring_convert<std::codecvt_utf8<char16_t>, char16_t> utf8_ucs2_cvt;
     try {
         out = utf8_ucs2_cvt.from_bytes(str);
