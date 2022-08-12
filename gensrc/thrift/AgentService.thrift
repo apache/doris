@@ -67,16 +67,16 @@ struct TS3StorageParam {
 }
 
 struct TGetStoragePolicy {
-    1: required string policy_name
-    2: required i64 cooldown_datetime
-    3: required i64 cooldown_ttl
-    4: required TS3StorageParam s3_storage_param
-    5: required string md5_checksum
+    1: optional string policy_name
+    2: optional i64 cooldown_datetime
+    3: optional i64 cooldown_ttl
+    4: optional TS3StorageParam s3_storage_param
+    5: optional string md5_checksum
 }
 
 struct TGetStoragePolicyResult {
-    1: required Status.TStatus status
-    2: required list<TGetStoragePolicy> result_entrys
+    1: optional Status.TStatus status
+    2: optional list<TGetStoragePolicy> result_entrys
 }
 
 enum TCompressionType {

@@ -1046,7 +1046,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     result.addToResultEntrys(rEntry);
                 }
         );
-        if (policyList.size() == 0) {
+        if (!result.isSetResultEntrys()) {
             result.setResultEntrys(new ArrayList<>());
         }
 
