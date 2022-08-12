@@ -48,9 +48,14 @@ static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
 // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
 static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
-static std::u16string utf8_to_wstring(const std::string& str) {
+static doris::Status utf8_to_wstring(const std::string& str, std::u16string& out) {
     std::wstring_convert<std::codecvt_utf8<char16_t>, char16_t> utf8_ucs2_cvt;
-    return utf8_ucs2_cvt.from_bytes(str);
+    try {
+        out = utf8_ucs2_cvt.from_bytes(str);
+    } catch (std::range_error& e) {
+        return doris::Status::InternalError("UNICODE out of supported range");
+    }
+    return doris::Status::OK();
 }
 
 namespace doris {
@@ -128,7 +133,8 @@ Status ODBCConnector::query() {
                  "alloc statement");
 
     // Translate utf8 string to utf16 to use unicode encoding
-    auto wquery = utf8_to_wstring(_sql_str);
+    std::u16string wquery;
+    RETURN_IF_ERROR(utf8_to_wstring(_sql_str, wquery));
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
                  SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
 
@@ -307,9 +313,10 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
             }
         }
         // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = utf8_to_wstring(
+        RETURN_IF_ERROR(utf8_to_wstring(
                 std::string(_insert_stmt_buffer.data(),
-                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()));
+                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()),
+                insert_stmt));
     }
 
     {
@@ -492,9 +499,10 @@ Status ODBCConnector::append(const std::string& table_name, vectorized::Block* b
             }
         }
         // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = utf8_to_wstring(
+        RETURN_IF_ERROR(utf8_to_wstring(
                 std::string(_insert_stmt_buffer.data(),
-                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()));
+                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()),
+                insert_stmt));
     }
 
     {
