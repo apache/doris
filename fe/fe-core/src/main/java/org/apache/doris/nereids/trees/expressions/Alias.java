@@ -35,7 +35,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     private final ExprId exprId;
     private final String name;
-    private List<String> qualifier;
+    private final List<String> qualifier;
 
     /**
      * constructor of Alias.

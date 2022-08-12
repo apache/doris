@@ -273,7 +273,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
                 } else if (nameParts.size() <= 3) {
                     int size = nameParts.size();
-                    return handleNamePartsLessThanThree(boundSlot, nameParts.subList(size - 2, size));
+                    // if nameParts.size() == 3, nameParts.get(0) is cluster name.
+                    return handleNamePartsTwoOrThree(boundSlot, nameParts.subList(size - 2, size));
                 }
                 //TODO: handle name parts more than three.
                 throw new AnalysisException("Not supported name: "
@@ -282,7 +283,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
     }
 
-    private boolean handleNamePartsLessThanThree(Slot boundSlot, List<String> nameParts) {
+    private boolean handleNamePartsTwoOrThree(Slot boundSlot, List<String> nameParts) {
         List<String> qualifier = boundSlot.getQualifier();
         String name = boundSlot.getName();
         switch (qualifier.size()) {
