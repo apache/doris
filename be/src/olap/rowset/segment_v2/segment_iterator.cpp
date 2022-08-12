@@ -197,6 +197,9 @@ Status SegmentIterator::_init(bool is_vec) {
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
         _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
+        VLOG_DEBUG << "read on segment: " << segment_id() << ", delete bitmap cardinality: "
+                   << _opts.delete_bitmap[segment_id()]->cardinality() << ", "
+                   << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
     }
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));

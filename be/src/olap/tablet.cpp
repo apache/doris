@@ -1994,8 +1994,9 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
         }
     }
     LOG(INFO) << "construct delete bitmap tablet: " << tablet_id() << " rowset: " << rowset_id
-              << " dummy_version: " << dummy_version << " cost: " << watch.get_elapse_time_us()
-              << "(us)";
+              << " dummy_version: " << dummy_version
+              << "bitmap num: " << delete_bitmap->delete_bitmap.size()
+              << " cost: " << watch.get_elapse_time_us() << "(us)";
     return Status::OK();
 }
 
@@ -2043,8 +2044,10 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     std::lock_guard<std::shared_mutex> meta_wrlock(_meta_lock);
     cur_rowset_ids = all_rs_id();
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
-    LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
-              << ", rowset_ids_to_del: " << rowset_ids_to_del.size();
+    if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
+        LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
+                  << ", rowset_ids_to_del: " << rowset_ids_to_del.size();
+    }
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }

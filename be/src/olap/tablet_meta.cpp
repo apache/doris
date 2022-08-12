@@ -783,7 +783,7 @@ void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
                     if (rowid_conversion.get(src, &dst) != 0) {
-                        LOG(WARNING) << "Can't find rowid, may be deleted by the delete_handler.";
+                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler.";
                         continue;
                     }
                     output_rowset_delete_bitmap.add({dst.rowset_id, dst.segment_id, cur_version},
