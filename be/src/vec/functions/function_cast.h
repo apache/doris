@@ -145,14 +145,9 @@ struct ConvertImpl {
                             DataTypeDate::cast_to_date(vec_to[i]);
                         }
                     } else if constexpr (IsDateV2Type<ToDataType>) {
-                        auto date_v2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
+                        DataTypeDateV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
-                        auto date_v2 =
-                                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
+                        DataTypeDateTimeV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();

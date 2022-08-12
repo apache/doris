@@ -220,7 +220,6 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
         // without predicates
@@ -311,7 +310,6 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {2};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
         // without predicate

@@ -193,8 +193,8 @@ message ColumnPB {
     optional int32 length = 10; // ColumnMessage.length
     optional int32 index_length = 11; // ColumnMessage.index_length
     optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
-    optional int32 referenced_column_id = 13; //   
-    optional string referenced_column = 14; // ColumnMessage.referenced_column?
+    optional int32 referenced_column_id = 13; // deprecated
+    optional string referenced_column = 14; // deprecated
     optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;

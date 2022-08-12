@@ -808,6 +808,10 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
     :}
+    | KW_REFRESH KW_CATALOG ident:catalogName
+    {:
+        RESULT = new RefreshCatalogStmt(catalogName);
+    :}
     ;
 
 clean_stmt ::=

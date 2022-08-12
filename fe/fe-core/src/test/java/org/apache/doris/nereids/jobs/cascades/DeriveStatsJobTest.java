@@ -19,9 +19,8 @@ package org.apache.doris.nereids.jobs.cascades;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
@@ -66,14 +66,13 @@ public class DeriveStatsJobTest {
     public void testExecute() throws Exception {
         LogicalOlapScan olapScan = constructOlapSCan();
         LogicalAggregate agg = constructAgg(olapScan);
-        Memo memo = new Memo(agg);
-        PlannerContext plannerContext = new PlannerContext(memo, context);
-        new DeriveStatsJob(memo.getRoot().getLogicalExpression(),
-                new JobContext(plannerContext, null, Double.MAX_VALUE)).execute();
-        while (!plannerContext.getJobPool().isEmpty()) {
-            plannerContext.getJobPool().pop().execute();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(agg);
+        new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
+                new JobContext(cascadesContext, null, Double.MAX_VALUE)).execute();
+        while (!cascadesContext.getJobPool().isEmpty()) {
+            cascadesContext.getJobPool().pop().execute();
         }
-        StatsDeriveResult statistics = memo.getRoot().getStatistics();
+        StatsDeriveResult statistics = cascadesContext.getMemo().getRoot().getStatistics();
         Assertions.assertNotNull(statistics);
         Assertions.assertEquals(10, statistics.getRowCount());
     }

@@ -98,7 +98,7 @@ Status BrokerReader::open() {
         std::stringstream ss;
         ss << "Open broker reader failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
@@ -170,7 +170,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
         std::stringstream ss;
         ss << "Read from broker failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {

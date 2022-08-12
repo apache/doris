@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
@@ -40,5 +43,10 @@ public class DoubleLiteral extends Literal {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDoubleLiteral(this, context);
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new FloatLiteral(value, Type.DOUBLE);
     }
 }
