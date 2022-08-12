@@ -132,6 +132,11 @@ public abstract class AggregateInfoBase {
         boolean isGroupingSet = !groupingExprs.isEmpty()
                 && groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
 
+        // the agg node may output slots from child outer join node
+        // to make the agg node create the output tuple desc correctly, we need change the slots' to nullable
+        // from all outer join nullable side temporarily
+        // after create the output tuple we need revert the change by call analyzer.changeSlotsToNotNullable(slots)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
@@ -177,6 +182,7 @@ public abstract class AggregateInfoBase {
                 }
             }
         }
+        analyzer.changeSlotsToNotNullable(slots);
 
         if (LOG.isTraceEnabled()) {
             String prefix = (isOutputTuple ? "result " : "intermediate ");
