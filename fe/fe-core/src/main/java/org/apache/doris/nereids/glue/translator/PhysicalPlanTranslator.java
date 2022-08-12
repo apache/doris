@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
@@ -131,10 +130,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: trick here, we need push project down
         if (physicalPlan.getType() == PlanType.PHYSICAL_PROJECT) {
             PhysicalProject<Plan> physicalProject = (PhysicalProject<Plan>) physicalPlan;
-            List<Expr> outputExprs = physicalProject.getProjects().stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toList());
-            rootFragment.setOutputExprs(outputExprs);
+            rootFragment.setOutputExprs(
+                    physicalProject
+                            .getOutput()
+                            .stream()
+                            .map(s -> ExpressionTranslator.translate(s, context))
+                            .collect(Collectors.toList()));
         } else {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
@@ -450,8 +451,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
-        TupleDescriptor tupleDescriptor = createTupleForExprList(execExprList, context);
+        List<Slot> slotList = project.getOutput();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        inputPlanNode.setProjectList(execExprList);
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<Integer> requiredSlotIdList = new HashSet<>();
@@ -459,9 +462,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             extractExecSlot(expr, requiredSlotIdList);
         }
         for (Expr expr : execExprList) {
-            if (expr instanceof SlotRef) {
-                requiredSlotIdList.add(((SlotRef) expr).getDesc().getId().asInt());
-            }
+            extractExecSlot(expr, requiredSlotIdList);
         }
         if (inputPlanNode instanceof OlapScanNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
@@ -622,14 +623,4 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return fragment;
     }
 
-    private TupleDescriptor createTupleForExprList(List<Expr> exprList, PlanTranslatorContext context) {
-        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
-        tupleDescriptor.setIsMaterialized(true);
-        for (Expr expr : exprList) {
-            SlotDescriptor slotDescriptor = context.addSlotDesc(tupleDescriptor);
-            slotDescriptor.initFromExpr(expr);
-            slotDescriptor.setIsMaterialized(true);
-        }
-        return tupleDescriptor;
-    }
 }
