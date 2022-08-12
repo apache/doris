@@ -19,6 +19,8 @@
 
 #include <string_view>
 
+#include "vec/data_types/data_type_nullable.h"
+
 namespace doris::vectorized {
 
 VBloomPredicate::VBloomPredicate(const TExprNode& node)
@@ -73,8 +75,18 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
     auto ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
-    for (size_t i = 0; i < sz; i++) {
-        ptr[i] = _filter->find(reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
+    if (WhichDataType(remove_nullable(block->get_by_position(arguments[0]).type))
+                .is_string_or_fixed_string()) {
+        for (size_t i = 0; i < sz; i++) {
+            auto ele = argument_column->get_data_at(i);
+            const StringValue v(ele.data, ele.size);
+            ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
+        }
+    } else {
+        for (size_t i = 0; i < sz; i++) {
+            ptr[i] = _filter->find(
+                    reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
+        }
     }
     if (_data_type->is_nullable()) {
         auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
