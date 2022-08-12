@@ -2,7 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
-## v20220812
+## v20220811
+- Modified: brpc 1.1.0 -> 1.2.0 fix _dl_sym undefined reference on Ubuntu22.04
+
+## v20220802
 
 - Modified: libhdfs3 2.3.1 -> 2.3.2
 
@@ -15,7 +18,7 @@ This file contains version of the third-party dependency libraries in the build-
 - Added: vectorscan 5.4.7, and a patch for compilation
 
 ## v20220613
-- Modified: update libhdfs3 from 2.3.0 to 2.3.1  fix client uuid set error
+- Modified: update libhdfs3 from 2.3.0 to 2.3.1 fix client uuid set error
 
 ## v20220608
 - Remove: remove libhdfs3 without kerberos support

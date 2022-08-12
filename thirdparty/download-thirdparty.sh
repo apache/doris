@@ -366,16 +366,3 @@ if [ ! -f $PATCHED_MARK ]; then
 fi
 cd -
 echo "Finished patching $AWS_SDK_SOURCE"
-
-cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
-if [[ ! -f $PATCHED_MARK ]]; then
-    if [[ "$(uname -s)" == 'Darwin' ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/brpc-1.1.0.patch"
-        touch ${PATCHED_MARK}
-    else
-        patch -p0 <"$TP_PATCH_DIR/brpc-1.1.0-_dl_sym.patch"
-        touch ${PATCHED_MARK}
-    fi
-fi
-cd -
-echo "Finished patching ${BRPC_SOURCE}"
