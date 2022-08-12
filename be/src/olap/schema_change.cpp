@@ -1356,11 +1356,16 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
-        if (!_row_block_allocator->allocate(&new_row_block, ref_row_block->row_block_info().row_num,
-                                            true)) {
+        auto st = _row_block_allocator->allocate(&new_row_block,
+                                                 ref_row_block->row_block_info().row_num, true);
+        // if OLAP_ERR_INPUT_PARAMETER_ERROR == st.precise_code()
+        // that mean RowBlockAllocator::alocate() memory exceeded.
+        // But we can flush row_block_arr if row_block_arr is not empty.
+        // Don't return directly.
+        if (OLAP_ERR_MALLOC_ERROR == st.precise_code()) {
             LOG(WARNING) << "failed to allocate RowBlock.";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
-        } else {
+        } else if (st) {
             // do memory check for sorting, in case schema change task fail at row block sorting because of
             // not doing internal sorting first
             if (!_row_block_allocator->is_memory_enough_for_sorting(
