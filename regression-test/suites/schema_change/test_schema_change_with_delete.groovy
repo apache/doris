@@ -61,7 +61,7 @@ suite("test_schema_change_with_delete") {
                }
           }
      }
-    sql """ insert into ${tbName} values(4, 4, '4', 'ddd');"""
+    sql """ insert into ${tbName} values(4, 4, 'efg', 'ddd');"""
     qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName};"""
     qt_sql """select /*+ SET_VAR(enable_vectorized_engine=false) */ * from ${tbName};"""
     sql """ DROP TABLE  ${tbName} force"""
