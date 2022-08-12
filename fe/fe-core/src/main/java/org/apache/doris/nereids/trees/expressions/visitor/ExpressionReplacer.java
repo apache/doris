@@ -17,20 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 
-import java.util.Collections;
 import java.util.Map;
 
 /**
  * replace slot reference
- * TODO:
- * case 1: project(project(alias, alias) -> alias, alias) => project(alias, alias)
- * case 2: project(project(alias, alias) -> slot ref, slot ref) => project(project(alias, alias) -> slot ref, slot ref)
- * case 3: others: use ExpressionReplacer.
  */
 public class ExpressionReplacer
         extends DefaultExpressionRewriter<Map<Expression, Expression>> {
@@ -38,24 +30,8 @@ public class ExpressionReplacer
 
     @Override
     public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
-        // For alias, map key is alias name, value is child.
-        if (expr instanceof Alias && expr.child(0) instanceof SlotReference) {
-            // case 1:
-            Expression c = expr.child(0);
-            // Alias doesn't contain qualifier
-            Slot ref = ((SlotReference) c).withQualifier(Collections.emptyList());
-            if (substitutionMap.containsKey(ref)) {
-                return expr.withChildren(substitutionMap.get(ref).children());
-            }
-        } else if (expr instanceof SlotReference) {
-            // case 2:
-            Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
-            if (substitutionMap.containsKey(ref)) {
-                Alias res = (Alias) substitutionMap.get(ref);
-                return (res.child() instanceof SlotReference) ? res : res.child();
-            }
-        } else if (substitutionMap.containsKey(expr)) {
-            return substitutionMap.get(expr).child(0);
+        if (substitutionMap.containsKey(expr)) {
+            return substitutionMap.get(expr);
         }
         return super.visit(expr, substitutionMap);
     }
