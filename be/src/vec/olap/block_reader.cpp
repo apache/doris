@@ -151,6 +151,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
+            if (_filter_delete) {
+                _delete_filter_column = ColumnUInt8::create();
+            }
         }
         break;
     case KeysType::AGG_KEYS:
@@ -275,6 +278,26 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
     } while (target_block_row < _batch_size);
 
+    // do filter detete row in base compaction, only base compaction need to do the job
+    if (_filter_delete) {
+        DCHECK_EQ(block->get_by_position(target_columns.size() - 1).name, DELETE_SIGN);
+        MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
+        reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
+
+        auto* __restrict filter_data =
+                reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
+        auto* __restrict delete_data =
+                reinterpret_cast<ColumnInt8*>(target_columns.back().get())->get_data().data();
+        for (int i = 0; i < target_block_row; ++i) {
+            filter_data[i] = delete_data[i] == 0;
+        }
+
+        ColumnWithTypeAndName column_with_type_and_name {
+                _delete_filter_column, std::make_shared<DataTypeUInt8>(), "filter"};
+        block->insert(column_with_type_and_name);
+        Block::filter_block(block, target_columns.size(), target_columns.size());
+        _stats.rows_del_filtered += target_block_row - block->rows();
+    }
     return Status::OK();
 }
 
