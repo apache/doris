@@ -186,11 +186,10 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
         if (slot_desc == nullptr) {
             continue;
         }
-        int file_index = _cur_file_reader->get_cloumn_index(slot_desc->col_name());
-        if (file_index == -1) {
-            continue;
-        }
-        auto* array = _batch->column(file_index).get();
+        std::string real_column_name = _cur_file_reader->is_case_sensitive()
+                                               ? slot_desc->col_name()
+                                               : slot_desc->col_name_lower_case();
+        auto* array = _batch->GetColumnByName(real_column_name).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,

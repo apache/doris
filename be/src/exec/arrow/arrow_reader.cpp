@@ -38,10 +38,10 @@ namespace doris {
 // Broker
 
 ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                 int32_t num_of_columns_from_file, bool caseSensitive)
+                                 int32_t num_of_columns_from_file, bool case_sensitive)
         : _batch_size(batch_size),
           _num_of_columns_from_file(num_of_columns_from_file),
-          _caseSensitive(caseSensitive) {
+          _case_sensitive(case_sensitive) {
     _arrow_file = std::shared_ptr<ArrowFile>(new ArrowFile(file_reader));
     _rb_reader = nullptr;
     _total_groups = 0;
@@ -85,7 +85,7 @@ Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple
 }
 
 int ArrowReaderWrap::get_cloumn_index(std::string column_name) {
-    std::string real_column_name = _caseSensitive ? column_name : to_lower(column_name);
+    std::string real_column_name = _case_sensitive ? column_name : to_lower(column_name);
     auto iter = _map_column.find(real_column_name);
     if (iter != _map_column.end()) {
         return iter->second;
