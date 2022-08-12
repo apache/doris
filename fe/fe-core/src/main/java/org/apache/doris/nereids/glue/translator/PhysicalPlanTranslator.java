@@ -42,15 +42,17 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -286,10 +288,42 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort,
+    public PlanFragment visitPhysicalQuickSort(PhysicalQuickSort<Plan> sort,
             PlanTranslatorContext context) {
+        PlanFragment childFragment = visitAbstractPhysicalSort(sort, context);
+        SortNode sortNode = (SortNode) childFragment.getPlanRoot();
+        // isPartitioned() == false means there is only one instance, so no merge phase
+        if (!childFragment.isPartitioned()) {
+            return childFragment;
+        }
+        PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
+        ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
+        //exchangeNode.limit/offset will be set in when translating  PhysicalLimit
+        exchangeNode.setMergeInfo(sortNode.getSortInfo());
+        return mergeFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalTopN(PhysicalTopN<Plan> topN, PlanTranslatorContext context) {
+        PlanFragment childFragment = visitAbstractPhysicalSort(topN, context);
+        SortNode sortNode = (SortNode) childFragment.getPlanRoot();
+        sortNode.setOffset(topN.getOffset());
+        sortNode.setLimit(topN.getLimit());
+        // isPartitioned() == false means there is only one instance, so no merge phase
+        if (!childFragment.isPartitioned()) {
+            return childFragment;
+        }
+        PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
+        ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
+        exchangeNode.setMergeInfo(sortNode.getSortInfo());
+        exchangeNode.setOffset(topN.getOffset());
+        exchangeNode.setLimit(topN.getLimit());
+        return mergeFragment;
+    }
+
+    @Override
+    public PlanFragment visitAbstractPhysicalSort(AbstractPhysicalSort<Plan> sort, PlanTranslatorContext context) {
         PlanFragment childFragment = sort.child(0).accept(this, context);
-        // TODO: need to discuss how to process field: SortNode::resolvedTupleExprs
         List<Expr> oldOrderingExprList = Lists.newArrayList();
         List<Boolean> ascOrderList = Lists.newArrayList();
         List<Boolean> nullsFirstParamList = Lists.newArrayList();
@@ -315,19 +349,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 4. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
         PlanNode childNode = childFragment.getPlanRoot();
-        // TODO: notice topN
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
         sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
         childFragment.addPlanRoot(sortNode);
-        //isPartitioned()==true means there is only one instance, so no merge phase
-        if (!childFragment.isPartitioned()) {
-            return childFragment;
-        }
-        PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
-        ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
-        //exchangeNode.limit/offset will be set in when translating  PhysicalLimit
-        exchangeNode.setMergeInfo(sortNode.getSortInfo());
-        return mergeFragment;
+        return childFragment;
     }
 
     // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
