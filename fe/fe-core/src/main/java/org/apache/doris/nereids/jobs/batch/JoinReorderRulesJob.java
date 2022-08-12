@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 
 import com.google.common.collect.ImmutableList;
@@ -27,8 +27,8 @@ import com.google.common.collect.ImmutableList;
  */
 public class JoinReorderRulesJob extends BatchRulesJob {
 
-    public JoinReorderRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
+    public JoinReorderRulesJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(new ReorderJoin()))
         ));

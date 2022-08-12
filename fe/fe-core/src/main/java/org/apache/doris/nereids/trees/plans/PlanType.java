@@ -37,6 +37,7 @@ public enum PlanType {
     LOGICAL_APPLY,
     LOGICAL_CORRELATED_JOIN,
     LOGICAL_ENFORCE_SINGLE_ROW,
+    LOGICAL_SELECT_HINT,
     GROUP_PLAN,
 
     // physical plan
