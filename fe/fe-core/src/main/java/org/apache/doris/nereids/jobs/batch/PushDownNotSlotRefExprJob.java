@@ -15,26 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownNotSlotRefExpr;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * push down expression which is not slot reference
+ * push down not slot reference expression job
  */
-public class PushDownNotSlotRefExpr extends OneRewriteRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalJoin()
-                .when(join -> join.getCondition().isPresent())
-                .then(join -> {
-                    Expression cond = join.getCondition().get();
-                    cond.child(0);
-                    return join;
-                }
-        ).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
+public class PushDownNotSlotRefExprJob extends BatchRulesJob {
+
+    /**
+     * constructor
+     */
+    public PushDownNotSlotRefExprJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(
+                        new PushDownNotSlotRefExpr()
+                ))
+        ));
     }
 }
