@@ -83,7 +83,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                 read_columns.push_back(cid);
             }
         }
-        _input_schema = std::make_unique<Schema>(_context->tablet_schema->columns(), read_columns);
+        _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
     }
 
     if (read_context->predicates != nullptr) {
