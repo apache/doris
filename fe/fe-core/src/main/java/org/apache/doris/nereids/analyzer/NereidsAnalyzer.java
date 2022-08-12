@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -30,17 +31,27 @@ import java.util.Optional;
  */
 public class NereidsAnalyzer {
     private final CascadesContext cascadesContext;
+    private final Optional<Scope> outerScope;
 
     public NereidsAnalyzer(CascadesContext cascadesContext) {
-        this.cascadesContext = cascadesContext;
+        this(cascadesContext, Optional.empty());
+    }
+
+    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
     }
 
     public void analyze() {
-        new AnalyzeRulesJob(cascadesContext, Optional.empty()).execute();
+        new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new FinalizeAnalyzeJob(cascadesContext).execute();
     }
 
-    public void analyze(Optional<Scope> scope) {
-        new AnalyzeRulesJob(cascadesContext, scope).execute();
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
+    }
+
+    public Optional<Scope> getOuterScope() {
+        return outerScope;
     }
 }

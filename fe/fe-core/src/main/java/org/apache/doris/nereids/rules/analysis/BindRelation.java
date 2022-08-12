@@ -44,15 +44,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
-            List<String> qualified = ctx.root.getNameParts();
-            switch (qualified.size()) {
+            List<String> nameParts = ctx.root.getNameParts();
+            switch (nameParts.size()) {
                 case 1: { // table
                     // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, qualified.get(0));
+                    return bindWithCurrentDb(ctx.cascadesContext, nameParts);
                 }
                 case 2: { // db.table
                     // Use database name from table name parts.
-                    return bindWithDbNameFromNamePart(ctx.cascadesContext, qualified.get(0), qualified.get(1));
+                    return bindWithDbNameFromNamePart(ctx.cascadesContext, nameParts);
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -72,9 +72,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String tableName) {
+    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, List<String> nameParts) {
         String dbName = cascadesContext.getConnectContext().getDatabase();
-        Table table = getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
+        Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(table, ImmutableList.of(dbName));
@@ -85,13 +85,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         throw new AnalysisException("Unsupported tableType:" + table.getType());
     }
 
-    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, String dbName, String tableName) {
+    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, List<String> nameParts) {
         ConnectContext connectContext = cascadesContext.getConnectContext();
         // if the relation is view, nameParts.get(0) is dbName.
+        String dbName = nameParts.get(0);
         if (!dbName.equals(connectContext.getDatabase())) {
             dbName = connectContext.getClusterName() + ":" + dbName;
         }
-        Table table = getTable(dbName, tableName, connectContext.getEnv());
+        Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {

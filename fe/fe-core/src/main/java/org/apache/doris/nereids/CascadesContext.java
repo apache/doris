@@ -31,12 +31,14 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Context used in memo.
@@ -70,6 +72,10 @@ public class CascadesContext {
 
     public NereidsAnalyzer newAnalyzer() {
         return new NereidsAnalyzer(this);
+    }
+
+    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope) {
+        return new NereidsAnalyzer(this, outerScope);
     }
 
     public void pushJob(Job job) {

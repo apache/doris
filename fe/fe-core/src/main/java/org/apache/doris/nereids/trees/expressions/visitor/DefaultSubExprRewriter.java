@@ -65,7 +65,7 @@ public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
     private LogicalPlan analyzeSubquery(SubqueryExpr expr) {
         CascadesContext subqueryContext = new Memo(expr.getQueryPlan())
                 .newCascadesContext(cascadesContext.getStatementContext());
-        subqueryContext.newAnalyzer().analyze(Optional.ofNullable(getScope()));
+        subqueryContext.newAnalyzer(Optional.ofNullable(getScope())).analyze();
         return (LogicalPlan) subqueryContext.getMemo().copyOut();
     }
 
