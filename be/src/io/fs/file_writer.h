@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
