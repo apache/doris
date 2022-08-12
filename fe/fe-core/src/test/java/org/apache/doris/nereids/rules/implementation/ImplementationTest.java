@@ -50,12 +50,6 @@ import java.util.List;
 import java.util.Map;
 
 public class ImplementationTest {
-    @Mocked
-    private CascadesContext cascadesContext;
-
-    @Mocked
-    private GroupPlan groupPlan;
-
     private static final Map<String, Rule> rulesMap
             = ImmutableMap.<String, Rule>builder()
             .put(LogicalProject.class.getName(), (new LogicalProjectToPhysicalProject()).build())
@@ -67,6 +61,10 @@ public class ImplementationTest {
             .put(LogicalTopN.class.getName(), (new LogicalTopNToPhysicalTopN()).build())
             .put(LogicalLimit.class.getName(), (new LogicalLimitToPhysicalLimit()).build())
             .build();
+    @Mocked
+    private CascadesContext cascadesContext;
+    @Mocked
+    private GroupPlan groupPlan;
 
     public PhysicalPlan executeImplementationRule(LogicalPlan plan) {
         Rule rule = rulesMap.get(plan.getClass().getName());
