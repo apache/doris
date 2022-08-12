@@ -15,18 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
-
-import org.apache.doris.catalog.Type;
+package org.apache.doris.nereids.trees.expressions.typecoercion;
 
 /**
- * BigInt data type in Nereids.
+ * an interface used to identify whether the current expression can be implicitly cast input types.
  */
-public class BigIntType extends IntegralType {
-    public static BigIntType INSTANCE = new BigIntType();
-
-    @Override
-    public Type toCatalogDataType() {
-        return Type.BIGINT;
-    }
+public interface ImplicitCastInputTypes {
 }

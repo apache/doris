@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 
-/**
- * BigInt data type in Nereids.
- */
-public class BigIntType extends IntegralType {
-    public static BigIntType INSTANCE = new BigIntType();
+import com.google.common.collect.ImmutableList;
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.BIGINT;
+public class CheckAnalysisJob extends BatchRulesJob {
+    public CheckAnalysisJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
+        rulesJob.addAll(ImmutableList.of(
+                bottomUpBatch(ImmutableList.of(new CheckAnalysis()))
+        ));
     }
 }

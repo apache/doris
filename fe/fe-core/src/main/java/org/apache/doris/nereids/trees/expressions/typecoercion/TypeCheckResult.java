@@ -15,18 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.typecoercion;
 
-import org.apache.doris.catalog.Type;
+import java.util.Optional;
 
-/**
- * BigInt data type in Nereids.
- */
-public class BigIntType extends IntegralType {
-    public static BigIntType INSTANCE = new BigIntType();
+public class TypeCheckResult {
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.BIGINT;
+    public static TypeCheckResult SUCCESS = new TypeCheckResult(true, null);
+
+    final boolean success;
+
+    final Optional<String> message;
+
+    public TypeCheckResult(boolean success, String message) {
+        this.success = success;
+        this.message = Optional.ofNullable(message);
+    }
+
+    public boolean success() {
+        return success;
+    }
+
+    public boolean failed() {
+        return !success;
+    }
+
+    public Optional<String> getMessage() {
+        return message;
     }
 }

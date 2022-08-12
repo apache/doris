@@ -21,4 +21,18 @@ package org.apache.doris.nereids.types;
  * Abstract class for all numeric type in Nereids.
  */
 public abstract class NumericType extends PrimitiveType {
+    @Override
+    public DataType defaultConcreteType() {
+        return DoubleType.INSTANCE;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof NumericType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "numeric";
+    }
 }

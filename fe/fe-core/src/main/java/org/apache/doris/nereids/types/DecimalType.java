@@ -24,8 +24,12 @@ import org.apache.doris.catalog.Type;
  */
 public class DecimalType extends FractionalType {
 
-    private int precision;
-    private int scale;
+    private static int MAX_PRECISION =38;
+    private static int MAX_SCALE = 38;
+    private static DecimalType SYSTEM_DEFAULT = new DecimalType(MAX_PRECISION, 18);
+
+    private final int precision;
+    private final int scale;
 
     public DecimalType(int precision, int scale) {
         this.precision = precision;
@@ -47,6 +51,21 @@ public class DecimalType extends FractionalType {
 
     public int getScale() {
         return scale;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return SYSTEM_DEFAULT;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof DecimalType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "decimal";
     }
 }
 

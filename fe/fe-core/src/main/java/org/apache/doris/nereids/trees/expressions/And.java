@@ -17,16 +17,24 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.AbstractDataType;
+import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * And predicate expression.
  */
-public class And extends CompoundPredicate {
+public class And extends CompoundPredicate implements ExpectsInputTypes {
+
+    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES
+            = ImmutableList.of(BooleanType.INSTANCE, BooleanType.INSTANCE);
+
     /**
      * Desc: Constructor for CompoundPredicate.
      *
@@ -61,5 +69,10 @@ public class And extends CompoundPredicate {
     @Override
     public Class<? extends CompoundPredicate> flipType() {
         return Or.class;
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTED_INPUT_TYPES;
     }
 }

@@ -17,16 +17,11 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.Type;
+public interface AbstractDataType {
 
-/**
- * BigInt data type in Nereids.
- */
-public class BigIntType extends IntegralType {
-    public static BigIntType INSTANCE = new BigIntType();
+    DataType defaultConcreteType();
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.BIGINT;
-    }
+    boolean acceptsType(DataType other);
+
+    String simpleString();
 }

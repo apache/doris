@@ -21,4 +21,18 @@ package org.apache.doris.nereids.types;
  * Abstract class for all integral data type in Nereids.
  */
 public abstract class IntegralType extends NumericType {
+    @Override
+    public DataType defaultConcreteType() {
+        return IntegerType.INSTANCE;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof IntegerType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "integral";
+    }
 }

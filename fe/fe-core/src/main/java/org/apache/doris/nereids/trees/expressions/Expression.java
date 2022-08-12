@@ -20,9 +20,13 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.AbstractDataType;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +40,8 @@ import java.util.Objects;
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
 
     public Expression(Expression... children) {
         super(children);
@@ -51,6 +57,31 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     public boolean nullable() throws UnboundException {
         throw new UnboundException("nullable");
+    }
+
+    public TypeCheckResult checkInputDataTypes() {
+        if (this instanceof ExpectsInputTypes) {
+            ExpectsInputTypes expectsInputTypes = (ExpectsInputTypes) this;
+            return checkInputDataTypes(children, expectsInputTypes.expectedInputTypes());
+        }
+        return TypeCheckResult.SUCCESS;
+    }
+
+    private TypeCheckResult checkInputDataTypes(List<Expression> inputs, List<AbstractDataType> inputTypes) {
+        Preconditions.checkArgument(inputs.size() == inputTypes.size());
+        String errorMessage = null;
+        for (int i = 0; i < inputs.size(); i++) {
+            Expression input = inputs.get(i);
+            AbstractDataType inputType = inputTypes.get(i);
+            if (!inputType.acceptsType(input.getDataType())) {
+                errorMessage = String.format(INPUT_CHECK_ERROR_MESSAGE,
+                        i + 1, inputType.simpleString(), input.toSql(), input.getDataType());
+            }
+        }
+        if (errorMessage != null) {
+            return new TypeCheckResult(false, errorMessage);
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

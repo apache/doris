@@ -25,10 +25,12 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
+import java.util.Locale;
+
 /**
  * Abstract class for all data type in Nereids.
  */
-public abstract class DataType {
+public abstract class DataType implements AbstractDataType {
     /**
      * Convert data type in Doris catalog to data type in Nereids.
      * TODO: throw exception when cannot convert catalog type to Nereids type
@@ -107,6 +109,29 @@ public abstract class DataType {
     }
 
     public abstract Type toCatalogDataType();
+
+    public String typeName() {
+        return this.getClass().getSimpleName().replace("Type", "").toLowerCase(Locale.ROOT);
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return sameType(other);
+    }
+
+    private boolean sameType(DataType other) {
+        return this.equals(other);
+    }
+
+    @Override
+    public String simpleString() {
+        return typeName();
+    }
 
     @Override
     public boolean equals(Object o) {
