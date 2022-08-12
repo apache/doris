@@ -123,6 +123,11 @@ protected:
     std::vector<int> _include_column_ids;   // columns that need to get from file
     std::shared_ptr<Statistics> _statistics;
 
+    // the src slot index which need to set to null as not the column not exist in parquet file
+    std::set<int> _skipped_read_idx;
+    // map from column id index to src slot index
+    std::map<int, int> _map_parquet_column_ids_idx;
+
     std::atomic<bool> _closed = false;
     std::atomic<bool> _batch_eof = false;
     arrow::Status _status;

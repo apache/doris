@@ -73,8 +73,15 @@ Status ParquetReader::_init_read_columns() {
             _include_column_ids.emplace_back(parquet_col_id);
             _read_columns.emplace_back(parquet_col_id, file_col_name);
         } else {
+            // just continue, as the invalid column will be set to null by default
             continue;
         }
+        ParquetReadColumn column;
+        column.slot_desc = slot_desc;
+        column.parquet_column_id = parquet_col_id;
+        auto physical_type = _file_metadata->schema().get_column(parquet_col_id)->physical_type;
+        column.parquet_type = physical_type;
+        _read_columns.emplace_back(column);
     }
     return Status::OK();
 }

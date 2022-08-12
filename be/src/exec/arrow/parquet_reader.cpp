@@ -250,9 +250,15 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
     const uint8_t* value = nullptr;
     int column_index = 0;
     try {
+        // set null value for slots not found in src files
+        for (auto it = _skipped_read_idx.begin(); it != _skipped_read_idx.end(); ++it) {
+            auto slot_desc = tuple_slot_descs[*it];
+            RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
+        }
+
         size_t slots = _include_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
-            auto slot_desc = _file_slot_descs[i];
+            auto slot_desc = _file_slot_descs[_map_parquet_column_ids_idx[i]];
             column_index = i; // column index in batch record
             switch (_parquet_column_type[i]) {
             case arrow::Type::type::STRING: {

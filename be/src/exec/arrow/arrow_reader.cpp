@@ -77,12 +77,11 @@ Status ArrowReaderWrap::column_indices() {
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {
+            _map_parquet_column_ids_idx[_include_column_ids.size()] = i;
             _include_column_ids.emplace_back(iter->second);
         } else {
-            std::stringstream str_error;
-            str_error << "Invalid Column Name:" << slot_desc->col_name();
-            LOG(WARNING) << str_error.str();
-            return Status::InvalidArgument(str_error.str());
+            // will give null to the slot, if not found in src file
+            _skipped_read_idx.emplace(i);
         }
     }
     return Status::OK();
