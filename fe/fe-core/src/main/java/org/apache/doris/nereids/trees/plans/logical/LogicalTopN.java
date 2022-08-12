@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Sort;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
@@ -36,27 +36,27 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Logical Sort plan.
- * <p>
- * eg: select * from table order by a, b desc;
- * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].
- * OrderKey: Contains order expression information and sorting method. Default is ascending.
+ * Logical top-N plan.
  */
-public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Sort {
+public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements TopN {
 
     private final List<OrderKey> orderKeys;
+    private final int limit;
+    private final int offset;
 
-    public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
-        this(orderKeys, Optional.empty(), Optional.empty(), child);
+    public LogicalTopN(List<OrderKey> orderKeys, int limit, int offset, CHILD_TYPE child) {
+        this(orderKeys, limit, offset, Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * Constructor for LogicalSort.
      */
-    public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
+    public LogicalTopN(List<OrderKey> orderKeys, int limit, int offset, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_TOP_N, groupExpression, logicalProperties, child);
         this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
+        this.limit = limit;
+        this.offset = offset;
     }
 
     @Override
@@ -68,9 +68,20 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return orderKeys;
     }
 
+    public int getOffset() {
+        return offset;
+    }
+
+    public int getLimit() {
+        return limit;
+    }
+
     @Override
     public String toString() {
-        return "LogicalSort (" + StringUtils.join(orderKeys, ", ") + ")";
+        return "LogicalTopN ("
+                + "limit=" + limit
+                + ", offset=" + offset
+                + ", " + StringUtils.join(orderKeys, ", ") + ")";
     }
 
     @Override
@@ -81,19 +92,19 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalSort that = (LogicalSort) o;
-        return Objects.equals(orderKeys, that.orderKeys);
+        LogicalTopN that = (LogicalTopN) o;
+        return this.offset == that.offset && this.limit == that.limit && Objects.equals(this.orderKeys, that.orderKeys);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderKeys);
+        return Objects.hash(orderKeys, limit, offset);
     }
 
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalSort((LogicalSort<Plan>) this, context);
+        return visitor.visitLogicalTopN((LogicalTopN<Plan>) this, context);
     }
 
     @Override
@@ -106,16 +117,16 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSort<>(orderKeys, children.get(0));
+        return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(logicalProperties), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSort<>(orderKeys, Optional.empty(), logicalProperties, child());
+        return new LogicalTopN<>(orderKeys, limit, offset, Optional.empty(), logicalProperties, child());
     }
 }

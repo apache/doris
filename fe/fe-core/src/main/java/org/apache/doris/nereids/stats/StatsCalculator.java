@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -36,15 +37,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -118,6 +121,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalTopN(LogicalTopN<Plan> topN, Void context) {
+        return computeTopN(topN);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
                 groupExpression.getCopyOfChildStats(1), join);
@@ -134,8 +142,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
-    public StatsDeriveResult visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, Void context) {
+    public StatsDeriveResult visitPhysicalQuickSort(PhysicalQuickSort<Plan> sort, Void context) {
         return groupExpression.getCopyOfChildStats(0);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalTopN(PhysicalTopN<Plan> topN, Void context) {
+        return computeTopN(topN);
     }
 
     @Override
@@ -201,6 +214,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
+    }
+
+    private StatsDeriveResult computeTopN(TopN topN) {
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
+        return stats.updateRowCountByLimit(topN.getLimit());
     }
 
     private StatsDeriveResult computeLimit(Limit limit) {
