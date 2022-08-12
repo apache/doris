@@ -70,7 +70,7 @@ suite("view") {
             select * 
             from v1
             ) t 
-        on c.c_custkey = t.c_custkey;
+        on c.c_custkey = t.c_custkey
         order by c.c_custkey
     """
 
@@ -80,7 +80,7 @@ suite("view") {
             select * 
             from v2
             ) t 
-        on l.lo_custkey = t.lo_custkey;
+        on l.lo_custkey = t.lo_custkey
         order by l.lo_custkey
     """
 
@@ -93,7 +93,7 @@ suite("view") {
             select * 
             from v1 
             join v3 on v1.c_custkey = v3.c_custkey) t2 
-        on t1.p_partkey = t2.lo_partkey;
-        order by v1.c_custkey
+        on t1.p_partkey = t2.lo_partkey
+        order by t1.lo_custkey
     """
 }
