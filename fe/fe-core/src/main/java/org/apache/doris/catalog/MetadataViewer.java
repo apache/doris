@@ -228,11 +228,11 @@ public class MetadataViewer {
                 row.add(String.valueOf(countMap.get(beId)));
                 row.add(String.valueOf(sizeMap.get(beId)));
                 row.add(graph(countMap.get(beId), totalReplicaNum));
-                row.add(totalReplicaNum == countMap.get(beId)
-                        ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(totalReplicaNum == countMap.get(beId) ? (totalReplicaNum == 0 ? "0.00%" : "100.00%")
+                        : df.format((double) countMap.get(beId) / totalReplicaNum));
                 row.add(graph(sizeMap.get(beId), totalReplicaSize));
-                row.add(totalReplicaSize == sizeMap.get(beId)
-                        ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
+                row.add(totalReplicaSize == sizeMap.get(beId) ? (totalReplicaSize == 0 ? "0.00%" : "100.00%")
+                        : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
 
