@@ -249,6 +249,7 @@ public:
     }
 };
 
+// The following macros are used to fix the tracking accuracy of caches etc.
 #define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
     auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
 #define CONSUME_THREAD_MEM_TRACKER(size) \
