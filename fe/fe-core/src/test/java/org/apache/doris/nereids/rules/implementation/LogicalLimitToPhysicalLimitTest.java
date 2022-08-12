@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.util.MemoTestUtils;
 
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -33,10 +34,11 @@ import java.util.List;
 
 public class LogicalLimitToPhysicalLimitTest {
     @Test
-    public void toPhysicalLimitTest(@Mocked Group group, @Mocked PlannerContext plannerContext) {
+    public void toPhysicalLimitTest(@Mocked Group group) {
         Plan logicalPlan = new LogicalLimit<>(3, 4, new GroupPlan(group));
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(logicalPlan);
         Rule rule = new LogicalLimitToPhysicalLimit().build();
-        List<Plan> physicalPlans = rule.transform(logicalPlan, plannerContext);
+        List<Plan> physicalPlans = rule.transform(logicalPlan, cascadesContext);
         Assertions.assertEquals(1, physicalPlans.size());
         Plan impl = physicalPlans.get(0);
         Assertions.assertEquals(PlanType.PHYSICAL_LIMIT, impl.getType());

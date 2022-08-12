@@ -45,7 +45,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
             LogicalFilter<Plan> filter = ctx.root;
-            if (!ctx.plannerContext.getConnectContext().getSessionVariable()
+            if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
                     .isEnableNereidsReorderToEliminateCrossJoin()) {
                 return filter;
             }

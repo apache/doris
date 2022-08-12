@@ -15,29 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.util;
+package org.apache.doris.nereids.processor.post;
 
-import org.junit.jupiter.api.Assertions;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
-import java.lang.reflect.Field;
-import java.util.function.Predicate;
-
-public class FieldChecker {
-    public static <T> Predicate<T> check(String fieldName, Object value) {
-        return (o) -> {
-            Field field;
-            try {
-                field = o.getClass().getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                throw new RuntimeException(e);
-            }
-            field.setAccessible(true);
-            try {
-                Assertions.assertEquals(value, field.get(o));
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            }
-            return true;
-        };
-    }
+/**
+ * PlanPostprocessor: a PlanVisitor to rewrite PhysicalPlan to new PhysicalPlan.
+ */
+public class PlanPostprocessor extends DefaultPlanRewriter<CascadesContext> {
 }

@@ -17,36 +17,42 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.BigIntType;
 
 /**
- * Double literal
+ * Represents Bigint literal
  */
-public class DoubleLiteral extends Literal {
+public class BigIntLiteral extends Literal {
 
-    private final double value;
+    private final long value;
 
-    public DoubleLiteral(double value) {
-        super(DoubleType.INSTANCE);
+    public BigIntLiteral(long value) {
+        super(BigIntType.INSTANCE);
         this.value = value;
     }
 
     @Override
-    public Double getValue() {
+    public Long getValue() {
         return value;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitDoubleLiteral(this, context);
+        return visitor.visitBigIntLiteral(this, context);
     }
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new FloatLiteral(value, Type.DOUBLE);
+        try {
+            return new IntLiteral(value, Type.BIGINT);
+        } catch (AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Can not convert to legacy literal: " + value, e);
+        }
     }
 }

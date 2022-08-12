@@ -34,11 +34,13 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -187,6 +189,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitIntegerLiteral(IntegerLiteral integerLiteral, PlanTranslatorContext context) {
         return new IntLiteral(integerLiteral.getValue());
+    }
+
+    @Override
+    public Expr visitBigIntLiteral(BigIntLiteral bigIntLiteral, PlanTranslatorContext context) {
+        try {
+            return new IntLiteral(bigIntLiteral.getValue(), Type.BIGINT);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not translate BigIntLiteral: " + bigIntLiteral.getValue(), t);
+        }
     }
 
     @Override

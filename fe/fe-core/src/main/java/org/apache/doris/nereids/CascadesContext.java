@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
@@ -30,18 +31,21 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.analysis.Scope;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Context used in memo.
  */
-public class PlannerContext {
+public class CascadesContext {
     private final Memo memo;
-    private final ConnectContext connectContext;
+    private final StatementContext statementContext;
     private RuleSet ruleSet;
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
@@ -51,13 +55,27 @@ public class PlannerContext {
      * Constructor of OptimizerContext.
      *
      * @param memo {@link Memo} reference
+     * @param statementContext {@link StatementContext} reference
      */
-    public PlannerContext(Memo memo, ConnectContext connectContext) {
+    public CascadesContext(Memo memo, StatementContext statementContext) {
         this.memo = memo;
-        this.connectContext = connectContext;
+        this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
+        this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
+    }
+
+    public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
+        return new CascadesContext(new Memo(initPlan), statementContext);
+    }
+
+    public NereidsAnalyzer newAnalyzer() {
+        return new NereidsAnalyzer(this);
+    }
+
+    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope) {
+        return new NereidsAnalyzer(this, outerScope);
     }
 
     public void pushJob(Job job) {
@@ -69,7 +87,11 @@ public class PlannerContext {
     }
 
     public ConnectContext getConnectContext() {
-        return connectContext;
+        return statementContext.getConnectContext();
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
     }
 
     public RuleSet getRuleSet() {
@@ -100,41 +122,36 @@ public class PlannerContext {
         this.currentJobContext = currentJobContext;
     }
 
-    public PlannerContext setDefaultJobContext() {
-        this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
-        return this;
-    }
-
-    public PlannerContext setJobContext(PhysicalProperties physicalProperties) {
+    public CascadesContext setJobContext(PhysicalProperties physicalProperties) {
         this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
         return this;
     }
 
-    public PlannerContext bottomUpRewrite(RuleFactory... rules) {
+    public CascadesContext bottomUpRewrite(RuleFactory... rules) {
         return execute(new RewriteBottomUpJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
     }
 
-    public PlannerContext bottomUpRewrite(Rule... rules) {
+    public CascadesContext bottomUpRewrite(Rule... rules) {
         return bottomUpRewrite(ImmutableList.copyOf(rules));
     }
 
-    public PlannerContext bottomUpRewrite(List<Rule> rules) {
+    public CascadesContext bottomUpRewrite(List<Rule> rules) {
         return execute(new RewriteBottomUpJob(memo.getRoot(), rules, currentJobContext));
     }
 
-    public PlannerContext topDownRewrite(RuleFactory... rules) {
+    public CascadesContext topDownRewrite(RuleFactory... rules) {
         return execute(new RewriteTopDownJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
     }
 
-    public PlannerContext topDownRewrite(Rule... rules) {
+    public CascadesContext topDownRewrite(Rule... rules) {
         return topDownRewrite(ImmutableList.copyOf(rules));
     }
 
-    public PlannerContext topDownRewrite(List<Rule> rules) {
+    public CascadesContext topDownRewrite(List<Rule> rules) {
         return execute(new RewriteTopDownJob(memo.getRoot(), rules, currentJobContext));
     }
 
-    private PlannerContext execute(Job job) {
+    private CascadesContext execute(Job job) {
         pushJob(job);
         jobScheduler.executeJobPool(this);
         return this;

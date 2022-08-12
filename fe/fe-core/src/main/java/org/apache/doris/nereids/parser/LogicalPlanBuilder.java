@@ -32,6 +32,8 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
+import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
+import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
@@ -75,10 +78,12 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -122,11 +127,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.Token;
@@ -134,11 +141,13 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -570,9 +579,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitIntegerLiteral(IntegerLiteralContext ctx) {
-        // TODO: throw NumberFormatException
-        Integer l = Integer.valueOf(ctx.getText());
-        return new IntegerLiteral(l);
+        BigInteger bigInt = new BigInteger(ctx.getText());
+        if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+            return new IntegerLiteral(bigInt.intValue());
+        } else {
+            // throw exception if out of long range
+            return new BigIntLiteral(bigInt.longValueExact());
+        }
     }
 
     @Override
@@ -740,7 +753,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Optional<WhereClauseContext> whereClause,
             Optional<AggClauseContext> aggClause) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: process hint
             // TODO: add lateral views
 
             // from -> where -> group by -> having -> select
@@ -750,7 +762,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // TODO: replace and process having at this position
             LogicalPlan having = aggregate; // LogicalPlan having = withFilter(aggregate, havingClause);
             LogicalPlan projection = withProjection(having, selectClause, aggClause);
-            return projection;
+            return withSelectHint(projection, selectClause.selectHint());
         });
     }
 
@@ -805,6 +817,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             last = new LogicalJoin<>(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
         }
         return last;
+    }
+
+    private LogicalPlan withSelectHint(LogicalPlan logicalPlan, SelectHintContext hintContext) {
+        if (hintContext == null) {
+            return logicalPlan;
+        }
+        Map<String, SelectHint> hints = Maps.newLinkedHashMap();
+        for (HintStatementContext hintStatement : hintContext.hintStatements) {
+            String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+            Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
+            for (HintAssignmentContext kv : hintStatement.parameters) {
+                String parameterName = kv.key.getText();
+                Optional<String> value = Optional.empty();
+                if (kv.constantValue != null) {
+                    Literal literal = (Literal) visit(kv.constantValue);
+                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                } else if (kv.identifierValue != null) {
+                    // maybe we should throw exception when the identifierValue is quoted identifier
+                    value = Optional.ofNullable(kv.identifierValue.getText());
+                }
+                parameters.put(parameterName, value);
+            }
+            hints.put(hintName, new SelectHint(hintName, parameters));
+        }
+        return new LogicalSelectHint<>(hints, logicalPlan);
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectClauseContext selectCtx,
