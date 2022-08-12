@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 
 import com.google.common.collect.ImmutableList;
@@ -31,7 +31,7 @@ public class MergeConsecutiveProjectJob extends BatchRulesJob {
      * Execute the merge consecutive job.
      * @param ctx planner context for execute job
      */
-    public MergeConsecutiveProjectJob(PlannerContext ctx) {
+    public MergeConsecutiveProjectJob(CascadesContext ctx) {
         //TODO: eliminate consecutive projects for view
         super(ctx);
         rulesJob.addAll(ImmutableList.of(

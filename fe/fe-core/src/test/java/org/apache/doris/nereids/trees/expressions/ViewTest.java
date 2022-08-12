@@ -17,9 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -27,6 +26,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -91,16 +91,17 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
     }
 
     @Test
-    public void testTranslateAllCase() throws AnalysisException {
+    public void testTranslateAllCase() throws Exception {
         // check whether they can be translated.
         for (String sql : testSql) {
-            sql = testSql.get(0);
+            NamedExpressionUtil.clear();
             System.out.println("\n\n***** " + sql + " *****\n\n");
-            PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
+            StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
+            PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
                     new NereidsParser().parseSingle(sql),
-                    PhysicalProperties.ANY,
-                    connectContext
+                    PhysicalProperties.ANY
             );
+            // Just to check whether translate will throw exception
             new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         }
     }
@@ -108,7 +109,8 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
     @Test
     public void testSimpleViewMergeProjects() {
         // FieldChecker projectCheck = new FieldChecker(ImmutableList.of("projects"));
-        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(0)))
+        PlanChecker.from(connectContext)
+                .analyze(testSql.get(0))
                 .applyTopDown(new EliminateAliasNode())
                 .applyTopDown(new MergeConsecutiveProjects())
                 .matches(
@@ -120,7 +122,8 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
 
     @Test
     public void testNestedView() {
-        new PlanChecker().plan(new NereidsAnalyzer(connectContext).analyze(testSql.get(6)))
+        PlanChecker.from(connectContext)
+                .analyze(testSql.get(6))
                 .applyTopDown(new EliminateAliasNode())
                 .applyTopDown(new MergeConsecutiveProjects())
                 .matches(
