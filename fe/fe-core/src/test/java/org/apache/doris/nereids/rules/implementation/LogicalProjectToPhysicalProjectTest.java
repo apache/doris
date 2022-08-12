@@ -17,9 +17,8 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -31,8 +30,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -53,14 +52,14 @@ public class LogicalProjectToPhysicalProjectTest {
             .put(LogicalSort.class.getName(), (new LogicalSortToPhysicalHeapSort()).build())
             .build();
 
-    private static PhysicalPlan rewriteLogicalToPhysical(Group group, PlannerContext plannerContext) {
+    private static PhysicalPlan rewriteLogicalToPhysical(Group group, CascadesContext cascadesContext) {
         List<Plan> children = Lists.newArrayList();
         for (Group child : group.getLogicalExpression().children()) {
-            children.add(rewriteLogicalToPhysical(child, plannerContext));
+            children.add(rewriteLogicalToPhysical(child, cascadesContext));
         }
 
         Rule rule = rulesMap.get(group.getLogicalExpression().getPlan().getClass().getName());
-        List<Plan> transform = rule.transform(group.getLogicalExpression().getPlan(), plannerContext);
+        List<Plan> transform = rule.transform(group.getLogicalExpression().getPlan(), cascadesContext);
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof PhysicalPlan);
         PhysicalPlan implPlanNode = (PhysicalPlan) transform.get(0);
@@ -68,20 +67,14 @@ public class LogicalProjectToPhysicalProjectTest {
         return (PhysicalPlan) implPlanNode.withChildren(children);
     }
 
-    public static PhysicalPlan rewriteLogicalToPhysical(LogicalPlan plan) {
-        PlannerContext plannerContext = new Memo(plan)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
-
-        return rewriteLogicalToPhysical(plannerContext.getMemo().getRoot(), plannerContext);
-    }
-
     @Test
     public void projectionImplTest() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
         LogicalPlan project = new LogicalProject<>(Lists.newArrayList(), scan);
 
-        PhysicalPlan physicalProject = rewriteLogicalToPhysical(project);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project);
+
+        PhysicalPlan physicalProject = rewriteLogicalToPhysical(cascadesContext.getMemo().getRoot(), cascadesContext);
         Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, physicalProject.getType());
         PhysicalPlan physicalScan = (PhysicalPlan) physicalProject.child(0);
         Assertions.assertEquals(PlanType.PHYSICAL_OLAP_SCAN, physicalScan.getType());

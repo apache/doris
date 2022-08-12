@@ -78,7 +78,7 @@ querySpecification
     ;
 
 selectClause
-    : SELECT namedExpressionSeq
+    : SELECT selectHint? namedExpressionSeq
     ;
 
 whereClause
@@ -107,6 +107,16 @@ groupByItem
 
 havingClause
     : HAVING booleanExpression
+    ;
+
+selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+
+hintStatement
+    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    ;
+
+hintAssignment
+    : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
     ;
 
 queryOrganization

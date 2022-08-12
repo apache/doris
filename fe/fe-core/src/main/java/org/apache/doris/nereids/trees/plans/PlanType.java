@@ -24,6 +24,7 @@ public enum PlanType {
     UNKNOWN,
 
     // logical plan
+    LOGICAL_SUBQUERY_ALIAS,
     LOGICAL_UNBOUND_RELATION,
     LOGICAL_BOUND_RELATION,
     LOGICAL_PROJECT,
@@ -36,6 +37,7 @@ public enum PlanType {
     LOGICAL_APPLY,
     LOGICAL_CORRELATED_JOIN,
     LOGICAL_ENFORCE_SINGLE_ROW,
+    LOGICAL_SELECT_HINT,
     GROUP_PLAN,
 
     // physical plan

@@ -74,7 +74,8 @@ private:
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
                                      const ChangeFixedValueRangeFunc& func,
-                                     const std::string& fn_name, int slot_ref_child = -1);
+                                     const std::string& fn_name, bool cast_date_to_datetime = true,
+                                     int slot_ref_child = -1);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);

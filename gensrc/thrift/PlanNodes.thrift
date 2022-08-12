@@ -436,6 +436,7 @@ struct TOlapScanNode {
   // When scan match sort_info, we can push limit into OlapScanNode.
   // It's limit for scanner instead of scanNode so we add a new limit.
   10: optional i64 sort_limit
+  11: optional bool enable_unique_key_merge_on_write
 }
 
 struct TEqJoinCondition {

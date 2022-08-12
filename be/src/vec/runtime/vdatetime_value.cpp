@@ -1014,7 +1014,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         n_end = end;
     }
     uint64_t value_1 = 0;
-    while (ptr < n_end && isdigit(*ptr)) {
+    while (ptr < n_end) {
+        if (!isdigit(*ptr)) {
+            return false;
+        }
         value_1 *= 10;
         value_1 += *ptr++ - '0';
     }

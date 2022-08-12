@@ -1346,6 +1346,11 @@ public class SelectStmt extends QueryStmt {
             ref.rewriteExprs(rewriter, analyzer);
         }
         // Also equal exprs in the statements of subqueries.
+        // TODO: (minghong) if this a view, even no whereClause,
+        //  we should analyze whereClause to enable filter inference
+        // for example, a view without where clause, `V`,
+        // `select * from T join V on T.id = V.id and T.id=1`
+        // we could infer `V.id=1`
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
             whereClause = rewriter.rewrite(whereClause, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);

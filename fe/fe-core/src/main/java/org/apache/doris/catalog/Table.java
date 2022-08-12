@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
  */
-public class Table extends MetaObject implements Writable, TableIf {
+public abstract class Table extends MetaObject implements Writable, TableIf {
     private static final Logger LOG = LogManager.getLogger(Table.class);
 
     // empirical value.

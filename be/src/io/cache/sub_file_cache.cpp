@@ -52,7 +52,16 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
         }
     }
     if (need_download) {
-        std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
+        bool cache_dir_exist = false;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->exists(_cache_dir, &cache_dir_exist),
+                fmt::format("Check local cache dir exist failed. {}", _cache_dir.native()));
+        if (!cache_dir_exist) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    io::global_local_filesystem()->create_directory(_cache_dir),
+                    fmt::format("Create local cache dir failed. {}", _cache_dir.native()));
+        }
         for (vector<size_t>::const_iterator iter = need_cache_offsets.cbegin();
              iter != need_cache_offsets.cend(); ++iter) {
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end() ||
@@ -145,8 +154,15 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 file_writer->append(file_slice),
                 fmt::format("Write local cache file failed: {}", cache_file.native()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->create_file(cache_done_file, &file_writer),
+                file_writer->close(),
+                fmt::format("Close local cache file failed: {}", cache_file.native()));
+        io::FileWriterPtr done_file_writer;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->create_file(cache_done_file, &done_file_writer),
                 fmt::format("Create local done file failed: {}", cache_done_file.native()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                done_file_writer->close(),
+                fmt::format("Close local done file failed: {}", cache_done_file.native()));
     }
     io::FileReaderSPtr cache_reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader));
@@ -181,7 +197,7 @@ Status SubFileCache::clean_timeout_cache() {
         }
     }
     if (timeout_keys.size() > 0) {
-        std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+        std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
         for (std::vector<size_t>::const_iterator iter = timeout_keys.cbegin();
              iter != timeout_keys.cend(); ++iter) {
             RETURN_IF_ERROR(_clean_cache_internal(*iter));
@@ -192,7 +208,7 @@ Status SubFileCache::clean_timeout_cache() {
 }
 
 Status SubFileCache::clean_all_cache() {
-    std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+    std::unique_lock<std::shared_mutex> wrlock(_cache_map_lock);
     for (std::map<size_t, int64_t>::const_iterator iter = _last_match_times.cbegin();
          iter != _last_match_times.cend(); ++iter) {
         RETURN_IF_ERROR(_clean_cache_internal(iter->first));

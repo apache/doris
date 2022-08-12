@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCorrelatedJoin;
@@ -30,7 +32,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -53,8 +57,24 @@ public abstract class PlanVisitor<R, C> {
     public abstract R visit(Plan plan, C context);
 
     // *******************************
+    // commands
+    // *******************************
+
+    public R visitCommand(Command command, C context) {
+        return visit(command, context);
+    }
+
+    public R visitExplainCommand(ExplainCommand explain, C context) {
+        return visitCommand(explain, context);
+    }
+
+    // *******************************
     // Logical plans
     // *******************************
+
+    public R visitSubQueryAlias(LogicalSubQueryAlias<Plan> alias, C context) {
+        return visit(alias, context);
+    }
 
     public R visitUnboundRelation(UnboundRelation relation, C context) {
         return visit(relation, context);
@@ -62,6 +82,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalRelation(LogicalRelation relation, C context) {
         return visit(relation, context);
+    }
+
+    public R visitLogicalSelectHint(LogicalSelectHint<Plan> hint, C context) {
+        return visit(hint, context);
     }
 
 

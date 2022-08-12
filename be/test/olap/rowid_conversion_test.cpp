@@ -300,7 +300,6 @@ protected:
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.is_vec = true;
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

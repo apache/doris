@@ -27,6 +27,7 @@
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
+#include "util/string_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -55,6 +56,7 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _tuple_offset(tdesc.byteOffset),
           _null_indicator_offset(tdesc.nullIndicatorByte, tdesc.nullIndicatorBit),
           _col_name(tdesc.colName),
+          _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
           _slot_idx(tdesc.slotIdx),
           _slot_size(_type.get_slot_size()),
@@ -69,6 +71,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _tuple_offset(pdesc.byte_offset()),
           _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
           _col_name(pdesc.col_name()),
+          _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(-1),
           _slot_idx(pdesc.slot_idx()),
           _slot_size(_type.get_slot_size()),
