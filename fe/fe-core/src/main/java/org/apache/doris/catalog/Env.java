@@ -2890,6 +2890,12 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // unique key table with merge on write
+            if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
+                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
+            }
+
             // show lightSchemaChange only when it is set true
             if (olapTable.getUseLightSchemaChange()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
