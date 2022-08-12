@@ -875,23 +875,6 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                     // do not try to do agg, just init and serialize directly return the out_block
                     if (!_should_expand_preagg_hash_tables()) {
                         ret_flag = true;
-                        if (_streaming_pre_places.size() < rows) {
-                            _streaming_pre_places.reserve(rows);
-                            for (size_t i = _streaming_pre_places.size(); i < rows; ++i) {
-                                _streaming_pre_places.emplace_back(_agg_arena_pool.aligned_alloc(
-                                        _total_size_of_aggregate_states, _align_aggregate_states));
-                            }
-                        }
-
-                        for (size_t i = 0; i < rows; ++i) {
-                            _create_agg_status(_streaming_pre_places[i]);
-                        }
-
-                        for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                            _aggregate_evaluators[i]->execute_batch_add(
-                                    in_block, _offsets_of_aggregate_states[i],
-                                    _streaming_pre_places.data(), &_agg_arena_pool);
-                        }
 
                         // will serialize value data to string column
                         std::vector<VectorBufferWriter> value_buffer_writers;
@@ -911,17 +894,9 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                                     *reinterpret_cast<ColumnString*>(value_columns[i].get()));
                         }
 
-                        for (size_t j = 0; j < rows; ++j) {
-                            for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-                                _aggregate_evaluators[i]->function()->serialize(
-                                        _streaming_pre_places[j] + _offsets_of_aggregate_states[i],
-                                        value_buffer_writers[i]);
-                                value_buffer_writers[i].commit();
-                            }
-                        }
-
-                        for (size_t i = 0; i < rows; ++i) {
-                            _destroy_agg_status(_streaming_pre_places[i]);
+                        for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
+                            _aggregate_evaluators[i]->streaming_agg_serialize(
+                                    in_block, value_buffer_writers[i], rows, &_agg_arena_pool);
                         }
 
                         if (!mem_reuse) {

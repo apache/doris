@@ -157,6 +157,9 @@ public:
                                         AggregateDataPtr place, const IColumn** columns,
                                         Arena* arena) const = 0;
 
+    virtual void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
+                                         const size_t num_rows, Arena* arena) const = 0;
+
     const DataTypes& get_argument_types() const { return argument_types; }
     const Array& get_parameters() const { return parameters; }
 
@@ -225,6 +228,18 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             static_cast<const Derived*>(this)->serialize(places[i] + offset, buf);
             buf.commit();
+        }
+    }
+
+    void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
+                                 const size_t num_rows, Arena* arena) const override {
+        char place[size_of_data()];
+        for (size_t i = 0; i != num_rows; ++i) {
+            static_cast<const Derived*>(this)->create(place);
+            static_cast<const Derived*>(this)->add(place, columns, i, arena);
+            static_cast<const Derived*>(this)->serialize(place, buf);
+            buf.commit();
+            static_cast<const Derived*>(this)->destroy(place);
         }
     }
 
