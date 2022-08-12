@@ -385,10 +385,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _has_bitmap_index = false;
     }
-    _has_referenced_column = column.has_referenced_column_id();
-    if (_has_referenced_column) {
-        _referenced_column_id = column.referenced_column_id();
-    }
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
@@ -422,9 +418,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         column->set_is_bf_column(_is_bf_column);
     }
     column->set_aggregation(get_string_by_aggregation_type(_aggregation));
-    if (_has_referenced_column) {
-        column->set_referenced_column_id(_referenced_column_id);
-    }
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
@@ -442,9 +435,6 @@ uint32_t TabletColumn::mem_size() const {
     size += _col_name.size();
     if (_has_default_value) {
         size += _default_value.size();
-    }
-    if (_has_referenced_column) {
-        size += _referenced_column.size();
     }
     for (auto& sub_column : _sub_columns) {
         size += sub_column.mem_size();
@@ -713,11 +703,6 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._length != b._length) return false;
     if (a._index_length != b._index_length) return false;
     if (a._is_bf_column != b._is_bf_column) return false;
-    if (a._has_referenced_column != b._has_referenced_column) return false;
-    if (a._has_referenced_column) {
-        if (a._referenced_column_id != b._referenced_column_id) return false;
-        if (a._referenced_column != b._referenced_column) return false;
-    }
     if (a._has_bitmap_index != b._has_bitmap_index) return false;
     return true;
 }
