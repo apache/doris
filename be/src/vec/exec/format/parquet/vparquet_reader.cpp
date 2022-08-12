@@ -28,7 +28,7 @@ ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_fro
           _range_size(range_size) {
     _file_reader = file_reader;
     _total_groups = 0;
-    //    _current_group = 0;
+    _current_row_group_reader_id = 0;
     //        _statistics = std::make_shared<Statistics>();
 }
 
@@ -137,7 +137,7 @@ Status ParquetReader::_init_row_group_readers(const TupleDescriptor* tuple_desc,
         row_group_reader.reset(
                 new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group));
         // todo: can filter row with candidate ranges rather than skipped ranges
-        RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), skipped_row_ranges));
+        RETURN_IF_ERROR(row_group_reader->init(&_file_metadata->schema(), skipped_row_ranges));
         _row_group_readers.emplace_back(row_group_reader);
     }
     LOG(WARNING) << "_init_row_group_reader finished";

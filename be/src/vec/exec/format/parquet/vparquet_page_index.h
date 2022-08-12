@@ -22,7 +22,8 @@
 #include "exprs/expr_context.h"
 
 namespace doris::vectorized {
-class ParquetReader struct RowRange;
+class ParquetReader;
+struct RowRange;
 
 class PageIndex {
 public:

@@ -116,8 +116,8 @@ private:
     std::shared_ptr<FileMetaData> _file_metadata;
     std::shared_ptr<PageIndex> _page_index;
     std::vector<std::shared_ptr<RowGroupReader>> _row_group_readers;
-    std::shared_ptr<RowGroupReader> _current_row_group_reader;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
+    int32_t _current_row_group_reader_id;
     //        std::shared_ptr<Statistics> _statistics;
     const int32_t _num_of_columns_from_file;
     std::map<std::string, int> _map_column; // column-name <---> column-index
