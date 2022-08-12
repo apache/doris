@@ -67,12 +67,10 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                 read_options.delete_condition_predicates.get());
     }
 
-    if (_context->reuse_input_schema != nullptr) {
-        _input_schema = _context->reuse_input_schema;
-    } else {
+    if (_context->reuse_input_schema == nullptr) {
         std::vector<uint32_t> read_columns;
-        std::set < uint32_t > read_columns_set;
-        std::set < uint32_t > delete_columns_set;
+        std::set<uint32_t> read_columns_set;
+        std::set<uint32_t> delete_columns_set;
         for (int i = 0; i < _context->return_columns->size(); ++i) {
             read_columns.push_back(_context->return_columns->at(i));
             read_columns_set.insert(_context->return_columns->at(i));
@@ -84,7 +82,9 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
             }
         }
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
+        _context->reuse_input_schema = _input_schema;
     }
+    _input_schema = _context->reuse_input_schema;
 
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
@@ -177,13 +177,11 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    if (read_context->reuse_block != nullptr) {
-        _input_block = read_context->reuse_block;
-    } else {
-        _input_block.reset(
+    if (read_context->reuse_block == nullptr) {
+        read_context->reuse_block.reset(
                 new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
-        read_context->reuse_block = _input_block;
     }
+    _input_block = read_context->reuse_block;
 
     if (!read_context->is_vec) {
         // init input/output block and row
