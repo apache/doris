@@ -178,7 +178,7 @@ suite("test_union", "query,p0") {
            FROM `default_cluster:${db}`.`baseall` a LEFT OUTER JOIN 
            `default_cluster:${db}`.`bigtable` b ON `a`.`k1` = `b`.`k1` + 10
            WHERE `b`.`k2` IS NULL"""
-    qt_union37 """select n1 from nullable union all select n2 from nullable"""
+    order_qt_union37 """select n1 from nullable union all select n2 from nullable"""
     qt_union38 """(select n1 from nullable) union all (select n2 from nullable order by n1) order by n1"""
     qt_union39 """(select n1 from nullable) union all (select n2 from nullable) order by n1"""
 
@@ -261,7 +261,7 @@ suite("test_union", "query,p0") {
     sql"""create table ${new_union_table}(k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
         k4 date NULL, k5 datetime NULL, 
         k6 double sum) engine=olap 
-        distributed by hash(k1) buckets 2 properties("storage_type"="column")"""
+        distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
     //不同schema 不同列报错
     test{
         sql "select * from ${new_union_table} union select * from ${tbName1} order by k1, k2"

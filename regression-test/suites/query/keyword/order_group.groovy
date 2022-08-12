@@ -126,8 +126,8 @@ suite("order_group", "query,p0") {
             order by k1 limit 10"
     qt_order15 "select k1 from (select k1, k2 from ${tableName2} order by k1 limit 10 offset 3) a \
             where k1 > 5 order by k1 limit 5 offset 2"
-    qt_order16 "select a.k1, a.k2, b.k1 from ${tableName2} a join (select * from ${tableName1} where k6 = \"false\" \
-            order by k1 limit 3 offset 2) b on a.k1 = b.k1 where a.k2 > 0 order by 1"
+    //qt_order16 "select a.k1, a.k2, b.k1 from ${tableName2} a join (select * from ${tableName1} where k6 = \"false\" \
+      //      order by k1 limit 3 offset 2) b on a.k1 = b.k1 where a.k2 > 0 order by 1"
 
 
     // with NULL values

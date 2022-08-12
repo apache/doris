@@ -133,7 +133,7 @@ suite("aggregate", "query") {
     }
     k1 = fields[i]
     k2 = fields[j]
-    qt_aggregate4"select ${k1}, min(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    order_qt_aggregate4"select ${k1}, min(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
     qt_aggregate5"""
                     select t1.${k1}, t2.mysum from baseall t1,
                     (select ${k1}, min(${k2}) as mysum from baseall 

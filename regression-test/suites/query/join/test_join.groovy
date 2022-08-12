@@ -1489,11 +1489,11 @@ suite("test_join", "query,p0") {
     sql"""create table ${null_table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
-                    distributed by hash(k1) buckets 2 properties("storage_type"="column")"""
+                    distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
     sql"""create table ${null_table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
-                    distributed by hash(k1) buckets 2 properties("storage_type"="column")"""
+                    distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
     sql"""insert into ${null_table_1} values (1, NULL,'null', NULL, NULL, 8.9),
                     (2, NULL,'2', NULL, NULL, 8.9),
                     (3, NULL,'null', '2019-09-09', NULL, 8.9);"""
@@ -1534,11 +1534,11 @@ suite("test_join", "query,p0") {
     sql"""create table ${table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
-                    distributed by hash(k1) buckets 2 properties("storage_type"="column")"""
+                    distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
     sql"""create table ${table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
-                    distributed by hash(k1) buckets 2 properties("storage_type"="column")"""
+                    distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
     sql"""insert into ${table_1} values (1, NULL,'null', NULL, NULL, 8.9),
                     (2, NULL,'2', NULL, NULL, 8.9),
                     (3, NULL,'null', '2019-09-09', NULL, 8.9);"""
@@ -1575,8 +1575,8 @@ suite("test_join", "query,p0") {
     def table_4 = "table_join_null_string_2"
     sql"""drop table if exists ${table_3}"""
     sql"""drop table if exists ${table_4}"""
-    sql"""create table ${table_3} (a int, b varchar(11)) distributed by hash(a) buckets 3"""
-    sql"""create table ${table_4} (a int, b varchar(11)) distributed by hash(a) buckets 3"""
+    sql"""create table ${table_3} (a int, b varchar(11)) distributed by hash(a) buckets 3 properties("replication_num" = "1")"""
+    sql"""create table ${table_4} (a int, b varchar(11)) distributed by hash(a) buckets 3 properties("replication_num" = "1")"""
     sql"""insert into ${table_3} values (1,"a"),(2,"b"),(3,"c"),(4,NULL)"""
     sql"""insert into ${table_4} values (1,"a"),(2,"b"),(3,"c"),(4,NULL)"""
     def res99 = sql"""select count(*) from ${table_3} join ${table_4} where ${table_3}.b = ${table_4}.b"""
