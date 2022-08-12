@@ -420,9 +420,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    /*
-    // the following code will cause coredump when running tpcds_sf1 sqls,
-    // disable temporariy to avoid it, SHOULD BE FIX LATER
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -450,42 +447,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                     if (!_runtime_filter_ready_flag[i]) {
                         // Use all conjuncts and new arrival runtime filters to construct a new
                         // expression tree here.
-                        auto last_expr =
-                                _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
-                        for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
-                            if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
-                                continue;
-                            }
-                            TExprNode texpr_node;
-                            texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-                            texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
-                            texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
-                            VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
-                            new_node->add_child(last_expr);
-                            new_node->add_child(vexprs[j]);
-                            last_expr = new_node;
-                            _rf_vexpr_set.insert(vexprs[j]);
-                        }
-                        auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-                        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
-                        // If error occurs in `prepare` or `open` phase, discard these runtime
-                        // filters directly.
-                        if (UNLIKELY(!expr_status.OK())) {
-                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
-                            vexprs.clear();
-                            break;
-                        }
-                        expr_status = new_vconjunct_ctx_ptr->open(state);
-                        if (UNLIKELY(!expr_status.OK())) {
-                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
-                            vexprs.clear();
-                            break;
-                        }
-                        if (_vconjunct_ctx_ptr) {
-                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
-                        }
-                        _vconjunct_ctx_ptr.reset(new VExprContext*);
-                        *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+                        _append_rf_into_conjuncts(state, vexprs);
                         _runtime_filter_ready_flag[i] = true;
                     }
                 }
@@ -495,14 +457,11 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     if (!vexprs.empty()) {
         if (*scanner->vconjunct_ctx_ptr()) {
-            (*scanner->vconjunct_ctx_ptr())->close(state);
-            *scanner->vconjunct_ctx_ptr() = nullptr;
+            scanner->discard_conjuncts();
         }
         WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                       "Something wrong for runtime filters: ");
-        scanner->set_use_pushdown_conjuncts(true);
     }
-    */
 
     std::vector<Block*> blocks;
 

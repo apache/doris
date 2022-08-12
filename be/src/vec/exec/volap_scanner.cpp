@@ -367,6 +367,9 @@ Status VOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        ctx->close(state);
+    }
     if (_vconjunct_ctx) {
         _vconjunct_ctx->close(state);
     }
