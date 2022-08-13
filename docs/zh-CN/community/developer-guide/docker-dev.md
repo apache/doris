@@ -29,9 +29,9 @@ under the License.
 
 ## 相关详细文档导航
 
-- [使用 Docker 开发镜像编译](../../docs/install/source-install/compilation.md)
-- [部署](../../docs/install/install-deploy.md)
-- [VSCode Be 开发调试](./be-vscode-dev.md)
+- [使用 Docker 开发镜像编译](/docs/install/source-install/compilation)
+- [部署](/docs/install/install-deploy)
+- [VSCode Be 开发调试](./be-vscode-dev)
 
 ## 环境准备
 
@@ -45,7 +45,13 @@ under the License.
 $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
 ```
 
+<<<<<<< HEAD
 此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
+=======
+运行镜像
+
+此处按需注意 [挂载的问题](../../docs/install/source-install/compilation/)
+>>>>>>> 031fba425 ([typo](fix)Fix community documentation link errors (#11758))
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 

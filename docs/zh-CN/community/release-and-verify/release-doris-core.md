@@ -26,7 +26,7 @@ under the License.
 
 # 发布 Doris Core
 
-Doris Core 指发布 https://github.com/apachedoris 中的内容。
+Doris Core 指发布 https://github.com/apache/doris 中的内容。
 
 ## 准备发布
 

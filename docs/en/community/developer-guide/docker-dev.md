@@ -29,9 +29,9 @@ under the License.
 
 ## Related detailed document navigation
 
-- [Developing mirror compilation using Docker](../../docs/install/source-install/compilation.md#developing-mirror-compilation-using-docker-recommended)
-- [Deploying Doris](../../docs/install/install-deploy.md#cluster-deployment)
-- [VSCode Be Development Debugging](./be-vscode-dev.md)
+- [Developing mirror compilation using Docker](/docs/install/source-install/compilation)
+- [Deploying Doris](/docs/install/install-deploy)
+- [VSCode Be Development Debugging](./be-vscode-dev)
 
 ## Environment preparation
 
@@ -45,7 +45,13 @@ under the License.
 $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
 ```
 
+<<<<<<< HEAD
 note! [problems with mounting](../../docs/install/source-install/compilation.md)
+=======
+run image
+
+note! [problems with mounting](../../docs/install/source-install/compilation)
+>>>>>>> 031fba425 ([typo](fix)Fix community documentation link errors (#11758))
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 
