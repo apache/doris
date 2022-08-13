@@ -271,7 +271,19 @@ public:
         }
     }
 
-    //if any unexpected thing happen will return NULL
+#define GETDATA(LOCATTYPE, TYPEVALUE) \
+    if(response.result_size()>0 && response.result(0).TYPEVALUE##_##value_size()>0){ \
+            LOCATTYPE ret = response.result(0).TYPEVALUE##_##value(0);  \
+            to.insert_data((char*)&ret, 0);\
+        }else{  \
+        LOG(ERROR) << "_server_addr:" << _server_addr  \
+                    << ",_finalize_fn:" << _finalize_fn \
+                    << ",msg: failed to get final result cause return type need " << #TYPEVALUE \
+                    << "but result is empty";\
+        to.insert_default(); \
+    }
+
+    //if any unexpected error happen will return NULL
     Status get(IColumn& to, const DataTypePtr& return_type) {
         if (has_error()) {
             to.insert_default();
@@ -296,36 +308,32 @@ public:
         }
         WhichDataType which(result_type);
         if (which.is_float32()) {
-            float ret = response.result(0).float_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_float64()) {
-            double ret = response.result(0).double_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_int32()) {
-            int32_t ret = response.result(0).int32_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_uint32()) {
-            uint32_t ret = response.result(0).uint32_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_int64()) {
-            int64_t ret = response.result(0).int64_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_uint64()) {
-            uint64_t ret = response.result(0).uint64_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_uint8()) {
-            uint8_t ret = response.result(0).bool_value(0);
-            to.insert_data((char*)&ret, 0);
-        }
-        if (which.is_string()) {
-            std::string ret = response.result(0).string_value(0);
-            to.insert_data(ret.c_str(), ret.size());
+            GETDATA(float, float);
+        }else if (which.is_float64()) {
+            GETDATA(double, double);
+        }else if (which.is_int32()) {
+            GETDATA(int32_t, int32);
+        }else if (which.is_uint32()) {
+            GETDATA(uint32_t, uint32);
+        }else if (which.is_int64()) {
+            GETDATA(int64_t, int64);
+        }else if (which.is_uint64()) {
+            GETDATA(uint64_t, uint64);
+        }else if (which.is_uint8()) {
+            GETDATA(uint8_t, bool);
+        }else if (which.is_string()) {
+           if(response.result_size()>0 && response.result(0).string_value_size()>0){ 
+                std::string ret = response.result(0).string_value(0);
+                to.insert_data(ret.c_str(), ret.size());
+           }else{
+                LOG(ERROR) << "_server_addr:" << _server_addr 
+                    << ",_finalize_fn:" << _finalize_fn 
+                    << ",msg: failed to get final result cause return type need string but result is empty";
+                to.insert_default(); 
+           }
+        }else{
+           LOG(ERROR) << "failed to get result cause unkown return type";
+           to.insert_default();
         }
         return Status::OK();
     }
