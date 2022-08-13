@@ -107,7 +107,7 @@ MySQL [test_db]> select citycode, rpc_count_visit_info(visitinfo) from table2 gr
 ```
 CREATE AGGREGATE FUNCTION  rpc_sum(bigint) RETURNS bigint PROPERTIES (
     "TYPE"="RPC",
-    "OBJECT_FILE"="127.0.0.1:9700",
+    "OBJECT_FILE"="127.0.0.1:9000",
     "update_fn"="rpc_sum_update",
     "merge_fn"="rpc_sum_merge",
     "finalize_fn"="rpc_sum_finalize"
