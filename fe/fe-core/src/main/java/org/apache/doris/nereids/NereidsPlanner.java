@@ -152,7 +152,9 @@ public class NereidsPlanner extends Planner {
     }
 
     private void deriveStats() {
-        new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()).execute();
+        cascadesContext
+                .pushJob(new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
     /**

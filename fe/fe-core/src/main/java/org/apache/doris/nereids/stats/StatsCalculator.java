@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
@@ -195,9 +196,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
     private StatsDeriveResult computeScan(Scan scan) {
         Table table = scan.getTable();
-        TableStats tableStats = Utils.execWithReturnVal(() ->
-                ConnectContext.get().getEnv().getStatisticsManager().getStatistics().getTableStats(table.getId())
-        );
+        TableStats tableStats = Utils.execWithReturnVal(() -> {
+            Statistics statistics = ConnectContext.get().getEnv().getStatisticsManager().getStatistics();
+            // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
+            statistics.mockTableStatsWithRowCount(scan.getTable().getId(), 0);
+            return statistics.getTableStats(table.getId());
+        });
         Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());

@@ -51,12 +51,17 @@ public class PlanContext {
         this.plan = plan;
     }
 
+    /**
+     * Constructor for PlanContext.
+     */
     public PlanContext(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
 
         for (Group group : groupExpression.children()) {
             childrenStats.add(group.getStatistics());
         }
+
+        statistics = groupExpression.getOwnerGroup().getStatistics();
     }
 
     public Plan getPlan() {
