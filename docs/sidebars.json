@@ -852,8 +852,6 @@
                             "type": "category",
                             "label": "Monitor Metrics",
                             "items": [
-                                "admin-manual/maint-monitor/monitor-metrics/fe-metrics",
-                                "admin-manual/maint-monitor/monitor-metrics/be-metrics",
                                 "admin-manual/maint-monitor/monitor-metrics/metrics"
                             ]
                         },
