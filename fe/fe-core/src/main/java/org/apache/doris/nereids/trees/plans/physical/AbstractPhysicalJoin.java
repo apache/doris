@@ -34,7 +34,7 @@ import java.util.Optional;
 /**
  * Abstract class for all physical join node.
  */
-public abstract class PhysicalJoin<
+public abstract class AbstractPhysicalJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
@@ -48,7 +48,7 @@ public abstract class PhysicalJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public PhysicalJoin(PlanType type, JoinType joinType, Optional<Expression> condition,
+    public AbstractPhysicalJoin(PlanType type, JoinType joinType, Optional<Expression> condition,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
@@ -77,7 +77,7 @@ public abstract class PhysicalJoin<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalJoin that = (PhysicalJoin) o;
+        AbstractPhysicalJoin that = (AbstractPhysicalJoin) o;
         return joinType == that.joinType && Objects.equals(condition, that.condition);
     }
 

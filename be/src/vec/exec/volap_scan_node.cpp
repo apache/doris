@@ -365,6 +365,16 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 }
             } else {
                 if (_scanner_done) {
+                    // We should close eof scanners before transfer done, otherwise,
+                    // they are closed until scannode is closed. Because plan is closed
+                    // after the plan is finished, so query profile would leak stats from
+                    // scanners closed by scannode::close.
+                    while (!_volap_scanners.empty()) {
+                        auto scanner = _volap_scanners.front();
+                        _volap_scanners.pop_front();
+                        DCHECK(scanner->need_to_close());
+                        scanner->close(state);
+                    }
                     break;
                 }
             }
@@ -410,9 +420,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    /*
-    // the following code will cause coredump when running tpcds_sf1 sqls,
-    // disable temporariy to avoid it, SHOULD BE FIX LATER
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -440,42 +447,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                     if (!_runtime_filter_ready_flag[i]) {
                         // Use all conjuncts and new arrival runtime filters to construct a new
                         // expression tree here.
-                        auto last_expr =
-                                _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
-                        for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
-                            if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
-                                continue;
-                            }
-                            TExprNode texpr_node;
-                            texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-                            texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
-                            texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
-                            VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
-                            new_node->add_child(last_expr);
-                            new_node->add_child(vexprs[j]);
-                            last_expr = new_node;
-                            _rf_vexpr_set.insert(vexprs[j]);
-                        }
-                        auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-                        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
-                        // If error occurs in `prepare` or `open` phase, discard these runtime
-                        // filters directly.
-                        if (UNLIKELY(!expr_status.OK())) {
-                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
-                            vexprs.clear();
-                            break;
-                        }
-                        expr_status = new_vconjunct_ctx_ptr->open(state);
-                        if (UNLIKELY(!expr_status.OK())) {
-                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
-                            vexprs.clear();
-                            break;
-                        }
-                        if (_vconjunct_ctx_ptr) {
-                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
-                        }
-                        _vconjunct_ctx_ptr.reset(new VExprContext*);
-                        *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+                        _append_rf_into_conjuncts(state, vexprs);
                         _runtime_filter_ready_flag[i] = true;
                     }
                 }
@@ -485,14 +457,11 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     if (!vexprs.empty()) {
         if (*scanner->vconjunct_ctx_ptr()) {
-            (*scanner->vconjunct_ctx_ptr())->close(state);
-            *scanner->vconjunct_ctx_ptr() = nullptr;
+            scanner->discard_conjuncts();
         }
         WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                       "Something wrong for runtime filters: ");
-        scanner->set_use_pushdown_conjuncts(true);
     }
-    */
 
     std::vector<Block*> blocks;
 
@@ -801,7 +770,8 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
 Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_range, void* value,
                                          const ChangeFixedValueRangeFunc& func,
-                                         const std::string& fn_name, int slot_ref_child) {
+                                         const std::string& fn_name, bool cast_date_to_datetime,
+                                         int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
         DateTimeValue date_value;
         reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
@@ -834,27 +804,39 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
                          reinterpret_cast<char*>(&date_value)));
         }
     } else if constexpr (PrimitiveType == TYPE_DATEV2) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_value =
-                *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
-        if constexpr (IsFixed) {
-            if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                DateV2Value<DateV2ValueType> date_v2;
+        if (cast_date_to_datetime) {
+            DateV2Value<DateTimeV2ValueType> datetimev2_value =
+                    *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
+            if constexpr (IsFixed) {
+                if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
+                    DateV2Value<DateV2ValueType> date_v2;
+                    date_v2.set_date_uint32(binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(
+                                                    datetimev2_value) >>
+                                            TIME_PART_LENGTH);
+                    func(temp_range, &date_v2);
+                }
+            } else {
+                doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
                 date_v2.set_date_uint32(
                         binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
                         TIME_PART_LENGTH);
-                func(temp_range, &date_v2);
+                if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
+                    if (fn_name == "lt" || fn_name == "ge") {
+                        ++date_v2;
+                    }
+                }
+                func(temp_range, to_olap_filter_type(fn_name, slot_ref_child), &date_v2);
             }
         } else {
-            doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
-            date_v2.set_date_uint32(
-                    binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
-                    TIME_PART_LENGTH);
-            if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                if (fn_name == "lt" || fn_name == "ge") {
-                    ++date_v2;
-                }
+            if constexpr (IsFixed) {
+                func(temp_range,
+                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                             value));
+            } else {
+                func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                             value));
             }
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child), &date_v2);
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
@@ -879,9 +861,12 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
 }
 
 bool VOlapScanNode::is_key_column(const std::string& key_name) {
-    // all column in dup_keys table olap scan node threat
+    // all column in dup_keys table or unique_keys with merge on write table olap scan node threat
     // as key column
-    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS) {
+    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+        (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+         _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+         _olap_scan_node.enable_unique_key_merge_on_write)) {
         return true;
     }
 
@@ -1372,7 +1357,7 @@ bool VOlapScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprCont
 
 bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                       VExprContext* expr_ctx,
-                                                      std::string* constant_str,
+                                                      StringVal* constant_str,
                                                       doris_udf::FunctionContext** fn_ctx) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
@@ -1395,7 +1380,7 @@ bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
             DCHECK(children[1 - i]->type().is_string_type());
             if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
                         children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
-                *constant_str = const_column->get_data_at(0).to_string();
+                *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
                 return false;
             }
@@ -1490,8 +1475,9 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                 continue;
             }
             auto value = const_cast<void*>(iter->get_value());
-            RETURN_IF_ERROR(change_value_range<true>(
-                    temp_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
+            RETURN_IF_ERROR(change_value_range<true>(temp_range, value,
+                                                     ColumnValueRange<T>::add_fixed_value_range,
+                                                     fn_name, !state->hybrid_set->is_date_v2()));
             iter->next();
         }
 
@@ -1564,10 +1550,12 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
             auto value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(change_value_range<true>(
-                        range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                        range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name,
+                        !state->hybrid_set->is_date_v2()));
             } else {
                 RETURN_IF_ERROR(change_value_range<true>(
-                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name,
+                        !state->hybrid_set->is_date_v2()));
             }
             iter->next();
         }
@@ -1674,11 +1662,11 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
                     auto val = StringValue(value.data, value.size);
                     RETURN_IF_ERROR(change_value_range<false>(range, reinterpret_cast<void*>(&val),
                                                               ColumnValueRange<T>::add_value_range,
-                                                              fn_name, slot_ref_child));
+                                                              fn_name, true, slot_ref_child));
                 } else {
                     RETURN_IF_ERROR(change_value_range<false>(
                             range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                            ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
+                            ColumnValueRange<T>::add_value_range, fn_name, true, slot_ref_child));
                 }
             }
         }
@@ -1698,9 +1686,6 @@ Status VOlapScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ct
 
 Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ctx,
                                                   SlotDescriptor* slot, bool* push_down) {
-    if (!config::enable_function_pushdown) {
-        return Status::OK();
-    }
     bool opposite = false;
     VExpr* fn_expr = expr;
     if (TExprNodeType::COMPOUND_PRED == expr->node_type() &&
@@ -1711,11 +1696,10 @@ Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* exp
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
         doris_udf::FunctionContext* fn_ctx = nullptr;
-        std::string str;
+        StringVal val;
         if (_should_push_down_function_filter(reinterpret_cast<VectorizedFnCall*>(fn_expr),
-                                              expr_ctx, &str, &fn_ctx)) {
+                                              expr_ctx, &val, &fn_ctx)) {
             std::string col = slot->col_name();
-            StringVal val(reinterpret_cast<uint8_t*>(str.data()), str.size());
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
             *push_down = true;
         }
@@ -1795,8 +1779,11 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
                             if (is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
                                         cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
-                                RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
+                                if (state->enable_function_pushdown()) {
+                                    RETURN_IF_PUSH_DOWN(_normalize_function_filters(
+                                            cur_expr, *(_vconjunct_ctx_ptr.get()), slot,
+                                            &push_down));
+                                }
                             }
                         },
                         *range);

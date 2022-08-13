@@ -482,7 +482,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     // 3.1 Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_key_ranges_and_filters());
     // 3.2 Function pushdown
-    if (config::enable_function_pushdown) RETURN_IF_ERROR(build_function_filters());
+    if (state->enable_function_pushdown()) RETURN_IF_ERROR(build_function_filters());
 
     VLOG_CRITICAL << "Filter idle conjuncts";
     // 4. Filter idle conjunct which already trans to olap filters

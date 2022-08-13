@@ -15,20 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.nereids.util;
 
+import org.junit.jupiter.api.Assertions;
 
-public class AbortTransactionException extends TransactionException {
+import java.lang.reflect.Field;
+import java.util.function.Predicate;
 
-    public AbortTransactionException(String msg) {
-        super(msg);
-    }
-
-    public AbortTransactionException(String msg, Throwable e) {
-        super(msg, e);
-    }
-
-    public AbortTransactionException(String msg, long transactionId) {
-        super(msg, transactionId);
+public class FieldChecker {
+    public static <T> Predicate<T> check(String fieldName, Object value) {
+        return (o) -> {
+            Field field;
+            try {
+                field = o.getClass().getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            field.setAccessible(true);
+            try {
+                Assertions.assertEquals(value, field.get(o));
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+            return true;
+        };
     }
 }

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -104,7 +103,8 @@ public class SlotReference extends Slot {
 
     @Override
     public String toString() {
-        return Utils.qualifiedName(qualifier, name + "#" + exprId);
+        // Just return name and exprId, add another method to show fully qualified name when it's necessary.
+        return name + "#" + exprId;
     }
 
     @Override
@@ -148,5 +148,10 @@ public class SlotReference extends Slot {
             return this;
         }
         return new SlotReference(exprId, name, dataType, newNullable, qualifier);
+    }
+
+    @Override
+    public Slot withQualifier(List<String> qualifiers) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifiers);
     }
 }

@@ -24,6 +24,7 @@
 
 #include "glog/logging.h"
 #include "util/alignment.h"
+#include "util/bit_packing.inline.h"
 #include "util/bit_stream_utils.h"
 
 using doris::BitUtil;
@@ -205,6 +206,106 @@ inline bool BitReader::GetVlqInt(int32_t* v) {
         shift += 7;
         DCHECK_LE(++num_bytes, MAX_VLQ_BYTE_LEN);
     } while ((byte & 0x80) != 0);
+    return true;
+}
+
+template <typename T>
+inline int BatchedBitReader::UnpackBatch(int bit_width, int num_values, T* v) {
+    DCHECK(buffer_pos_ != nullptr);
+    DCHECK_GE(bit_width, 0);
+    DCHECK_LE(bit_width, MAX_BITWIDTH);
+    DCHECK_LE(bit_width, sizeof(T) * 8);
+    DCHECK_GE(num_values, 0);
+
+    int64_t num_read;
+    std::tie(buffer_pos_, num_read) =
+            BitPacking::UnpackValues(bit_width, buffer_pos_, bytes_left(), num_values, v);
+    DCHECK_LE(buffer_pos_, buffer_end_);
+    DCHECK_LE(num_read, num_values);
+    return static_cast<int>(num_read);
+}
+
+inline bool BatchedBitReader::SkipBatch(int bit_width, int num_values_to_skip) {
+    DCHECK(buffer_pos_ != nullptr);
+    DCHECK_GT(bit_width, 0);
+    DCHECK_LE(bit_width, MAX_BITWIDTH);
+    DCHECK_GT(num_values_to_skip, 0);
+
+    int skip_bytes = BitUtil::RoundUpNumBytes(bit_width * num_values_to_skip);
+    if (skip_bytes > buffer_end_ - buffer_pos_) return false;
+    buffer_pos_ += skip_bytes;
+    return true;
+}
+
+template <typename T>
+inline int BatchedBitReader::UnpackAndDecodeBatch(int bit_width, T* dict, int64_t dict_len,
+                                                  int num_values, T* v, int64_t stride) {
+    DCHECK(buffer_pos_ != nullptr);
+    DCHECK_GE(bit_width, 0);
+    DCHECK_LE(bit_width, MAX_BITWIDTH);
+    DCHECK_GE(num_values, 0);
+
+    const uint8_t* new_buffer_pos;
+    int64_t num_read;
+    bool decode_error = false;
+    std::tie(new_buffer_pos, num_read) =
+            BitPacking::UnpackAndDecodeValues(bit_width, buffer_pos_, bytes_left(), dict, dict_len,
+                                              num_values, v, stride, &decode_error);
+    if (UNLIKELY(decode_error)) return -1;
+    buffer_pos_ = new_buffer_pos;
+    DCHECK_LE(buffer_pos_, buffer_end_);
+    DCHECK_LE(num_read, num_values);
+    return static_cast<int>(num_read);
+}
+
+template <typename T>
+inline bool BatchedBitReader::GetBytes(int num_bytes, T* v) {
+    DCHECK(buffer_pos_ != nullptr);
+    DCHECK_GE(num_bytes, 0);
+    DCHECK_LE(num_bytes, sizeof(T));
+    if (UNLIKELY(buffer_pos_ + num_bytes > buffer_end_)) return false;
+    *v = 0; // Ensure unset bytes are initialized to zero.
+    memcpy(v, buffer_pos_, num_bytes);
+    buffer_pos_ += num_bytes;
+    return true;
+}
+
+template <typename UINT_T>
+inline bool BatchedBitReader::GetUleb128(UINT_T* v) {
+    static_assert(std::is_integral<UINT_T>::value, "Integral type required.");
+    static_assert(std::is_unsigned<UINT_T>::value, "Unsigned type required.");
+    static_assert(!std::is_same<UINT_T, bool>::value, "Bools are not supported.");
+
+    *v = 0;
+    int shift = 0;
+    uint8_t byte = 0;
+    do {
+        if (UNLIKELY(shift >= max_vlq_byte_len<UINT_T>() * 7)) return false;
+        if (!GetBytes(1, &byte)) return false;
+
+        /// We need to convert 'byte' to UINT_T so that the result of the bitwise and
+        /// operation is at least as long an integer as '*v', otherwise the shift may be too
+        /// big and lead to undefined behaviour.
+        const UINT_T byte_as_UINT_T = byte;
+        *v |= (byte_as_UINT_T & 0x7Fu) << shift;
+        shift += 7;
+    } while ((byte & 0x80u) != 0);
+    return true;
+}
+
+template <typename INT_T>
+bool BatchedBitReader::GetZigZagInteger(INT_T* v) {
+    static_assert(std::is_integral<INT_T>::value, "Integral type required.");
+    static_assert(std::is_signed<INT_T>::value, "Signed type required.");
+
+    using UINT_T = std::make_unsigned_t<INT_T>;
+
+    UINT_T v_unsigned;
+    if (UNLIKELY(!GetUleb128<UINT_T>(&v_unsigned))) return false;
+
+    /// Here we rely on implementation defined behaviour in converting UINT_T to INT_T.
+    *v = (v_unsigned >> 1) ^ -(v_unsigned & 1u);
+
     return true;
 }
 

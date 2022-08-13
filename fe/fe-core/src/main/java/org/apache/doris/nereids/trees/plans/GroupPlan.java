@@ -80,17 +80,22 @@ public class GroupPlan extends LogicalLeaf {
     @Override
     public List<Slot> computeOutput() {
         throw new IllegalStateException("GroupPlan can not compute output."
-            + " You should invoke GroupPlan.getOutput()");
+                + " You should invoke GroupPlan.getOutput()");
     }
 
     @Override
     public LogicalProperties computeLogicalProperties(Plan... inputs) {
         throw new IllegalStateException("GroupPlan can not compute logical properties."
-            + " You should invoke GroupPlan.getLogicalProperties()");
+                + " You should invoke GroupPlan.getLogicalProperties()");
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitGroupPlan(this, context);
+    }
+
+    @Override
+    public String toString() {
+        return "GroupPlan( " + group.getGroupId() + " )";
     }
 }

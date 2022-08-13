@@ -86,7 +86,15 @@ Status ColumnChunkReader::load_page_data() {
     if (encoding == tparquet::Encoding::PLAIN_DICTIONARY) {
         encoding = tparquet::Encoding::RLE_DICTIONARY;
     }
-    Decoder::getDecoder(_metadata.type, encoding, _page_decoder);
+    // Reuse page decoder
+    if (_decoders.find(static_cast<int>(encoding)) != _decoders.end()) {
+        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+    } else {
+        std::unique_ptr<Decoder> page_decoder;
+        Decoder::getDecoder(_metadata.type, encoding, page_decoder);
+        _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
+        _page_decoder = _decoders[static_cast<int>(encoding)].get();
+    }
     _page_decoder->set_data(&_page_data);
     if (_type_length > 0) {
         _page_decoder->set_type_length(_type_length);
@@ -122,12 +130,12 @@ Status ColumnChunkReader::skip_values(size_t num_values) {
 
 size_t ColumnChunkReader::get_rep_levels(level_t* levels, size_t n) {
     DCHECK_GT(_max_rep_level, 0);
-    return _def_level_decoder.get_levels(levels, n);
+    return _rep_level_decoder.get_levels(levels, n);
 }
 
 size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     DCHECK_GT(_max_def_level, 0);
-    return _rep_level_decoder.get_levels(levels, n);
+    return _def_level_decoder.get_levels(levels, n);
 }
 
 Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, size_t num_values) {

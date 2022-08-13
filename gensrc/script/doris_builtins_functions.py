@@ -324,6 +324,26 @@ visible_functions = [
     [['array_slice', '%element_slice%'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_STRING', ['ARRAY_STRING', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
+    
+    # reverse function for string builtin
+    [['reverse'], 'VARCHAR', ['VARCHAR'],
+            '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    # reverse function support the longtext
+    [['reverse'], 'STRING', ['STRING'],
+            '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    # reverse function support the array type
+    [['reverse'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_DATE',      ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['reverse'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
 
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
@@ -1806,6 +1826,8 @@ visible_functions = [
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'DATE', ['BOOLEAN', 'DATE', 'DATE'], '', '', '', 'vec', 'CUSTOM'],
+    [['if'], 'DATETIMEV2', ['BOOLEAN', 'DATETIMEV2', 'DATETIMEV2'], '', '', '', 'vec', 'CUSTOM'],
+    [['if'], 'DATEV2', ['BOOLEAN', 'DATEV2', 'DATEV2'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -1914,8 +1936,6 @@ visible_functions = [
             '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5upperEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
-    [['reverse'], 'VARCHAR', ['VARCHAR'],
-            '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['trim'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions4trimEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['ltrim'], 'VARCHAR', ['VARCHAR'],
@@ -2039,8 +2059,6 @@ visible_functions = [
             '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['upper', 'ucase'], 'STRING', ['STRING'],
             '_ZN5doris15StringFunctions5upperEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
-    [['reverse'], 'STRING', ['STRING'],
-            '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['trim'], 'STRING', ['STRING'],
             '_ZN5doris15StringFunctions4trimEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['ltrim'], 'STRING', ['STRING'],

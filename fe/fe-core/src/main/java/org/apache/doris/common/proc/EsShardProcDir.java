@@ -63,7 +63,7 @@ public class EsShardProcDir implements ProcDirInterface {
                     for (EsShardRouting esShardRouting : shardRoutings) {
                         List<Comparable> shardInfo = new ArrayList<Comparable>();
                         shardInfo.add(shardId);
-                        shardInfo.add(esShardRouting.getAddress().toString());
+                        shardInfo.add(esShardRouting.getHttpAddress().toString());
                         shardInfo.add(esShardRouting.isPrimary());
                         shardInfos.add(shardInfo);
                     }

@@ -30,8 +30,8 @@ namespace doris {
 
 ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
                              int32_t num_of_columns_from_file, int64_t range_start_offset,
-                             int64_t range_size, bool caseSensitive)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, caseSensitive),
+                             int64_t range_size, bool case_sensitive)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {
     _reader = nullptr;
@@ -68,7 +68,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     std::shared_ptr<arrow::Schema> schema = maybe_schema.ValueOrDie();
     for (size_t i = 0; i < schema->num_fields(); ++i) {
         std::string schemaName =
-                _caseSensitive ? schema->field(i)->name() : to_lower(schema->field(i)->name());
+                _case_sensitive ? schema->field(i)->name() : to_lower(schema->field(i)->name());
         // orc index started from 1.
 
         _map_column.emplace(schemaName, i + 1);

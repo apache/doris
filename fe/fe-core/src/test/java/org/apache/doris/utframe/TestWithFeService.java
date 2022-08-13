@@ -41,6 +41,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -66,6 +70,7 @@ import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
@@ -112,15 +117,39 @@ public abstract class TestWithFeService {
         cleanDorisFeDir(runningDir);
     }
 
+    @BeforeEach
+    public final void beforeEach() throws Exception {
+        runBeforeEach();
+    }
+
     protected void runBeforeAll() throws Exception {
     }
 
     protected void runAfterAll() throws Exception {
     }
 
+    protected void runBeforeEach() throws Exception {
+    }
+
     // Help to create a mocked ConnectContext.
     protected ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
+    }
+
+    protected StatementContext createStatementCtx(String sql) {
+        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+    }
+
+    protected CascadesContext createCascadesContext(String sql) {
+        StatementContext statementCtx = createStatementCtx(sql);
+        LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
+        return CascadesContext.newContext(statementCtx, initPlan);
+    }
+
+    public LogicalPlan analyze(String sql) {
+        CascadesContext cascadesContext = createCascadesContext(sql);
+        cascadesContext.newAnalyzer().analyze();
+        return (LogicalPlan) cascadesContext.getMemo().copyOut();
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {

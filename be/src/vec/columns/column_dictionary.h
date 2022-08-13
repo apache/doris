@@ -257,7 +257,10 @@ public:
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
-        auto res = vectorized::PredicateColumnType<StringValue>::create();
+        if (is_dict_sorted() && !is_dict_code_converted()) {
+            convert_dict_codes_if_necessary();
+        }
+        auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
         res->reserve(_reserve_size);
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);

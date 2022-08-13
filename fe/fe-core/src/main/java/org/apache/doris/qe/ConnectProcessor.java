@@ -39,6 +39,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -89,13 +90,41 @@ public class ConnectProcessor {
 
     // COM_INIT_DB: change current database of this session.
     private void handleInitDb() {
-        String dbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
+        String fullDbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
         if (Strings.isNullOrEmpty(ctx.getClusterName())) {
             ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
+        String catalogName = null;
+        String dbName = null;
+        String[] dbNames = fullDbName.split("\\.");
+        if (dbNames.length == 1) {
+            dbName = fullDbName;
+        } else if (dbNames.length == 2) {
+            catalogName = dbNames[0];
+            dbName = dbNames[1];
+        } else if (dbNames.length > 2) {
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
+            return;
+        }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
+
+        // check catalog and db exists
+        if (catalogName != null) {
+            DataSourceIf dataSourceIf = ctx.getEnv().getDataSourceMgr().getCatalogNullable(catalogName);
+            if (dataSourceIf == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                return;
+            }
+            if (dataSourceIf.getDbNullable(dbName) == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                return;
+            }
+        }
         try {
+            if (catalogName != null) {
+                ctx.getEnv().changeCatalog(ctx, catalogName);
+            }
             ctx.getEnv().changeDb(ctx, dbName);
         } catch (DdlException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());

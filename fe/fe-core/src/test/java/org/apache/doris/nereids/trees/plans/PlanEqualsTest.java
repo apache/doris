@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -34,9 +35,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -110,8 +111,8 @@ public class PlanEqualsTest {
 
     @Test
     public void testLogicalOlapScan() {
-        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan("table");
-        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan("table");
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "table", 0);
 
         Assertions.assertEquals(scan1, scan2);
     }
@@ -182,10 +183,14 @@ public class PlanEqualsTest {
     }
 
     @Test
-    public void testPhysicalOlapScan(@Mocked LogicalProperties logicalProperties, @Mocked OlapTable olapTable) {
+    public void testPhysicalOlapScan(
+            @Mocked LogicalProperties logicalProperties,
+            @Mocked OlapTable olapTable,
+            @Mocked DistributionSpecHash distributionSpecHash) {
         List<String> qualifier = Lists.newArrayList();
 
-        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties);
+        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, distributionSpecHash, Optional.empty(),
+                logicalProperties);
 
         Assertions.assertEquals(olapScan, olapScan);
     }
@@ -213,12 +218,12 @@ public class PlanEqualsTest {
         // TODO: Depend on List<OrderKey> Equals
         List<OrderKey> orderKeyList = Lists.newArrayList();
 
-        PhysicalHeapSort physicalHeapSort = new PhysicalHeapSort(orderKeyList, logicalProperties, child);
-        Assertions.assertEquals(physicalHeapSort, physicalHeapSort);
+        PhysicalQuickSort physicalQuickSort = new PhysicalQuickSort(orderKeyList, logicalProperties, child);
+        Assertions.assertEquals(physicalQuickSort, physicalQuickSort);
 
         List<OrderKey> orderKeyListClone = Lists.newArrayList();
-        PhysicalHeapSort physicalHeapSortClone = new PhysicalHeapSort(orderKeyListClone, logicalProperties,
+        PhysicalQuickSort physicalQuickSortClone = new PhysicalQuickSort(orderKeyListClone, logicalProperties,
                 child);
-        Assertions.assertEquals(physicalHeapSort, physicalHeapSortClone);
+        Assertions.assertEquals(physicalQuickSort, physicalQuickSortClone);
     }
 }

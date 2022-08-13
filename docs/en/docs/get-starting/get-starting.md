@@ -159,7 +159,7 @@ Doris uses the MySQL protocol for communication, and users can connect to the Do
 By default, Http protocol is used for WebUI access, and the following format address is entered in the browser to access
 
 ```
-http://FE_IP:FE_HTTP_PORT(默认8030)
+http://FE_IP:FE_HTTP_PORT(8030 by default)
 ```
 
 If the account password is changed during cluster installation, use the new account password to log in
