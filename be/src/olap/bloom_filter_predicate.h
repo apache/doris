@@ -61,7 +61,7 @@ public:
                       uint16_t size) const override;
 
 private:
-    template <bool is_nullable, typename file_type = void>
+    template <bool is_nullable>
     uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
                       uint16_t size) const {
         if constexpr (is_nullable) {
@@ -83,21 +83,6 @@ private:
             }
         } else {
             uint24_t tmp_uint24_value;
-            auto get_column_data = [](const vectorized::IColumn& column) {
-                if constexpr (std::is_same_v<file_type, uint24_t> &&
-                              T == PrimitiveType::TYPE_DATE) {
-                    return reinterpret_cast<const vectorized::PredicateColumnType<uint32_t>*>(
-                                   &column)
-                            ->get_data()
-                            .data();
-                } else {
-                    return reinterpret_cast<const vectorized::PredicateColumnType<file_type>*>(
-                                   &column)
-                            ->get_data()
-                            .data();
-                }
-            };
-
             auto get_cell_value = [&tmp_uint24_value](auto& data) {
                 if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t> &&
                               T == PrimitiveType::TYPE_DATE) {
@@ -108,7 +93,10 @@ private:
                 }
             };
 
-            auto pred_col_data = get_column_data(column);
+            auto pred_col_data =
+                    reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                            ->get_data()
+                            .data();
             for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -159,17 +147,16 @@ template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
-    using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
     if (!_enable_pred) {
         return size;
     }
     if (column.is_nullable()) {
         auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
-        new_size = evaluate<true, FT>(nullable_col->get_nested_column(), null_map_data.data(), sel,
-                                      size);
+        new_size =
+                evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {
-        new_size = evaluate<false, FT>(column, nullptr, sel, size);
+        new_size = evaluate<false>(column, nullptr, sel, size);
     }
     // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
     // Some bloomfilter is useless, for example ssb 4.3, it consumes a lot of cpu but it is

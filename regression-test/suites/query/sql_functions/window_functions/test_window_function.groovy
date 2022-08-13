@@ -173,19 +173,11 @@ suite("test_window_function", "query") {
 
     sql "use test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
-    def random = new java.util.Random()
 
     // test_query_first_value
-    int i = random.nextInt(10)
-    int j = random.nextInt(10)
-    while (i == j || i == 9) {
-        i = random.nextInt(10)
-        j = random.nextInt(10)
-    }
-    int k = j
-    String k1 = fields[i]
-    String k2 = fields[j]
-    String k3 = fields[k]
+    String k1 = fields[3]
+    String k2 = fields[5]
+    String k3 = fields[3]
     qt_first_value1"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3})
              as wj from baseall  order by ${k1}, wj"""
     qt_first_value2"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3} 
@@ -324,10 +316,7 @@ suite("test_window_function", "query") {
     }
 
     // test_query_rank
-    while (k == 9) {
-        k = random.nextInt(10)
-    }
-    k3 = fields[k]
+    k3 = fields[7]
     qt_rank1"""select ${k1}, rank() over (partition by ${k1} order by ${k3}) as wj 
              from baseall order by ${k1}, wj"""
     qt_rank2"""select F2.${k1}, (F1.wj - F2.basewj + 1) as wj from

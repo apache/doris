@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 
 import com.google.common.collect.ImmutableList;
@@ -26,8 +26,8 @@ import com.google.common.collect.ImmutableList;
  * Execute the disassemble rules.
  */
 public class DisassembleRulesJob extends BatchRulesJob {
-    public DisassembleRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
+    public DisassembleRulesJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(
                         new AggregateDisassemble())

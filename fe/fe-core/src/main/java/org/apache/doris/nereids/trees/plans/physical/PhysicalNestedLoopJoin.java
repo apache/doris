@@ -36,7 +36,7 @@ import java.util.Optional;
 public class PhysicalNestedLoopJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
-        extends PhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public PhysicalNestedLoopJoin(JoinType joinType, Optional<Expression> condition,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {

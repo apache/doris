@@ -39,8 +39,8 @@ namespace doris {
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
                                      int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                     int64_t range_size, bool caseSensitive)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, caseSensitive),
+                                     int64_t range_size, bool case_sensitive)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
@@ -92,7 +92,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
             } else {
                 schemaName = schemaDescriptor->Column(i)->name();
             }
-            _map_column.emplace(_caseSensitive ? schemaName : to_lower(schemaName), i);
+            _map_column.emplace(_case_sensitive ? schemaName : to_lower(schemaName), i);
         }
 
         _timezone = timezone;

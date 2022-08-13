@@ -46,7 +46,7 @@ INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
 INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 ```
 
-> Note: When you need to use `CTE(Common Table Expressions)` as the query part in an insert operation, you must specify the `WITH LABEL` and column list parts. Example:
+> Note: When you need to use `CTE(Common Table Expressions)` as the query part in an insert operation, you must specify the `WITH LABEL` and column list parts or wrap `CTE`. Example:
 >
 > ```sql
 > INSERT INTO tbl1 WITH LABEL label1
@@ -57,6 +57,11 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 > INSERT INTO tbl1 (k1)
 > WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
 > SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> 
+> INSERT INTO tbl1 (k1)
+> select * from (
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1) as ret
 > ```
 
 For specific parameter description, you can refer to [INSERT INTO](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md) command or execute `HELP INSERT ` to see its help documentation for better use of this import method.

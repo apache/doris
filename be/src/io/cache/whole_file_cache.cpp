@@ -53,7 +53,7 @@ Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) 
 }
 
 Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
-    std::lock_guard<std::shared_mutex> wrlock(_cache_lock);
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
     Path cache_done_file = _cache_dir / WHOLE_FILE_CACHE_DONE_NAME;
     bool done_file_exist = false;
@@ -61,6 +61,15 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
             io::global_local_filesystem()->exists(cache_done_file, &done_file_exist),
             "Check local cache done file exist failed.");
     if (!done_file_exist) {
+        bool cache_dir_exist = false;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->exists(_cache_dir, &cache_dir_exist),
+                fmt::format("Check local cache dir exist failed. {}", _cache_dir.native()));
+        if (!cache_dir_exist) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    io::global_local_filesystem()->create_directory(_cache_dir),
+                    fmt::format("Create local cache dir failed. {}", _cache_dir.native()));
+        }
         bool cache_file_exist = false;
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
@@ -91,8 +100,15 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 file_writer->append(file_slice),
                 fmt::format("Write local cache file failed: {}", cache_file.native()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->create_file(cache_done_file, &file_writer),
+                file_writer->close(),
+                fmt::format("Close local cache file failed: {}", cache_file.native()));
+        io::FileWriterPtr done_file_writer;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->create_file(cache_done_file, &done_file_writer),
                 fmt::format("Create local done file failed: {}", cache_done_file.native()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                done_file_writer->close(),
+                fmt::format("Close local done file failed: {}", cache_done_file.native()));
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
@@ -115,7 +131,7 @@ Status WholeFileCache::clean_all_cache() {
 }
 
 Status WholeFileCache::_clean_cache_internal() {
-    std::lock_guard<std::shared_mutex> wrlock(_cache_lock);
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     _cache_file_reader.reset();
     _cache_file_size = 0;
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;

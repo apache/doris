@@ -20,11 +20,12 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Spec of sort order.
@@ -45,7 +46,7 @@ public class OrderSpec {
      *
      * @param other another OrderSpec.
      */
-    public boolean meet(OrderSpec other) {
+    public boolean satisfy(OrderSpec other) {
         if (this.orderKeys.size() < other.getOrderKeys().size()) {
             return false;
         }
@@ -60,13 +61,18 @@ public class OrderSpec {
 
     public GroupExpression addEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalHeapSort(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
+                new PhysicalQuickSort(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)
         );
     }
 
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
+    }
+
+    @Override
+    public String toString() {
+        return "Order: (" + orderKeys + ")";
     }
 
     @Override
@@ -79,5 +85,10 @@ public class OrderSpec {
         }
         OrderSpec that = (OrderSpec) o;
         return orderKeys.equals(that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderKeys);
     }
 }

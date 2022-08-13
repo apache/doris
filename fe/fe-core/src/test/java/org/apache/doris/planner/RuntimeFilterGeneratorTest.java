@@ -31,15 +31,16 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableTest;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -76,12 +77,11 @@ public class RuntimeFilterGeneratorTest {
         TableName lhsTableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "default_cluster:test_db", "test_lhs_tbl");
         SlotRef lhsExpr = new SlotRef(lhsTableName, "test_lhs_col");
         SlotDescriptor lhsSlotDescriptor = new SlotDescriptor(new SlotId(0), lhsTupleDescriptor);
-        Column k1 = new Column("test_lhs_col", PrimitiveType.BIGINT);
+        Column k1 = new Column("test_lhs_col", PrimitiveType.BIGINT, false);
         k1.setIsKey(true);
-        k1.setIsAllowNull(false);
         lhsSlotDescriptor.setColumn(k1);
         lhsExpr.setDesc(lhsSlotDescriptor);
-        Table lhsTable = new Table(0, "test_lhs_tbl", Table.TableType.OLAP, Lists.newArrayList(k1));
+        OlapTable lhsTable = TableTest.newOlapTable(0, "test_lhs_tbl", 0, ImmutableList.of(k1));
         BaseTableRef lhsTableRef = new BaseTableRef(tableRef, lhsTable, lhsTableName);
         lhsTableRef.analyze(analyzer);
 
@@ -90,12 +90,11 @@ public class RuntimeFilterGeneratorTest {
         TableName rhsTableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "default_cluster:test_db", "test_rhs_tbl");
         SlotRef rhsExpr = new SlotRef(rhsTableName, "test_rhs_col");
         SlotDescriptor rhsSlotDescriptor = new SlotDescriptor(new SlotId(1), rhsTupleDescriptor);
-        Column k2 = new Column("test_rhs_col", PrimitiveType.INT);
+        Column k2 = new Column("test_rhs_col", PrimitiveType.INT, false);
         k2.setIsKey(true);
-        k2.setIsAllowNull(false);
         rhsSlotDescriptor.setColumn(k2);
         rhsExpr.setDesc(rhsSlotDescriptor);
-        Table rhsTable = new Table(0, "test_rhs_tbl", Table.TableType.OLAP, Lists.newArrayList(k2));
+        OlapTable rhsTable = TableTest.newOlapTable(0, "test_rhs_tbl", 0, ImmutableList.of(k2));
         BaseTableRef rhsTableRef = new BaseTableRef(tableRef, rhsTable, rhsTableName);
         rhsTableRef.analyze(analyzer);
 

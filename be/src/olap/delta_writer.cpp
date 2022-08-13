@@ -101,6 +101,13 @@ Status DeltaWriter::init() {
                      << ", schema_hash=" << _req.schema_hash;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
+
+    // get rowset ids snapshot
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
+        _rowset_ids = _tablet->all_rs_id();
+    }
+
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, fmt::format("DeltaWriter:tabletId={}", _tablet->tablet_id()), _parent_tracker);
     SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
@@ -137,13 +144,6 @@ Status DeltaWriter::init() {
     // create flush handler
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), _req.is_high_priority));
-
-    // create delete bitmap and get rowset ids snapshot
-    if (_tablet->enable_unique_key_merge_on_write()) {
-        _delete_bitmap = std::make_shared<DeleteBitmap>(-1);
-        std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
-        _rowset_ids = _tablet->all_rs_id();
-    }
 
     _is_init = true;
     return Status::OK();
@@ -289,6 +289,9 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        _delete_bitmap.reset(new DeleteBitmap(-1));
+    }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
                                   _rowset_ids, _is_vec));

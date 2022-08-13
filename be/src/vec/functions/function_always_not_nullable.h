@@ -20,7 +20,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 
@@ -49,6 +48,12 @@ public:
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
         column_result->resize(input_rows_count);
 
+        auto type_error = [&]() {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
+        };
+
         if (const ColumnNullable* col_nullable =
                     check_and_get_column<ColumnNullable>(column.get())) {
             const ColumnString* col =
@@ -62,6 +67,8 @@ public:
 
                 block.replace_by_position(result, std::move(column_result));
                 return Status::OK();
+            } else {
+                return type_error();
             }
         } else if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
             Function::vector(col->get_chars(), col->get_offsets(), column_result);
@@ -69,9 +76,7 @@ public:
             block.replace_by_position(result, std::move(column_result));
             return Status::OK();
         } else {
-            return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        get_name());
+            return type_error();
         }
 
         block.replace_by_position(result, std::move(column_result));

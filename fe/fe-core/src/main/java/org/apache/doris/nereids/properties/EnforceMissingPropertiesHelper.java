@@ -46,7 +46,7 @@ public class EnforceMissingPropertiesHelper {
      * Enforce missing property.
      */
     public Pair<PhysicalProperties, Double> enforceProperty(PhysicalProperties output, PhysicalProperties required) {
-        boolean isMeetOrder = output.getOrderSpec().meet(required.getOrderSpec());
+        boolean isMeetOrder = output.getOrderSpec().satisfy(required.getOrderSpec());
         boolean isMeetDistribution = output.getDistributionSpec().satisfy(required.getDistributionSpec());
 
         if (!isMeetDistribution && !isMeetOrder) {
