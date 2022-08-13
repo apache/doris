@@ -43,7 +43,7 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
 | [wenming](https://people.apache.org/committer-index.html#wenming) | moonming      | Ming Wen          |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
-| [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
+| [maruyue](https://people.apache.org/committer-index.html#maruyue) | maruyue                   | Ruyue Ma      |
 | [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang   | Willem Ning Jiang |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
