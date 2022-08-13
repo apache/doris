@@ -142,7 +142,6 @@ public class FunctionServiceImpl extends PFunctionServiceGrpc.PFunctionServiceIm
             res.setStatus(statusCode.build());
             res.addResult(pValues.build());
         }
-        System.out.println(res);
         logger.info("fnCall res=" + res);
         ok(responseObserver, res.build());
     }
