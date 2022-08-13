@@ -1,11 +1,11 @@
 ---
 {
-    "title": "CloudCanal Data Import",
+    "title": "Spark Load",
     "language": "en"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,12 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CloudCanal Data Import
+# Spark load
 
-## Introduction
-
-CloudCanal Community Edition is a free data migration and synchronization platform published by [ClouGence Company](https://www.clougence.com) that integrates structure migration, full data migration/check/correction, and incremental real-time synchronization. Product contains complete
-Its productization capabilities help enterprises break data silos, complete data integration and interoperability, and make better use of data.
-![image.png](/images/cloudcanal/cloudcanal-1.jpg)
-
-> There is no English version of this document, please switch to the Chinese version.
+TODO

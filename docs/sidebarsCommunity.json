@@ -35,7 +35,8 @@
             "items": [
                 "design/doris_storage_optimization",
                 "design/grouping_sets_design",
-                "design/metadata-design"
+                "design/metadata-design",
+                "design/spark_load"
             ]
         },
         {
