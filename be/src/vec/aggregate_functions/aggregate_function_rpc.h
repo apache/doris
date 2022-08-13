@@ -132,7 +132,6 @@ public:
             err_msg << " call rpc function failed, status or result is not set";
             err_msg << " _server_addr:" << _server_addr;
             err_msg << " function_name:" << request.function_name();
-            err_msg << " err:" << cntl.ErrorText();
             LOG(ERROR) << err_msg.str();
             return Status::InternalError(err_msg.str());
         }
