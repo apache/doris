@@ -71,7 +71,7 @@ MySQL [test_db]> select * from table2;
 +------------+--------+----------+------------------------------------+------+
 ```
 
-### 1. find top 3 ip 
+### 1. find most visit top 3 ip 
 ```
 MySQL [test_db]> CREATE AGGREGATE FUNCTION  rpc_count_visit_info(varchar(1024)) RETURNS varchar(1024) PROPERTIES (
     "TYPE"="RPC",
