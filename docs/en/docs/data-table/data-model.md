@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Data Model, ROLLUP and Prefix Index",
+    "title": "Data Model",
     "language": "en"
 }
 ---
