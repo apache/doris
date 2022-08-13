@@ -71,7 +71,7 @@ public:
         column_id_set.insert(_predicate->column_id());
     };
 
-    virtual void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const {
+    void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
         predicate_set.insert(_predicate);
     }
 
