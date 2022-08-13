@@ -39,7 +39,7 @@ CREATE TABLE `table2` (
   `visitinfo` varchar(1024) NULL DEFAULT "",
   `pv` varchar(1024) REPLACE NULL DEFAULT "0"
 ) ENGINE=OLAP
-AGGREGATE KEY(`event_day`, `siteid`, `citycode`, `username`)
+AGGREGATE KEY(`event_day`, `siteid`, `citycode`, `visitinfo`)
 COMMENT 'OLAP'
 DISTRIBUTED BY HASH(`siteid`) BUCKETS 10
 PROPERTIES (
