@@ -28,7 +28,7 @@ under the License.
 `9000` is the port that the server will listen on
 
 # Demo
-## use rpc udaf to static top 3 ip from visit info
+
 
 ```
 //create one table such as table2
@@ -70,6 +70,11 @@ MySQL [test_db]> select * from table2;
 | 2017-07-03 |    105 |       12 | {"ip":"192.168.0.5","source":"pc"} | 81   |
 +------------+--------+----------+------------------------------------+------+
 
+```
+
+### 1. find top 3 ip 
+```
+
 MySQL [test_db]> CREATE AGGREGATE FUNCTION  rpc_count_visit_info(varchar(1024)) RETURNS varchar(1024) PROPERTIES (
     "TYPE"="RPC",
     "OBJECT_FILE"="127.0.0.1:9000",
@@ -97,5 +102,65 @@ MySQL [test_db]> select citycode, rpc_count_visit_info(visitinfo) from table2 gr
 +----------+--------------------------------------------+
 4 rows in set (0.050 sec)
 
+```
+### 2. sum pv 
+```
+CREATE AGGREGATE FUNCTION  rpc_sum(bigint) RETURNS bigint PROPERTIES (
+    "TYPE"="RPC",
+    "OBJECT_FILE"="127.0.0.1:9700",
+    "update_fn"="rpc_sum_update",
+    "merge_fn"="rpc_sum_merge",
+    "finalize_fn"="rpc_sum_finalize"
+);
+
+MySQL [test_db]> select citycode, rpc_sum(pv) from table2 group by citycode;
++----------+---------------+
+| citycode | rpc_sum(`pv`) |
++----------+---------------+
+|       15 |           564 |
+|       11 |           195 |
+|       12 |           612 |
+|       16 |           237 |
++----------+---------------+
+4 rows in set (0.067 sec)
+
+MySQL [test_db]> select rpc_sum(pv) from table2;
++---------------+
+| rpc_sum(`pv`) |
++---------------+
+|          1608 |
++---------------+
+1 row in set (0.030 sec)
+```
+
+### 3. avg pv
+
+```
+CREATE AGGREGATE FUNCTION  rpc_avg(int) RETURNS double PROPERTIES (
+    "TYPE"="RPC",
+    "OBJECT_FILE"="127.0.0.1:9000",
+    "update_fn"="rpc_avg_update",
+    "merge_fn"="rpc_avg_merge",
+    "finalize_fn"="rpc_avg_finalize"
+);
+
+MySQL [test_db]> select citycode, rpc_avg(pv) from table2 group by citycode;
++----------+---------------+
+| citycode | rpc_avg(`pv`) |
++----------+---------------+
+|       15 |           188 |
+|       11 |            65 |
+|       12 |           102 |
+|       16 |            79 |
++----------+---------------+
+4 rows in set (0.039 sec)
+
+MySQL [test_db]> select rpc_avg(pv) from table2;
++---------------+
+| rpc_avg(`pv`) |
++---------------+
+|         107.2 |
++---------------+
+1 row in set (0.028 sec)
 
 ```
