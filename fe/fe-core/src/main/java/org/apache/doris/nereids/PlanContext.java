@@ -40,16 +40,8 @@ import java.util.List;
 public class PlanContext {
     // array of children's derived stats
     private final List<StatsDeriveResult> childrenStats = Lists.newArrayList();
-    // statistics of attached plan/gexpr
-    private StatsDeriveResult statistics;
-    // attached plan
-    private Plan plan;
     // attached group expression
-    private GroupExpression groupExpression;
-
-    public PlanContext(Plan plan) {
-        this.plan = plan;
-    }
+    private final GroupExpression groupExpression;
 
     /**
      * Constructor for PlanContext.
@@ -60,12 +52,6 @@ public class PlanContext {
         for (Group group : groupExpression.children()) {
             childrenStats.add(group.getStatistics());
         }
-
-        statistics = groupExpression.getOwnerGroup().getStatistics();
-    }
-
-    public Plan getPlan() {
-        return plan;
     }
 
     public GroupExpression getGroupExpression() {
@@ -76,21 +62,14 @@ public class PlanContext {
         return childrenStats;
     }
 
-    public StatsDeriveResult getStatistics() {
-        return statistics;
-    }
-
-    public void setStatistics(StatsDeriveResult stats) {
-        this.statistics = stats;
-    }
-
     public StatsDeriveResult getStatisticsWithCheck() {
+        StatsDeriveResult statistics = groupExpression.getOwnerGroup().getStatistics();
         Preconditions.checkNotNull(statistics);
         return statistics;
     }
 
     public LogicalProperties childLogicalPropertyAt(int index) {
-        return plan.child(index).getLogicalProperties();
+        return groupExpression.child(index).getLogicalProperties();
     }
 
     public List<Slot> getChildOutputSlots(int index) {

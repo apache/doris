@@ -177,7 +177,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 }
                 PlanContext planContext = new PlanContext(groupExpression);
                 // TODO: calculate stats. ??????
-                groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
+                groupExpression.getOwnerGroup().setStatistics(planContext.getStatisticsWithCheck());
 
                 enforce(outputProperty, requestChildrenProperty);
 
