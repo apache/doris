@@ -229,7 +229,7 @@
                     "type": "category",
                     "label": "UDFA",
                     "items": [
-                        "eecosystem/udaf/remote-user-defined-aggregation-function"
+                        "ecosystem/udaf/remote-user-defined-aggregation-function"
                     ]
                 }
             ]
