@@ -91,6 +91,10 @@
     "message": "SeaTunnel",
     "description": "The label for category SeaTunnel in sidebar docs"
   },
+  "sidebar.docs.category.UDFA": {
+    "message": "UDFA",
+    "description": "The label for category UDFA in sidebar docs"
+  },
   "sidebar.docs.category.UDF": {
     "message": "自定义函数",
     "description": "The label for category UDF in sidebar docs"
