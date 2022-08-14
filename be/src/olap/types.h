@@ -1592,14 +1592,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
                                MemPool* mem_pool, size_t variable_len = 0) {
         JsonbToJson toStr;
         switch (src_type->type()) {
-        case OLAP_FIELD_TYPE_TINYINT:
-        case OLAP_FIELD_TYPE_SMALLINT:
-        case OLAP_FIELD_TYPE_INT:
-        case OLAP_FIELD_TYPE_BIGINT:
-        case OLAP_FIELD_TYPE_LARGEINT:
-        case OLAP_FIELD_TYPE_FLOAT:
-        case OLAP_FIELD_TYPE_DOUBLE:
-        case OLAP_FIELD_TYPE_DECIMAL: {
+        // TODO(wzy): JSON should support all numerics
+        case OLAP_FIELD_TYPE_CHAR:
+        case OLAP_FIELD_TYPE_VARCHAR:
+        case OLAP_FIELD_TYPE_STRING: {
             auto s = src_type->to_string(src);
             std::string result =
                     toStr.json(JsonbDocument::createDocument(s.c_str(), s.size())->getValue());
@@ -1621,7 +1617,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
 
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = OLAP_JSON_MAX_LENGTH; // 2G
+        slice->size = OLAP_JSON_MAX_LENGTH; // 10M
     }
 };
 

@@ -18,7 +18,6 @@
 #include "vec/columns/column_json.h"
 
 #include "util/jsonb_parser.h"
-//#include "vec/columns/collator.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -187,6 +186,45 @@ const char* ColumnJson::deserialize_and_insert_from_arena(const char* pos) {
 
     offsets.push_back(new_size);
     return pos + json_size;
+}
+
+size_t ColumnJson::get_max_row_byte_size() const {
+    size_t max_size = 0;
+    size_t num_rows = offsets.size();
+    for (size_t i = 0; i < num_rows; ++i) {
+        max_size = std::max(max_size, size_at(i));
+    }
+
+    return max_size + sizeof(uint32_t);
+}
+
+void ColumnJson::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                               size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        uint32_t offset(offset_at(i));
+        uint32_t string_size(size_at(i));
+
+        auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+        memcpy(ptr, &string_size, sizeof(string_size));
+        memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+        keys[i].size += sizeof(string_size) + string_size;
+    }
+}
+
+void ColumnJson::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                             const uint8_t* null_map,
+                                             size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            uint32_t offset(offset_at(i));
+            uint32_t string_size(size_at(i));
+
+            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+            memcpy(ptr, &string_size, sizeof(string_size));
+            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size;
+        }
+    }
 }
 
 template <typename Type>

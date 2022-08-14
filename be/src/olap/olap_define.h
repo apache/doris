@@ -58,7 +58,7 @@ static const uint16_t OLAP_VARCHAR_MAX_LENGTH = 65535;
 static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
 
 // the max length supported for json type 2GB
-static const uint32_t OLAP_JSON_MAX_LENGTH = 2147483647;
+static const uint32_t OLAP_JSON_MAX_LENGTH = 10 * 1024 * 1024;
 
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;

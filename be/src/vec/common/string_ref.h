@@ -29,8 +29,6 @@
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
 #include "udf/udf.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_utils.h"
 #include "util/slice.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"

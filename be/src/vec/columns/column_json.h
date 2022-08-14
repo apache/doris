@@ -20,6 +20,7 @@
 #include <cassert>
 #include <cstring>
 
+#include "runtime/json_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
@@ -143,12 +144,25 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
+        size_t new_size = 0;
+        for (size_t i = 0; i < num; i++) {
+            new_size += len_array[i] + 1;
+        }
+
+        const size_t old_size = chars.size();
+        chars.resize(old_size + new_size);
+
+        Char* data = chars.data();
+        size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];
-            insert_data(data_array + start_offset, len);
+            if (len) memcpy(data + offset, data_array + start_offset, len);
+            data[offset + len] = 0;
+            offset += len + 1;
+            offsets.push_back(offset);
         }
-    };
+    }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) {
@@ -167,6 +181,15 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
+
+    size_t get_max_row_byte_size() const override;
+
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override;
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map,
+                                     size_t max_row_byte_size) const override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);
@@ -191,30 +214,34 @@ public:
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
     void insert_default() override {
-        chars.push_back(0);
-        offsets.push_back(offsets.back() + 1);
+        JsonValue empty_json("{}");
+        insert_data(empty_json.value(), empty_json.size());
     }
 
     void insert_many_defaults(size_t length) override {
-        size_t chars_old_size = chars.size();
-        chars.resize(chars_old_size + length);
-        memset(chars.data() + chars_old_size, 0, length);
+        JsonValue empty_json("{}");
+        size_t new_size = 0;
+        for (size_t i = 0; i < length; i++) {
+            new_size += empty_json.size() + 1;
+        }
 
-        const size_t old_size = offsets.size();
-        const size_t new_size = old_size + length;
-        const auto num = offsets.back() + 1;
-        offsets.resize_fill(new_size, num);
-        for (size_t i = old_size, j = 0; i < new_size; i++, j++) {
-            offsets[i] += j;
+        const size_t old_size = chars.size();
+        chars.resize(old_size + new_size);
+
+        Char* data = chars.data();
+        size_t offset = old_size;
+        for (size_t i = 0; i < length; i++) {
+            uint32_t len = empty_json.size();
+            if (len) memcpy(data + offset, empty_json.value(), len);
+            data[offset + len] = 0;
+            offset += len + empty_json.size();
+            offsets.push_back(offset);
         }
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
                    int /*nan_direction_hint*/) const override {
-        const ColumnJson& rhs = assert_cast<const ColumnJson&>(rhs_);
-        return memcmp_small_allow_overflow15(chars.data() + offset_at(n), size_at(n) - 1,
-                                             rhs.chars.data() + rhs.offset_at(m),
-                                             rhs.size_at(m) - 1);
+        LOG(FATAL) << "Not support compraing between JSON value";
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,

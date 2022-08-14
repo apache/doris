@@ -123,17 +123,8 @@ inline void write_string_binary(const char* s, BufferWritable& buf) {
     write_string_binary(StringRef {s}, buf);
 }
 
-inline void write_json_binary(const StringRef& s, BufferWritable& buf) {
-    write_var_uint(s.size, buf);
-    buf.write(s.data, s.size);
-}
-
-inline void write_json_binary(const char* s, BufferWritable& buf) {
-    write_json_binary(StringRef {s}, buf);
-}
-
 inline void write_json_binary(JsonField s, BufferWritable& buf) {
-    write_json_binary(StringRef {s.get_value(), s.get_size()}, buf);
+    write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
 }
 
 template <typename Type>

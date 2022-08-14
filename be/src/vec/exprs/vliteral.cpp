@@ -240,6 +240,11 @@ std::string VLiteral::debug_string() const {
                 out << ref;
                 break;
             }
+            case TYPE_JSON: {
+                JsonValue value(ref.data, ref.size);
+                out << value.to_string();
+                break;
+            }
             case TYPE_DECIMALV2: {
                 DecimalV2Value value(*(reinterpret_cast<const int128_t*>(ref.data)));
                 out << value;

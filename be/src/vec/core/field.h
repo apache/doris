@@ -93,7 +93,7 @@ class JsonField {
 public:
     JsonField() = default;
 
-    JsonField(const char* ptr, uint len) : size(len) {
+    JsonField(const char* ptr, uint32_t len) : size(len) {
         data = new char[size];
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
@@ -356,6 +356,11 @@ public:
     void assign_string(const unsigned char* data, size_t size) {
         destroy();
         create(data, size);
+    }
+
+    void assign_json(const char* data, size_t size) {
+        destroy();
+        create_json(data, size);
     }
 
     void assign_json(const unsigned char* data, size_t size) {
@@ -681,6 +686,11 @@ private:
 
     void create(const unsigned char* data, size_t size) {
         create(reinterpret_cast<const char*>(data), size);
+    }
+
+    void create_json(const char* data, size_t size) {
+        new (&storage) JsonField(data, size);
+        which = Types::JSON;
     }
 
     void create_json(const unsigned char* data, size_t size) {
