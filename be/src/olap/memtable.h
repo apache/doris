@@ -205,6 +205,7 @@ private:
     std::vector<size_t> _offsets_of_aggregate_states;
     size_t _total_size_of_aggregate_states;
     std::vector<RowInBlock*> _row_in_blocks;
+    // Memory usage without mempool.
     size_t _mem_usage;
 
     DeleteBitmapPtr _delete_bitmap;
