@@ -180,6 +180,8 @@ private:
     vectorized::MutableColumns _current_return_columns;
     std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
+    std::vector<uint32_t> _delete_range_column_ids;
+    std::vector<uint32_t> _delete_bloom_filter_column_ids;
     // when lazy materialization is enable, segmentIter need to read data at least twice
     // first, read predicate columns by various index
     // second, read non-predicate columns
