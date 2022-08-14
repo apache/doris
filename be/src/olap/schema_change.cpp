@@ -963,12 +963,6 @@ Status RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool n
     size_t row_block_size = _row_len * num_rows;
 
     if (_memory_limitation > 0 && _tracker->consumption() + row_block_size > _memory_limitation) {
-        LOG(WARNING)
-                << "RowBlockAllocator::alocate() memory exceeded. "
-                << "m_memory_allocated=" << _tracker->consumption() << " "
-                << "mem limit for schema change=" << _memory_limitation << " "
-                << "You can increase the memory "
-                << "by changing the Config.memory_limitation_per_thread_for_schema_change_bytes";
         *row_block = nullptr;
         return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
     }
@@ -1379,7 +1373,10 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
         if (new_row_block == nullptr) {
             if (row_block_arr.empty()) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
-                             << "memory_limitation=" << _memory_limitation;
+                             << "memory_limitation=" << _memory_limitation
+                             << "You can increase the memory "
+                             << "by changing the "
+                                "Config.memory_limitation_per_thread_for_schema_change_bytes";
                 return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
             }
 
