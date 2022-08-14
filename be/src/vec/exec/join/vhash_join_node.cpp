@@ -192,12 +192,7 @@ struct ProcessHashTableProbe {
             if (_build_blocks.size() == 1) {
                 for (int i = 0; i < column_length; i++) {
                     if (output_slot_flags[i]) {
-                        auto column = _build_blocks[0].get_by_position(i).column;
-                        if (mcol[i + column_offset]->is_nullable() xor column->is_nullable()) {
-                            DCHECK(mcol[i + column_offset]->is_nullable() &&
-                                   !column->is_nullable());
-                            column = make_nullable(column);
-                        }
+                        auto& column = _build_blocks[0].get_by_position(i).column;
                         mcol[i + column_offset]->insert_indices_from(
                                 *column, _build_block_rows.data(), _build_block_rows.data() + size);
                     } else {
@@ -205,6 +200,15 @@ struct ProcessHashTableProbe {
                     }
                 }
             } else {
+                bool need_nullable_convert[column_length];
+                for (int i = 0; i < column_length; ++i) {
+                    if (output_slot_flags[i]) {
+                        need_nullable_convert[i] =
+                                probe_all &&
+                                !_build_blocks[0].get_by_position(i).column->is_nullable();
+                    }
+                }
+
                 for (int i = 0; i < column_length; i++) {
                     if (output_slot_flags[i]) {
                         for (int j = 0; j < size; j++) {
@@ -214,17 +218,20 @@ struct ProcessHashTableProbe {
                                     assert_cast<ColumnNullable*>(mcol[i + column_offset].get())
                                             ->insert_join_null_data();
                                 } else {
-                                    auto column = _build_blocks[_build_block_offsets[j]]
-                                                          .get_by_position(i)
-                                                          .column;
-                                    if (mcol[i + column_offset]->is_nullable() xor
-                                        column->is_nullable()) {
-                                        DCHECK(mcol[i + column_offset]->is_nullable() &&
-                                               !column->is_nullable());
-                                        column = make_nullable(column);
+                                    auto& column = _build_blocks[_build_block_offsets[j]]
+                                                           .get_by_position(i)
+                                                           .column;
+                                    if (need_nullable_convert[i]) {
+                                        assert_cast<ColumnNullable*>(mcol[i + column_offset].get())
+                                                ->get_null_map_data()
+                                                .push_back(0);
+                                        assert_cast<ColumnNullable*>(mcol[i + column_offset].get())
+                                                ->get_nested_column()
+                                                .insert_from(*column, _build_block_rows[j]);
+                                    } else {
+                                        mcol[i + column_offset]->insert_from(*column,
+                                                                             _build_block_rows[j]);
                                     }
-                                    mcol[i + column_offset]->insert_from(*column,
-                                                                         _build_block_rows[j]);
                                 }
                             } else {
                                 if (_build_block_offsets[j] == -1) {
@@ -236,17 +243,20 @@ struct ProcessHashTableProbe {
                                     // just insert default value
                                     mcol[i + column_offset]->insert_default();
                                 } else {
-                                    auto column = _build_blocks[_build_block_offsets[j]]
-                                                          .get_by_position(i)
-                                                          .column;
-                                    if (mcol[i + column_offset]->is_nullable() xor
-                                        column->is_nullable()) {
-                                        DCHECK(mcol[i + column_offset]->is_nullable() &&
-                                               !column->is_nullable());
-                                        column = make_nullable(column);
+                                    auto& column = _build_blocks[_build_block_offsets[j]]
+                                                           .get_by_position(i)
+                                                           .column;
+                                    if (need_nullable_convert[i]) {
+                                        assert_cast<ColumnNullable*>(mcol[i + column_offset].get())
+                                                ->get_null_map_data()
+                                                .push_back(0);
+                                        assert_cast<ColumnNullable*>(mcol[i + column_offset].get())
+                                                ->get_nested_column()
+                                                .insert_from(*column, _build_block_rows[j]);
+                                    } else {
+                                        mcol[i + column_offset]->insert_from(*column,
+                                                                             _build_block_rows[j]);
                                     }
-                                    mcol[i + column_offset]->insert_from(*column,
-                                                                         _build_block_rows[j]);
                                 }
                             }
                         }
