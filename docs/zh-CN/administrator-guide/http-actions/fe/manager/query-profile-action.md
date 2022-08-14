@@ -42,8 +42,7 @@ under the License.
 
 `GET /rest/v2/manager/query/current_queries`
 
-`GET /rest/v2/manager/query/kill/{connection_id}`
-
+`GET /rest/v2/manager/query/kill/{query_id}`
 
 ## 获取查询信息
 
@@ -349,7 +348,7 @@ GET /rest/v2/manager/query/query_info
 
 ## 取消query
 
-`POST /rest/v2/manager/query/kill/{connection_id}`
+`POST /rest/v2/manager/query/kill/{query_id}`
 
 ### Description
 
@@ -357,9 +356,9 @@ GET /rest/v2/manager/query/query_info
     
 ### Path parameters
 
-* `{connection_id}`
+* `{query_id}`
 
-    connection id
+    query id. 你可以通过 trace_id 接口，获取 query id。
 
 ### Query parameters
 
@@ -369,7 +368,7 @@ GET /rest/v2/manager/query/query_info
 {
     "msg": "success",
     "code": 0,
-    "data": "",
+    "data": null,
     "count": 0
 }
 ```
