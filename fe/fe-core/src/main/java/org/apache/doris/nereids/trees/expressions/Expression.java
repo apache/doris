@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -24,9 +29,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -35,7 +40,9 @@ import java.util.Objects;
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    protected Function function;
+
+    protected DataType dataType;
 
     public Expression(Expression... children) {
         super(children);
@@ -111,4 +118,34 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     public int hashCode() {
         return 0;
     }
+
+    public List<DataType> getChildrenType() {
+        List<DataType> typeList = new ArrayList<>();
+        for (Expression child : children) {
+            typeList.add(child.getDataType());
+        }
+        return typeList;
+    }
+
+    /**
+     * Collect CatalogType of children.
+     * @return Catalog type array
+     */
+    public Type[] getChildrenCatalogType() {
+        int childrenSize = children.size();
+        Type[] typeList = new Type[childrenSize];
+        for (int i = 0; i < childrenSize; i++) {
+            typeList[i] = child(i).getDataType().toCatalogDataType();
+        }
+        return typeList;
+    }
+
+    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)  {
+        FunctionName fnName = new FunctionName(name);
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+                VectorizedUtil.isVectorized());
+        // TODO: process RAND function.
+        return Env.getCurrentEnv().getFunction(searchDesc, mode);
+    }
+
 }

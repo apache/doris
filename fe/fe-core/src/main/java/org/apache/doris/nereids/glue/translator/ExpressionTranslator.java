@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -303,9 +304,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
         Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithmeticOperator();
-        return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
+        ArithmeticExpr arithmeticExpr = new ArithmeticExpr(arithmeticOperator.getStaleOp(),
                 arithmetic.child(0).accept(this, context),
                 arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
+        // TODO: For such expr, we need invoke this function to do the type upscale, remote it
+        //       When function system of new optimizer gets ready.
+        Utils.execWithUncheckedException(() -> arithmeticExpr.analyzeImpl(null));
+        return arithmeticExpr;
     }
 
     @Override

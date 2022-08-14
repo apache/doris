@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.Function.CompareMode;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -118,16 +120,16 @@ public abstract class Arithmetic extends Expression {
 
     @Override
     public DataType getDataType() {
-        // TODO: split Unary and Binary arithmetic
-        int arity = arity();
-        if (arity == 1) {
-            return child(0).getDataType();
-        } else if (arity == 2) {
-            // TODO: binary arithmetic
-            return child(0).getDataType();
-        } else {
-            return super.getDataType();
+        if (dataType == null) {
+            this.function =
+                    getBuiltinFunction(op.staleOp.name(),
+                            getChildrenCatalogType(),
+                            CompareMode.IS_IDENTICAL);
+            Type staleType = function.getReturnType();
+
+            dataType = DataType.convertFromCatalogDataType(staleType);
         }
+        return dataType;
     }
 
     @Override
