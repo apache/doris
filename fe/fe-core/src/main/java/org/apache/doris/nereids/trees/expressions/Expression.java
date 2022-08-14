@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -32,9 +37,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -45,7 +51,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    protected Function function;
+
+    protected DataType dataType;
 
     public Expression(Expression... children) {
         super(children);
