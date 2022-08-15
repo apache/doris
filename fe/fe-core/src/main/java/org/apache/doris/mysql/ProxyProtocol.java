@@ -69,14 +69,14 @@ public class ProxyProtocol {
         while (proxyPayload.hasRemaining()) {
             char c = (char) proxyPayload.get();
             if (byteCount < SIG_V1.length) {
-                //first we verify that we have the correct protocol
+                // first we verify that we have the correct protocol
                 if (c != SIG_V1[byteCount]) {
                     throw new IOException("Error msg header.");
                 }
             } else {
                 if (parsingUnknown) {
-                    //we are parsing the UNKNOWN protocol
-                    //we just ignore everything till \r\n
+                    // we are parsing the UNKNOWN protocol
+                    // we just ignore everything till \r\n
                     if (c == '\r') {
                         carriageReturnSeen = true;
                     } else if (c == '\n') {
@@ -93,11 +93,13 @@ public class ProxyProtocol {
                     } else {
                         throw new IOException("Error msg header.");
                     }
-                } else switch (c) {
+                } else {
+                    switch (c) {
                         case ' ':
-                            //we have a space
+                            // we have a space
                             if (sourcePort != -1 || stringBuilder.length() == 0) {
-                                //header was invalid, either we are expecting a \r or a \n, or the previous character was a space
+                                // header was invalid, either we are expecting a \r or a \n,
+                                // or the previous character was a space
                                 throw new IOException("Error msg header.");
                             } else if (protocol == null) { // protocol
                                 protocol = stringBuilder.toString();
@@ -107,15 +109,18 @@ public class ProxyProtocol {
                                 } else if (!protocol.equals(TCP4) && !protocol.equals(TCP6)) {
                                     throw new IOException("Error msg header.");
                                 }
-                            } else if (sourceAddress == null) { // source ip
+                            } else if (sourceAddress == null) {
+                                // source ip
                                 sourceAddress = InetAddress.getByName(stringBuilder.toString());
                                 connInfo.sourceAddress = sourceAddress;
                                 stringBuilder.setLength(0);
-                            } else if (destAddress == null) { // dest ip
+                            } else if (destAddress == null) {
+                                // dest ip
                                 destAddress = InetAddress.getByName(stringBuilder.toString());
                                 connInfo.destAddress = destAddress;
                                 stringBuilder.setLength(0);
-                            } else { // source port
+                            } else {
+                                // source port
                                 sourcePort = Integer.parseInt(stringBuilder.toString());
                                 connInfo.sourcePort = sourcePort;
                                 stringBuilder.setLength(0);
@@ -123,7 +128,8 @@ public class ProxyProtocol {
                             break;
                         case '\r':
                             // dest port
-                            if (destPort == -1 && sourcePort != -1 && !carriageReturnSeen && stringBuilder.length() > 0) {
+                            if (destPort == -1 && sourcePort != -1 &&
+                                !carriageReturnSeen && stringBuilder.length() > 0) {
                                 destPort = Integer.parseInt(stringBuilder.toString());
                                 connInfo.destPort = destPort;
                                 stringBuilder.setLength(0);
@@ -141,13 +147,14 @@ public class ProxyProtocol {
                             throw new IOException("Error msg header.");
                         default:
                             stringBuilder.append(c);
+                    }
                 }
             }
+        }
 
-            byteCount++;
-            if (byteCount == MAX_HEADER_LENGTH) {
-                throw new IOException("Error msg header.");
-            }
+        byteCount++;
+        if (byteCount == MAX_HEADER_LENGTH) {
+            throw new IOException("Error msg header.");
         }
     }
 
@@ -176,7 +183,8 @@ public class ProxyProtocol {
             processProtocolHeaderV1(proxyPayload, connInfo);
             // set to remote ip and host/port string
             if (connInfo.sourceAddress != null) {
-                channel.setRemoteHostPortString(connInfo.sourceAddress.getHostAddress() + ":" + String.valueOf(connInfo.sourcePort));
+                channel.setRemoteHostPortString(connInfo.sourceAddress.getHostAddress() + ":" +
+                                                String.valueOf(connInfo.sourcePort));
                 channel.setRemoteIp(connInfo.sourceAddress.getHostAddress());
             }
         } catch (IOException e) {
@@ -223,8 +231,6 @@ public class ProxyProtocol {
 
         InetAddress sourceAddress = null;
         int sourcePort = -1;
-        InetAddress destAddress = null;
-        int destPort = -1;
 
         payload.flip();
         switch (verCmd & 0x0F) {
