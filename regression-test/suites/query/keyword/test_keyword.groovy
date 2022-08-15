@@ -47,7 +47,7 @@ suite("test_keyword", "query,p0") {
     qt_distinct22 "select count(distinct k1) from ${tableName1} having count(k1)>60000"
     qt_distinct23 "select count(distinct k1) from ${tableName1} having count(k1)>70000"
     qt_distinct24 "select count(*), COUNT(distinct 1) from ${tableName1} where false"
-    qt_distinct25 "select avg(distinct k1), avg(k1) from ${tableName1}"
+    // qt_distinct25 "select avg(distinct k1), avg(k1) from ${tableName1}"
     qt_distinct26 "select count(*) from (select count(distinct k1) from ${tableName1} group by k2) v \
 		    order by count(*)"
 
@@ -97,7 +97,7 @@ suite("test_keyword", "query,p0") {
     qt_alias13 "select * from (select * from baseall union all \
             (select * from baseall order by k1 limit 2)) a order by k1"
     qt_alias14 "SELECT * FROM (SELECT k1 FROM test) as b ORDER BY k1  ASC LIMIT 0,20;"
-    qt_alias15 "select * from (select 1 as a) b  left join (select 2 as a) c using(a);"
+    // qt_alias15 "select * from (select 1 as a) b  left join (select 2 as a) c using(a);"
     try_sql "select 1 from  (select 2) a order by 0;"
     qt_alias16 "select * from (select k1 from test group by k1) bar order by k1;"
     qt_alias17 "SELECT a.x FROM (SELECT 1 AS x) AS a HAVING a.x = 1;"
