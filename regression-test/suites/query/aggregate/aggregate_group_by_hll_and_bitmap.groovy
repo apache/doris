@@ -27,12 +27,12 @@ suite("aggregate_group_by_hll_and_bitmap") {
 
     test {
         sql "select distinct user_ids from test_group_by_hll_and_bitmap"
-        exception "Group by bitmap or hll type is not supported"
+        exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
     }
 
     test {
         sql "select distinct hll_set from test_group_by_hll_and_bitmap"
-        exception "Group by bitmap or hll type is not supported"
+        exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
     }
 
     sql "DROP TABLE test_group_by_hll_and_bitmap"

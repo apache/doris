@@ -21,7 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
@@ -163,9 +163,8 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
         for (Expr expr : groupingExprs) {
-            PrimitiveType type = expr.getType().getPrimitiveType();
-            if (type == PrimitiveType.BITMAP || type == PrimitiveType.HLL) {
-                throw new AnalysisException("Group by bitmap or hll type is not supported");
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
     }
