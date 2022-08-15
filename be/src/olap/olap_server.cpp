@@ -755,11 +755,17 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
         std::vector<TabletSharedPtr> tablets =
                 StorageEngine::instance()->tablet_manager()->get_all_tablet();
         for (const auto& tablet : tablets) {
-            LOG(INFO) << "tablet path: " << tablet-> tablet_path();
+            LOG(INFO) << "tablet path: " << tablet->tablet_path();
             std::vector<Path> seg_file_paths;
-            if (!io::global_local_filesystem()->list(tablet-> tablet_path(), &seg_file_paths).ok()) {
-                for (Path seg_path : seg_file_paths) {
-                    LOG(INFO) << "seg_file_paths: " << seg_path;
+            if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
+                for (Path seg_file : seg_file_paths) {
+                    if (ends_with(seg_file, ".dat")) {
+                        continue;
+                    }
+                    std::stringstream ss;
+                    ss << tablet->tablet_path() << "/" << seg_file;
+                    std::string cache_path = ss.str();
+                    LOG(INFO) << "cache_path: " << cache_path;
                 }
             }
         }
