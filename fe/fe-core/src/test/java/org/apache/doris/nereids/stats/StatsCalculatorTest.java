@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.Group;
@@ -191,10 +192,9 @@ public class StatsCalculatorTest {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeSemiJoin = new LogicalJoin<>(
-                JoinType.LEFT_SEMI_JOIN, Optional.of(equalTo), scan1, scan2);
+                JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeInnerJoin = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Optional.of(equalTo), scan1, scan2);
-
+                JoinType.INNER_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
         StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
         Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
         StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);

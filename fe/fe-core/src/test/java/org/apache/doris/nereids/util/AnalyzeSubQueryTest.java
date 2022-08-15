@@ -135,7 +135,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                             )
                         )
                         .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                        .when(FieldChecker.check("condition",
+                        .when(FieldChecker.check("otherJoinCondition",
                             Optional.of(new EqualTo(
                                     new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("TT1")),
                                     new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("T")))))
@@ -161,7 +161,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                             logicalOlapScan()
                         )
                         .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                        .when(FieldChecker.check("condition", Optional.of(new EqualTo(
+                        .when(FieldChecker.check("otherJoinCondition", Optional.of(new EqualTo(
                                 new SlotReference(new ExprId(0), "id", new BigIntType(), true, ImmutableList.of("default_cluster:test", "T1")),
                                 new SlotReference(new ExprId(2), "id", new BigIntType(), true, ImmutableList.of("T2")))))
                         )

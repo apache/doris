@@ -52,8 +52,8 @@ public class JoinLAsscomHelper {
     private final Plan b;
     private final Plan c;
 
-    private final Expression topJoinOnClause;
-    private final Expression bottomJoinOnClause;
+    private final List<Expression> topJoinOnClause;
+    private final List<Expression> bottomJoinOnClause;
 
     private final List<SlotReference> aOutputSlots;
     private final List<SlotReference> bOutputSlots;
@@ -74,10 +74,12 @@ public class JoinLAsscomHelper {
         b = bottomJoin.right();
         c = topJoin.right();
 
-        Preconditions.checkArgument(topJoin.getCondition().isPresent(), "topJoin onClause must be present.");
-        topJoinOnClause = topJoin.getCondition().get();
-        Preconditions.checkArgument(bottomJoin.getCondition().isPresent(), "bottomJoin onClause must be present.");
-        bottomJoinOnClause = bottomJoin.getCondition().get();
+        Preconditions.checkArgument(!topJoin.getHashJoinPredicates().isEmpty(),
+                "topJoin hashJoinPredicates must exist.");
+        topJoinOnClause = topJoin.getHashJoinPredicates();
+        Preconditions.checkArgument(!bottomJoin.getHashJoinPredicates().isEmpty(),
+                "bottomJoin onClause must exist.");
+        bottomJoinOnClause = bottomJoin.getHashJoinPredicates();
 
         aOutputSlots = Utils.getOutputSlotReference(a);
         bOutputSlots = Utils.getOutputSlotReference(b);
@@ -93,8 +95,7 @@ public class JoinLAsscomHelper {
      * Get the onCondition of newTopJoin and newBottomJoin.
      */
     public boolean initJoinOnCondition() {
-        List<Expression> topJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(topJoinOnClause);
-        for (Expression topJoinOnClauseConjunct : topJoinOnClauseConjuncts) {
+        for (Expression topJoinOnClauseConjunct : topJoinOnClause) {
             // Ignore join with some OnClause like:
             // Join C = B + A for above example.
             List<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
@@ -107,8 +108,8 @@ public class JoinLAsscomHelper {
         }
 
         List<Expression> allOnCondition = Lists.newArrayList();
-        allOnCondition.addAll(topJoinOnClauseConjuncts);
-        allOnCondition.addAll(ExpressionUtils.extractConjunction(bottomJoinOnClause));
+        allOnCondition.addAll(topJoinOnClause);
+        allOnCondition.addAll(bottomJoinOnClause);
 
         HashSet<SlotReference> newBottomJoinSlots = new HashSet<>(aOutputSlots);
         newBottomJoinSlots.addAll(cOutputSlots);
@@ -165,6 +166,7 @@ public class JoinLAsscomHelper {
     private LogicalJoin<GroupPlan, GroupPlan> newBottomJoin() {
         return new LogicalJoin(
                 bottomJoin.getJoinType(),
+                bottomJoin.getHashJoinPredicates(),
                 Optional.of(ExpressionUtils.and(newBottomJoinOnCondition)),
                 a, c);
     }
@@ -191,6 +193,7 @@ public class JoinLAsscomHelper {
 
         return new LogicalJoin<>(
                 topJoin.getJoinType(),
+                topJoin.getHashJoinPredicates(),
                 Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
                 left, right);
     }
@@ -206,6 +209,7 @@ public class JoinLAsscomHelper {
 
         return new LogicalJoin(
                 topJoin.getJoinType(),
+                topJoin.getHashJoinPredicates(),
                 Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
                 newBottomJoin(), b);
     }

@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical hash join plan.
@@ -38,9 +39,10 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, LogicalProperties logicalProperties,
+    public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinPredicates,
+            Optional<Expression> condition, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
+        this(joinType, hashJoinPredicates, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /**
@@ -49,10 +51,10 @@ public class PhysicalHashJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition,
+    public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinPredicates, Optional<Expression> condition,
                             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_HASH_JOIN, joinType, condition,
+        super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinPredicates, condition,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -65,7 +67,10 @@ public class PhysicalHashJoin<
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalHashJoin ([").append(joinType).append("]");
-        condition.ifPresent(
+        sb.append(" [");
+        hashJoinPredicates.stream().map(expr -> sb.append(" ").append(expr)).collect(Collectors.toList());
+        sb.append(" ]");
+        otherJoinCondition.ifPresent(
                 expression -> sb.append(", [").append(expression).append("]")
         );
         sb.append(")");
@@ -75,17 +80,19 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
+        return new PhysicalHashJoin<>(joinType, hashJoinPredicates, otherJoinCondition,
+                logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashJoin<>(joinType, condition, groupExpression, logicalProperties, left(), right());
+        return new PhysicalHashJoin<>(joinType, hashJoinPredicates, otherJoinCondition,
+                groupExpression, logicalProperties, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHashJoin<>(joinType, condition, Optional.empty(),
-            logicalProperties.get(), left(), right());
+        return new PhysicalHashJoin<>(joinType, hashJoinPredicates, otherJoinCondition,
+                Optional.empty(), logicalProperties.get(), left(), right());
     }
 }

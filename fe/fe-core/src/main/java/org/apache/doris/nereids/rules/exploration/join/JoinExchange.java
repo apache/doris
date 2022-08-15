@@ -49,9 +49,12 @@ public class JoinExchange extends OneExplorationRuleFactory {
             GroupPlan c = rightJoin.left();
             GroupPlan d = rightJoin.right();
 
-            Plan newLeftJoin = new LogicalJoin(leftJoin.getJoinType(), leftJoin.getCondition(), a, c);
-            Plan newRightJoin = new LogicalJoin(rightJoin.getJoinType(), rightJoin.getCondition(), b, d);
-            return new LogicalJoin(topJoin.getJoinType(), topJoin.getCondition(), newLeftJoin, newRightJoin);
+            Plan newLeftJoin = new LogicalJoin(leftJoin.getJoinType(),
+                    leftJoin.getHashJoinPredicates(), leftJoin.getOtherJoinCondition(), a, c);
+            Plan newRightJoin = new LogicalJoin(rightJoin.getJoinType(),
+                    rightJoin.getHashJoinPredicates(), rightJoin.getOtherJoinCondition(), b, d);
+            return new LogicalJoin(topJoin.getJoinType(),
+                    topJoin.getHashJoinPredicates(), topJoin.getOtherJoinCondition(), newLeftJoin, newRightJoin);
         }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 }

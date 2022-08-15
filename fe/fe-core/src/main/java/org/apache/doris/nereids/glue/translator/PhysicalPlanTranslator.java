@@ -358,7 +358,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
-    //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanTranslatorContext context) {
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
@@ -371,13 +370,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
-            Expression eqJoinExpression = hashJoin.getCondition().get();
-            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunction(eqJoinExpression).stream()
-                    .map(EqualTo.class::cast)
-                    .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toList());
-
+            //TODO: after we apply rule FindHashConditionForJoin,
+            // we could get execEqConjunctList by hashjoin.getJoinPredicates() directly
+            List<Expr> execEqConjunctList = new ArrayList<>();
+            if (hashJoin.getOnClauseCondition().isPresent()) {
+                execEqConjunctList = ExpressionUtils.extractConjunction(hashJoin.getOnClauseCondition().get()).stream()
+                        .map(EqualTo.class::cast)
+                        .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                        .map(e -> ExpressionTranslator.translate(e, context))
+                        .collect(Collectors.toList());
+            }
             TupleDescriptor outputDescriptor = context.generateTupleDesc();
             List<Expr> srcToOutput = hashJoin.getOutput().stream()
                     .map(SlotReference.class::cast)

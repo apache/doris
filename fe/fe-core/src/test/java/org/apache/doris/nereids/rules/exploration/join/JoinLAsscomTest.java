@@ -73,9 +73,11 @@ public class JoinLAsscomTest {
          */
         Assertions.assertEquals(3, scans.size());
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
+                Lists.newArrayList(bottomJoinOnCondition),
+                Optional.empty(), scans.get(0), scans.get(1));
         LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> topJoin = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), bottomJoin, scans.get(2));
+                JoinType.INNER_JOIN, Lists.newArrayList(topJoinOnCondition),
+                Optional.empty(), bottomJoin, scans.get(2));
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
         Rule rule = new JoinLAsscom().build();

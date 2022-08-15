@@ -35,6 +35,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -145,5 +146,27 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     @Override
     public int hashCode() {
         return 0;
+    }
+
+    /**
+     * get the conjuct list from expr
+     * for example:
+     * a=1 and f(b)=f(c) and (d=e or x=y) => {a=1, f(b)=f(c), (d=e or x=y)}, list size = 3
+     * a=1 or b=1 => {a=1 or b=1}, list size = 1.
+     * @return conjuct list
+     */
+    public List<Expression> getConjucts() {
+        List<Expression> conjuncts = new ArrayList<>();
+        Expression expr = this;
+        if (expr instanceof And) {
+            And and = (And) expr;
+            Expression left = and.left();
+            Expression right = and.right();
+            conjuncts.addAll(left.getConjucts());
+            conjuncts.addAll(right.getConjucts());
+        } else {
+            conjuncts.add(this);
+        }
+        return conjuncts;
     }
 }

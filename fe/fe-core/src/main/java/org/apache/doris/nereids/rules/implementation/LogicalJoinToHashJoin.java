@@ -32,7 +32,8 @@ public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
                 .whenNot(JoinUtils::shouldNestedLoopJoin)
                 .then(join -> new PhysicalHashJoin<>(
             join.getJoinType(),
-            join.getCondition(),
+            join.getHashJoinPredicates(),
+            join.getOtherJoinCondition(),
             join.getLogicalProperties(),
             join.left(),
             join.right())
