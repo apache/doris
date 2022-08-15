@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
@@ -160,6 +161,15 @@ public final class AggregateInfo extends AggregateInfoBase {
         partitionExprs = exprs;
     }
 
+    private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
+        for (Expr expr : groupingExprs) {
+            PrimitiveType type = expr.getType().getPrimitiveType();
+            if (type == PrimitiveType.BITMAP || type == PrimitiveType.HLL) {
+                throw new AnalysisException("Group by bitmap or hll type is not supported");
+            }
+        }
+    }
+
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -176,6 +186,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         Preconditions.checkState(
                 (groupingExprs != null && !groupingExprs.isEmpty())
                         || (aggExprs != null && !aggExprs.isEmpty()));
+        validateGroupingExprs(groupingExprs);
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, AggPhase.FIRST);
 
         // collect agg exprs with DISTINCT clause
