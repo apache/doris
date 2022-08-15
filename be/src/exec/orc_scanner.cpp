@@ -396,7 +396,7 @@ Status ORCScanner::open_next_reader() {
         // build map from column name to type id
         build_name_id_map();
         // set include names into read options
-        std::map<int,int> _include_cols_in_src_slots;
+        std::map<int, int> _include_cols_in_src_slots;
         std::list<std::string> cols;
         _num_of_columns_from_file = range.__isset.num_of_columns_from_file
                                             ? range.num_of_columns_from_file
@@ -427,7 +427,9 @@ Status ORCScanner::open_next_reader() {
             //include columns must in reader field, otherwise createRowReader will throw exception
             auto pos = std::find(include_cols.begin(), include_cols.end(),
                                  _row_reader->getSelectedType().getFieldName(i));
-            _position_in_orc_original.at(_include_cols_in_src_slots[std::distance(include_cols.begin(), pos)]) = orc_index++;
+            _position_in_orc_original.at(
+                    _include_cols_in_src_slots[std::distance(include_cols.begin(), pos)]) =
+                    orc_index++;
         }
         return Status::OK();
     }
@@ -442,18 +444,18 @@ void ORCScanner::close() {
 
 void ORCScanner::build_name_id_map() {
     std::vector<std::string> columns;
-    const orc::Type &type = _reader->getType();
+    const orc::Type& type = _reader->getType();
     build_name_id_map_impl(columns, &type);
 }
 
-void ORCScanner::build_name_id_map_impl(std::vector<std::string> &columns, const orc::Type *type) {
+void ORCScanner::build_name_id_map_impl(std::vector<std::string>& columns, const orc::Type* type) {
     if (orc::STRUCT == type->getKind()) {
         for (size_t i = 0; i < type->getSubtypeCount(); ++i) {
-          const std::string& fieldName = type->getFieldName(i);
-          columns.push_back(fieldName);
-          _map_column_to_id[dot_column_path(columns)] = type->getSubtype(i)->getColumnId();
-          build_name_id_map_impl(columns, type->getSubtype(i));
-          columns.pop_back();
+            const std::string& fieldName = type->getFieldName(i);
+            columns.push_back(fieldName);
+            _map_column_to_id[dot_column_path(columns)] = type->getSubtype(i)->getColumnId();
+            build_name_id_map_impl(columns, type->getSubtype(i));
+            columns.pop_back();
         }
     } else {
         // other non-primitive type
@@ -464,15 +466,14 @@ void ORCScanner::build_name_id_map_impl(std::vector<std::string> &columns, const
 }
 
 std::string ORCScanner::dot_column_path(const std::vector<std::string> &columns) {
-      if (columns.empty()) {
-          return std::string();
-      }
-      std::ostringstream columnStream;
-      std::copy(columns.begin(), columns.end(),
-              std::ostream_iterator<std::string>(columnStream, "."));
-      std::string columnPath = columnStream.str();
-      return columnPath.substr(0, columnPath.length() - 1);
+    if (columns.empty()) {
+        return std::string();
+    }
+    std::ostringstream columnStream;
+    std::copy(columns.begin(), columns.end(),
+            std::ostream_iterator<std::string>(columnStream, "."));
+    std::string columnPath = columnStream.str();
+    return columnPath.substr(0, columnPath.length() - 1);
   }
-
 
 } // namespace doris
