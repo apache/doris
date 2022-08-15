@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 
 import com.google.common.collect.ImmutableList;
@@ -33,7 +34,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
             NormalizeBinaryPredicatesRule.INSTANCE,
             BetweenToCompoundRule.INSTANCE,
-            SimplifyNotExprRule.INSTANCE
+            SimplifyNotExprRule.INSTANCE,
+            SimplifyCastRule.INSTANCE
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES);
 

@@ -71,8 +71,10 @@ public:
         // for fast, expect MemInfo::initialized() to be true.
         if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(
-                    "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
-                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit());
+                    "{}: TryConsume failed, bytes={} process physical memory consumption={} and "
+                    "virtual memory consumption={}, mem limit={}",
+                    _label, bytes, PerfCounters::get_vm_rss(), MemInfo::current_mem(),
+                    MemInfo::mem_limit());
         }
         return Status::OK();
     }
