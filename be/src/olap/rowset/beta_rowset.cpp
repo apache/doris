@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/cache/file_cache_manager.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"

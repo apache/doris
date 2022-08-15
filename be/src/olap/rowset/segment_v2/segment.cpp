@@ -53,7 +53,7 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
         segment->_file_reader = std::move(cache_reader);
-        FileCacheManager::instance()->add_file_cache(cache_reader->cache_dir(), cache_reader);
+        FileCacheManager::instance()->add_file_cache(cache_path, segment->_file_reader);
     }
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
