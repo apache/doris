@@ -59,13 +59,11 @@ namespace doris::vectorized {
 class ColumnChunkReader {
 public:
     ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* fieldSchema);
+                      FieldSchema* field_schema);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
-    // We can set the type_length if the length of colum type if fixed,
-    // or not set, the decoder will try to infer the type_length.
-    Status init(size_t type_length = -1);
+    Status init();
 
     // Whether the chunk reader has a more page to read.
     bool has_next_page() { return _page_reader->has_next_page(); }
@@ -86,8 +84,11 @@ public:
     // Load page data into the underlying container,
     // and initialize the repetition and definition level decoder for current page data.
     Status load_page_data();
-    // The remaining number of values in current page. Decreased when reading or skipping.
+    // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t num_values() const { return _num_values; };
+    // null values are not analyzing from definition levels
+    // the caller should maintain the consistency after analyzing null values from definition levels.
+    void dec_num_values(uint32_t dec_num) { _num_values -= dec_num; };
     // Get the raw data of current page.
     Slice& get_page_data() { return _page_data; }
 
@@ -97,7 +98,8 @@ public:
     size_t get_def_levels(level_t* levels, size_t n);
 
     // Decode values in current page into doris column.
-    Status decode_values(ColumnPtr& doris_column, size_t num_values);
+    Status decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
+    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
     // For test, Decode values in current page into slice.
     Status decode_values(Slice& slice, size_t num_values);
 
@@ -109,7 +111,9 @@ public:
 private:
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
+    int32_t _get_type_length();
 
+    FieldSchema* _field_schema;
     level_t _max_rep_level;
     level_t _max_def_level;
 
@@ -131,7 +135,6 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
-    size_t _type_length = -1;
 };
 
 } // namespace doris::vectorized
