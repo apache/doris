@@ -465,15 +465,15 @@ void ORCScanner::build_name_id_map_impl(std::vector<std::string>& columns, const
     }
 }
 
-std::string ORCScanner::dot_column_path(const std::vector<std::string> &columns) {
+std::string ORCScanner::dot_column_path(const std::vector<std::string>& columns) {
     if (columns.empty()) {
         return std::string();
     }
     std::ostringstream columnStream;
     std::copy(columns.begin(), columns.end(),
-            std::ostream_iterator<std::string>(columnStream, "."));
+              std::ostream_iterator<std::string>(columnStream, "."));
     std::string columnPath = columnStream.str();
     return columnPath.substr(0, columnPath.length() - 1);
-  }
+}
 
 } // namespace doris
