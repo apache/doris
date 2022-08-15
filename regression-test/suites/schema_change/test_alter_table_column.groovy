@@ -113,4 +113,66 @@ suite("test_alter_table_column", "schema_change") {
     qt_sql "desc ${tbName2};"
     qt_sql "select * from ${tbName2};"
     sql "DROP TABLE ${tbName2} FORCE;"
+
+    // vector search
+    def check_load_result = {checklabel, testTablex ->
+        Integer max_try_milli_secs = 10000
+        while(max_try_milli_secs) {
+            def result = sql "show load where label = '${checklabel}'"
+            if(result[0][2] == "FINISHED") {
+                qt_select "select * from ${testTablex} order by k1"
+                break
+            } else {
+                sleep(1000) // wait 1 second every time
+                max_try_milli_secs -= 1000
+                if(max_try_milli_secs <= 0) {
+                    assertEquals(1, 2)
+                }
+            }
+        }
+    }
+    def tbName3 = "p_test"
+    sql "use test_query_db"
+    sql "DROP TABLE IF EXISTS ${tbName3};"
+    sql """
+            CREATE TABLE ${tbName3} (
+                `k1` int(11) NULL COMMENT "",
+                `k2` int(11) NULL COMMENT "",
+                `v1` int(11) SUM NULL COMMENT ""
+            ) ENGINE=OLAP
+            AGGREGATE KEY(`k1`, `k2`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+                "storage_type" = "COLUMN",
+                "replication_num" = "1"
+            );
+        """
+    def label = UUID.randomUUID().toString()
+    sql """
+            INSERT INTO ${tbName3} WITH LABEL `${label}` SELECT k1, k2, k3 FROM baseall;
+        """
+    check_load_result.call(label, tbName3)
+
+    def res1 = sql "select * from ${tbName3} order by k1"
+    def res2 = sql "select k1, k2, k3 from baseall order by k1"
+    check2_doris(res1, res2)
+
+    sql "alter table ${tbName3} add column v2 int sum NULL"
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName3)
+        if (res == "FINISHED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
+        }
+    }
+    def res3 = sql "select * from ${tbName3} order by k1"
+    def res4 = sql "select k1, k2, k3, null from baseall order by k1"
+    check2_doris(res3, res4)
+    sql "DROP TABLE ${tbName3} FORCE;"
 }

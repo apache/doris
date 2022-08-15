@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nullif", "query") {
+suite("test_nullif", "query,p0") {
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -73,4 +73,65 @@ suite("test_nullif", "query") {
 
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
     qt_select "select if(c_date is null,c_timestamp,c_date) from datetype where c_date is null and c_timestamp is not null"
+
+    sql "use test_query_db"
+    def tableName1 = "test"
+    qt_if_nullif1 """select if(null, -1, 10) a, if(null, "hello", "worlk") b"""
+    qt_if_nullif2 """select if(k1 > 5, true, false) a from baseall order by k1"""
+    qt_if_nullif3 """select if(k1, 10, -1) a from baseall order by k1"""
+    qt_if_nullif4 """select if(length(k6) >= 5, true, false) a from baseall order by k1"""
+    qt_if_nullif5 """select if(k6 like "fa%", -1, 10) a from baseall order by k6"""
+    qt_if_nullif6 """select if(k6 like "%e", "hello", "world") a from baseall order by k6"""
+    qt_if_nullif7 """select if(k6, -1, 0) a from baseall order by k6"""
+    qt_if_nullif8 """select ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
+            order by a.k1"""
+    qt_if_nullif10 """select ifnull(b.k6, "hll") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
+            order by k1"""
+    qt_if_nullif11 """select ifnull(b.k10, "2017-06-06") k1 from baseall a left join bigtable b on 
+            a.k1 = b.k1 + 5 order by k1"""
+    qt_if_nullif12 """select ifnull(b.k10, cast("2017-06-06" as date)) k1 from baseall a left join bigtable 
+            b on a.k1 = b.k1 + 5 order by k1"""
+    qt_if_nullif13 """select ifnull(b.k1, "-1") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
+            order by a.k1"""
+    qt_if_nullif14 """select ifnull(b.k6, 1001) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
+            order by k1"""
+    qt_if_nullif15 """select nullif(k1, 100) k1 from baseall order by k1"""
+    qt_if_nullif16 """select nullif(k6, "false") k from baseall order by k1"""
+    qt_if_nullif17 """select cast(nullif(k10, cast("2012-03-14" as date)) as date) from baseall order by k1"""
+    qt_if_nullif18 """select cast(nullif(k11, cast("2000-01-01 00:00:00" as datetime)) as datetime) from baseall order by k1"""
+    qt_if_nullif19 """select nullif(b.k1, null) k1 from baseall a left join bigtable b on a.k1 = b.k1 
+            order by k1"""
+
+    test{
+        sql"""select ifnull(null,2,3)"""
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test{
+        sql """select ifnull(1234567890123456789012345678901234567890,2)"""
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    qt_if_nullif20 """select ifnull(123456789.5678901234567890,2),
+        ifnull("1234567890123456789012345678901234567890",2)"""
+    qt_if_nullif21 """select IFNULL("hello", "doris"), IFNULL(NULL,0)"""
+    qt_if_nullif22 """select ifnull("null",2), ifnull("NULL",2), ifnull("null","2019-09-09 00:00:00"),
+        ifnull(NULL, concat("NUL", "LL"))"""
+    
+    for( index in range(1, 12)) {
+        logger.info(index.toString())
+        qt_if_nullif23 """select ifnull(k${index}, NULL) from ${tableName1} order by k${index}"""
+        qt_if_nullif24 """select ifnull(NULL, k${index}) from ${tableName1} order by k${index}"""
+    }
+    qt_if_nullif25 """select ifnull("null",2+3*5), ifnull(NULL,concat(1,2)), ifnull(NULL, ifnull(1,3)),
+           ifnull(NULL,NULL) <=> NULL"""
+    qt_if_nullif26 """select ifnull(length("null"), 2), ifnull(concat(NULL, 0), 2), ifnull("1.0" + "3.3","2019-09-09 00:00:00"),
+        ifnull(ltrim("  NULL"), concat("NUL", "LL"))"""
+    qt_if_nullif27 """select ifnull(2+3, 2), ifnull((3*1 > 1 || 1>0), 2), ifnull((3*1 > 1 or 1>0), 2),
+        ifnull(upper("null"), concat("NUL", "LL"))"""
+    qt_if_nullif28 """select ifnull(date(substring("2020-02-09", 1, 1024)), null)"""
 }
