@@ -337,6 +337,12 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 }
                 break;
             }
+            case TYPE_ARRAY: {
+                auto col_type = _output_expr_ctxs[i]->root()->type();
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                RawValue::print_value(item, col_type, output_scale, &_plain_text_outstream);
+                break;
+            }
             default: {
                 // not supported type, like BITMAP, HLL, just export null
                 _plain_text_outstream << NULL_IN_CSV;
