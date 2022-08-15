@@ -273,9 +273,6 @@ public class ConnectProcessor {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-            UUID uuid = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            ctx.setQueryId(queryId);
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
@@ -293,13 +290,13 @@ public class ConnectProcessor {
             auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
         }
 
-        // audit after exec
+        // audit after exec, analysis query would not be recorded
         if (!auditInfoList.isEmpty()) {
             for (Pair<StatementBase, Data.PQueryStatistics> audit : auditInfoList) {
                 auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
             }
-        } else {
-            // auditInfoList can be empty if we encounter analysis error.
+        } else if (QueryState.ErrType.ANALYSIS_ERR != ctx.getState().getErrType()) {
+            // auditInfoList can be empty if we encounter error.
             auditAfterExec(originStmt.replace("\n", " "), null, null);
         }
     }
