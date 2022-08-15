@@ -40,6 +40,7 @@ using std::string;
 namespace doris {
 
 using io::FileCacheManager;
+using io::Path;
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
