@@ -47,10 +47,10 @@ private:
     // Read next buffer from reader
     Status open_next_reader();
     // Generate column path
-    std::string dot_column_path(const std::vector<std::string> &columns);
+    std::string dot_column_path(const std::vector<std::string>& columns);
     // Build map from column name to type id 
     void build_name_id_map();
-    void build_name_id_map_impl(std::vector<std::string> &columns, const orc::Type *type);
+    void build_name_id_map_impl(std::vector<std::string>& columns, const orc::Type* type);
 private:
     // Reader
     bool _cur_file_eof;
