@@ -108,13 +108,13 @@ public class FileSystemManager {
     private static final String FS_KS3_IMPL_DISABLE_CACHE = "fs.ks3.impl.disable.cache";
 
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
-    
+
     private int readBufferSize = 128 << 10; // 128k
     private int writeBufferSize = 128 << 10; // 128k
-    
+
     private ConcurrentHashMap<FileSystemIdentity, BrokerFileSystem> cachedFileSystem;
     private ClientContextManager clientContextManager;
-    
+
     public FileSystemManager() {
         cachedFileSystem = new ConcurrentHashMap<>();
         clientContextManager = new ClientContextManager(handleManagementPool);
@@ -140,15 +140,15 @@ public class FileSystemManager {
 
         return finalPrincipal;
     }
-    
+
     /**
      * visible for test
-     * 
+     *
      * @param path
      * @param properties
      * @return BrokerFileSystem with different FileSystem based on scheme
-     * @throws URISyntaxException 
-     * @throws Exception 
+     * @throws URISyntaxException
+     * @throws Exception
      */
     public BrokerFileSystem getFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
@@ -394,7 +394,6 @@ public class FileSystemManager {
         String disableCache = properties.getOrDefault(FS_S3A_IMPL_DISABLE_CACHE, "true");
         String s3aUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, s3aUgi);
-        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
         BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity);
         fileSystem.getLock().lock();
         try {
@@ -618,12 +617,12 @@ public class FileSystemManager {
         } catch (Exception e) {
             logger.error("errors while get file status ", e);
             fileSystem.closeFileSystem();
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "unknown error when get file status");
         }
         return resultFileStatus;
     }
-    
+
     public void deletePath(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
@@ -633,16 +632,16 @@ public class FileSystemManager {
         } catch (IOException e) {
             logger.error("errors while delete path " + path);
             fileSystem.closeFileSystem();
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "delete path {} error", path);
         }
     }
-    
+
     public void renamePath(String srcPath, String destPath, Map<String, String> properties) {
         WildcardURI srcPathUri = new WildcardURI(srcPath);
         WildcardURI destPathUri = new WildcardURI(destPath);
         if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     "only allow rename in same file system");
         }
         BrokerFileSystem fileSystem = getFileSystem(srcPath, properties);
@@ -651,17 +650,17 @@ public class FileSystemManager {
         try {
             boolean isRenameSuccess = fileSystem.getDFSFileSystem().rename(srcfilePath, destfilePath);
             if (!isRenameSuccess) {
-                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
-                        "failed to rename path from {} to {}", srcPath, destPath); 
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                        "failed to rename path from {} to {}", srcPath, destPath);
             }
         } catch (IOException e) {
             logger.error("errors while rename path from " + srcPath + " to " + destPath);
             fileSystem.closeFileSystem();
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "errors while rename {} to {}", srcPath, destPath);
         }
     }
-    
+
     public boolean checkPathExist(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
@@ -672,11 +671,11 @@ public class FileSystemManager {
         } catch (IOException e) {
             logger.error("errors while check path exist: " + path);
             fileSystem.closeFileSystem();
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "errors while check if path {} exist", path);
         }
     }
-    
+
     public TBrokerFD openReader(String clientId, String path, long startOffset, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         Path inputFilePath = new Path(pathUri.getPath());
@@ -691,11 +690,11 @@ public class FileSystemManager {
         } catch (IOException e) {
             logger.error("errors while open path", e);
             fileSystem.closeFileSystem();
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "could not open file {}", path);
         }
     }
-    
+
     public ByteBuffer pread(TBrokerFD fd, long offset, long length) {
         FSDataInputStream fsDataInputStream = clientContextManager.getFsDataInputStream(fd);
         synchronized (fsDataInputStream) {
@@ -746,12 +745,12 @@ public class FileSystemManager {
             }
         }
     }
-    
+
     public void seek(TBrokerFD fd, long offset) {
-        throw new BrokerException(TBrokerOperationStatusCode.OPERATION_NOT_SUPPORTED, 
+        throw new BrokerException(TBrokerOperationStatusCode.OPERATION_NOT_SUPPORTED,
                 "seek this method is not supported");
     }
-    
+
     public void closeReader(TBrokerFD fd) {
         FSDataInputStream fsDataInputStream = clientContextManager.getFsDataInputStream(fd);
         synchronized (fsDataInputStream) {
@@ -766,13 +765,13 @@ public class FileSystemManager {
             }
         }
     }
-    
+
     public TBrokerFD openWriter(String clientId, String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
         Path inputFilePath = new Path(pathUri.getPath());
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
         try {
-            FSDataOutputStream fsDataOutputStream = fileSystem.getDFSFileSystem().create(inputFilePath, 
+            FSDataOutputStream fsDataOutputStream = fileSystem.getDFSFileSystem().create(inputFilePath,
                     true, writeBufferSize);
             UUID uuid = UUID.randomUUID();
             TBrokerFD fd = parseUUIDToFD(uuid);
@@ -781,11 +780,11 @@ public class FileSystemManager {
         } catch (IOException e) {
             logger.error("errors while open path", e);
             fileSystem.closeFileSystem();
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                     e, "could not open file {}", path);
         }
     }
-    
+
     public void pwrite(TBrokerFD fd, long offset, byte[] data) {
         FSDataOutputStream fsDataOutputStream = clientContextManager.getFsDataOutputStream(fd);
         synchronized (fsDataOutputStream) {
@@ -811,7 +810,7 @@ public class FileSystemManager {
             }
         }
     }
-    
+
     public void closeWriter(TBrokerFD fd) {
         FSDataOutputStream fsDataOutputStream = clientContextManager.getFsDataOutputStream(fd);
         synchronized (fsDataOutputStream) {
@@ -827,11 +826,11 @@ public class FileSystemManager {
             }
         }
     }
-    
+
     public void ping(String clientId) {
         clientContextManager.onPing(clientId);
     }
-    
+
     private static TBrokerFD parseUUIDToFD(UUID uuid) {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
     }
