@@ -182,7 +182,7 @@ public class MysqlChannel {
             readLen = readAll(result);
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
-                    + ") is not equal with length in head.(" + packetLen + ")");
+                        + ") is not equal with length in head.(" + packetLen + ")");
                 return null;
             }
             accSequenceId();

@@ -129,7 +129,7 @@ public class ProxyProtocol {
                         case '\r':
                             // dest port
                             if (destPort == -1 && sourcePort != -1 && !carriageReturnSeen
-                                && stringBuilder.length() > 0) {
+                                    && stringBuilder.length() > 0) {
                                 destPort = Integer.parseInt(stringBuilder.toString());
                                 connInfo.destPort = destPort;
                                 stringBuilder.setLength(0);
@@ -184,7 +184,7 @@ public class ProxyProtocol {
             // set to remote ip and host/port string
             if (connInfo.sourceAddress != null) {
                 channel.setRemoteHostPortString(connInfo.sourceAddress.getHostAddress() + ":"
-                    + String.valueOf(connInfo.sourcePort));
+                        + String.valueOf(connInfo.sourcePort));
                 channel.setRemoteIp(connInfo.sourceAddress.getHostAddress());
             }
         } catch (IOException e) {
