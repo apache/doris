@@ -376,9 +376,9 @@ suite("test_window_function", "query") {
     qt_hujie2"select k1, k6 from baseall order by k1, k6"
 
     // test_bug
-    qt_window_bug1"""SELECT wj FROM (SELECT row_number() over (PARTITION BY k6 ORDER BY k1) AS wj 
+    order_qt_window_bug1"""SELECT wj FROM (SELECT row_number() over (PARTITION BY k6 ORDER BY k1) AS wj 
             FROM baseall ) AS A where wj = 2"""
-    qt_window_bug2"""SELECT A.k2 AS a, A.k1 as b, B.k1 as c, B.k2 as d FROM  
+    order_qt_window_bug2"""SELECT A.k2 AS a, A.k1 as b, B.k1 as c, B.k2 as d FROM  
            ( SELECT k2, k1, row_number () over (PARTITION BY k2 ORDER BY k3) AS wj  
            FROM baseall ) AS A JOIN ( SELECT k2, k1, row_number () over  
            (PARTITION BY k2 ORDER BY k3) AS wj FROM baseall ) AS B WHERE A.k2=B.k2"""
