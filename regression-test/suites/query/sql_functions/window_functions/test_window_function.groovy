@@ -372,7 +372,7 @@ suite("test_window_function", "query") {
             line = line + cur + ")"
         }
     }
-    qt_hujie1"select T.k1, T.k6 from ${line} as T order by T.k1, T.k6"
+    // qt_hujie1"select T.k1, T.k6 from ${line} as T order by T.k1, T.k6"
     qt_hujie2"select k1, k6 from baseall order by k1, k6"
 
     // test_bug
