@@ -113,7 +113,7 @@ private:
 private:
     FileReader* _file_reader;
     std::shared_ptr<FileMetaData> _file_metadata;
-    tparquet::FileMetaData& _t_metadata;
+    std::unique_ptr<tparquet::FileMetaData> _t_metadata;
     std::shared_ptr<PageIndex> _page_index;
     std::vector<std::shared_ptr<RowGroupReader>> _row_group_readers;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
