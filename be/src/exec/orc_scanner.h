@@ -51,7 +51,7 @@ private:
     // Build map from column name to type id
     void build_name_id_map();
     void build_name_id_map_impl(std::vector<std::string>& columns, const orc::Type* type);
-    
+
 private:
     // Reader
     bool _cur_file_eof;
