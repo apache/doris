@@ -34,7 +34,7 @@ public:
         DCHECK(_s_instance == nullptr);
         static TabletSchemaCache instance;
         _s_instance = &instance;
-        std::thread t(&TabletSchemaCache::recycle, _s_instance);
+        std::thread t(&TabletSchemaCache::_recycle, _s_instance);
         t.detach();
     }
 
@@ -55,10 +55,11 @@ public:
         return iter->second;
     }
 
+private:
     /**
      * @brief recycle when TabletSchemaSPtr use_count equals 1.
      */
-    void recycle() {
+    void _recycle() {
         for (;;) {
             std::this_thread::sleep_for(
                     std::chrono::seconds(config::tablet_schema_cache_recycle_interval));

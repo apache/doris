@@ -855,8 +855,8 @@ CONF_Bool(enable_new_scan_node, "false");
 CONF_Int32(tablet_schema_cache_recycle_interval, "86400") // s, one day
 
 #ifdef BE_TEST
-        // test s3
-        CONF_String(test_s3_resource, "resource");
+// test s3
+CONF_String(test_s3_resource, "resource");
 CONF_String(test_s3_ak, "ak");
 CONF_String(test_s3_sk, "sk");
 CONF_String(test_s3_endpoint, "endpoint");
