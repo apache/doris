@@ -504,10 +504,18 @@ public class MaterializedViewHandler extends AlterHandler {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
 
-        // set MV column unique id to Column.COLUMN_UNIQUE_ID_INIT_VALUE support old unique id rule.
-        newMVColumns.stream().forEach(column -> {
-            column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
-        });
+        if (olapTable.getEnableLightSchemaChange()) {
+            int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
+            for (Column column : newMVColumns) {
+                column.setUniqueId(nextColUniqueId);
+                nextColUniqueId++;
+            }
+        } else {
+            newMVColumns.stream().forEach(column -> {
+                column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+            });
+        }
+        LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
         return newMVColumns;
     }
 
@@ -549,25 +557,27 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
+        LOG.debug("baseSchema:{}", olapTable.getSchemaByIndexId(baseIndexId, true));
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
-                Column oneColumn = baseColumnNameToColumn.get(columnName);
-                if (oneColumn == null) {
+                Column baseColumn = baseColumnNameToColumn.get(columnName);
+                if (baseColumn == null) {
                     throw new DdlException("Column[" + columnName + "] does not exist");
                 }
-                if (oneColumn.isKey() && meetValue) {
+                if (baseColumn.isKey() && meetValue) {
                     throw new DdlException("Invalid column order. value should be after key");
                 }
-                if (oneColumn.isKey()) {
+                if (baseColumn.isKey()) {
                     keysNumOfRollup += 1;
                     hasKey = true;
                 } else {
                     meetValue = true;
-                    if (oneColumn.getAggregationType().isReplaceFamily()) {
+                    if (baseColumn.getAggregationType().isReplaceFamily()) {
                         meetReplaceValue = true;
                     }
                 }
+                Column oneColumn = new Column(baseColumn);
                 rollupSchema.add(oneColumn);
             }
 
@@ -696,6 +706,19 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
         }
+        if (olapTable.getEnableLightSchemaChange()) {
+            int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
+            for (Column column : rollupSchema) {
+                column.setUniqueId(nextColUniqueId);
+                nextColUniqueId++;
+            }
+        } else {
+            rollupSchema.stream().forEach(column -> {
+                column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+            });
+        }
+        LOG.debug("lightSchemaChange:{}, rollupSchema:{}, baseSchema:{}",
+                olapTable.getEnableLightSchemaChange(), rollupSchema, olapTable.getSchemaByIndexId(baseIndexId, true));
         return rollupSchema;
     }
 

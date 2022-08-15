@@ -123,6 +123,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
             Assertions.assertNotNull(indexMeta);
+            //col_unique_id 0-9
+            Assertions.assertEquals(9, indexMeta.getMaxColUniqueId());
         } finally {
             tbl.readUnlock();
         }
@@ -228,7 +230,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
             Assertions.assertNotNull(indexMeta);
-            Assertions.assertEquals(12, tbl.getMaxColUniqueId());
+            Assertions.assertEquals(12, indexMeta.getMaxColUniqueId());
         } finally {
             tbl.readUnlock();
         }
@@ -365,7 +367,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
-                    new Long(2), new Long(1), Maps.newHashMap(), Sets.newHashSet(), false);
+                    new Long(2), new Long(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
             Assert.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());

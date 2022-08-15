@@ -73,7 +73,7 @@ public class TableProperty implements Writable {
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
-    private Boolean useSchemaLightChange;
+    private boolean enableLightSchemaChange = false;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -146,9 +146,9 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildUseLightSchemaChange() {
-        useSchemaLightChange = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE, "false"));
+    public TableProperty buildEnableLightSchemaChange() {
+        enableLightSchemaChange = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "false"));
         return this;
     }
 
@@ -261,8 +261,8 @@ public class TableProperty implements Writable {
         return compressionType;
     }
 
-    public Boolean getUseSchemaLightChange() {
-        return useSchemaLightChange;
+    public boolean getUseSchemaLightChange() {
+        return enableLightSchemaChange;
     }
 
     public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
@@ -301,7 +301,7 @@ public class TableProperty implements Writable {
                 .buildRemoteStoragePolicy()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildUseLightSchemaChange();
+                .buildEnableLightSchemaChange();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

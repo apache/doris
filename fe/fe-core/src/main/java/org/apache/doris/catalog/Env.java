@@ -2897,9 +2897,9 @@ public class Env {
             }
 
             // show lightSchemaChange only when it is set true
-            if (olapTable.getUseLightSchemaChange()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
-                sb.append(olapTable.getUseLightSchemaChange()).append("\"");
+            if (olapTable.getEnableLightSchemaChange()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+                sb.append(olapTable.getEnableLightSchemaChange()).append("\"");
             }
 
             // storage policy

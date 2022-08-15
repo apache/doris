@@ -1727,23 +1727,14 @@ public class InternalDataSource implements DataSourceIf<Database> {
         Map<String, String> properties = stmt.getProperties();
 
         // get use light schema change
-        Boolean useLightSchemaChange = false;
+        Boolean enableLightSchemaChange = false;
         try {
-            useLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
+            enableLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
         // use light schema change optimization
-        olapTable.setUseLightSchemaChange(useLightSchemaChange);
-        if (useLightSchemaChange) {
-            for (Column column : baseSchema) {
-                column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
-                LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
-                        column.getUniqueId());
-            }
-        } else {
-            LOG.debug("table: {} doesn't use light schema change", olapTable.getName());
-        }
+        olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
@@ -1922,6 +1913,9 @@ public class InternalDataSource implements DataSourceIf<Database> {
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
+
+        olapTable.initSchemaColumnUniqueId();
+        olapTable.rebuildFullSchema();
 
         // analyze version info
         Long versionInfo = null;
