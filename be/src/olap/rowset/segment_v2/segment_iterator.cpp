@@ -751,6 +751,16 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     std::set<ColumnId> del_cond_id_set;
     _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
 
+    std::set<const ColumnPredicate*> delete_predicate_set {};
+    _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
+    for (const auto predicate : delete_predicate_set) {
+        if (PredicateTypeTraits::is_range(predicate->type())) {
+            _delete_range_column_ids.push_back(predicate->column_id());
+        } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+            _delete_bloom_filter_column_ids.push_back(predicate->column_id());
+        }
+    }
+
     if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;
@@ -1197,6 +1207,35 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     }
 
     return Status::OK();
+}
+
+void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
+    for (auto predicate : _short_cir_eval_predicate) {
+        _convert_dict_code_for_predicate_if_necessary_impl(predicate);
+    }
+
+    for (auto predicate : _pre_eval_block_predicate) {
+        _convert_dict_code_for_predicate_if_necessary_impl(predicate);
+    }
+
+    for (auto column_id : _delete_range_column_ids) {
+        _current_return_columns[column_id].get()->convert_dict_codes_if_necessary();
+    }
+
+    for (auto column_id : _delete_bloom_filter_column_ids) {
+        _current_return_columns[column_id].get()->generate_hash_values_for_runtime_filter();
+    }
+}
+
+void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
+        ColumnPredicate* predicate) {
+    auto& column = _current_return_columns[predicate->column_id()];
+    auto* col_ptr = column.get();
+    if (PredicateTypeTraits::is_range(predicate->type())) {
+        col_ptr->convert_dict_codes_if_necessary();
+    } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+        col_ptr->generate_hash_values_for_runtime_filter();
+    }
 }
 
 void SegmentIterator::_update_max_row(const vectorized::Block* block) {
