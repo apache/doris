@@ -35,4 +35,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sh_checker_comment: true
-          sh_checker_exclude: .github tools/ssb-tools tools/tpch-tools tools/clickbench-tools extension
+          sh_checker_exclude: .github ^thirdparty/src ^thirdparty/installed ^ui ^docs/node_modules ^tools/ssb-tools ^tools/tpch-tools ^tools/clickbench-tools ^extension
