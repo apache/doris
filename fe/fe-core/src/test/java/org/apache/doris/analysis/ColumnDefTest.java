@@ -47,6 +47,7 @@ public class ColumnDefTest {
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
+        Config.enable_array_type = true;
 
         ctx = new ConnectContext(null);
         new MockUp<ConnectContext>() {
@@ -134,7 +135,6 @@ public class ColumnDefTest {
 
     @Test
     public void testArray() throws AnalysisException {
-        Config.enable_array_type = true;
         TypeDef typeDef = new TypeDef(new ArrayType(Type.INT));
         ColumnDef columnDef = new ColumnDef("array", typeDef, false, null, true, DefaultValue.NOT_SET, "");
         Column column = columnDef.toColumn();
