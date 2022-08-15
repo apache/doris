@@ -449,7 +449,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
-    private boolean enableNereidsCBO = false;
+    private boolean enableNereidsCBO = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
     private boolean enableFoldConstantByBe = false;
