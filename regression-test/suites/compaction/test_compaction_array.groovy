@@ -21,7 +21,7 @@ suite("test_array_compaction") {
     def tableName = "tbl_test_array_compaction"
 
     // open enable_array_type
-    sql """ set enable_array_type = true """
+    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
 

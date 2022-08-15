@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Mock;
@@ -133,7 +134,7 @@ public class ColumnDefTest {
 
     @Test
     public void testArray() throws AnalysisException {
-        ctx.getSessionVariable().setEnableArrayType(true);
+        Config.enable_array_type = true;
         TypeDef typeDef = new TypeDef(new ArrayType(Type.INT));
         ColumnDef columnDef = new ColumnDef("array", typeDef, false, null, true, DefaultValue.NOT_SET, "");
         Column column = columnDef.toColumn();
