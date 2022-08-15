@@ -67,7 +67,7 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
     return Status::OK();
 }
 
-Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, int64_t* read_rows, bool* eof) {
     if (_chunk_reader->num_values() <= 0) {
         // seek to next page header
