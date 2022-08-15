@@ -35,11 +35,11 @@ public:
                    const std::vector<ParquetReadColumn>& read_columns, const int32_t _row_group_id,
                    tparquet::RowGroup& row_group);
     ~RowGroupReader();
-    Status init(FieldDescriptor* schema, const std::vector<RowRange>& row_ranges);
+    Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges);
     Status next_batch(Block* block, size_t batch_size, bool* _batch_eof);
 
 private:
-    Status _init_column_readers(FieldDescriptor* schema, const std::vector<RowRange>& row_ranges);
+    Status _init_column_readers(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges);
 
 private:
     doris::FileReader* _file_reader;
@@ -49,6 +49,5 @@ private:
     tparquet::RowGroup& _row_group_meta;
     int64_t _read_rows = 0;
     int64_t _total_rows;
-    int64_t _current_batch_start_offset = 0;
 };
 } // namespace doris::vectorized

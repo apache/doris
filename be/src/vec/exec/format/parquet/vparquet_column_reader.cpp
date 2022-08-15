@@ -29,6 +29,7 @@ namespace doris::vectorized {
 Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
                                    const ParquetReadColumn& column,
                                    const tparquet::RowGroup& row_group,
+                                   std::vector<RowRange>& row_ranges,
                                    std::unique_ptr<ParquetColumnReader>& reader) {
     if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
         return Status::Corruption("not supported type");
@@ -40,7 +41,7 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
         scalar_reader->init_column_metadata(chunk);
-        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk));
+        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges));
         reader.reset(scalar_reader);
     }
     return Status::OK();
@@ -55,39 +56,43 @@ void ParquetColumnReader::init_column_metadata(const tparquet::ColumnChunk& chun
     _metadata.reset(new ParquetColumnMetadata(chunk_start, chunk_len, chunk_meta));
 }
 
-Status ScalarColumnReader::init(FileReader* file, FieldSchema* field,
-                                tparquet::ColumnChunk* chunk) {
+void ParquetColumnReader::_skipped_pages() {}
+
+Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
+                                std::vector<RowRange>& row_ranges) {
     BufferedFileStreamReader stream_reader(file, _metadata->start_offset(), _metadata->size());
+    _row_ranges.reset(&row_ranges);
     _chunk_reader.reset(new ColumnChunkReader(&stream_reader, chunk, field));
     _chunk_reader->init();
     return Status::OK();
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
-                                            size_t batch_size, bool* eof) {
-    while (_chunk_reader->has_next_page()) {
+                                            size_t batch_size, int64_t* read_rows, bool* eof) {
+    if (_chunk_reader->num_values() <= 0) {
         // seek to next page header
         _chunk_reader->next_page();
+        if (_row_ranges->size() != 0) {
+            _skipped_pages();
+        }
         // load data to decoder
         _chunk_reader->load_page_data();
-        while (_chunk_reader->num_values() > 0) {
-            size_t read_values = _chunk_reader->num_values() < batch_size
-                                         ? _chunk_reader->num_values()
-                                         : batch_size;
-            WhichDataType which_type(type);
-            switch (_metadata->t_metadata().type) {
-            case tparquet::Type::INT32: {
-                _chunk_reader->decode_values(doris_column, read_values);
-                return Status::OK();
-            }
-            case tparquet::Type::INT64: {
-                // todo: test int64
-                return Status::OK();
-            }
-            default:
-                return Status::Corruption("unsupported parquet data type");
-            }
-        }
+    }
+    size_t read_values =
+            _chunk_reader->num_values() < batch_size ? _chunk_reader->num_values() : batch_size;
+    *read_rows = read_values;
+    WhichDataType which_type(type);
+    switch (_metadata->t_metadata().type) {
+    case tparquet::Type::INT32: {
+        _chunk_reader->decode_values(doris_column, read_values);
+        return Status::OK();
+    }
+    case tparquet::Type::INT64: {
+        // todo: test int64
+        return Status::OK();
+    }
+    default:
+        return Status::Corruption("unsupported parquet data type");
     }
     return Status::OK();
 }

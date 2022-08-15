@@ -42,6 +42,8 @@ namespace doris::vectorized {
 //        int64_t total_bytes = 0;
 //    };
 class RowGroupReader;
+class PageIndex;
+
 struct RowRange {
     int64_t first_row;
     int64_t last_row;
@@ -90,18 +92,18 @@ private:
     // Page Index Filter
     bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
     Status _process_page_index(tparquet::RowGroup& row_group,
-                               const std::vector<RowRange>& skipped_row_ranges);
+                               std::vector<RowRange>& skipped_row_ranges);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
     Status _process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& column_meta,
                                        bool* filter_group);
-    Status _process_row_group_filter(tparquet::RowGroup& row_group, bool* filter_group);
+    Status _process_row_group_filter(const tparquet::RowGroup& row_group, bool* filter_group);
     void _init_chunk_dicts();
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
-    Status _filter_row_groups(const std::vector<int32_t>& read_row_group_ids);
+    Status _filter_row_groups(std::vector<int32_t>* read_row_group_ids);
     int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     bool _determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
@@ -117,7 +119,7 @@ private:
     std::shared_ptr<PageIndex> _page_index;
     std::vector<std::shared_ptr<RowGroupReader>> _row_group_readers;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
-    int32_t _current_row_group_reader_id;
+    int32_t _current_row_group_id;
     //        std::shared_ptr<Statistics> _statistics;
     const int32_t _num_of_columns_from_file;
     std::map<std::string, int> _map_column; // column-name <---> column-index

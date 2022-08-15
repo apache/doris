@@ -40,6 +40,7 @@ public:
                               int64_t buffer_size, tparquet::OffsetIndex* _offset_index);
 
 private:
+    friend class ParquetReader;
     int64_t _column_index_start;
     int64_t _column_index_size;
     int64_t _offset_index_start;

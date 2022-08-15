@@ -76,7 +76,7 @@ Status PageIndex::parse_column_index(const tparquet::ColumnChunk& chunk, const u
 }
 
 Status PageIndex::parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                                     int64_t buffer_size, tparquet::OffsetIndex* offset_index)) {
+                                     int64_t buffer_size, tparquet::OffsetIndex* offset_index) {
     int64_t buffer_offset = chunk.offset_index_offset - _offset_index_start + _column_index_size;
     uint32_t length = chunk.offset_index_length;
     DCHECK_LE(buffer_offset + length, buffer_size);

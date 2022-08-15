@@ -28,7 +28,7 @@ ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_fro
           _range_size(range_size) {
     _file_reader = file_reader;
     _total_groups = 0;
-    _current_row_group_reader_id = 0;
+    _current_row_group_id = 0;
     //        _statistics = std::make_shared<Statistics>();
 }
 
@@ -101,16 +101,16 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
 }
 
 Status ParquetReader::read_next_batch(Block* block, bool* eof) {
-    int num_of_group_reader = _row_group_readers.size();
-    if (num_of_group_reader == 0) {
+    DCHECK(_total_groups == _row_group_readers.size());
+    if (_total_groups == 0) {
         *eof = true;
     }
     bool _batch_eof = false;
-    auto row_group_reader = _row_group_readers[_current_row_group_reader_id];
+    auto row_group_reader = _row_group_readers[_current_row_group_id];
     RETURN_IF_ERROR(row_group_reader->next_batch(block, _batch_size, &_batch_eof));
     if (_batch_eof) {
-        _current_row_group_reader_id++;
-        if (_current_row_group_reader_id > num_of_group_reader) {
+        _current_row_group_id++;
+        if (_current_row_group_id > _total_groups) {
             *eof = true;
         }
     }
@@ -122,7 +122,7 @@ Status ParquetReader::_init_row_group_readers(const TupleDescriptor* tuple_desc,
                                               const std::vector<ExprContext*>& conjunct_ctxs) {
     auto metadata = _file_metadata->to_thrift_metadata();
     std::vector<int32_t> read_row_groups;
-    RETURN_IF_ERROR(_filter_row_groups(read_row_groups));
+    RETURN_IF_ERROR(_filter_row_groups(&read_row_groups));
     _init_conjuncts(tuple_desc, conjunct_ctxs);
     for (auto row_group_id : read_row_groups) {
         LOG(WARNING) << "_has_page_index";
@@ -137,7 +137,7 @@ Status ParquetReader::_init_row_group_readers(const TupleDescriptor* tuple_desc,
         row_group_reader.reset(
                 new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group));
         // todo: can filter row with candidate ranges rather than skipped ranges
-        RETURN_IF_ERROR(row_group_reader->init(&_file_metadata->schema(), skipped_row_ranges));
+        RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), skipped_row_ranges));
         _row_group_readers.emplace_back(row_group_reader);
     }
     LOG(WARNING) << "_init_row_group_reader finished";
@@ -186,14 +186,14 @@ void ParquetReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
     }
 }
 
-Status ParquetReader::_filter_row_groups(const std::vector<int32_t>& read_row_group_ids) {
-    if (_total_group == 0 || _file_metadata->num_rows() == 0 || _range_size < 0) {
+Status ParquetReader::_filter_row_groups(std::vector<int32_t>* read_row_group_ids) {
+    if (_total_groups == 0 || _file_metadata->num_rows() == 0 || _range_size < 0) {
         return Status::EndOfFile("No row group need read");
     }
-    int row_group_idx = -1;
+    int32_t row_group_idx = -1;
     while (row_group_idx < _total_groups) {
         row_group_idx++;
-        tparquet::RowGroup& row_group =
+        const tparquet::RowGroup& row_group =
                 _file_metadata->to_thrift_metadata().row_groups[row_group_idx];
         if (_is_misaligned_range_group(row_group)) {
             continue;
@@ -201,7 +201,7 @@ Status ParquetReader::_filter_row_groups(const std::vector<int32_t>& read_row_gr
         bool filter_group = false;
         RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
         if (!filter_group) {
-            read_row_group_ids.emplace_back(row_group_idx);
+            read_row_group_ids->emplace_back(row_group_idx);
             break;
         }
     }
@@ -228,7 +228,7 @@ bool ParquetReader::_has_page_index(std::vector<tparquet::ColumnChunk> columns) 
 }
 
 Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group,
-                                          const std::vector<RowRange>& skipped_row_ranges) {
+                                          std::vector<RowRange>& skipped_row_ranges) {
     int64_t buffer_size = _page_index->_column_index_size + _page_index->_offset_index_size;
     for (auto col_id : _include_column_ids) {
         uint8_t buff[buffer_size];
@@ -236,7 +236,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group,
         tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff, &column_index));
         LOG(WARNING) << "_column_index_size : " << _page_index->_column_index_size;
-        LOG(WARNING) << "_page_index 0  max_values : " << column_index->max_values[0];
+        LOG(WARNING) << "_page_index 0  max_values : " << column_index.max_values[0];
         const int num_of_page = column_index.null_pages.size();
         if (num_of_page <= 1) {
             break;
@@ -253,7 +253,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group,
         LOG(WARNING) << "page_locations size : " << offset_index.page_locations.size();
         for (int page_id : candidate_page_range) {
             RowRange skipped_row_range;
-            _page_index->create_skipped_row_range(offset_index, row_group.num_rows,
+            _page_index->create_skipped_row_range(offset_index, row_group.num_rows, page_id,
                                                   &skipped_row_range);
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
@@ -261,7 +261,8 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group,
     return Status::OK();
 }
 
-Status ParquetReader::_process_row_group_filter(tparquet::RowGroup& row_group, bool* filter_group) {
+Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
+                                                bool* filter_group) {
     _process_column_stat_filter(row_group.columns, filter_group);
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));

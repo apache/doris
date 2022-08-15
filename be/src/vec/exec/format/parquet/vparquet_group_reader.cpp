@@ -36,13 +36,13 @@ RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
 }
 
-Status RowGroupReader::init(FieldDescriptor* schema, const std::vector<RowRange>& row_ranges) {
+Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges) {
     RETURN_IF_ERROR(_init_column_readers(schema, row_ranges));
     return Status::OK();
 }
 
-Status RowGroupReader::_init_column_readers(FieldDescriptor* schema,
-                                            const std::vector<RowRange>& row_ranges) {
+Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
+                                            std::vector<RowRange>& row_ranges) {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col.slot_desc;
         TypeDescriptor col_type = slot_desc->type();
@@ -50,7 +50,7 @@ Status RowGroupReader::_init_column_readers(FieldDescriptor* schema,
         LOG(WARNING) << "field: " << field->debug_string();
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
-                                                    reader));
+                                                    row_ranges, reader));
         if (reader == nullptr) {
             LOG(WARNING) << "Init row group reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -61,7 +61,6 @@ Status RowGroupReader::_init_column_readers(FieldDescriptor* schema,
 }
 
 Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_eof) {
-    //    int64_t left_read_size = _split_start_offset + _split_size - _current_batch_start_offset;
     if (_read_rows >= _total_rows) {
         *_batch_eof = true;
     }
@@ -70,9 +69,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         auto column_ptr = column_with_type_and_name.column;
         auto column_type = column_with_type_and_name.type;
-        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(column_ptr, column_type,
-                                                                           batch_size));
-        _current_batch_start_offset += batch_size;
+        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
+                column_ptr, column_type, batch_size, &_read_rows, _batch_eof));
         VLOG_DEBUG << "read column: " << column_with_type_and_name.name;
     }
     // use data fill utils read column data to column ptr

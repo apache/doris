@@ -40,20 +40,14 @@ Status ParquetFileHdfsScanner::open() {
 void ParquetFileHdfsScanner::_init_profiles(RuntimeProfile* profile) {}
 
 Status ParquetFileHdfsScanner::get_next(vectorized::Block* block, bool* eof) {
-    // todo: get block from queue
-    if (_next_range >= _ranges.size()) {
-        _scanner_eof = true;
+    if (_next_range >= _ranges.size() || _scanner_eof) {
+        *eof = true;
         return Status::OK();
     }
     RETURN_IF_ERROR(init_block(block));
-    if (_reader->has_next()) {
-        Status st = _reader->read_next_batch(block, _current_range_offset);
-        if (!st.ok() && !st.is_end_of_file()) {
-            return st;
-        }
-    }
-    const auto& cur_range = _ranges[_next_range];
-    if (_current_range_offset >= cur_range.start_offset + cur_range.size) {
+    bool range_eof = false;
+    RETURN_IF_ERROR(_reader->read_next_batch(block, &range_eof));
+    if (range_eof) {
         RETURN_IF_ERROR(_get_next_reader(_next_range++));
     }
     return Status::OK();
@@ -72,8 +66,11 @@ Status ParquetFileHdfsScanner::_get_next_reader(int _next_range) {
     Status status =
             _reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());
     if (!status.ok()) {
-        _scanner_eof = true;
-        return Status::OK();
+        if (status.is_end_of_file()) {
+            _scanner_eof = true;
+            return Status::OK();
+        }
+        return status;
     }
     return Status::OK();
 }
