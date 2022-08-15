@@ -134,7 +134,7 @@ public:
             }
 
             /// No need for zero-fill, because mmap guarantees it.
-        } else if (doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
+        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
             doris::Chunk chunk;
             if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
                 doris::vectorized::throwFromErrno(
@@ -178,7 +178,7 @@ public:
             } else {
                 RELEASE_THREAD_MEM_TRACKER(size);
             }
-        } else if (doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD &&
+        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD &&
                    ((size & (size - 1)) == 0)) {
             // Only power-of-two length are added to ChunkAllocator
             doris::ChunkAllocator::instance()->free((uint8_t*)buf, size);
