@@ -68,8 +68,8 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            size_t batch_size, int64_t* read_rows, bool* eof) {
-    if (_chunk_reader->num_values() <= 0) {
+                                            size_t batch_size, size_t* read_rows, bool* eof) {
+    if (_chunk_reader->remaining_num_values() <= 0) {
         // seek to next page header
         _chunk_reader->next_page();
         if (_row_ranges->size() != 0) {
@@ -78,8 +78,9 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         // load data to decoder
         _chunk_reader->load_page_data();
     }
-    size_t read_values =
-            _chunk_reader->num_values() < batch_size ? _chunk_reader->num_values() : batch_size;
+    size_t read_values = _chunk_reader->remaining_num_values() < batch_size
+                                 ? _chunk_reader->remaining_num_values()
+                                 : batch_size;
     *read_rows = read_values;
     WhichDataType which_type(type);
     switch (_metadata->t_metadata().type) {

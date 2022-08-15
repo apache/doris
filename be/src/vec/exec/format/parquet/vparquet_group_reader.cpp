@@ -70,9 +70,12 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         auto column_ptr = column_with_type_and_name.column;
         auto column_type = column_with_type_and_name.type;
+        size_t batch_read_rows = 0;
         RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
-                column_ptr, column_type, batch_size, &_read_rows, _batch_eof));
+                column_ptr, column_type, batch_size, &batch_read_rows, _batch_eof));
+        _read_rows += batch_read_rows;
         VLOG_DEBUG << "read column: " << column_with_type_and_name.name;
+        VLOG_DEBUG << "read rows in column: " << batch_read_rows;
     }
     // use data fill utils read column data to column ptr
     return Status::OK();

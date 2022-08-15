@@ -75,9 +75,7 @@ public:
 
     Status read_next_batch(Block* block, bool* eof);
 
-    bool has_next() const { return !*_file_eof; };
-
-    //        std::shared_ptr<Statistics>& statistics() { return _statistics; }
+    // std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
 
     int64_t size() const { return _file_reader->size(); }
@@ -104,7 +102,6 @@ private:
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
     Status _filter_row_groups(std::vector<int32_t>* read_row_group_ids);
-    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     bool _determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
                                    const std::string& encoded_min, const std::string& encoded_max);
@@ -116,6 +113,7 @@ private:
 private:
     FileReader* _file_reader;
     std::shared_ptr<FileMetaData> _file_metadata;
+    tparquet::FileMetaData& _t_metadata;
     std::shared_ptr<PageIndex> _page_index;
     std::vector<std::shared_ptr<RowGroupReader>> _row_group_readers;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file

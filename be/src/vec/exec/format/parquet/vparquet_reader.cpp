@@ -53,9 +53,9 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
                                   std::vector<ExprContext*>& conjunct_ctxs,
                                   const std::string& timezone) {
     _file_reader->open();
+    _t_metadata = _file_metadata->to_thrift_metadata();
     _conjunct_ctxs.reset(&conjunct_ctxs);
     RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
-    auto metadata = _file_metadata->to_thrift_metadata();
     _total_groups = _file_metadata->num_row_groups();
     if (_total_groups == 0) {
         return Status::EndOfFile("Empty Parquet File");
@@ -120,13 +120,12 @@ Status ParquetReader::read_next_batch(Block* block, bool* eof) {
 Status ParquetReader::_init_row_group_readers(const TupleDescriptor* tuple_desc,
                                               int64_t range_start_offset, int64_t range_size,
                                               const std::vector<ExprContext*>& conjunct_ctxs) {
-    auto metadata = _file_metadata->to_thrift_metadata();
     std::vector<int32_t> read_row_groups;
     RETURN_IF_ERROR(_filter_row_groups(&read_row_groups));
     _init_conjuncts(tuple_desc, conjunct_ctxs);
     for (auto row_group_id : read_row_groups) {
         VLOG_DEBUG << "_has_page_index";
-        auto row_group = _file_metadata->to_thrift_metadata().row_groups[row_group_id];
+        auto row_group = _t_metadata.row_groups[row_group_id];
         auto column_chunks = row_group.columns;
         std::vector<RowRange> skipped_row_ranges;
         if (_has_page_index(column_chunks)) {
@@ -193,8 +192,7 @@ Status ParquetReader::_filter_row_groups(std::vector<int32_t>* read_row_group_id
     int32_t row_group_idx = -1;
     while (row_group_idx < _total_groups) {
         row_group_idx++;
-        const tparquet::RowGroup& row_group =
-                _file_metadata->to_thrift_metadata().row_groups[row_group_idx];
+        const tparquet::RowGroup& row_group = _t_metadata.row_groups[row_group_idx];
         if (_is_misaligned_range_group(row_group)) {
             continue;
         }
@@ -315,13 +313,6 @@ void ParquetReader::_init_bloom_filter() {}
 Status ParquetReader::_process_bloom_filter(bool* filter_group) {
     RETURN_IF_ERROR(_file_reader->seek(0));
     return Status();
-}
-
-int64_t ParquetReader::_get_row_group_start_offset(const tparquet::RowGroup& row_group) {
-    if (row_group.__isset.file_offset) {
-        return row_group.file_offset;
-    }
-    return row_group.columns[0].meta_data.data_page_offset;
 }
 
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {

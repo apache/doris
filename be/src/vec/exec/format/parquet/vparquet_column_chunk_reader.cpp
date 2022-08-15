@@ -50,7 +50,7 @@ Status ColumnChunkReader::init() {
 
 Status ColumnChunkReader::next_page() {
     RETURN_IF_ERROR(_page_reader->next_page_header());
-    _num_values = _page_reader->get_page_header()->data_page_header.num_values;
+    _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
     return Status::OK();
 }
 
@@ -74,12 +74,12 @@ Status ColumnChunkReader::load_page_data() {
     if (_max_rep_level > 0) {
         RETURN_IF_ERROR(_rep_level_decoder.init(&_page_data,
                                                 header.data_page_header.repetition_level_encoding,
-                                                _max_rep_level, _num_values));
+                                                _max_rep_level, _remaining_num_values));
     }
     if (_max_def_level > 0) {
         RETURN_IF_ERROR(_def_level_decoder.init(&_page_data,
                                                 header.data_page_header.definition_level_encoding,
-                                                _max_def_level, _num_values));
+                                                _max_def_level, _remaining_num_values));
     }
 
     auto encoding = header.data_page_header.encoding;
@@ -122,10 +122,10 @@ void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
 }
 
 Status ColumnChunkReader::skip_values(size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Skip too many values in current page");
     }
-    _num_values -= num_values;
+    _remaining_num_values -= num_values;
     return _page_decoder->skip_values(num_values);
 }
 
@@ -141,27 +141,27 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 
 Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type,
                                         size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
-    _num_values -= num_values;
+    _remaining_num_values -= num_values;
     return _page_decoder->decode_values(doris_column, data_type, num_values);
 }
 
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                         size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
-    _num_values -= num_values;
+    _remaining_num_values -= num_values;
     return _page_decoder->decode_values(doris_column, data_type, num_values);
 }
 
 Status ColumnChunkReader::decode_values(Slice& slice, size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
-    _num_values -= num_values;
+    _remaining_num_values -= num_values;
     return _page_decoder->decode_values(slice, num_values);
 }
 
