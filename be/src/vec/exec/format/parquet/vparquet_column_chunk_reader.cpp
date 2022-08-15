@@ -97,7 +97,7 @@ Status ColumnChunkReader::load_page_data() {
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
-    Decoder::getDecoder(_metadata.type, encoding, _page_decoder);
+    Decoder::get_decoder(_metadata.type, encoding, _page_decoder);
     _page_decoder->set_data(&_page_data);
     // Set type length
     _page_decoder->set_type_length(_get_type_length());
