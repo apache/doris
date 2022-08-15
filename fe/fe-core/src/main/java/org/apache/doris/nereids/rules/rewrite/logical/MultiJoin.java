@@ -79,14 +79,15 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             List<Expression> joinConditions = split.get(true);
             List<Expression> nonJoinConditions = split.get(false);
 
-            Optional<Expression> cond;
+            LogicalJoin join;
             if (joinConditions.isEmpty()) {
-                cond = Optional.empty();
+                join = new LogicalJoin(JoinType.CROSS_JOIN, Optional.empty(), joinInputs.get(0), joinInputs.get(1));
             } else {
-                cond = Optional.of(ExpressionUtils.and(joinConditions));
+                join = new LogicalJoin(JoinType.INNER_JOIN,
+                        Optional.of(ExpressionUtils.and(joinConditions)),
+                        joinInputs.get(0), joinInputs.get(1));
             }
 
-            LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, joinInputs.get(0), joinInputs.get(1));
             if (nonJoinConditions.isEmpty()) {
                 return join;
             } else {
