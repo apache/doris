@@ -148,7 +148,6 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
     physical_field->parquet_schema = physical_schema;
     physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
-    physical_field->logical_type = physical_schema.logicalType;
     _physical_fields.push_back(physical_field);
     physical_field->physical_column_index = _physical_fields.size() - 1;
 }

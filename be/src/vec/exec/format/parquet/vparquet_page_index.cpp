@@ -32,6 +32,7 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
     } else {
         row_range->last_row = page_locations[page_idx + 1].first_row_index - 1;
     }
+    return Status::OK();
 }
 
 Status PageIndex::collect_skipped_page_range(std::vector<ExprContext*> conjuncts,

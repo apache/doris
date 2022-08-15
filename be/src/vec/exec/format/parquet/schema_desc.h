@@ -37,7 +37,6 @@ struct FieldSchema {
 
     // Only valid when this field is a leaf node
     tparquet::Type::type physical_type;
-    tparquet::LogicalType logical_type;
     // The index order in FieldDescriptor._physical_fields
     int physical_column_index = -1;
 
