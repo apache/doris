@@ -28,6 +28,7 @@
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/cache/file_cache_manager.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -37,6 +38,8 @@
 using std::string;
 
 namespace doris {
+
+using io::FileCacheManager;
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
