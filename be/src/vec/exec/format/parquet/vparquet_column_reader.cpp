@@ -37,7 +37,7 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
     if (field->type.type == TYPE_ARRAY) {
         return Status::Corruption("not supported array type yet");
     } else {
-        LOG(WARNING) << "field->physical_column_index: " << field->physical_column_index;
+        VLOG_DEBUG << "field->physical_column_index: " << field->physical_column_index;
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
         scalar_reader->init_column_metadata(chunk);

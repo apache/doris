@@ -47,12 +47,12 @@ Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
         SlotDescriptor* slot_desc = read_col.slot_desc;
         TypeDescriptor col_type = slot_desc->type();
         auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
-        LOG(WARNING) << "field: " << field->debug_string();
+        VLOG_DEBUG << "field: " << field->debug_string();
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
                                                     row_ranges, reader));
         if (reader == nullptr) {
-            LOG(WARNING) << "Init row group reader failed";
+            VLOG_DEBUG << "Init row group reader failed";
             return Status::Corruption("Init row group reader failed");
         }
         _column_readers[slot_desc->id()] = std::move(reader);

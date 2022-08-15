@@ -32,7 +32,7 @@ Status ColumnChunkReader::init() {
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
-    LOG(WARNING) << "create _page_reader";
+    VLOG_DEBUG << "create _page_reader";
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
 
     if (_metadata.__isset.dictionary_page_offset) {
@@ -44,7 +44,7 @@ Status ColumnChunkReader::init() {
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
 
-    LOG(WARNING) << "initColumnChunkReader finish";
+    VLOG_DEBUG << "initColumnChunkReader finish";
     return Status::OK();
 }
 
