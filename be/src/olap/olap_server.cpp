@@ -751,6 +751,17 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
     do {
         LOG(INFO) << "Begin to Clean cache files";
         FileCacheManager::instance()->clean_timeout_caches();
+        std::vector<TabletSharedPtr> tablets =
+                StorageEngine::instance()->tablet_manager()->get_all_tablet();
+        for (const auto& tablet : tablets) {
+            LOG(INFO) << "tablet path: " << tablet-> tablet_path();
+            std::vector<Path> seg_file_paths;
+            if (!io::global_local_filesystem()->list(tablet-> tablet_path(), &seg_file_paths).ok()) {
+                for (Path seg_path : seg_file_paths) {
+                    LOG(INFO) << "seg_file_paths: " << seg_path;
+                }
+            }
+        }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
