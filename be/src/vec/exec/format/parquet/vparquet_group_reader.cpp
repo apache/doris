@@ -37,6 +37,7 @@ RowGroupReader::~RowGroupReader() {
 }
 
 Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges) {
+    VLOG_DEBUG << "Row group id: " << _row_group_id;
     RETURN_IF_ERROR(_init_column_readers(schema, row_ranges));
     return Status::OK();
 }
