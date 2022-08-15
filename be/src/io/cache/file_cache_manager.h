@@ -49,7 +49,7 @@ private:
     // cache_path -> FileCache
     std::map<std::string, FileCachePtr> _file_cache_map;
 
-    boost::lockfree::queue<std::string> _need_clean_caches;
+//    boost::lockfree::queue<std::string> _need_clean_caches;
 };
 
 } // namespace io
