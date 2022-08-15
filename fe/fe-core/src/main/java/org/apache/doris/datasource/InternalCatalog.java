@@ -1903,11 +1903,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
             if (sequenceColType != null) {
-                // TODO(zhannngchen) will support sequence column later.
-                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    throw new AnalysisException("Unique key table with MoW(merge on write) not support "
-                        + "sequence column for now");
-                }
                 olapTable.setSequenceInfo(sequenceColType);
             }
         } catch (Exception e) {
