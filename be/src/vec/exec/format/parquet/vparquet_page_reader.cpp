@@ -23,7 +23,7 @@
 
 namespace doris::vectorized {
 
-static constexpr size_t initPageHeaderSize = 1024;
+static constexpr size_t initPageHeaderSize = 128;
 
 PageReader::PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length)
         : _reader(reader), _start_offset(offset), _end_offset(offset + length) {}

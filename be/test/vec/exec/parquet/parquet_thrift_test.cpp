@@ -28,6 +28,7 @@
 #include "io/local_file_reader.h"
 #include "runtime/string_value.h"
 #include "util/runtime_profile.h"
+#include "util/timezone_utils.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -140,7 +141,9 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
     size_t chunk_size = chunk_meta.total_compressed_size;
     BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size);
 
-    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema);
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz);
     // initialize chunk reader
     chunk_reader.init();
     // seek to next page header
@@ -161,7 +164,17 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
-            {"string_col", TYPE_STRING, sizeof(StringValue), true}};
+            {"string_col", TYPE_STRING, sizeof(StringValue), true},
+            // binary is not supported, use string instead
+            {"binary_col", TYPE_STRING, sizeof(StringValue), true},
+            // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
+            {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
+            {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
+            {"char_col", TYPE_CHAR, sizeof(StringValue), true},
+            {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
+            {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
+            {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
+            {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
     SchemaScanner schema_scanner(column_descs,
                                  sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
     ObjectPool object_pool;
@@ -203,16 +216,16 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
     LocalFileReader reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
     /*
      * Data in type-decoder.parquet:
-     * -1	-1	-1	-1	false	-1.14	-1.14	s-row0	b-row0	2022-08-01 00:00:00	-1.14	c-row0    	vc-row0	2022-08-01	["as-0","as-1"]
-     * 2	2	2	2	true	2.14	2.14	NULL	b-row1	2022-08-02 00:00:00	2.14	c-row1    	vc-row1	2022-08-02	[null,"as-3"]
-     * -3	-3	-3	-3	false	-3.14	-3.14	s-row2	b-row2	2022-08-03 00:00:00	-3.14	c-row2    	vc-row2	2022-08-03	[]
-     * 4	4	4	4	true	4.14	4.14	NULL	b-row3	2022-08-04 00:00:00	4.14	c-row3    	vc-row3	2022-08-04	["as-4"]
-     * -5	-5	-5	-5	false	-5.14	-5.14	s-row4	b-row4	2022-08-05 00:00:00	-5.14	c-row4    	vc-row4	2022-08-05	["as-5",null]
-     * 6	6	6	6	false	6.14	6.14	s-row5	b-row5	2022-08-06 00:00:00	6.14	c-row5    	vc-row5	2022-08-06	[null,null]
-     * -7	-7	-7	-7	true	-7.14	-7.14	s-row6	b-row6	2022-08-07 00:00:00	-7.14	c-row6    	vc-row6	2022-08-07	["as-6","as-7"]
-     * 8	8	8	8	false	8.14	8.14	NULL	b-row7	2022-08-08 00:00:00	8.14	c-row7    	vc-row7	2022-08-08	["as-0","as-8"]
-     * -9	-9	-9	-9	false	-9.14	-9.14	s-row8	b-row8	2022-08-09 00:00:00	-9.14	c-row8    	vc-row8	2022-08-09	["as-9","as-10"]
-     * 10	10	10	10	false	10.14	10.14	s-row9	b-row9	2022-08-10 00:00:00	10.14	c-row9    	vc-row9	2022-08-10	["as-11","as-12"]
+     * -1	-1	-1	-1	false	-1.14	-1.14	s-row0	b-row0	2022-08-01 07:23:17	-1.14	c-row0    	vc-row0	2022-08-01	["as-0","as-1"]
+     * 2	2	2	2	true	2.14	2.14	NULL	b-row1	2022-08-02 07:23:18	2.14	c-row1    	vc-row1	2022-08-02	[null,"as-3"]
+     * -3	-3	-3	-3	false	-3.14	-3.14	s-row2	b-row2	2022-08-03 07:23:19	-3.14	c-row2    	vc-row2	2022-08-03	[]
+     * 4	4	4	4	true	4.14	4.14	NULL	b-row3	2022-08-04 07:24:17	4.14	c-row3    	vc-row3	2022-08-04	["as-4"]
+     * -5	-5	-5	-5	false	-5.14	-5.14	s-row4	b-row4	2022-08-05 07:25:17	-5.14	c-row4    	vc-row4	2022-08-05	["as-5",null]
+     * 6	6	6	6	false	6.14	6.14	s-row5	b-row5	2022-08-06 07:26:17	6.14	c-row5    	vc-row5	2022-08-06	[null,null]
+     * -7	-7	-7	-7	true	-7.14	-7.14	s-row6	b-row6	2022-08-07 07:27:17	-7.14	c-row6    	vc-row6	2022-08-07	["as-6","as-7"]
+     * 8	8	8	8	false	8.14	8.14	NULL	b-row7	2022-08-08 07:28:17	8.14	c-row7    	vc-row7	2022-08-08	["as-0","as-8"]
+     * -9	-9	-9	-9	false	-9.14	-9.14	s-row8	b-row8	2022-08-09 07:29:17	-9.14	c-row8    	vc-row8	2022-08-09	["as-9","as-10"]
+     * 10	10	10	10	false	10.14	10.14	s-row9	b-row9	2022-08-10 07:21:17	10.14	c-row9    	vc-row9	2022-08-10	["as-11","as-12"]
      */
     auto st = reader.open();
     EXPECT_TRUE(st.ok());
@@ -327,8 +340,11 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
                                       : chunk_meta.data_page_offset;
         size_t chunk_size = chunk_meta.total_compressed_size;
         BufferedFileStreamReader stream_reader(&reader, start_offset, chunk_size);
+        cctz::time_zone ctz;
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
         ColumnChunkReader chunk_reader(&stream_reader, &column_chunk,
-                                       const_cast<FieldSchema*>(schema_descriptor.get_column(7)));
+                                       const_cast<FieldSchema*>(schema_descriptor.get_column(7)),
+                                       &ctz);
         // initialize chunk reader
         chunk_reader.init();
         // seek to next page header
@@ -352,6 +368,102 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
         ASSERT_STREQ("s-row0", row0);
         ASSERT_STREQ("s-row2", row2);
     }
+    // `timestamp_col` timestamp, // 9, DATETIME
+    {
+        auto& column_name_with_type = block->get_by_position(9);
+        auto& data_column = column_name_with_type.column;
+        auto& data_type = column_name_with_type.type;
+        get_column_values(&reader, &t_metadata.row_groups[0].columns[9],
+                          const_cast<FieldSchema*>(schema_descriptor.get_column(9)), data_column,
+                          data_type);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(data_column)).mutate().get());
+        MutableColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+        int64_t date_value = (int64_t)nested_column->get64(0);
+        VecDateTimeInt64Union conv = {.i64 = date_value};
+        auto dt = conv.dt;
+        ASSERT_EQ(dt.hour(), 7);
+        ASSERT_EQ(dt.minute(), 23);
+        ASSERT_EQ(dt.second(), 17);
+    }
+    // `decimal_col` decimal, // 10
+    {
+        auto& column_name_with_type = block->get_by_position(10);
+        auto& data_column = column_name_with_type.column;
+        auto& data_type = column_name_with_type.type;
+        get_column_values(&reader, &t_metadata.row_groups[0].columns[10],
+                          const_cast<FieldSchema*>(schema_descriptor.get_column(10)), data_column,
+                          data_type);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(data_column)).mutate().get());
+        MutableColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+        int neg = 1;
+        for (int i = 0; i < rows; ++i) {
+            neg *= -1;
+            auto decimal_field = nested_column->operator[](i)
+                                         .get<vectorized::DecimalField<vectorized::Decimal128>>();
+            EXPECT_EQ(DecimalV2Value(decimal_field.get_value()),
+                      DecimalV2Value(std::to_string(neg * (1.14 + i))));
+        }
+    }
+    // `date_col` date, // 13, DATE
+    {
+        auto& column_name_with_type = block->get_by_position(13);
+        auto& data_column = column_name_with_type.column;
+        auto& data_type = column_name_with_type.type;
+        get_column_values(&reader, &t_metadata.row_groups[0].columns[13],
+                          const_cast<FieldSchema*>(schema_descriptor.get_column(13)), data_column,
+                          data_type);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(data_column)).mutate().get());
+        MutableColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+        for (int i = 0; i < rows; ++i) {
+            int64_t date_value = (int64_t)nested_column->get64(i);
+            VecDateTimeInt64Union conv = {.i64 = date_value};
+            auto dt = conv.dt;
+            ASSERT_EQ(dt.year(), 2022);
+            ASSERT_EQ(dt.month(), 8);
+            ASSERT_EQ(dt.day(), i + 1);
+        }
+    }
+    // `date_v2_col` date, // 14 - 13, DATEV2
+    {
+        auto& column_name_with_type = block->get_by_position(14);
+        auto& data_column = column_name_with_type.column;
+        auto& data_type = column_name_with_type.type;
+        get_column_values(&reader, &t_metadata.row_groups[0].columns[13],
+                          const_cast<FieldSchema*>(schema_descriptor.get_column(13)), data_column,
+                          data_type);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(data_column)).mutate().get());
+        MutableColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+        for (int i = 0; i < rows; ++i) {
+            uint32_t date_value = (uint32_t)nested_column->get64(i);
+            DateV2UInt32Union conv = {.ui32 = date_value};
+            auto dt = conv.dt;
+            ASSERT_EQ(dt.year(), 2022);
+            ASSERT_EQ(dt.month(), 8);
+            ASSERT_EQ(dt.day(), i + 1);
+        }
+    }
+    // `timestamp_v2_col` timestamp, // 15 - 9, DATETIMEV2
+    {
+        auto& column_name_with_type = block->get_by_position(15);
+        auto& data_column = column_name_with_type.column;
+        auto& data_type = column_name_with_type.type;
+        get_column_values(&reader, &t_metadata.row_groups[0].columns[9],
+                          const_cast<FieldSchema*>(schema_descriptor.get_column(9)), data_column,
+                          data_type);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(data_column)).mutate().get());
+        MutableColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+        uint64_t date_value = nested_column->get64(0);
+        DateTimeV2UInt64Union conv = {.ui64 = date_value};
+        auto dt = conv.dt;
+        ASSERT_EQ(dt.hour(), 7);
+        ASSERT_EQ(dt.minute(), 23);
+        ASSERT_EQ(dt.second(), 17);
+    }
 }
 
 TEST_F(ParquetThriftReaderTest, column_reader) {
@@ -374,6 +486,8 @@ TEST_F(ParquetThriftReaderTest, column_reader) {
     TDescriptorTable t_desc_table;
     // table descriptors
     TTableDescriptor t_table_desc;
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
     t_table_desc.id = 0;
     t_table_desc.tableType = TTableType::OLAP_TABLE;
@@ -422,7 +536,7 @@ TEST_F(ParquetThriftReaderTest, column_reader) {
     ParquetReadColumn column(slot_desc);
     std::vector<RowRange> row_ranges = std::vector<RowRange>();
     ParquetColumnReader::create(&file_reader, field, column, t_metadata.row_groups[0], row_ranges,
-                                reader);
+                                &ctz, reader);
     std::unique_ptr<vectorized::Block> block;
     create_block(block);
     auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
@@ -516,9 +630,11 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     parse_thrift_footer(&file_reader, meta_data);
     tparquet::FileMetaData t_metadata = meta_data->to_thrift_metadata();
 
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto row_group = t_metadata.row_groups[0];
     std::shared_ptr<RowGroupReader> row_group_reader;
-    row_group_reader.reset(new RowGroupReader(&file_reader, read_columns, 0, row_group));
+    row_group_reader.reset(new RowGroupReader(&file_reader, read_columns, 0, row_group, &ctz));
     std::vector<RowRange> row_ranges = std::vector<RowRange>();
     auto stg = row_group_reader->init(meta_data->schema(), row_ranges);
     EXPECT_TRUE(stg.ok());

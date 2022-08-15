@@ -42,8 +42,7 @@ namespace doris::vectorized {
  * ColumnChunkReader chunk_reader(BufferedStreamReader* reader,
  *                                tparquet::ColumnChunk* column_chunk,
  *                                FieldSchema* fieldSchema);
- * // Initialize chunk reader, we can set the type length if the length of column type is fixed.
- * // If not set, default value = -1, then the decoder will infer the type length.
+ * // Initialize chunk reader
  * chunk_reader.init();
  * while (chunk_reader.has_next_page()) {
  *   // Seek to next page header.  Only read and parse the page header, not page data.
@@ -59,7 +58,7 @@ namespace doris::vectorized {
 class ColumnChunkReader {
 public:
     ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema);
+                      FieldSchema* field_schema, cctz::time_zone* ctz);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -86,7 +85,7 @@ public:
     Status load_page_data();
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t remaining_num_values() const { return _remaining_num_values; };
-    // null values are not analyzing from definition levels
+    // null values are generated from definition levels
     // the caller should maintain the consistency after analyzing null values from definition levels.
     void dec_num_values(uint32_t dec_num) { _remaining_num_values -= dec_num; };
     // Get the raw data of current page.
@@ -108,6 +107,9 @@ public:
     // Get the definition level decoder of current page.
     LevelDecoder& def_level_decoder() { return _def_level_decoder; }
 
+    // Get page decoder
+    Decoder* get_page_decoder() { return _page_decoder; }
+
 private:
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
@@ -122,6 +124,7 @@ private:
     // tparquet::ColumnChunk* _column_chunk;
     tparquet::ColumnMetaData& _metadata;
     // FieldSchema* _field_schema;
+    cctz::time_zone* _ctz;
 
     std::unique_ptr<PageReader> _page_reader = nullptr;
     std::unique_ptr<BlockCompressionCodec> _block_compress_codec = nullptr;

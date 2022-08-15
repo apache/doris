@@ -25,12 +25,14 @@ namespace doris::vectorized {
 
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
-                               const int32_t row_group_id, tparquet::RowGroup& row_group)
+                               const int32_t row_group_id, tparquet::RowGroup& row_group,
+                               cctz::time_zone* ctz)
         : _file_reader(file_reader),
           _read_columns(read_columns),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
-          _total_rows(row_group.num_rows) {}
+          _total_rows(row_group.num_rows),
+          _ctz(ctz) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -50,7 +52,7 @@ Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
         auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
-                                                    row_ranges, reader));
+                                                    row_ranges, _ctz, reader));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group reader failed";
             return Status::Corruption("Init row group reader failed");
