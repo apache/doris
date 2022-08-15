@@ -70,35 +70,8 @@ MySQL [test_db]> select * from table2;
 +------------+--------+----------+------------------------------------+------+
 ```
 
-### 1. find most visit top 3 ip 
-c++ demo not implement,If you are interested you can reference java/python demo 
-```
-MySQL [test_db]> CREATE AGGREGATE FUNCTION  rpc_count_visit_info(varchar(1024)) RETURNS varchar(1024) PROPERTIES (
-    "TYPE"="RPC",
-    "OBJECT_FILE"="127.0.0.1:9000",
-    "update_fn"="rpc_count_visit_info_update",
-    "merge_fn"="rpc_count_visit_info_merge",
-    "finalize_fn"="rpc_count_visit_info_finalize"
-);
-MySQL [test_db]> select rpc_count_visit_info(visitinfo) from table2;
-+--------------------------------------------+
-| rpc_count_visit_info(`visitinfo`)           |
-+--------------------------------------------+
-| 192.168.0.5:6 192.168.0.2:3 192.168.0.1:3  |
-+--------------------------------------------+
-1 row in set (0.036 sec)
-MySQL [test_db]> select citycode, rpc_count_visit_info(visitinfo) from table2 group by citycode;
-+----------+--------------------------------------------+
-| citycode | rpc_count_visit_info(`visitinfo`)           |
-+----------+--------------------------------------------+
-|       15 | 192.168.0.2:1 192.168.0.1:1 192.168.0.5:1  |
-|       11 | 192.168.0.1:2 192.168.0.5:1                |
-|       12 | 192.168.0.5:3 192.168.0.3:2 192.168.0.2:1  |
-|       16 | 192.168.0.2:1 192.168.0.4:1 192.168.0.5:1  |
-+----------+--------------------------------------------+
-4 rows in set (0.050 sec)
-```
-### 2. sum pv 
+
+### 1. sum pv 
 ```
 CREATE AGGREGATE FUNCTION  rpc_sum(bigint) RETURNS bigint PROPERTIES (
     "TYPE"="RPC",
@@ -126,7 +99,7 @@ MySQL [test_db]> select rpc_sum(pv) from table2;
 1 row in set (0.030 sec)
 ```
 
-### 3. avg pv
+### 2. avg pv
 
 ```
 CREATE AGGREGATE FUNCTION  rpc_avg(int) RETURNS double PROPERTIES (
