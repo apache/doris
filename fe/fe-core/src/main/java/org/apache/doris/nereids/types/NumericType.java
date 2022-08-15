@@ -17,10 +17,20 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.Type;
+
 /**
  * Abstract class for all numeric type in Nereids.
  */
-public abstract class NumericType extends PrimitiveType {
+public class NumericType extends PrimitiveType {
+
+    public static final NumericType INSTANCE = new NumericType();
+
+    @Override
+    public Type toCatalogDataType() {
+        throw new RuntimeException("NumericType is only used for implicit cast.");
+    }
+
     @Override
     public DataType defaultConcreteType() {
         return DoubleType.INSTANCE;

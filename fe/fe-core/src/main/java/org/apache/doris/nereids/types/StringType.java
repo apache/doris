@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 /**
  * String data type in Nereids.
  */
-public class StringType extends DataType {
+public class StringType extends CharacterType {
     public static StringType INSTANCE = new StringType();
 
     @Override

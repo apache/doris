@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 
 import org.junit.jupiter.api.Assertions;
@@ -35,8 +37,8 @@ public class AndTest {
         typeCheckResult = firstInputIsNotBoolean.checkInputDataTypes();
         Assertions.assertFalse(typeCheckResult.success());
 
-        And BothInputAreBoolean = new And(new BooleanLiteral(true), new BooleanLiteral(false));
-        typeCheckResult = BothInputAreBoolean.checkInputDataTypes();
+        And bothInputAreBoolean = new And(new BooleanLiteral(true), new BooleanLiteral(false));
+        typeCheckResult = bothInputAreBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
     }
 }

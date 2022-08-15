@@ -19,13 +19,17 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
 
 /**
  * Varchar type in Nereids.
  */
-public class VarcharType extends PrimitiveType {
+public class VarcharType extends CharacterType {
+
+    public static VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+
     private final int len;
 
     public VarcharType(int len) {
@@ -39,6 +43,16 @@ public class VarcharType extends PrimitiveType {
     @Override
     public Type toCatalogDataType() {
         return ScalarType.createVarcharType(len);
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof VarcharType;
+    }
+
+    @Override
+    public String toSql() {
+        return "VARCHAR(" + len + ")";
     }
 
     @Override

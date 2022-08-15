@@ -15,44 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.DoubleType;
 
 /**
- * Represents Integer literal
+ * Double literal
  */
-public class IntegerLiteral extends Literal {
+public class DoubleLiteral extends Literal {
 
-    private final int value;
+    private final double value;
 
-    public IntegerLiteral(int value) {
-        super(IntegerType.INSTANCE);
+    public DoubleLiteral(double value) {
+        super(DoubleType.INSTANCE);
         this.value = value;
     }
 
     @Override
-    public Integer getValue() {
+    public Double getValue() {
         return value;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIntegerLiteral(this, context);
+        return visitor.visitDoubleLiteral(this, context);
     }
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        try {
-            return new IntLiteral(value, Type.INT);
-        } catch (AnalysisException e) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Can not convert to legacy literal: " + value, e);
-        }
+        return new FloatLiteral(value, Type.DOUBLE);
     }
 }

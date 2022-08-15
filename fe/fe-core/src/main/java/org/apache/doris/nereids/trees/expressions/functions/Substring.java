@@ -18,19 +18,30 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.TernaryExpression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.TypeCollection;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * substring function.
  */
-public class Substring extends BoundFunction implements TernaryExpression {
+public class Substring extends BoundFunction implements TernaryExpression, ImplicitCastInputTypes {
+
+    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
+            TypeCollection.CHARACTER_TYPE_COLLECTION,
+            IntegerType.INSTANCE,
+            IntegerType.INSTANCE
+    );
 
     public Substring(Expression str, Expression pos, Expression len) {
         super("substring", str, pos, len);
@@ -57,5 +68,10 @@ public class Substring extends BoundFunction implements TernaryExpression {
             return new Substring(children.get(0), children.get(1));
         }
         return new Substring(children.get(0), children.get(1), children.get(2));
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTED_INPUT_TYPES;
     }
 }

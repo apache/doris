@@ -15,38 +15,46 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.BooleanType;
+
 
 /**
- * Represents Null literal
+ * Represents Boolean literal
  */
-public class NullLiteral extends Literal {
+public class BooleanLiteral extends Literal {
 
-    public NullLiteral() {
-        super(NullType.INSTANCE);
+    public static final BooleanLiteral TRUE = new BooleanLiteral(true);
+    public static final BooleanLiteral FALSE = new BooleanLiteral(false);
+
+    private final boolean value;
+
+    public BooleanLiteral(boolean value) {
+        super(BooleanType.INSTANCE);
+        this.value = value;
     }
 
     @Override
-    public Object getValue() {
-        return null;
+    public Boolean getValue() {
+        return value;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitNullLiteral(this, context);
+        return visitor.visitBooleanLiteral(this, context);
     }
 
     @Override
     public String toString() {
-        return "NULL";
+        return Boolean.valueOf(value).toString().toUpperCase();
     }
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.NullLiteral();
+        return new BoolLiteral(value);
     }
 }

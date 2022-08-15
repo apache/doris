@@ -17,27 +17,50 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import java.util.Objects;
 
 /**
- * Double data type in Nereids.
+ * Char type in Nereids.
  */
-public class DoubleType extends FractionalType {
-    public static DoubleType INSTANCE = new DoubleType();
+public class CharType extends CharacterType {
+
+    public static final CharType SYSTEM_DEFAULT = new CharType(-1);
+
+    private final int len;
+
+    public CharType(int len) {
+        this.len = len;
+    }
+
+    public static CharType createCharType(int len) {
+        return new CharType(len);
+    }
 
     @Override
     public Type toCatalogDataType() {
-        return Type.DOUBLE;
+        return ScalarType.createChar(len);
     }
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof DoubleType;
+        if (!super.equals(o)) {
+            return false;
+        }
+        CharType charType = (CharType) o;
+        return len == charType.len;
     }
 
     @Override
-    public String simpleString() {
-        return "double";
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), len);
+    }
+
+    @Override
+    public String toSql() {
+        return "CHAR(" + len + ")";
     }
 }

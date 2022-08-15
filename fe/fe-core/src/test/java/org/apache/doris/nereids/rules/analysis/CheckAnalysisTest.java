@@ -15,32 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.rules.analysis;
 
-
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
+import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-class LiteralTest {
+public class CheckAnalysisTest {
+    @Mocked
+    private CascadesContext cascadesContext;
+    @Mocked
+    private GroupPlan groupPlan;
 
     @Test
-    public void testEqual() {
-        IntegerLiteral one = new IntegerLiteral(1);
-        IntegerLiteral anotherOne = new IntegerLiteral(1);
-        IntegerLiteral two = new IntegerLiteral(2);
-        Assertions.assertNotEquals(one, two);
-        Assertions.assertEquals(one, anotherOne);
-        StringLiteral str1 = new StringLiteral("hello");
-        Assertions.assertNotEquals(str1, one);
-        Assertions.assertTrue(Literal.of("world") instanceof StringLiteral);
-        Assertions.assertTrue(Literal.of(null) instanceof NullLiteral);
-        Assertions.assertTrue(Literal.of(1) instanceof IntegerLiteral);
-        Assertions.assertTrue(Literal.of(false) instanceof BooleanLiteral);
+    public void testCheckExpressionInputTypes() {
+        Plan plan = new LogicalFilter<>(new And(new IntegerLiteral(1), new BooleanLiteral(true)), groupPlan);
+        CheckAnalysis checkAnalysis = new CheckAnalysis();
+        Assertions.assertThrows(RuntimeException.class, () -> checkAnalysis.build().transform(plan, cascadesContext));
     }
 }

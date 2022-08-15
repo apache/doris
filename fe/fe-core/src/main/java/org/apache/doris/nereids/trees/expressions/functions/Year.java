@@ -19,17 +19,27 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.TypeCollection;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * year function.
  */
-public class Year extends BoundFunction implements UnaryExpression {
+public class Year extends BoundFunction implements UnaryExpression, ImplicitCastInputTypes {
+
+    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
+            new TypeCollection(DateType.INSTANCE, DateTimeType.INSTANCE)
+    );
 
     public Year(Expression child) {
         super("year", child);
@@ -49,5 +59,10 @@ public class Year extends BoundFunction implements UnaryExpression {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Year(children.get(0));
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTED_INPUT_TYPES;
     }
 }

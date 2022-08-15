@@ -20,5 +20,5 @@ package org.apache.doris.nereids.trees.expressions.typecoercion;
 /**
  * an interface used to identify whether the current expression can be implicitly cast input types.
  */
-public interface ImplicitCastInputTypes {
+public interface ImplicitCastInputTypes extends ExpectsInputTypes {
 }

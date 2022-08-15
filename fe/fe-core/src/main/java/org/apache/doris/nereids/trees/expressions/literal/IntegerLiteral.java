@@ -15,41 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
 
 /**
- * Represents Bigint literal
+ * Represents Integer literal
  */
-public class BigIntLiteral extends Literal {
+public class IntegerLiteral extends Literal {
 
-    private final long value;
+    private final int value;
 
-    public BigIntLiteral(long value) {
-        super(BigIntType.INSTANCE);
+    public IntegerLiteral(int value) {
+        super(IntegerType.INSTANCE);
         this.value = value;
     }
 
     @Override
-    public Long getValue() {
+    public Integer getValue() {
         return value;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitBigIntLiteral(this, context);
+        return visitor.visitIntegerLiteral(this, context);
     }
 
     @Override
     public LiteralExpr toLegacyLiteral() {
         try {
-            return new IntLiteral(value, Type.BIGINT);
+            return new IntLiteral(value, Type.INT);
         } catch (AnalysisException e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Can not convert to legacy literal: " + value, e);

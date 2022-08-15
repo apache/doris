@@ -15,21 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
- * Execute check analysis rules.
+ * LargeInt type in Nereids.
  */
-public class CheckAnalysisJob extends BatchRulesJob {
-    public CheckAnalysisJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new CheckAnalysis()))
-        ));
+public class LargeIntType extends IntegralType {
+    public static LargeIntType INSTANCE = new LargeIntType();
+
+    @Override
+    public Type toCatalogDataType() {
+        return Type.LARGEINT;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof LargeIntType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "largeint";
     }
 }

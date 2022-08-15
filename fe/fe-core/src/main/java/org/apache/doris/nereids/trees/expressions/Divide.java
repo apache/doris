@@ -33,8 +33,7 @@ public class Divide extends Arithmetic implements BinaryExpression {
 
     @Override
     public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+        return left().toSql() + ' ' + getArithmeticOperator().toString() + ' ' + right().toSql();
     }
 
     @Override

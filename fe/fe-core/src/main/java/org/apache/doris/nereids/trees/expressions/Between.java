@@ -32,9 +32,9 @@ import java.util.Objects;
  */
 public class Between extends Expression implements TernaryExpression {
 
-    private Expression compareExpr;
-    private Expression lowerBound;
-    private Expression upperBound;
+    private final Expression compareExpr;
+    private final Expression lowerBound;
+    private final Expression upperBound;
     /**
      * Constructor of ComparisonPredicate.
      *

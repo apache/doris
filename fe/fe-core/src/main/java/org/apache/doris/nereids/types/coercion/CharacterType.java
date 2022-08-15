@@ -15,24 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.types.coercion;
+
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.PrimitiveType;
 
 /**
- * Abstract class for all integral data type in Nereids.
+ * Abstract type for all characters type in Nereids.
  */
-public abstract class IntegralType extends NumericType {
-    @Override
-    public DataType defaultConcreteType() {
-        return IntegerType.INSTANCE;
-    }
-
+public abstract class CharacterType extends PrimitiveType {
     @Override
     public boolean acceptsType(DataType other) {
-        return other instanceof IntegerType;
-    }
-
-    @Override
-    public String simpleString() {
-        return "integral";
+        return other instanceof CharacterType;
     }
 }

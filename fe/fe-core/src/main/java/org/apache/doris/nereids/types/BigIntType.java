@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * BigInt data type in Nereids.
@@ -28,5 +29,10 @@ public class BigIntType extends IntegralType {
     @Override
     public Type toCatalogDataType() {
         return Type.BIGINT;
+    }
+
+    @Override
+    public String simpleString() {
+        return "bigint";
     }
 }

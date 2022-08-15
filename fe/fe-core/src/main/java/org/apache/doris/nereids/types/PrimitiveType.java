@@ -17,8 +17,14 @@
 
 package org.apache.doris.nereids.types;
 
+import java.util.Locale;
+
 /**
  * Primitive data type in Nereids.
  */
 public abstract class PrimitiveType extends DataType {
+    @Override
+    public String toSql() {
+        return simpleString().toUpperCase(Locale.ROOT);
+    }
 }

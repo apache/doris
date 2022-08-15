@@ -24,6 +24,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Locale;
 
@@ -44,12 +46,22 @@ public abstract class DataType implements AbstractDataType {
             switch (scalarType.getPrimitiveType()) {
                 case BOOLEAN:
                     return BooleanType.INSTANCE;
+                case TINYINT:
+                    return TinyIntType.INSTANCE;
+                case SMALLINT:
+                    return SmallIntType.INSTANCE;
                 case INT:
                     return IntegerType.INSTANCE;
                 case BIGINT:
                     return BigIntType.INSTANCE;
+                case LARGEINT:
+                    return LargeIntType.INSTANCE;
+                case FLOAT:
+                    return FloatType.INSTANCE;
                 case DOUBLE:
                     return DoubleType.INSTANCE;
+                case CHAR:
+                    return CharType.createCharType(scalarType.getLength());
                 case VARCHAR:
                     return VarcharType.createVarcharType(scalarType.getLength());
                 case STRING:
@@ -87,6 +99,7 @@ public abstract class DataType implements AbstractDataType {
      */
     public static DataType convertFromString(String type) {
         // TODO: use a better way to resolve types
+        // TODO: support varchar, char, decimal
         switch (type.toLowerCase()) {
             case "bool":
             case "boolean":
@@ -110,6 +123,13 @@ public abstract class DataType implements AbstractDataType {
 
     public abstract Type toCatalogDataType();
 
+    public abstract String toSql();
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
     public String typeName() {
         return this.getClass().getSimpleName().replace("Type", "").toLowerCase(Locale.ROOT);
     }
@@ -124,6 +144,9 @@ public abstract class DataType implements AbstractDataType {
         return sameType(other);
     }
 
+    /**
+     * this and other is same type.
+     */
     private boolean sameType(DataType other) {
         return this.equals(other);
     }
@@ -163,5 +186,21 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isDateType() {
         return isDate() || isDateTime();
+    }
+
+    public boolean isNullType() {
+        return this instanceof NullType;
+    }
+
+    public boolean isNumericType() {
+        return this instanceof NumericType;
+    }
+
+    public boolean isStringType() {
+        return this instanceof CharacterType;
+    }
+
+    public boolean isPrimitive() {
+        return this instanceof PrimitiveType;
     }
 }

@@ -49,16 +49,17 @@ public class CaseWhen extends Expression {
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
-        super(ImmutableList.builder().addAll(whenClauses).add(defaultValue).build().toArray(new Expression[0]));
+        super(ImmutableList.<Expression>builder()
+                .addAll(whenClauses).add(defaultValue).build()
+                .toArray(new Expression[0]));
         defaultValueIndex = children().size() - 1;
     }
 
     public List<WhenClause> getWhenClauses() {
-        List<WhenClause> whenClauses = children().stream()
+        return children().stream()
                 .filter(e -> e instanceof WhenClause)
                 .map(e -> (WhenClause) e)
                 .collect(Collectors.toList());
-        return whenClauses;
     }
 
     public Optional<Expression> getDefaultValue() {
@@ -99,7 +100,7 @@ public class CaseWhen extends Expression {
             if (child instanceof WhenClause) {
                 output.append(child.toSql());
             } else {
-                output.append(" ELSE " + child.toSql());
+                output.append(" ELSE ").append(child.toSql());
             }
         }
         output.append(" END");

@@ -15,10 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.types.coercion;
+
+import org.apache.doris.nereids.types.DataType;
 
 /**
- * Abstract for all fractional type in Nereids.
+ * Represent a set of equality concrete data type.
  */
-public abstract class FractionalType extends NumericType {
+public interface AbstractDataType {
+
+    /**
+     * the default concrete type cast to when do implicit cast
+     */
+    DataType defaultConcreteType();
+
+    /**
+     * This AbstractDataType could accept other without implicit cast
+     */
+    boolean acceptsType(DataType other);
+
+    /**
+     * simple string used to print error message
+     */
+    String simpleString();
 }

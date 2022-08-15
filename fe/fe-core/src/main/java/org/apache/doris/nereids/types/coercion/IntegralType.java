@@ -15,21 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.types.coercion;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NumericType;
 
 /**
- * Execute check analysis rules.
+ * Abstract class for all integral data type in Nereids.
  */
-public class CheckAnalysisJob extends BatchRulesJob {
-    public CheckAnalysisJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new CheckAnalysis()))
-        ));
+public abstract class IntegralType extends NumericType {
+    @Override
+    public DataType defaultConcreteType() {
+        return IntegerType.INSTANCE;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof IntegerType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "integral";
     }
 }

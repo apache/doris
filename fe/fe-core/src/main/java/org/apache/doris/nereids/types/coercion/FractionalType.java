@@ -15,21 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.types.coercion;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.types.NumericType;
 
 /**
- * Execute check analysis rules.
+ * Abstract for all fractional type in Nereids.
  */
-public class CheckAnalysisJob extends BatchRulesJob {
-    public CheckAnalysisJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new CheckAnalysis()))
-        ));
-    }
+public abstract class FractionalType extends NumericType {
 }

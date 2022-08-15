@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.expressions.typecoercion;
 
 import java.util.Optional;
 
+/**
+ * Save type check result.
+ */
 public class TypeCheckResult {
 
     public static TypeCheckResult SUCCESS = new TypeCheckResult(true, null);
@@ -40,7 +43,7 @@ public class TypeCheckResult {
         return !success;
     }
 
-    public Optional<String> getMessage() {
-        return message;
+    public String getMessage() {
+        return message.orElseGet(String::new);
     }
 }

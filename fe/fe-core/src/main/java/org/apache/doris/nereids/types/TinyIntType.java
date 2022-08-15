@@ -17,11 +17,27 @@
 
 package org.apache.doris.nereids.types;
 
-public interface AbstractDataType {
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
-    DataType defaultConcreteType();
+/**
+ * TinyInt type in Nereids.
+ */
+public class TinyIntType extends IntegralType {
+    public static TinyIntType INSTANCE = new TinyIntType();
 
-    boolean acceptsType(DataType other);
+    @Override
+    public Type toCatalogDataType() {
+        return Type.TINYINT;
+    }
 
-    String simpleString();
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TinyIntType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "tinyint";
+    }
 }

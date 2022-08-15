@@ -25,6 +25,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Optional;
 
+/**
+ * Check analysis rule to check semantic correct after analysis by Nereids.
+ */
 public class CheckAnalysis extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
@@ -38,7 +41,7 @@ public class CheckAnalysis extends OneAnalysisRuleFactory {
                 .findFirst();
 
         if (firstFailed.isPresent()) {
-            throw new RuntimeException("Analysis failed: " + firstFailed.get().getMessage());
+            throw new RuntimeException(firstFailed.get().getMessage());
         }
         return plan;
     }

@@ -15,38 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.coercion.FractionalType;
 
 /**
- * Double literal
+ * Float type in Nereids.
  */
-public class DoubleLiteral extends Literal {
+public class FloatType extends FractionalType {
+    public static FloatType INSTANCE = new FloatType();
 
-    private final double value;
-
-    public DoubleLiteral(double value) {
-        super(DoubleType.INSTANCE);
-        this.value = value;
+    @Override
+    public Type toCatalogDataType() {
+        return Type.FLOAT;
     }
 
     @Override
-    public Double getValue() {
-        return value;
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitDoubleLiteral(this, context);
-    }
-
-    @Override
-    public LiteralExpr toLegacyLiteral() {
-        return new FloatLiteral(value, Type.DOUBLE);
+    public boolean equals(Object o) {
+        return o instanceof FloatType;
     }
 }

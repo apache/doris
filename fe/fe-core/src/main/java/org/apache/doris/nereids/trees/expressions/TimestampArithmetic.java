@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.trees.expressions.IntervalLiteral.TimeUnit;
+import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -36,8 +36,8 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
     private static final Logger LOG = LogManager.getLogger(TimestampArithmetic.class);
     private final String funcName;
     private final boolean intervalFirst;
-    private Operator op;
-    private TimeUnit timeUnit;
+    private final Operator op;
+    private final TimeUnit timeUnit;
 
     public TimestampArithmetic(String funcName, Expression e1, Expression e2, TimeUnit timeUnit) {
         this(funcName, null, e1, e2, timeUnit, false);
@@ -115,16 +115,16 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
         if (intervalFirst) {
             // Non-function-call like version with interval as first operand.
             strBuilder.append("INTERVAL ");
-            strBuilder.append(child(1).toSql() + " ");
+            strBuilder.append(child(1).toSql()).append(" ");
             strBuilder.append(timeUnit);
             strBuilder.append(" ").append(op.toString()).append(" ");
             strBuilder.append(child(0).toSql());
         } else {
             // Non-function-call like version with interval as second operand.
             strBuilder.append(child(0).toSql());
-            strBuilder.append(" " + op.toString() + " ");
+            strBuilder.append(" ").append(op.toString()).append(" ");
             strBuilder.append("INTERVAL ");
-            strBuilder.append(child(1).toSql() + " ");
+            strBuilder.append(child(1).toSql()).append(" ");
             strBuilder.append(timeUnit);
         }
         return strBuilder.toString();

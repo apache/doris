@@ -17,16 +17,20 @@
 
 package org.apache.doris.nereids.trees.expressions.typecoercion;
 
-import org.apache.doris.nereids.types.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import java.util.List;
 
 /**
- * An interface use to check whether input types is valid.
+ * An interface to define the expected input types of an expression.
+ *
+ * This trait is typically used by operator expressions (e.g. {@link org.apache.doris.nereids.trees.expressions.Add})
+ * to define expected input types without any implicit casting.
+ *
+ * Most function expressions (e.g. {@link org.apache.doris.nereids.trees.expressions.functions.Substring} should extend
+ * {@link ImplicitCastInputTypes}) instead.
  */
 public interface ExpectsInputTypes {
-
-    TypeCheckResult checkInputDataTypes();
 
     List<AbstractDataType> expectedInputTypes();
 }
