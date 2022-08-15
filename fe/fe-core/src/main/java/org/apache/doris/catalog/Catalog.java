@@ -2157,6 +2157,7 @@ public class Catalog {
             // since decommission job is no longer supported, we should clear all jobs here to be compatible with newer version
             alterJobs.clear();
             finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            finishedOrCancelledAlterJobs.clear();
         }
 
         // alter jobs
