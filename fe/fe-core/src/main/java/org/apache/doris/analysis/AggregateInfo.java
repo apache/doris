@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TPartitionType;
 
@@ -459,17 +458,10 @@ public final class AggregateInfo extends AggregateInfoBase {
         for (int i = 0; i < getAggregateExprs().size(); ++i) {
             FunctionCallExpr inputExpr = getAggregateExprs().get(i);
             Preconditions.checkState(inputExpr.isAggregateFunction());
-            List<Expr> paramExprs = new ArrayList<>();
-            // TODO(zhannngchen), change intermediate argument to a list, and remove this
-            // ad-hoc logic
-            if ((inputExpr.fn.functionName().equals("max_by") ||
-                    inputExpr.fn.functionName().equals("min_by")) && VectorizedUtil.isVectorized()) {
-                paramExprs.addAll(inputExpr.getFnParams().exprs());
-            } else {
-                paramExprs.add(new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size())));
-            }
+            Expr aggExprParam = new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, paramExprs);
+            inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+
             aggExpr.analyzeNoThrow(analyzer);
             aggExprs.add(aggExpr);
         }
@@ -586,11 +578,11 @@ public final class AggregateInfo extends AggregateInfoBase {
         for (int i = 0; i < aggregateExprs_.size(); ++i) {
             FunctionCallExpr inputExpr = aggregateExprs_.get(i);
             Preconditions.checkState(inputExpr.isAggregateFunction());
-            // we're aggregating an output slot of the 1st agg phase
             Expr aggExprParam =
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
+
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam));
+                inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
             secondPhaseAggExprs.add(aggExpr);
         }
         Preconditions.checkState(
