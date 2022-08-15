@@ -20,13 +20,14 @@
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* fieldSchema)
-        : _max_rep_level(fieldSchema->repetition_level),
-          _max_def_level(fieldSchema->definition_level),
+                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema)
+        : _field_schema(field_schema),
+          _max_rep_level(field_schema->repetition_level),
+          _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data) {}
 
-Status ColumnChunkReader::init(size_t type_length) {
+Status ColumnChunkReader::init() {
     size_t start_offset = _metadata.__isset.dictionary_page_offset
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
@@ -41,8 +42,6 @@ Status ColumnChunkReader::init(size_t type_length) {
 
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
-    // -1 means unfixed length type
-    _type_length = type_length;
 
     return Status::OK();
 }
@@ -91,14 +90,13 @@ Status ColumnChunkReader::load_page_data() {
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     } else {
         std::unique_ptr<Decoder> page_decoder;
-        Decoder::getDecoder(_metadata.type, encoding, page_decoder);
+        Decoder::get_decoder(_metadata.type, encoding, page_decoder);
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
     _page_decoder->set_data(&_page_data);
-    if (_type_length > 0) {
-        _page_decoder->set_type_length(_type_length);
-    }
+    // Set type length
+    _page_decoder->set_type_length(_get_type_length());
 
     return Status::OK();
 }
@@ -138,12 +136,22 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     return _def_level_decoder.get_levels(levels, n);
 }
 
-Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, size_t num_values) {
+Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type,
+                                        size_t num_values) {
     if (UNLIKELY(_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
     _num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, num_values);
+    return _page_decoder->decode_values(doris_column, data_type, num_values);
+}
+
+Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                        size_t num_values) {
+    if (UNLIKELY(_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    _num_values -= num_values;
+    return _page_decoder->decode_values(doris_column, data_type, num_values);
 }
 
 Status ColumnChunkReader::decode_values(Slice& slice, size_t num_values) {
@@ -152,5 +160,22 @@ Status ColumnChunkReader::decode_values(Slice& slice, size_t num_values) {
     }
     _num_values -= num_values;
     return _page_decoder->decode_values(slice, num_values);
+}
+
+int32_t ColumnChunkReader::_get_type_length() {
+    switch (_field_schema->physical_type) {
+    case tparquet::Type::INT32:
+    case tparquet::Type::FLOAT:
+        return 4;
+    case tparquet::Type::INT64:
+    case tparquet::Type::DOUBLE:
+        return 8;
+    case tparquet::Type::INT96:
+        return 12;
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+        return _field_schema->parquet_schema.type_length;
+    default:
+        return -1;
+    }
 }
 } // namespace doris::vectorized
