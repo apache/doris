@@ -23,12 +23,34 @@
 #include "runtime/json_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
+
+// namespace doris::vectorized {
+// class ColumnJson final : public ColumnString {
+// private:
+//     friend class COWHelper<IColumn, ColumnJson>;
+
+//     Offsets offsets;
+
+//     Chars chars;
+
+//     ColumnJson() = default;
+
+//     ColumnJson(const ColumnJson& src)
+//             : offsets(src.offsets.begin(), src.offsets.end()),
+//               chars(src.chars.begin(), src.chars.end()) {}
+
+// public:
+//     const char* get_family_name() const override { return "JSON"; }
+// };
+
+// } // namespace doris::vectorized
 
 namespace doris::vectorized {
 class ColumnJson final : public COWHelper<IColumn, ColumnJson> {
