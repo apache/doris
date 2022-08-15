@@ -143,6 +143,12 @@ Status StorageEngine::start_bg_threads() {
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
+            [this]() { this->_cache_file_cleaner_tasks_producer_callback(); },
+            &_cache_file_cleaner_tasks_producer_thread));
+    LOG(INFO) << "cache file cleaner tasks producer thread started";
+
     // add tablet publish version thread pool
     ThreadPoolBuilder("TabletPublishTxnThreadPool")
             .set_min_threads(config::tablet_publish_txn_max_thread)
@@ -734,6 +740,13 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                 LOG(INFO) << "failed to submit cooldown task, err msg: " << st.get_error_msg();
             }
         }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
+    int64_t interval = config::generate_cache_cleaner_task_interval_sec;
+    do {
+        LOG(INFO) << "Begin to Clean cache files";
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 

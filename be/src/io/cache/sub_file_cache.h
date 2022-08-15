@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <boost/lockfree/queue.hpp>
 #include <memory>
 
 #include "common/status.h"
@@ -73,6 +74,8 @@ private:
     std::map<size_t, int64_t> _last_match_times;
     // offset_begin -> local file reader
     std::map<size_t, io::FileReaderSPtr> _cache_file_readers;
+
+    boost::lockfree::queue<std::string> _need_clean_caches(1024);
 };
 
 } // namespace io

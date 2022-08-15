@@ -65,6 +65,12 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& r
                        segment_id);
 }
 
+std::string BetaRowset::local_cache_path(const std::string& tablet_path,
+                                         const RowsetId& rowset_id, int segment_id) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
+    return fmt::format("{}/{}_{}", tablet_path, rowset_id.to_string(), segment_id);
+}
+
 BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                        RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, tablet_path, std::move(rowset_meta)) {}
@@ -150,6 +156,22 @@ Status BetaRowset::remove() {
         if (!st.ok()) {
             LOG(WARNING) << st.to_string();
             success = false;
+        }
+        if (fs->type() != io::FileSystemType::LOCAL) {
+            auto cache_path = segment_cache_path(seg_id);
+            FileCacheManager::instance()->remove_file_cache(cache_path);
+            bool cache_dir_exist = false;
+            if (!io::global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
+                success = false;
+            } else {
+                if (cache_dir_exist) {
+                    st = fs->delete_directory(cache_path);
+                    if (!st.ok()) {
+                        LOG(WARNING) << st.to_string();
+                        success = false;
+                    }
+                }
+            }
         }
     }
     if (!success) {
