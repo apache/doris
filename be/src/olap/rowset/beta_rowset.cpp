@@ -35,6 +35,8 @@
 
 namespace doris {
 
+using io::FileCacheManager;
+
 std::string BetaRowset::segment_file_path(int segment_id) {
     if (is_local()) {
         return local_segment_path(_tablet_path, rowset_id(), segment_id);
