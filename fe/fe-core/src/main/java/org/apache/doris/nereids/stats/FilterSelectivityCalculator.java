@@ -64,13 +64,19 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         return expression.accept(this, null);
     }
 
+
+    @Override
+    public Double visit(Expression expr, Void context) {
+        return DEFAULT_SELECTIVITY;
+    }
+
     @Override
     public Double visitCompoundPredicate(CompoundPredicate compoundPredicate, Void context) {
         Expression leftExpr = compoundPredicate.child(0);
         Expression rightExpr = compoundPredicate.child(1);
         double leftSel = 1;
         double rightSel = 1;
-        leftSel =  estimate(leftExpr);
+        leftSel = estimate(leftExpr);
         rightSel = estimate(rightExpr);
         return compoundPredicate instanceof Or ? leftSel + rightSel - leftSel * rightSel : leftSel * rightSel;
     }
