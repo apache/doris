@@ -34,6 +34,7 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -116,6 +117,8 @@ public abstract class DorisHttpTestCase {
 
     protected static String URI;
 
+    protected static String LIGHT_SCHEMA_CHANGE_URI;
+
     protected String rootAuth = Credentials.basic("root", "");
 
     private static final String DORIS_HOME;
@@ -172,8 +175,16 @@ public abstract class DorisHttpTestCase {
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicaAllocation(testPartitionId, new ReplicaAllocation((short) 3));
+        Map<String, String> property = new HashMap<>();
+        property.put("light_schema_change", "true");
+        TableProperty tableProperty = new TableProperty(property);
+        tableProperty.buildUseLightSchemaChange();
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
+        table.setTableProperty(tableProperty);
+        for (Column column : columns) {
+            column.setUniqueId(table.incAndGetMaxColUniqueId());
+        }
         table.addPartition(partition);
         table.setIndexMeta(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1, TStorageType.COLUMN,
                 KeysType.AGG_KEYS);
@@ -335,6 +346,8 @@ public abstract class DorisHttpTestCase {
             socket.setReuseAddress(true);
             HTTP_PORT = socket.getLocalPort();
             URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+            LIGHT_SCHEMA_CHANGE_URI = "http://localhost:" + HTTP_PORT + "/api/enable_light_schema_change/"
+                    + DB_NAME + "/" + TABLE_NAME;
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {

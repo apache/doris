@@ -110,4 +110,25 @@ public class TableSchemaAction extends RestBaseController {
 
         return ResponseEntityBuilder.ok(resultMap);
     }
+
+    @RequestMapping(path = "/api/enable_light_schema_change/{" + DB_KEY
+                    + "}/{" + TABLE_KEY + "}", method = { RequestMethod.GET })
+    public Object columnChangeCanSync(
+            @PathVariable(value = DB_KEY) String dbName,
+            @PathVariable(value = TABLE_KEY) String tableName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        String fullDbName = getFullDbName(dbName);
+        OlapTable table;
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+        if (!table.getUseLightSchemaChange()) {
+            return ResponseEntityBuilder.okWithCommonError("table " + tableName + " disable light schema change");
+        }
+        return ResponseEntityBuilder.ok();
+    }
 }

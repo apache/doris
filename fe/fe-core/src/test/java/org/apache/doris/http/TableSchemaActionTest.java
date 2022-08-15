@@ -48,4 +48,19 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
         // k1, k2
         Assert.assertEquals(2, propArray.size());
     }
+
+    @Test
+    public void testEnableLightSchemaChange() throws IOException {
+        Request request = new Request.Builder()
+                .get()
+                .addHeader("Authorization", rootAuth)
+                .url(LIGHT_SCHEMA_CHANGE_URI)
+                .build();
+        Response response = networkClient.newCall(request).execute();
+        Assert.assertTrue(response.isSuccessful());
+        String respStr = response.body().string();
+        Assert.assertNotNull(respStr);
+        JSONObject object = (JSONObject) JSONValue.parse(respStr);
+        Assert.assertEquals(0, (long) object.get("code"));
+    }
 }
