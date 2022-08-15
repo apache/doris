@@ -140,7 +140,7 @@ Status VArrowScanner::_next_arrow_batch() {
 Status VArrowScanner::_init_arrow_batch_if_necessary() {
     // 1. init batch if first time
     // 2. reset reader if end of file
-    Status status;
+    Status status = Status::OK();
     if (_scanner_eof) {
         return Status::EndOfFile("EOF");
     }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
@@ -67,7 +67,7 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
     public Rule toRule(RuleType ruleType, RulePromise rulePromise) {
         return new Rule(ruleType, pattern, rulePromise) {
             @Override
-            public List<Plan> transform(Plan originPlan, PlannerContext context) {
+            public List<Plan> transform(Plan originPlan, CascadesContext context) {
                 MatchingContext<INPUT_TYPE> matchingContext =
                         new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
                 OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);

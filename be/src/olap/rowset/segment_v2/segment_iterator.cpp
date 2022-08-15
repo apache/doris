@@ -197,6 +197,9 @@ Status SegmentIterator::_init(bool is_vec) {
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
         _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
+        VLOG_DEBUG << "read on segment: " << segment_id() << ", delete bitmap cardinality: "
+                   << _opts.delete_bitmap[segment_id()]->cardinality() << ", "
+                   << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
     }
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
@@ -908,10 +911,6 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
-                current_columns[cid]->set_date_v2_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIMEV2) {
-                current_columns[cid]->set_datetime_v2_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }

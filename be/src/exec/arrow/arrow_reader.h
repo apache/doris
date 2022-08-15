@@ -100,6 +100,7 @@ public:
     int get_cloumn_index(std::string column_name);
 
     void prefetch_batch();
+    bool is_case_sensitive() { return _case_sensitive; }
 
 protected:
     virtual Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
@@ -126,7 +127,7 @@ protected:
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
     std::thread _thread;
-    bool _caseSensitive;
+    bool _case_sensitive;
 };
 
 } // namespace doris

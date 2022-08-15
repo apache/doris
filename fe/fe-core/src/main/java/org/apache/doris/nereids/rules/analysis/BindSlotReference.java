@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -29,7 +30,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultSubExprRewriter;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -40,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -50,8 +54,12 @@ import java.util.stream.Stream;
 public class BindSlotReference implements AnalysisRuleFactory {
     private final Optional<Scope> outerScope;
 
+    public BindSlotReference() {
+        this(Optional.empty());
+    }
+
     public BindSlotReference(Optional<Scope> outputScope) {
-        this.outerScope = outputScope;
+        this.outerScope = Objects.requireNonNull(outputScope, "outerScope can not be null");
     }
 
     private Scope toScope(List<Slot> slots) {
@@ -66,43 +74,62 @@ public class BindSlotReference implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
-                logicalProject().then(project -> {
+                logicalProject().thenApply(ctx -> {
+                    LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundSlots =
-                            bind(project.getProjects(), project.children(), project);
+                            bind(project.getProjects(), project.children(), project, ctx.cascadesContext);
                     return new LogicalProject<>(flatBoundStar(boundSlots), project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
-                logicalFilter().then(filter -> {
-                    Expression boundPredicates = bind(filter.getPredicates(), filter.children(), filter);
+                logicalFilter().thenApply(ctx -> {
+                    LogicalFilter<GroupPlan> filter = ctx.root;
+                    Expression boundPredicates = bind(filter.getPredicates(), filter.children(),
+                            filter, ctx.cascadesContext);
                     return new LogicalFilter<>(boundPredicates, filter.child());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
-                logicalJoin().then(join -> {
+                logicalJoin().thenApply(ctx -> {
+                    LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
                     Optional<Expression> cond = join.getCondition()
-                            .map(expr -> bind(expr, join.children(), join));
+                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
                     return new LogicalJoin<>(join.getJoinType(), cond, join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
-                logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressions(), agg.children(), agg);
-                    List<NamedExpression> output = bind(agg.getOutputExpressions(), agg.children(), agg);
+                logicalAggregate().thenApply(ctx -> {
+                    LogicalAggregate<GroupPlan> agg = ctx.root;
+                    List<Expression> groupBy =
+                            bind(agg.getGroupByExpressions(), agg.children(), agg, ctx.cascadesContext);
+                    List<NamedExpression> output =
+                            bind(agg.getOutputExpressions(), agg.children(), agg, ctx.cascadesContext);
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
-                logicalSort().then(sort -> {
+                logicalSort().thenApply(ctx -> {
+                    LogicalSort<GroupPlan> sort = ctx.root;
                     List<OrderKey> sortItemList = sort.getOrderKeys()
                             .stream()
                             .map(orderKey -> {
-                                Expression item = bind(orderKey.getExpr(), sort.children(), sort);
+                                Expression item = bind(orderKey.getExpr(), sort.children(), sort, ctx.cascadesContext);
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
 
                     return new LogicalSort<>(sortItemList, sort.child());
                 })
+            ),
+
+            // this rewrite is necessary because we should replace the logicalProperties which refer the child
+            // unboundLogicalProperties to a new LogicalProperties. This restriction is because we move the
+            // analysis stage after build the memo, and cause parent's plan can not update logical properties
+            // when the children are changed. we should discuss later and refactor it.
+            RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
+                logicalSubQueryAlias().then(alias -> alias.withChildren(ImmutableList.of(alias.child())))
+            ),
+            RuleType.BINDING_LIMIT_SLOT.build(
+                logicalLimit().then(limit -> limit.withChildren(ImmutableList.of(limit.child())))
             )
         );
     }
@@ -119,24 +146,25 @@ public class BindSlotReference implements AnalysisRuleFactory {
             }).collect(Collectors.toList());
     }
 
-    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs, Plan plan) {
+    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs, Plan plan,
+            CascadesContext cascadesContext) {
         return exprList.stream()
-            .map(expr -> bind(expr, inputs, plan))
+            .map(expr -> bind(expr, inputs, plan, cascadesContext))
             .collect(Collectors.toList());
     }
 
-    private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan) {
+    private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan, CascadesContext cascadesContext) {
         List<Slot> boundedSlots = inputs.stream()
                 .flatMap(input -> input.getOutput().stream())
                 .collect(Collectors.toList());
-        return (E) new SlotBinder(toScope(boundedSlots), plan).bind(expr);
+        return (E) new SlotBinder(toScope(boundedSlots), plan, cascadesContext).bind(expr);
     }
 
     private class SlotBinder extends DefaultSubExprRewriter<Void> {
         private final Plan plan;
 
-        public SlotBinder(Scope scope, Plan plan) {
-            super(scope);
+        public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {
+            super(scope, cascadesContext);
             this.plan = plan;
         }
 

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
@@ -34,30 +35,36 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Physical sort plan.
+ * Physical top-N plan.
  */
-public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements TopN {
 
-    private final List<OrderKey> orderKeys;
+    private final int limit;
+    private final int offset;
 
-
-    public PhysicalHeapSort(List<OrderKey> orderKeys,
+    public PhysicalTopN(List<OrderKey> orderKeys, int limit, int offset,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(orderKeys, Optional.empty(), logicalProperties, child);
+        this(orderKeys, limit, offset, Optional.empty(), logicalProperties, child);
     }
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalHeapSort(List<OrderKey> orderKeys,
+    public PhysicalTopN(List<OrderKey> orderKeys, int limit, int offset,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_SORT, groupExpression, logicalProperties, child);
-        this.orderKeys = orderKeys;
+        super(PlanType.PHYSICAL_TOP_N, orderKeys, groupExpression, logicalProperties, child);
+        Objects.requireNonNull(orderKeys, "orderKeys should not be null in PhysicalTopN.");
+        this.limit = limit;
+        this.offset = offset;
     }
 
-    public List<OrderKey> getOrderKeys() {
-        return orderKeys;
+    public int getLimit() {
+        return limit;
+    }
+
+    public int getOffset() {
+        return offset;
     }
 
     @Override
@@ -68,18 +75,21 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalHeapSort that = (PhysicalHeapSort) o;
-        return Objects.equals(orderKeys, that.orderKeys);
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalTopN<?> that = (PhysicalTopN<?>) o;
+        return limit == that.limit && offset == that.offset;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderKeys);
+        return Objects.hash(super.hashCode(), limit, offset);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalHeapSort((PhysicalHeapSort<Plan>) this, context);
+        return visitor.visitPhysicalTopN((PhysicalTopN<Plan>) this, context);
     }
 
     @Override
@@ -92,22 +102,24 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalHeapSort<>(orderKeys, logicalProperties, children.get(0));
+        return new PhysicalTopN<>(orderKeys, limit, offset, logicalProperties, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHeapSort<>(orderKeys, groupExpression, logicalProperties, child());
+        return new PhysicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHeapSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
+        return new PhysicalTopN<>(orderKeys, limit, offset, Optional.empty(), logicalProperties.get(), child());
     }
 
     @Override
     public String toString() {
-        return "PhysicalHeapSort ("
-                + StringUtils.join(orderKeys, ", ") + ")";
+        return "PhysicalTopN ("
+                + "limit=" + limit
+                + ", offset=" + offset
+                + ", " + StringUtils.join(orderKeys, ", ") + ")";
     }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType.RuleTypeClass;
@@ -67,5 +67,5 @@ public abstract class Rule {
         return getRuleType().toString();
     }
 
-    public abstract List<Plan> transform(Plan node, PlannerContext context) throws TransformException;
+    public abstract List<Plan> transform(Plan node, CascadesContext context) throws TransformException;
 }

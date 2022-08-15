@@ -58,8 +58,10 @@ RowBlockV2::~RowBlockV2() {
     delete[] _selection_vector;
 }
 
+// RowBlockV2 has more columns than RowBlockV1, so that should use rowblock v1's columnids.
+// It means will omit some columns.
 Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
-    for (auto cid : _schema.column_ids()) {
+    for (auto cid : dst->row_block_info().column_ids) {
         bool is_nullable = _schema.column(cid)->is_nullable();
         if (is_nullable) {
             for (uint16_t i = 0; i < _selected_size; ++i) {

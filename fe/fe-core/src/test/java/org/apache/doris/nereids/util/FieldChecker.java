@@ -15,22 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.junit.jupiter.api.Assertions;
 
-/**
- * Implementation rule that convert logical sort to physical sort.
- */
-public class LogicalSortToPhysicalHeapSort extends OneImplementationRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalSort().then(sort -> new PhysicalHeapSort<>(
-                sort.getOrderKeys(),
-                sort.getLogicalProperties(),
-                sort.child())
-            ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_HEAP_SORT_RULE);
+import java.lang.reflect.Field;
+import java.util.function.Predicate;
+
+public class FieldChecker {
+    public static <T> Predicate<T> check(String fieldName, Object value) {
+        return (o) -> {
+            Field field;
+            try {
+                field = o.getClass().getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            field.setAccessible(true);
+            try {
+                Assertions.assertEquals(value, field.get(o));
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+            return true;
+        };
     }
 }
