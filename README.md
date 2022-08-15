@@ -40,7 +40,7 @@ Based on this, Apache Doris can better meet the scenarios of report analysis, ad
 
 🎉 Version 1.1.1 released now! Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.1.1) here. 
 
-👀 Hava a look at the 🔗[Officical Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
+👀 Have a look at the 🔗[Official Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
 
 ## 📈 Usage Scenarios
 
@@ -113,7 +113,7 @@ The Doris query engine is vectorized, and all memory structures can be laid out 
 
 Apache Doris uses Adaptive Query Execution technology, which can dynamically adjust the execution plan based on runtime statistics, such as runtime filter technology to generate filters to push to the probe side at runtime and to automatically penetrate the filters to the probe side which drastically reduces the amount of data in the probe and speeds up join performance. Doris' runtime filter supports In/Min/Max/Bloom filter.
 
-### 🚅 Query Optimizier
+### 🚅 Query Optimizer
 
 In terms of the optimizer, Doris uses a combination of CBO and RBO, with RBO supporting constant folding, subquery rewriting, predicate pushdown, etc., and CBO supporting Join Reorder. CBO is still under continuous optimization, mainly focusing on more accurate statistical information collection and derivation, more accurate cost model prediction, etc.
 
