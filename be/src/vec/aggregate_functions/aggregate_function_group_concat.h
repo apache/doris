@@ -59,6 +59,7 @@ struct AggregateFunctionGroupConcatData {
     }
 
     std::string get() const { return data; }
+    bool is_null() const { return !inited; }
 
     void write(BufferWritable& buf) const {
         write_binary(data, buf);
@@ -132,8 +133,15 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        std::string result = this->data(place).get();
-        static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        bool is_null = this->data(place).is_null();
+        std::string result = is_null ? "" : this->data(place).get();
+        if (to.is_nullable()) {
+            static_cast<ColumnNullable&>(to).get_null_map_data().push_back(is_null);
+            static_cast<ColumnNullable&>(to).get_nested_column().insert_data(result.c_str(),
+                                                                             result.length());
+        } else {
+            static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        }
     }
 };
 
