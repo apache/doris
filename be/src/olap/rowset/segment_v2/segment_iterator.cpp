@@ -879,6 +879,18 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
     _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;
 
     // evaluate delete condition
+    {
+        std::set<const ColumnPredicate*> predicates;
+        _opts.delete_condition_predicates->get_all_column_predicates(predicates);
+        for (auto predicate : predicates) {
+            auto column_id = predicate->column_id();
+            auto& column = _current_return_columns[column_id];
+            if (predicate->type() == PredicateType::LT || predicate->type() == PredicateType::LE ||
+                predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
+                column->convert_dict_codes_if_necessary();
+            }
+        }
+    }
     original_size = *selected_size_ptr;
     _opts.delete_condition_predicates->evaluate(_current_return_columns, vec_sel_rowid_idx,
                                                 selected_size_ptr);

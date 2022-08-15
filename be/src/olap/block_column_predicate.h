@@ -44,16 +44,22 @@ public:
 
     virtual void get_all_column_ids(std::set<ColumnId>& column_id_set) const = 0;
 
-    virtual void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const {};
-    virtual void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const {};
-    virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const {};
- 
-    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {};
+    virtual void get_all_column_predicates(std::set<const ColumnPredicate*>&) const = 0;
+
+    virtual void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                          uint16_t* selected_size) const {};
+    virtual void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
+                              uint16_t selected_size, bool* flags) const {};
+    virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
+                             uint16_t selected_size, bool* flags) const {};
+
+    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size,
+                              bool* flags) const {};
 };
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
 public:
-    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre):_predicate(pre) {};
+    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {};
 
     void evaluate(RowBlockV2* block, uint16_t* selected_size) const override;
     void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
@@ -63,10 +69,17 @@ public:
         column_id_set.insert(_predicate->column_id());
     };
 
-    void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const override;
-    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
-    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
- 
+    void get_all_column_predicates(std::set<const ColumnPredicate*>& predicates) const override {
+        predicates.insert(_predicate);
+    }
+
+    void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                  uint16_t* selected_size) const override;
+    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                      bool* flags) const override;
+    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                     bool* flags) const override;
+
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
 
 private:
@@ -87,15 +100,19 @@ public:
         _block_column_predicate_vec.push_back(column_predicate);
     }
 
-    size_t num_of_column_predicate() const {
-        return _block_column_predicate_vec.size();
-    }
+    size_t num_of_column_predicate() const { return _block_column_predicate_vec.size(); }
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         for (auto child_block_predicate : _block_column_predicate_vec) {
             child_block_predicate->get_all_column_ids(column_id_set);
         }
     };
+
+    void get_all_column_predicates(std::set<const ColumnPredicate*>& predicates) const override {
+        for (auto child_block_predicate : _block_column_predicate_vec) {
+            child_block_predicate->get_all_column_predicates(predicates);
+        }
+    }
 
 protected:
     std::vector<const BlockColumnPredicate*> _block_column_predicate_vec;
@@ -111,9 +128,12 @@ public:
     void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
     void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
 
-    void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const override;
-    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
-    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+    void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                  uint16_t* selected_size) const override;
+    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                      bool* flags) const override;
+    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                     bool* flags) const override;
 
     // note(wb) we didnt't impelment evaluate_vec method here, because storage layer only support AND predicate now;
 };
@@ -128,12 +148,14 @@ public:
     // 2.Evaluate OR SEMANTICS in flags use 1 result to get proper select flags
     void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
 
-    void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const override;
-    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
-    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+    void evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+                  uint16_t* selected_size) const override;
+    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                      bool* flags) const override;
+    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                     bool* flags) const override;
 
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
-
 };
 
 } //namespace doris
