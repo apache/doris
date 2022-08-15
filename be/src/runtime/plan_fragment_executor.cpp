@@ -688,6 +688,7 @@ void PlanFragmentExecutor::close() {
                   << print_id(_runtime_state->fragment_instance_id());
     }
 
+    profile()->add_to_span();
     _closed = true;
 }
 
