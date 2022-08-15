@@ -118,7 +118,7 @@ public class ArrayType extends Type {
             return false;
         }
         ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType);
+        return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
     }
 
     public static boolean canCastTo(ArrayType type, ArrayType targetType) {
