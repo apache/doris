@@ -49,7 +49,7 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
     if (config::file_cache_type.empty()) {
         segment->_file_reader = std::move(file_reader);
     } else {
-        io::FileReaderSPtr cache_reader = FileCacheManager::instance()->new_file_cache(
+        io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
         segment->_file_reader = std::move(cache_reader);
