@@ -391,7 +391,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        return Type.DOUBLE;
+        return Type.VARCHAR;
     }
 
     @Override
