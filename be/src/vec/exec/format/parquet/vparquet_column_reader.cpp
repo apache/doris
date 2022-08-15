@@ -84,7 +84,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, const DataT
     WhichDataType which_type(type);
     switch (_metadata->t_metadata().type) {
     case tparquet::Type::INT32: {
-        _chunk_reader->decode_values(doris_column, read_values);
+        _chunk_reader->decode_values(doris_column, type, read_values);
         return Status::OK();
     }
     case tparquet::Type::INT64: {
