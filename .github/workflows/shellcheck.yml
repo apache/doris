@@ -30,6 +30,9 @@ jobs:
           submodules: recursive
 
       - name: Run ShellCheck
-        uses: ./.github/actions/action-shellcheck
+        uses: ./.github/actions/action-sh-checker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          ignore_paths: .github tools/ssb-tools tools/tpch-tools tools/clickbench-tools extension
+          sh_checker_comment: true
+          sh_checker_exclude: .github tools/ssb-tools tools/tpch-tools tools/clickbench-tools extension
