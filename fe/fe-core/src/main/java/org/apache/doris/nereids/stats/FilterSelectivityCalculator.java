@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -104,6 +105,11 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
 
     @Override
     public Double visitLessThan(LessThan lessThan, Void context) {
+        return DEFAULT_SELECTIVITY;
+    }
+
+    @Override
+    public Double visitInPredicate(InPredicate inPredicate, Void context) {
         return DEFAULT_SELECTIVITY;
     }
 
