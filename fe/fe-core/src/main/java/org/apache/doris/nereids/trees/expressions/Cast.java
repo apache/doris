@@ -34,9 +34,18 @@ public class Cast extends Expression implements BinaryExpression {
         super(child, new StringLiteral(type));
     }
 
+    public Cast(Expression child, StringLiteral type) {
+        super(child, type);
+    }
+
+    @Override
+    public StringLiteral right() {
+        return (StringLiteral) BinaryExpression.super.right();
+    }
+
     @Override
     public DataType getDataType() {
-        StringLiteral type = (StringLiteral) right();
+        StringLiteral type = right();
         return DataType.convertFromString(type.getValue());
     }
 
@@ -59,7 +68,7 @@ public class Cast extends Expression implements BinaryExpression {
 
     @Override
     public String toSql() throws UnboundException {
-        return "CAST(" + left().toSql() + " AS " + ((StringLiteral) right()).getValue() + ")";
+        return "CAST(" + left().toSql() + " AS " + right().getValue() + ")";
     }
 
     @Override

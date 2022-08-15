@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompound
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -144,10 +145,26 @@ public class ExpressionRewriteTest {
     public void testBetweenToCompoundRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE, SimplifyNotExprRule.INSTANCE));
 
-        assertRewrite(" a between c and d", "(a >= c) and (a <= d)");
-        assertRewrite(" a not between c and d)", "(a < c) or (a > d)");
+        assertRewrite("a between c and d", "(a >= c) and (a <= d)");
+        assertRewrite("a not between c and d)", "(a < c) or (a > d)");
 
     }
+
+    @Test
+    public void testSimplifyCastRule() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
+
+        // deduplicate
+        assertRewrite("CAST(1 AS int)", "1");
+        assertRewrite("CAST(\"str\" AS string)", "\"str\"");
+        assertRewrite("CAST(CAST(1 AS int) AS int)", "1");
+
+        // deduplicate inside
+        assertRewrite("CAST(CAST(\"str\" AS string) AS double)", "CAST(\"str\" AS double)");
+        assertRewrite("CAST(CAST(1 AS int) AS double)", "CAST(1 AS double)");
+
+    }
+
 
     private void assertRewrite(String expression, String expected) {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
