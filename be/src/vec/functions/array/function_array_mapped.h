@@ -60,13 +60,15 @@ public:
         }
         const auto* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(typed_column.type).get());
-        return Impl::execute(block, result, data_type_array, *column_array);
+        return Impl::execute(block, arguments, result, data_type_array, *column_array);
     }
-    size_t get_number_of_arguments() const override { return 1; }
+
+    bool is_variadic() const override { return Impl::_is_variadic(); }
+
+    size_t get_number_of_arguments() const override { return Impl::_get_number_of_arguments(); }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        const DataTypeArray* data_type_array =
-                static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
-        return Impl::get_return_type(data_type_array);
+        return Impl::get_return_type(arguments);
     }
 };
 
