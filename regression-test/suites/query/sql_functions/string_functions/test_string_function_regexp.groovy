@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_string_function_regexp", "query") {
+suite("test_string_function_regexp", "query,p0") {
     sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
@@ -49,5 +49,25 @@ suite("test_string_function_regexp", "query") {
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"
 
     sql "DROP TABLE ${tbName};"
+
+    def tableName= "test"
+    sql "use test_query_db"
+    //regexp
+    qt_sql "select * from ${tableName} where lower(k7) regexp'.*o4\$' order by k1, k2, k3, k4"
+    qt_sql "select * from ${tableName} where lower(k7) regexp'[yun]+nk' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) regexp'^[a-z]+[0-9]?\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) regexp'^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) regexp'wang(juoo|yu)[0-9]+\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) regexp'^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
+    qt_sql"select count(*) from ${tableName} where k1<10 and lower(k6) regexp '^t'"
+
+    //not regexp
+    qt_sql"select * from ${tableName} where lower(k7) not regexp'.*o4\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) not regexp'[yun]+nk' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) not regexp'wang(juoo|yu)[0-9]+\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-z]+[0-9]?\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
+    qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
+    qt_sql"select count(*) from ${tableName} where k1<10 and lower(k6) not regexp '^t'"
 }
 

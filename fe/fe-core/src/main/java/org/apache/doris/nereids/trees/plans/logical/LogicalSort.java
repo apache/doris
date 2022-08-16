@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
@@ -41,13 +42,9 @@ import java.util.Optional;
  * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].
  * OrderKey: Contains order expression information and sorting method. Default is ascending.
  */
-public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-
-    // Default offset is 0.
-    private int offset = 0;
+public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Sort {
 
     private final List<OrderKey> orderKeys;
-
 
     public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
         this(orderKeys, Optional.empty(), Optional.empty(), child);
@@ -71,14 +68,6 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return orderKeys;
     }
 
-    public int getOffset() {
-        return offset;
-    }
-
-    public void setOffset(int offset) {
-        this.offset = offset;
-    }
-
     @Override
     public String toString() {
         return "LogicalSort (" + StringUtils.join(orderKeys, ", ") + ")";
@@ -93,12 +82,12 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
             return false;
         }
         LogicalSort that = (LogicalSort) o;
-        return offset == that.offset && Objects.equals(orderKeys, that.orderKeys);
+        return Objects.equals(orderKeys, that.orderKeys);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderKeys, offset);
+        return Objects.hash(orderKeys);
     }
 
 

@@ -15,22 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.properties.OrderKey;
+
+import java.util.List;
 
 /**
- * Implementation rule that convert logical sort to physical sort.
+ * Common interface for logical/physical sort.
  */
-public class LogicalSortToPhysicalHeapSort extends OneImplementationRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalSort().then(sort -> new PhysicalHeapSort<>(
-                sort.getOrderKeys(),
-                sort.getLogicalProperties(),
-                sort.child())
-            ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_HEAP_SORT_RULE);
-    }
+public interface Sort {
+    List<OrderKey> getOrderKeys();
 }
