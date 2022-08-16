@@ -67,7 +67,8 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     es_query_dsl.SetObject();
     // generate the filter clause
     rapidjson::Document scratch_document;
-    // use fe generate dsl.
+    rapidjson::Value query_node(rapidjson::kObjectType);
+    // use fe generate dsl, it has to be outside the if avoid valid.
     rapidjson::Document fe_query_dsl;
     if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
         auto query_dsl = properties.at(ESScanReader::KEY_QUERY_DSL);
@@ -75,7 +76,6 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
                                fe_query_dsl.Parse(query_dsl.c_str(), query_dsl.length()),
                                allocator);
     } else {
-        rapidjson::Value query_node(rapidjson::kObjectType);
         query_node.SetObject();
         BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
         // note: add `query` for this value....
