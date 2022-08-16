@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -442,6 +441,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addExprIdSlotRefPair(p.getExprId(), ref);
         });
 
+        if (project.child(0) instanceof PhysicalHashJoin) {
+            return inputFragment;
+        }
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))

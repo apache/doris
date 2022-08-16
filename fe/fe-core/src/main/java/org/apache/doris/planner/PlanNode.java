@@ -551,6 +551,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         toThrift(msg);
         container.addToNodes(msg);
+        if (projectList != null) {
+            for (Expr expr : projectList) {
+                msg.addToProjections(expr.treeToThrift());
+            }
+        }
+        if (outputTupleDesc != null) {
+            msg.setOutputTupleId(outputTupleDesc.getId().asInt());
+        }
         if (this instanceof ExchangeNode) {
             msg.num_children = 0;
             return;
@@ -559,14 +567,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             for (PlanNode child : children) {
                 child.treeToThriftHelper(container);
             }
-        }
-        if (projectList != null) {
-            for (Expr expr : projectList) {
-                msg.addToProjections(expr.treeToThrift());
-            }
-        }
-        if (outputTupleDesc != null) {
-            msg.setOutputTupleId(outputTupleDesc.getId().asInt());
         }
     }
 
@@ -1029,5 +1029,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setProjectList(List<Expr> projectList) {
         this.projectList = projectList;
+    }
+
+    public List<Expr> getProjectList() {
+        return projectList;
     }
 }
