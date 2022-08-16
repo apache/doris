@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
 
@@ -48,6 +50,11 @@ public abstract class CompoundPredicate extends Expression implements BinaryExpr
     @Override
     public boolean nullable() throws UnboundException {
         return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return BooleanType.INSTANCE;
     }
 
     @Override
