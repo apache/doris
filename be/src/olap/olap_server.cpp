@@ -760,11 +760,12 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
             std::vector<Path> seg_file_paths;
             if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
                 for (Path seg_file : seg_file_paths) {
-                    if (ends_with(seg_file, ".dat")) {
+                    std::string seg_filename = seg_file.native();
+                    if (ends_with(seg_filename, ".dat")) {
                         continue;
                     }
                     std::stringstream ss;
-                    ss << tablet->tablet_path() << "/" << seg_file;
+                    ss << tablet->tablet_path() << "/" << seg_filename;
                     std::string cache_path = ss.str();
                     if (FileCacheManager::instance()->exist(cache_path)) {
                         continue;
@@ -773,7 +774,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()) {
                         for (Path cache_file_name : cache_file_names) {
                             std::stringstream file_ss;
-                            file_ss << cache_path << "/" << cache_file_name;
+                            file_ss << cache_path << "/" << cache_file_name.native();
                             std::string done_file_path = file_ss.str();
                             if (done_file_path.find("_DONE") == std::string::npos) {
                                 continue;
@@ -782,9 +783,14 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                             if (!FileUtils::mtime(cache_path, &m_time).ok()) {
                                 continue;
                             }
-                            std::string cache_file_path = StringReplace(done_file_path, "_DONE", "", true)
-                            LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
-                            // FileCacheManager::instance()->remove_file_cache(cache_path);
+                            if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
+                                continue;
+                            }
+                            std::string cache_file_path = StringReplace(
+                                    done_file_path, "_DONE", "", true);
+                            LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path
+                                      << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
+                            FileCacheManager::instance()->remove_file_cache(cache_path);
                         }
                     }
                 }
