@@ -2154,7 +2154,10 @@ public class Catalog {
             alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
         } else if (type == JobType.DECOMMISSION_BACKEND) {
             alterJobs = this.getClusterHandler().unprotectedGetAlterJobs();
+            // since decommission job is no longer supported, we should clear all jobs here to be compatible with newer version
+            alterJobs.clear();
             finishedOrCancelledAlterJobs = this.getClusterHandler().unprotectedGetFinishedOrCancelledAlterJobs();
+            finishedOrCancelledAlterJobs.clear();
         }
 
         // alter jobs
