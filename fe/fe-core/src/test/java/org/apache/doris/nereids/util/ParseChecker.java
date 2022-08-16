@@ -15,21 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.PatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
+import org.apache.doris.nereids.parser.NereidsParser;
 
-/**
- * Base class to check SQL parsing result.
- */
-public abstract class ParserTestBase implements PatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
-    }
+public abstract class ParseChecker {
+    protected static final NereidsParser PARSER = new NereidsParser();
+    protected final String sql;
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
+    public ParseChecker(String sql) {
+        this.sql = sql;
     }
 }

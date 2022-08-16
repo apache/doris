@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
 
@@ -28,7 +29,9 @@ public class ExpressionParserTest extends ParserTestBase {
 
     /**
      * This method is deprecated.
-     * Please use utility functions in {@link ParserTestBase}.
+     * <p>
+     * Please use utility functions `parsePlan `in {@link ParserTestBase}
+     * to get {@link org.apache.doris.nereids.util.PlanParseChecker}.
      */
     @Deprecated
     private void assertSql(String sql) {
@@ -37,7 +40,9 @@ public class ExpressionParserTest extends ParserTestBase {
 
     /**
      * This method is deprecated.
-     * Please use utility functions in {@link ParserTestBase}.
+     * <p>
+     * Please use utility functions `parseExpression` in {@link ParserTestBase}
+     * to get {@link org.apache.doris.nereids.util.PlanParseChecker}.
      */
     @Deprecated
     private void assertExpr(String expr) {
@@ -53,9 +58,14 @@ public class ExpressionParserTest extends ParserTestBase {
 
     @Test
     public void testExprBetweenPredicate() {
-        exprSuccess("c BETWEEN a AND b",
-                new Between(new UnboundSlot("c"), new UnboundSlot("a"),
-                        new UnboundSlot("b")));
+        parseExpression("c BETWEEN a AND b")
+                .assertEquals(
+                        new Between(
+                                new UnboundSlot("c"),
+                                new UnboundSlot("a"),
+                                new UnboundSlot("b")
+                        )
+                );
     }
 
     @Test
@@ -114,7 +124,10 @@ public class ExpressionParserTest extends ParserTestBase {
         String subtract = "3 - 2";
         assertExpr(subtract);
 
-        exprFailure("3 += 2", "extraneous input '=' expecting {'(");
+        parseExpression("3 += 2")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("extraneous input '=' expecting {'(");
+
     }
 
     @Test

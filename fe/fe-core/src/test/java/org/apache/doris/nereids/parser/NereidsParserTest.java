@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -59,14 +60,17 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testErrorListener() {
-        planFailure("select * from t1 where a = 1 illegal_symbol",
-                "extraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)");
+        parsePlan("select * from t1 where a = 1 illegal_symbol")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n");
     }
 
     @Test
     public void testPostProcessor() {
-        planSuccess("select `AD``D` from t1 where a = 1",
-                logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName())));
+        parsePlan("select `AD``D` from t1 where a = 1")
+                .matchesFromRoot(
+                        logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
+                );
     }
 
     @Test

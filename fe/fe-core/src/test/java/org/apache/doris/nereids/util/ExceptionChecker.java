@@ -15,21 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.PatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
+import org.junit.jupiter.api.Assertions;
+
+import java.util.function.Function;
 
 /**
- * Base class to check SQL parsing result.
+ * Helper to check exception message.
  */
-public abstract class ParserTestBase implements PatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
+public class ExceptionChecker {
+    private final Throwable exception;
+
+    public ExceptionChecker(Throwable exception) {
+        this.exception = exception;
     }
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
+    public ExceptionChecker assertMessageEquals(String message) {
+        Assertions.assertEquals(message, exception.getMessage());
+        return this;
+    }
+
+    public ExceptionChecker assertMessageContains(String context) {
+        Assertions.assertTrue(exception.getMessage().contains(context));
+        return this;
+    }
+
+    public ExceptionChecker assertWith(Function<Throwable, Boolean> asserter) {
+        Assertions.assertTrue(asserter.apply(exception));
+        return this;
     }
 }

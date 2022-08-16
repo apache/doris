@@ -19,11 +19,13 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Supplier;
 import org.junit.jupiter.api.Assertions;
 
 /**
@@ -65,9 +67,19 @@ public class PlanChecker {
         return this;
     }
 
+    public void matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpression()).iterator().hasNext());
+    }
+
     public void matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
-        Assertions.assertTrue(GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern),
+        assertMatches(memo, () -> GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+    }
+
+    private void assertMatches(Memo memo, Supplier<Boolean> asserter) {
+        Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
                         + memo.getRoot().getLogicalExpression().getPlan().treeString()
                         + "\n"

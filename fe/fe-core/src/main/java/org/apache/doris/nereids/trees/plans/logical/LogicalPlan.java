@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
