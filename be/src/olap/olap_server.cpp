@@ -34,6 +34,7 @@
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "util/time.h"
+#include "util/file_utils.h"
 
 using std::string;
 
@@ -767,13 +768,25 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     if (FileCacheManager::instance()->exist(cache_path)) {
                         continue;
                     }
-                    time_t m_time;
-                    if (!FileUtils::mtime(cache_path, &m_time).ok()) {
-                        continue;
+                    std::vector<Path> cache_file_names;
+                    if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()) {
+                        for (Path cache_file_name : cache_file_names) {
+                            std::stringstream file_ss;
+                            file_ss << cache_path << "/" << cache_file_name;
+                            std::string done_file_path = file_ss.str();
+                            if (done_file_path.find("_DONE") == std::string::npos) {
+                                continue;
+                            }
+                            time_t m_time;
+                            if (!FileUtils::mtime(cache_path, &m_time).ok()) {
+                                continue;
+                            }
+                            std::string cache_file_path;
+                            StringReplace(done_file_path, "_DONE", "", true, &cache_file_path)
+                            LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
+                            // FileCacheManager::instance()->remove_file_cache(cache_path);
+                        }
                     }
-                    LOG(INFO) << "Get stat failed for update time: " << m_time;
-                    LOG(INFO) << "Remove timeout cache_path: " << cache_path;
-                    // FileCacheManager::instance()->remove_file_cache(cache_path);
                 }
             }
         }
