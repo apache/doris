@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateType;
 
 /**
  * Interval for timestamp calculation.
@@ -29,6 +32,11 @@ public class IntervalLiteral extends Expression {
     public IntervalLiteral(Expression value, String desc) {
         this.value = value;
         this.timeUnit = TimeUnit.valueOf(desc.toUpperCase());
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return DateType.INSTANCE;
     }
 
     public Expression value() {

@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +48,6 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
 
     public TimestampArithmetic(Operator op, Expression e1, Expression e2, TimeUnit timeUnit, boolean intervalFirst) {
         this(null, op, e1, e2, timeUnit, intervalFirst);
-
     }
 
     /**
@@ -76,6 +78,11 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
     public Expression withFuncName(String funcName) {
         return new TimestampArithmetic(funcName, this.op, children.get(0), children.get(1), this.timeUnit,
                 this.intervalFirst);
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return DateTimeType.INSTANCE;
     }
 
     public String getFuncName() {
