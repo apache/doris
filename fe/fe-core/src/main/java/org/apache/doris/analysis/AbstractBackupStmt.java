@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -61,7 +61,7 @@ public class AbstractBackupStmt extends DdlStmt {
 
         // user need database level privilege(not table level), because when doing restore operation,
         // the restore table may be newly created, so we can not judge its privileges.
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
                 labelName.getDbName(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }

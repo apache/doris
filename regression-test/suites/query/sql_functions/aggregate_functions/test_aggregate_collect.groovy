@@ -26,16 +26,21 @@ suite("test_aggregate_collect", "query") {
 	        c_int INT,
 	        c_string VARCHAR(10),
           c_date Date,
-          c_decimal DECIMAL(10, 2)
+          c_decimal DECIMAL(10, 2),
+          c_string_not_null VARCHAR(10) NOT NULL
 	    )
 	    DISTRIBUTED BY HASH(c_int) BUCKETS 1
 	    PROPERTIES (
 	      "replication_num" = "1"
 	    ) 
     """
-    sql "INSERT INTO ${tableName} values(1,'hello','2022-07-04',1.23), (2,NULL,NULL,NULL)"
-    sql "INSERT INTO ${tableName} values(1,'hello','2022-07-04',1.23), (2,NULL,NULL,NULL)"
+    sql "INSERT INTO ${tableName} values(1,'hello','2022-07-04',1.23,'hello'), (2,NULL,NULL,NULL,'hello')"
+    sql "INSERT INTO ${tableName} values(1,'hello','2022-07-04',1.23,'hello'), (2,NULL,NULL,NULL,'hello')"
 
     qt_select "select c_int,collect_list(c_string),collect_list(c_date),collect_list(c_decimal) from ${tableName} group by c_int order by c_int"
     qt_select "select c_int,collect_set(c_string),collect_set(c_date),collect_set(c_decimal) from ${tableName} group by c_int order by c_int"
+
+    // test without GROUP BY
+    qt_select "select collect_list(c_string),collect_list(c_string_not_null) from ${tableName}"
+    qt_select "select collect_set(c_string),collect_set(c_string_not_null) from ${tableName}"
 }

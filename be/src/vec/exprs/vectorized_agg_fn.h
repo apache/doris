@@ -20,6 +20,7 @@
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/core/block.h"
+#include "vec/core/sort_description.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -29,12 +30,12 @@ class SlotDescriptor;
 namespace vectorized {
 class AggFnEvaluator {
 public:
-    static Status create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result);
+    static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
+                         AggFnEvaluator** result);
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
                    const SlotDescriptor* intermediate_slot_desc,
-                   const SlotDescriptor* output_slot_desc,
-                   const std::shared_ptr<MemTracker>& mem_tracker);
+                   const SlotDescriptor* output_slot_desc);
 
     void set_timer(RuntimeProfile::Counter* exec_timer, RuntimeProfile::Counter* merge_timer,
                    RuntimeProfile::Counter* expr_timer) {
@@ -57,7 +58,13 @@ public:
     void execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                            Arena* arena = nullptr);
 
+    void execute_batch_add_selected(Block* block, size_t offset, AggregateDataPtr* places,
+                                    Arena* arena = nullptr);
+
     void insert_result_info(AggregateDataPtr place, IColumn* column);
+
+    void insert_result_info_vec(const std::vector<AggregateDataPtr>& place, size_t offset,
+                                IColumn* column, const size_t num_rows);
 
     void reset(AggregateDataPtr place);
 
@@ -78,7 +85,9 @@ private:
 
     void _calc_argment_columns(Block* block);
 
-    DataTypes _argument_types;
+    DataTypes _argument_types_with_sort;
+    DataTypes _real_argument_types;
+
     const TypeDescriptor _return_type;
 
     const SlotDescriptor* _intermediate_slot_desc;
@@ -90,6 +99,8 @@ private:
 
     // input context
     std::vector<VExprContext*> _input_exprs_ctxs;
+
+    SortDescription _sort_description;
 
     DataTypePtr _data_type;
 

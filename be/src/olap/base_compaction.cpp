@@ -49,6 +49,9 @@ Status BaseCompaction::prepare_compact() {
 }
 
 Status BaseCompaction::execute_compact_impl() {
+    if (config::enable_base_compaction_idle_sched) {
+        Thread::set_idle_sched();
+    }
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
@@ -62,6 +65,8 @@ Status BaseCompaction::execute_compact_impl() {
         _tablet->set_clone_occurred(false);
         return Status::OLAPInternalError(OLAP_ERR_BE_CLONE_OCCURRED);
     }
+
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::COMPACTION);
 
     // 2. do base compaction, merge rowsets
     int64_t permits = get_compaction_permits();
@@ -79,16 +84,55 @@ Status BaseCompaction::execute_compact_impl() {
     return Status::OK();
 }
 
+void BaseCompaction::_filter_input_rowset() {
+    // if enable dup key skip big file and no delete predicate
+    // we skip big files too save resources
+    if (!config::enable_dup_key_base_compaction_skip_big_file ||
+        _tablet->keys_type() != KeysType::DUP_KEYS || _tablet->delete_predicates().size() != 0) {
+        return;
+    }
+    int64_t max_size = config::base_compaction_dup_key_max_file_size_mbytes * 1024 * 1024;
+    // first find a proper rowset for start
+    auto rs_iter = _input_rowsets.begin();
+    while (rs_iter != _input_rowsets.end()) {
+        if ((*rs_iter)->rowset_meta()->total_disk_size() >= max_size) {
+            rs_iter = _input_rowsets.erase(rs_iter);
+        } else {
+            break;
+        }
+    }
+}
+
 Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candidate_rowsets_to_base_compaction(&_input_rowsets);
+    std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
+    RETURN_NOT_OK(check_version_continuity(_input_rowsets));
+    RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
+    _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
     }
 
-    std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
-    RETURN_NOT_OK(check_version_continuity(_input_rowsets));
-    RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
+    // If there are delete predicate rowsets in tablet, start_version > 0 implies some rowsets before
+    // delete version cannot apply these delete predicates, which can cause incorrect query result.
+    // So we must abort this base compaction.
+    // A typical scenario is that some rowsets before cumulative point are on remote storage.
+    if (_input_rowsets.front()->start_version() > 0) {
+        bool has_delete_predicate = false;
+        for (const auto& rs : _input_rowsets) {
+            if (rs->rowset_meta()->has_delete_predicate()) {
+                has_delete_predicate = true;
+                break;
+            }
+        }
+        if (has_delete_predicate) {
+            LOG(WARNING)
+                    << "Some rowsets cannot apply delete predicates in base compaction. tablet_id="
+                    << _tablet->tablet_id();
+            return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
+        }
+    }
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
         // the tablet is with rowset: [0-1], [2-y]

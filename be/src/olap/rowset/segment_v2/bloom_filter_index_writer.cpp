@@ -69,7 +69,7 @@ public:
                                         const TypeInfo* type_info)
             : _bf_options(bf_options),
               _type_info(type_info),
-              _pool("BloomFilterIndexWriterImpl"),
+              _pool(),
               _has_null(false),
               _bf_buffer_size(0) {}
 
@@ -175,8 +175,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
         : _bf_options(bf_options),
           _gram_size(gram_size),
           _bf_size(bf_size),
-          _tracker(new MemTracker(-1, "NGramBloomFilterIndexWriterImpl")),
-          _pool(_tracker.get()),
+          _pool(),
           _bf_buffer_size(0),
           _token_extractor(gram_size) {
     BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size);

@@ -19,8 +19,6 @@
 
 #include "common/status.h"
 #include "olap/options.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_tracker_task_pool.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -44,7 +42,7 @@ class FragmentMgr;
 class ResultCache;
 class LoadPathMgr;
 class LoadStreamMgr;
-class MemTracker;
+class MemTrackerLimiter;
 class StorageEngine;
 class MemTrackerTaskPool;
 class PriorityThreadPool;
@@ -115,15 +113,17 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
-    std::shared_ptr<MemTracker> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
-    MemTrackerTaskPool* task_pool_mem_tracker_registry() {
-        return _task_pool_mem_tracker_registry.get();
+    std::shared_ptr<MemTrackerLimiter> process_mem_tracker() { return _process_mem_tracker; }
+    void set_process_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
+        _process_mem_tracker = tracker;
     }
+    std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
+    MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
+    PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
-    PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
@@ -183,11 +183,14 @@ private:
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
+    // The ancestor for all trackers. Every tracker is visible from the process down.
+    // Not limit total memory by process tracker, and it's just used to track virtual memory of process.
+    std::shared_ptr<MemTrackerLimiter> _process_mem_tracker;
     // The ancestor for all querys tracker.
-    std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;
     // The ancestor for all load tracker.
-    std::shared_ptr<MemTracker> _load_pool_mem_tracker = nullptr;
-    std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
+    std::shared_ptr<MemTrackerLimiter> _load_pool_mem_tracker;
+    MemTrackerTaskPool* _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.
@@ -200,10 +203,10 @@ private:
 
     // TODO(cmy): find a better way to unify these 2 pools.
     PriorityThreadPool* _scan_thread_pool = nullptr;
+    PriorityThreadPool* _remote_scan_thread_pool = nullptr;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
-    PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;

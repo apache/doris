@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,6 +36,14 @@ public class SlotReference extends Slot {
     private final List<String> qualifier;
     private final DataType dataType;
     private final boolean nullable;
+
+    public SlotReference(String name, DataType dataType) {
+        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of());
+    }
+
+    public SlotReference(String name, DataType dataType, boolean nullable) {
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of());
+    }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
         this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);
@@ -51,7 +59,6 @@ public class SlotReference extends Slot {
      * @param qualifier slot reference qualifier
      */
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        super(ExpressionType.SLOT_REFERENCE);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
@@ -96,7 +103,8 @@ public class SlotReference extends Slot {
 
     @Override
     public String toString() {
-        return Utils.qualifiedName(qualifier, name + "#" + exprId);
+        // Just return name and exprId, add another method to show fully qualified name when it's necessary.
+        return name + "#" + exprId;
     }
 
     @Override
@@ -109,6 +117,7 @@ public class SlotReference extends Slot {
         }
         SlotReference that = (SlotReference) o;
         return nullable == that.nullable
+                && dataType.equals(that.dataType)
                 && exprId.equals(that.exprId)
                 && name.equals(that.name)
                 && qualifier.equals(that.qualifier);

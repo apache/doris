@@ -55,16 +55,13 @@ static uint32_t to_date_v2_timestamp(const char* date_string) {
 
 class TestNullPredicate : public testing::Test {
 public:
-    TestNullPredicate() : _row_block(nullptr) {
-        _mem_tracker.reset(new MemTracker(-1));
-        _mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    TestNullPredicate() : _row_block(nullptr) { _mem_pool.reset(new MemPool()); }
 
     ~TestNullPredicate() {}
 
     void SetTabletSchema(std::string name, std::string type, std::string aggregation,
                          uint32_t length, bool is_allow_null, bool is_key,
-                         TabletSchema* tablet_schema) {
+                         TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
         ColumnPB* column = tablet_schema_pb.add_column();
@@ -82,12 +79,11 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void init_row_block(const TabletSchema* tablet_schema, int size) {
-        _schema = std::make_unique<Schema>(*tablet_schema);
+    void init_row_block(TabletSchemaSPtr tablet_schema, int size) {
+        _schema = std::make_unique<Schema>(tablet_schema);
         _row_block.reset(new RowBlockV2(*_schema, size));
     }
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<RowBlockV2> _row_block;
     std::unique_ptr<Schema> _schema;
@@ -95,18 +91,18 @@ public:
 
 #define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE)                                      \
     TEST_F(TestNullPredicate, TYPE_NAME##_COLUMN) {                                              \
-        TabletSchema tablet_schema;                                                              \
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();                       \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, true, true, \
-                        &tablet_schema);                                                         \
+                        tablet_schema);                                                          \
         int size = 10;                                                                           \
         std::vector<uint32_t> return_columns;                                                    \
-        for (int i = 0; i < tablet_schema.num_columns(); ++i) {                                  \
+        for (int i = 0; i < tablet_schema->num_columns(); ++i) {                                 \
             return_columns.push_back(i);                                                         \
         }                                                                                        \
         std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));                       \
                                                                                                  \
         /* for ColumnBlock nulls */                                                              \
-        init_row_block(&tablet_schema, size);                                                    \
+        init_row_block(tablet_schema, size);                                                     \
         ColumnBlock col_block = _row_block->column_block(0);                                     \
         auto select_size = _row_block->selected_size();                                          \
         ColumnBlockView col_block_view(&col_block);                                              \
@@ -120,7 +116,7 @@ public:
         /* for vectorized::Block no null */                                                      \
         _row_block->clear();                                                                     \
         select_size = _row_block->selected_size();                                               \
-        vectorized::Block vec_block = tablet_schema.create_block(return_columns);                \
+        vectorized::Block vec_block = tablet_schema->create_block(return_columns);               \
         _row_block->convert_to_vec_block(&vec_block);                                            \
         ColumnPtr vec_col = vec_block.get_columns()[0];                                          \
         select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),          \
@@ -145,7 +141,7 @@ public:
         /* for vectorized::Block has nulls */                                                    \
         _row_block->clear();                                                                     \
         select_size = _row_block->selected_size();                                               \
-        vec_block = tablet_schema.create_block(return_columns);                                  \
+        vec_block = tablet_schema->create_block(return_columns);                                 \
         _row_block->convert_to_vec_block(&vec_block);                                            \
         vec_col = vec_block.get_columns()[0];                                                    \
         select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),          \
@@ -161,17 +157,17 @@ TEST_IN_LIST_PREDICATE(int64_t, BIGINT, "BIGINT")
 TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestNullPredicate, FLOAT_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -185,7 +181,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -210,7 +206,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -219,18 +215,18 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -244,7 +240,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -269,7 +265,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -278,18 +274,18 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -304,7 +300,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -330,7 +326,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -339,18 +335,18 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestNullPredicate, STRING_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -371,7 +367,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -402,7 +398,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -411,11 +407,11 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
 }
 
 TEST_F(TestNullPredicate, DATE_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
@@ -429,7 +425,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -444,7 +440,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -470,7 +466,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -479,12 +475,12 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestNullPredicate, DATETIME_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
@@ -498,7 +494,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -513,7 +509,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -539,7 +535,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -548,12 +544,12 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
 }
 
 TEST_F(TestNullPredicate, DATEV2_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DATEV2_COLUMN"), "DATEV2", "REPLACE", 4, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     std::unique_ptr<ColumnPredicate> pred(new NullPredicate(0, true));
@@ -567,7 +563,7 @@ TEST_F(TestNullPredicate, DATEV2_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -582,7 +578,7 @@ TEST_F(TestNullPredicate, DATEV2_COLUMN) {
     // for vectorized::Block no null
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    vectorized::Block vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     ColumnPtr vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
@@ -608,7 +604,7 @@ TEST_F(TestNullPredicate, DATEV2_COLUMN) {
     // for vectorized::Block has nulls
     _row_block->clear();
     select_size = _row_block->selected_size();
-    vec_block = tablet_schema.create_block(return_columns);
+    vec_block = tablet_schema->create_block(return_columns);
     _row_block->convert_to_vec_block(&vec_block);
     vec_col = vec_block.get_columns()[0];
     select_size = pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),

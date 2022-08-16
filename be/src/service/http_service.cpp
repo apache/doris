@@ -18,6 +18,7 @@
 #include "service/http_service.h"
 
 #include "http/action/check_rpc_channel_action.h"
+#include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
@@ -53,7 +54,7 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
 HttpService::~HttpService() {}
 
 Status HttpService::start() {
-    add_default_path_handlers(_web_page_handler.get(), MemTracker::get_process_tracker());
+    add_default_path_handlers(_web_page_handler.get());
 
     // register load
     StreamLoadAction* streamload_action = _pool.add(new StreamLoadAction(_env));
@@ -166,6 +167,12 @@ Status HttpService::start() {
     ResetRPCChannelAction* reset_rpc_channel_action = _pool.add(new ResetRPCChannelAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/reset_rpc_channel/{endpoints}",
                                       reset_rpc_channel_action);
+
+    CheckTabletSegmentAction* check_tablet_segment_action =
+            _pool.add(new CheckTabletSegmentAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/check_tablet_segment_lost",
+                                      check_tablet_segment_action);
+
     _ev_http_server->start();
     return Status::OK();
 }

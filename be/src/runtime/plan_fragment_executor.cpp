@@ -32,10 +32,11 @@
 #include "runtime/data_stream_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
@@ -98,7 +99,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_tracer(std::move(tracer));
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
-    SCOPED_ATTACH_TASK_THREAD(_runtime_state.get(), _runtime_state->instance_mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state.get());
+    _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -249,6 +251,7 @@ Status PlanFragmentExecutor::open() {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
+            // status = Status::MemoryAllocFailed(_cancel_msg);
             status = Status::MemoryLimitExceeded(_cancel_msg);
         }
     }
@@ -446,7 +449,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
 }
 
 void PlanFragmentExecutor::report_profile() {
-    SCOPED_ATTACH_TASK_THREAD(_runtime_state.get(), _runtime_state->instance_mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state.get());
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_report_status_cb);
 

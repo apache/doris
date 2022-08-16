@@ -31,10 +31,15 @@ OPTS=$(getopt \
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
+RUN_IN_AWS=0
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
+        shift
+        ;;
+    --aws)
+        RUN_IN_AWS=1
         shift
         ;;
     --)
@@ -52,6 +57,12 @@ export DORIS_HOME=$(
     cd "$curdir/.."
     pwd
 )
+
+MAX_MAP_COUNT=`sysctl -n vm.max_map_count`
+if [ $MAX_MAP_COUNT -lt 2000000 ]; then
+    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+    exit 1
+fi
 
 # add libs to CLASSPATH
 for f in $DORIS_HOME/lib/*.jar; do
@@ -169,6 +180,14 @@ if [ ! -f /bin/limit3 ]; then
 else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
+
+## If you are not running in aws cloud, disable this env since https://github.com/aws/aws-sdk-cpp/issues/1410.
+if [ ${RUN_IN_AWS} -eq 0 ]; then
+    export AWS_EC2_METADATA_DISABLED=true
+fi
+
+## set hdfs conf
+export LIBHDFS3_CONF=${DORIS_HOME}/conf/hdfs-site.xml
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT ${DORIS_HOME}/lib/doris_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &

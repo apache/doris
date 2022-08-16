@@ -30,6 +30,7 @@
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -37,11 +38,6 @@ class BinaryFile;
 class BinaryReader;
 struct ColumnMapping;
 class RowCursor;
-
-struct TabletVars {
-    TabletSharedPtr tablet;
-    RowsetSharedPtr rowset_to_add;
-};
 
 class PushHandler {
 public:
@@ -59,24 +55,18 @@ public:
     int64_t write_rows() const { return _write_rows; }
 
 private:
-    Status _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                       RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
-                       const TabletSchema* tablet_schema);
+    Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
+                       TabletSchemaSPtr tablet_schema);
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
-    Status _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
-                    const TabletSchema* tablet_schema);
+    Status _convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
+                    TabletSchemaSPtr tablet_schema);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
 
-    void _get_tablet_infos(const std::vector<TabletVars>& tablet_infos,
-                           std::vector<TTabletInfo>* tablet_info_vec);
-
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                   PushType push_type, vector<TabletVars>* tablet_vars,
-                                   std::vector<TTabletInfo>* tablet_info_vec);
+                                   PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
 
 private:
     // mainly tablet_id, version and delta file path
@@ -114,7 +104,7 @@ public:
     static IBinaryReader* create(bool need_decompress);
     virtual ~IBinaryReader() = default;
 
-    virtual Status init(const TabletSchema* tablet_schema, BinaryFile* file) = 0;
+    virtual Status init(TabletSchemaSPtr tablet_schema, BinaryFile* file) = 0;
     virtual Status finalize() = 0;
 
     virtual Status next(RowCursor* row) = 0;
@@ -133,7 +123,7 @@ protected:
               _ready(false) {}
 
     BinaryFile* _file;
-    const TabletSchema* _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     size_t _content_len;
     size_t _curr;
     uint32_t _adler_checksum;
@@ -146,7 +136,7 @@ public:
     explicit BinaryReader();
     ~BinaryReader() override { finalize(); }
 
-    Status init(const TabletSchema* tablet_schema, BinaryFile* file) override;
+    Status init(TabletSchemaSPtr tablet_schema, BinaryFile* file) override;
     Status finalize() override;
 
     Status next(RowCursor* row) override;
@@ -163,7 +153,7 @@ public:
     explicit LzoBinaryReader();
     ~LzoBinaryReader() override { finalize(); }
 
-    Status init(const TabletSchema* tablet_schema, BinaryFile* file) override;
+    Status init(TabletSchemaSPtr tablet_schema, BinaryFile* file) override;
     Status finalize() override;
 
     Status next(RowCursor* row) override;

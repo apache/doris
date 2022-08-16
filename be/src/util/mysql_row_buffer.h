@@ -124,7 +124,7 @@ private:
     char _default_buf[4096];
 
     int _dynamic_mode;
-    char* _len_pos;
+    uint64_t _len_pos;
 };
 
 } // namespace doris

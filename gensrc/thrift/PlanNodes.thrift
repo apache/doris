@@ -237,6 +237,8 @@ struct TFileScanRangeParams {
 
   6: optional THdfsParams hdfs_params;
   7: optional TFileTextScanRangeParams text_params;
+  // properties for file such as s3 information
+  8: optional map<string, string> properties;
 }
 
 struct TFileRangeDesc {
@@ -410,6 +412,17 @@ struct TMetaScanNode {
   5: optional string user
 }
 
+struct TSortInfo {
+  1: required list<Exprs.TExpr> ordering_exprs
+  2: required list<bool> is_asc_order
+  // Indicates, for each expr, if nulls should be listed first or last. This is
+  // independent of is_asc_order.
+  3: required list<bool> nulls_first
+  // Expressions evaluated over the input row that materialize the tuple to be sorted.
+  // Contains one expr per slot in the materialized tuple.
+  4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
+}
+
 struct TOlapScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> key_column_name
@@ -419,6 +432,10 @@ struct TOlapScanNode {
   6: optional Types.TKeysType keyType
   7: optional string table_name
   8: required list<Descriptors.TColumn> columns_desc
+  9: optional TSortInfo sort_info
+  // When scan match sort_info, we can push limit into OlapScanNode.
+  // It's limit for scanner instead of scanNode so we add a new limit.
+  10: optional i64 sort_limit
 }
 
 struct TEqJoinCondition {
@@ -470,6 +487,13 @@ struct THashJoinNode {
 
   // hash output column
   6: optional list<Types.TSlotId> hash_output_slot_ids
+
+  // TODO: remove 7 and 8 in the version after the version include projection on ExecNode
+  7: optional list<Exprs.TExpr> srcExprList
+
+  8: optional Types.TTupleId voutput_tuple_id
+
+  9: optional list<Types.TTupleId> vintermediate_tuple_id_list
 }
 
 struct TMergeJoinNode {
@@ -535,6 +559,8 @@ struct TAggregationNode {
   // rows have been aggregated, and this node is not an intermediate node.
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
+  7: optional list<TSortInfo> agg_sort_infos
+  8: optional bool is_first_phase;
 }
 
 struct TRepeatNode {
@@ -548,22 +574,12 @@ struct TRepeatNode {
   4: required list<list<i64>> grouping_list
   // A list of all slot
   5: required set<Types.TSlotId> all_slot_ids
+  6: required list<Exprs.TExpr> exprs
 }
 
 struct TPreAggregationNode {
   1: required list<Exprs.TExpr> group_exprs
   2: required list<Exprs.TExpr> aggregate_exprs
-}
-
-struct TSortInfo {
-  1: required list<Exprs.TExpr> ordering_exprs
-  2: required list<bool> is_asc_order
-  // Indicates, for each expr, if nulls should be listed first or last. This is
-  // independent of is_asc_order.
-  3: required list<bool> nulls_first
-  // Expressions evaluated over the input row that materialize the tuple to be sorted.
-  // Contains one expr per slot in the materialized tuple.
-  4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
 }
 
 struct TSortNode {
@@ -869,6 +885,9 @@ struct TPlanNode {
 
   // file scan node
   44: optional TFileScanNode file_scan_node
+
+  101: optional list<Exprs.TExpr> projections
+  102: optional Types.TTupleId output_tuple_id
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

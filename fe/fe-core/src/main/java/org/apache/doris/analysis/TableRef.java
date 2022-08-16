@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -150,7 +151,7 @@ public class TableRef implements ParseNode, Writable {
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
-            if (Catalog.isStoredTableNamesLowerCase()) {
+            if (Env.isStoredTableNamesLowerCase()) {
                 alias = alias.toLowerCase();
             }
             aliases = new String[]{alias};
@@ -489,20 +490,15 @@ public class TableRef implements ParseNode, Writable {
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
-            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
-            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
         }
         // register the tuple ids of a full outer join
         if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerFullOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
             analyzer.registerFullOuterJoinedTids(getId().asList(), this);
-
-            analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
-            analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
 
         // register the tuple id of the rhs of a left semi join
@@ -572,7 +568,7 @@ public class TableRef implements ParseNode, Writable {
         Preconditions.checkState(isAnalyzed);
         if (onClause != null) {
             Expr expr = onClause.clone();
-            onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+            onClause = rewriter.rewrite(onClause, analyzer, ClauseType.fromJoinType(joinOp));
             if (joinOp.isOuterJoin() || joinOp.isSemiAntiJoin()) {
                 if (onClause instanceof BoolLiteral && !((BoolLiteral) onClause).getValue()) {
                     onClause = expr;

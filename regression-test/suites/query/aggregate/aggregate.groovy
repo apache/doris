@@ -100,4 +100,6 @@ suite("aggregate", "query") {
     qt_aggregate """ select variance(c_bigint), variance(c_double) from ${tableName}  """
     qt_aggregate """ select variance(distinct c_bigint), variance(c_double) from ${tableName}  """
     qt_aggregate """ select variance(c_bigint), variance(distinct c_double) from ${tableName}  """
+    qt_aggregate """ select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3 order by k1, k2, k3 """
+    qt_aggregate """ select (k1 + k2) * k3 k4 from (select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3) t order by k4 """
 }

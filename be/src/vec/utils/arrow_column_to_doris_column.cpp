@@ -72,6 +72,7 @@ namespace doris::vectorized {
 
 const PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type) {
     switch (type) {
+        // TODO: convert arrow date type to datev2/datetimev2
 #define DISPATCH(ARROW_TYPE, CPP_TYPE) \
     case ARROW_TYPE:                   \
         return CPP_TYPE;
@@ -235,10 +236,40 @@ static Status convert_column_with_date_v2_data(const arrow::Array* array, size_t
     }
 
     for (size_t value_i = array_idx; value_i < array_idx + num_elements; ++value_i) {
-        DateV2Value v;
+        DateV2Value<DateV2ValueType> v;
         v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
                         ctz);
-        column_data.emplace_back(binary_cast<DateV2Value, UInt32>(v));
+        column_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
+    }
+    return Status::OK();
+}
+
+template <typename ArrowType>
+static Status convert_column_with_datetime_v2_data(const arrow::Array* array, size_t array_idx,
+                                                   MutableColumnPtr& data_column,
+                                                   size_t num_elements,
+                                                   const cctz::time_zone& ctz) {
+    auto& column_data = static_cast<ColumnVector<UInt64>&>(*data_column).get_data();
+    auto concrete_array = down_cast<const ArrowType*>(array);
+    int64_t divisor = 1;
+    int64_t multiplier = 1;
+    if constexpr (std::is_same_v<ArrowType, arrow::TimestampArray>) {
+        const auto type = std::static_pointer_cast<arrow::TimestampType>(array->type());
+        divisor = time_unit_divisor(type->unit());
+        if (divisor == 0L) {
+            return Status::InternalError(fmt::format("Invalid Time Type:{}", type->name()));
+        }
+    } else if constexpr (std::is_same_v<ArrowType, arrow::Date32Array>) {
+        multiplier = 24 * 60 * 60; // day => secs
+    } else if constexpr (std::is_same_v<ArrowType, arrow::Date64Array>) {
+        divisor = 1000; //ms => secs
+    }
+
+    for (size_t value_i = array_idx; value_i < array_idx + num_elements; ++value_i) {
+        DateV2Value<DateTimeV2ValueType> v;
+        v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
+                        ctz);
+        column_data.emplace_back(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v));
     }
     return Status::OK();
 }
@@ -351,11 +382,21 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
                     arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
         }
     case arrow::Type::DATE64:
-        return convert_column_with_timestamp_data<arrow::Date64Array>(
-                arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        if (which_type.is_date_v2_or_datetime_v2()) {
+            return convert_column_with_datetime_v2_data<arrow::Date64Array>(
+                    arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        } else {
+            return convert_column_with_timestamp_data<arrow::Date64Array>(
+                    arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        }
     case arrow::Type::TIMESTAMP:
-        return convert_column_with_timestamp_data<arrow::TimestampArray>(
-                arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        if (which_type.is_date_v2_or_datetime_v2()) {
+            return convert_column_with_datetime_v2_data<arrow::TimestampArray>(
+                    arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        } else {
+            return convert_column_with_timestamp_data<arrow::TimestampArray>(
+                    arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        }
     case arrow::Type::DECIMAL:
         return convert_column_with_decimal_data(arrow_column, arrow_batch_cur_idx, data_column,
                                                 num_elements);

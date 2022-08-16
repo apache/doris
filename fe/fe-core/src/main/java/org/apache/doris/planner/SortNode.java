@@ -52,6 +52,8 @@ import java.util.Set;
 
 /**
  * Sorting.
+ * Attention, in some corner case, we need enable projection planner to promise the correctness of the Plan.
+ * Please refer to this regression test:regression-test/suites/query/aggregate/aggregate_count1.groovy.
  */
 public class SortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SortNode.class);
@@ -59,7 +61,8 @@ public class SortNode extends PlanNode {
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
-    private final boolean  isDefaultLimit;
+
+    private boolean  isDefaultLimit;
     private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
@@ -69,7 +72,7 @@ public class SortNode extends PlanNode {
      * Constructor.
      */
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
-                    boolean isDefaultLimit, long offset) {
+            boolean isDefaultLimit, long offset) {
         super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
@@ -82,6 +85,10 @@ public class SortNode extends PlanNode {
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
     }
 
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
+        this(id, input, info, useTopN, true, 0);
+    }
+
     /**
      * Clone 'inputSortNode' for distributed Top-N.
      */
@@ -92,6 +99,14 @@ public class SortNode extends PlanNode {
         this.isDefaultLimit = inputSortNode.isDefaultLimit;
         this.children.add(child);
         this.offset = inputSortNode.offset;
+    }
+
+    /**
+     * set isDefaultLimit when translate PhysicalLimit
+     * @param defaultLimit
+     */
+    public void setDefaultLimit(boolean defaultLimit) {
+        isDefaultLimit = defaultLimit;
     }
 
     public void setIsAnalyticSort(boolean v) {
@@ -198,9 +213,6 @@ public class SortNode extends PlanNode {
         outputSmap = new ExprSubstitutionMap();
 
         for (int i = 0; i < slotExprs.size(); ++i) {
-            if (!sortTupleSlots.get(i).isMaterialized()) {
-                continue;
-            }
             resolvedTupleExprs.add(slotExprs.get(i));
             outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
         }
@@ -260,7 +272,13 @@ public class SortNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+        for (int i = 0; i < slotDescriptorList.size(); i++) {
+            if (!slotDescriptorList.get(i).isMaterialized()) {
+                resolvedTupleExprs.remove(i);
+            }
+        }
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);

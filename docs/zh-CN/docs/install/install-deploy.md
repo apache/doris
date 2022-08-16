@@ -198,24 +198,24 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
   **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
 
-  `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+  `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
 
   **说明**
 
-    - /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
-    - /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
-    - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+    - /home/disk1/doris.HDD ： 表示存储介质是HDD;
+    - /home/disk2/doris.SSD： 表示存储介质是SSD；
+    - /home/disk2/doris： 表示存储介质是HDD（默认）
 
   示例2如下：
 
   **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
 
-  `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+  `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
 
   **说明**
 
-    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HDD;
-    - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
+    - /home/disk1/doris,medium:hdd： 表示存储介质是HDD;
+    - /home/disk2/doris,medium:ssd： 表示存储介质是SSD;
 
 * BE webserver_port端口配置
 
@@ -247,7 +247,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 #### （可选）FS_Broker 部署
 
-Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存储系统导入数据，需要部署相应的 Broker，默认提供了读取 HDFS 、百度云 BOS 及 Amazon S3 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 Broker。
+Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存储系统导入数据，需要部署相应的 Broker，默认提供了读取 HDFS 、对象存储的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 Broker。
 
 * 拷贝源码 fs_broker 的 output 目录下的相应 Broker 目录到需要部署的所有节点上。建议和 BE 或者 FE 目录保持同级。
 
@@ -364,6 +364,6 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
    ```shell
    vim /etc/supervisord.conf
-
+   
    minfds=65535                 ; (min. avail startup file descriptors;default 1024)
    ```

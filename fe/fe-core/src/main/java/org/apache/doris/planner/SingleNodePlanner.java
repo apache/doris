@@ -63,6 +63,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
 
 import com.google.common.base.Preconditions;
@@ -278,7 +279,9 @@ public class SingleNodePlanner {
                 useTopN = false;
             }
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
-                    useTopN, limit == -1, stmt.getOffset());
+                    useTopN);
+            ((SortNode) root).setDefaultLimit(limit == -1);
+            ((SortNode) root).setOffset(stmt.getOffset());
             if (useTopN) {
                 root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
             } else {
@@ -1028,9 +1031,39 @@ public class SingleNodePlanner {
 
             for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
                 TableRef innerRef = selectStmt.getTableRefs().get(i);
+                // Optimization of CountStar would change the materialization of some outputSlot,
+                // it would cause the materilization inconsistent of SlotRef between outputTupleDesc
+                // and agg/groupBy expr. So if some not materialized slots in outputTuple of aggInfo
+                // is set to materialized after the optimization of CountStar, we need to call
+                // aggregateInfo.materializeRequiredSlots again to make sure all required slots is
+                // materialized.
+                boolean aggOutputNotHaveMaterializedSlot = false;
+                AggregateInfo aggregateInfo = null;
+                TupleDescriptor output = null;
+                if (innerRef instanceof InlineViewRef) {
+                    InlineViewRef inlineViewRef = (InlineViewRef) innerRef;
+                    QueryStmt queryStmt = inlineViewRef.getViewStmt();
+                    if (queryStmt instanceof SelectStmt) {
+                        aggregateInfo = ((SelectStmt) queryStmt).getAggInfo();
+                        if (aggregateInfo != null) {
+                            output = aggregateInfo.getOutputTupleDesc();
+                            aggOutputNotHaveMaterializedSlot =
+                                    output.getSlots().stream().noneMatch(SlotDescriptor::isMaterialized);
+                        }
+                    }
+                }
+
                 root = createJoinNode(analyzer, root, innerRef, selectStmt);
                 // Have the build side of a join copy data to a compact representation
                 // in the tuple buffer.
+                if (aggOutputNotHaveMaterializedSlot
+                        && aggregateInfo
+                        .getOutputTupleDesc()
+                        .getSlots()
+                        .stream()
+                        .anyMatch(SlotDescriptor::isMaterialized)) {
+                    aggregateInfo.materializeRequiredSlots(analyzer, null);
+                }
                 root.getChildren().get(1).setCompactData(true);
                 root.assignConjuncts(analyzer);
             }
@@ -1356,9 +1389,14 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
-                //set outputSmap to substitute literal in outputExpr
-                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
+                //set outputSmap to substitute literal in outputExpr
+                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
+                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
+                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
+                    unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
+                }
                 return unionNode;
             }
         }
@@ -1376,7 +1414,7 @@ public class SingleNodePlanner {
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
 
-        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping
@@ -1386,15 +1424,6 @@ public class SingleNodePlanner {
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
                     outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
-            // When we process outer join with inline views, we set slot descriptor of inline view to nullable firstly.
-            // When we generate plan, we remove inline view, so the upper node's input is inline view's child.
-            // So we need to set slot descriptor of inline view's child to nullable to ensure consistent behavior
-            // with BaseTable.
-            for (TupleId tupleId : rootNode.getTupleIds()) {
-                for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getMaterializedSlots()) {
-                    slotDescriptor.setIsNullable(true);
-                }
-            }
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);
@@ -1560,24 +1589,24 @@ public class SingleNodePlanner {
                 // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
                 for (int i = select.getTableRefs().size(); i > 1; i--) {
                     final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
+                    final TableRef joinOuterChild = select.getTableRefs().get(i - 2);
                     if (!joinInnerChild.getJoinOp().isOuterJoin()) {
-                        // lowest join is't outer join.
+                        // lowest join isn't outer join.
                         if (i == 2) {
                             // Register constant for inner.
                             viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
                             // Register constant for outer.
-                            final TableRef joinOuterChild = select.getTableRefs().get(0);
                             final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
                             viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
                         }
                         continue;
                     }
-                    viewAnalyzer.registerOnClauseConjuncts(newConjuncts, joinInnerChild);
+                    viewAnalyzer.registerConjuncts(newConjuncts, joinOuterChild.getId());
                     break;
                 }
             } else {
                 Preconditions.checkArgument(select.getTableRefs().size() == 1);
-                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getDesc().getId().asList());
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getId());
             }
         } else {
             Preconditions.checkArgument(stmt instanceof SetOperationStmt);
@@ -1702,7 +1731,12 @@ public class SingleNodePlanner {
                 scanNode = new MysqlScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());
                 break;
             case SCHEMA:
-                scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
+                        tblRef.getDesc().getTable().getName())) {
+                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                } else {
+                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                }
                 break;
             case BROKER:
                 scanNode = new BrokerScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
@@ -1729,6 +1763,9 @@ public class SingleNodePlanner {
                 break;
             case HMS_EXTERNAL_TABLE:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HMS_FILE_SCAN_NODE");
+                break;
+            case ES_EXTERNAL_TABLE:
+                scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
                 break;
             default:
                 break;
@@ -2286,6 +2323,7 @@ public class SingleNodePlanner {
         for (SlotId id : slotIds) {
             final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
             slot.setIsMaterialized(true);
+            slot.materializeSrcExpr();
         }
         for (TupleId id : tupleIds) {
             final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);

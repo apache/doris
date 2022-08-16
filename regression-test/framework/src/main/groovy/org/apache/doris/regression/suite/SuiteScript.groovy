@@ -53,16 +53,22 @@ abstract class SuiteScript extends Script {
         log.info("path: ${path}, groupPath: ${groupPath}".toString())
         List<String> groups = ["default"]
 
-        String parentGroup = ""
-
         groupPath.split(File.separator)
             .collect {it.trim()}
             .findAll {it != "." && it != ".." && !it.isEmpty()}
-            .each {
-                String currentGroup = parentGroup + it
-                groups.add(currentGroup)
-                parentGroup = currentGroup + "/"
+            .reverse()
+            .any {
+                def candidateGroups = it.split('_')
+                if (candidateGroups.length > 1) {
+                    groups.add(candidateGroups[candidateGroups.length - 1])
+                    return true
+                }
             }
+
+        if (groups.size() == 1) {
+             // There is no specified group, mark it as p0
+             groups.add("p0")
+        }
         return groups.join(",")
     }
 }

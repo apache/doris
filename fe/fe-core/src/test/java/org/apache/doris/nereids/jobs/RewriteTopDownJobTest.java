@@ -17,10 +17,7 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Group;
@@ -38,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -52,14 +50,9 @@ public class RewriteTopDownJobTest {
     public static class FakeRule extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return unboundRelation().then(unboundRelation -> {
-                        Table olapTable = new Table(0, "test", TableType.OLAP, ImmutableList.of(
-                                new Column("id", Type.INT),
-                                new Column("name", Type.STRING)
-                        ));
-                        return new LogicalBoundRelation(olapTable, Lists.newArrayList("test"));
-                    }
-                ).toRule(RuleType.BINDING_RELATION);
+            return unboundRelation().then(unboundRelation ->
+                    new LogicalBoundRelation(PlanConstructor.newTable(0L, "test"), Lists.newArrayList("test"))
+            ).toRule(RuleType.BINDING_RELATION);
         }
     }
 
@@ -81,19 +74,19 @@ public class RewriteTopDownJobTest {
         Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
         GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
         List<Slot> output = rootGroup.getLogicalProperties().getOutput();
-        Assertions.assertEquals(output.size(), 1);
-        Assertions.assertEquals(output.get(0).getName(), "name");
-        Assertions.assertEquals(output.get(0).getDataType(), StringType.INSTANCE);
+        Assertions.assertEquals(1, output.size());
+        Assertions.assertEquals("name", output.get(0).getName());
+        Assertions.assertEquals(StringType.INSTANCE, output.get(0).getDataType());
         Assertions.assertEquals(1, rootGroupExpression.children().size());
         Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getPlan().getType());
 
         Group leafGroup = rootGroupExpression.child(0);
         output = leafGroup.getLogicalProperties().getOutput();
-        Assertions.assertEquals(output.size(), 2);
-        Assertions.assertEquals(output.get(0).getName(), "id");
-        Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
-        Assertions.assertEquals(output.get(1).getName(), "name");
-        Assertions.assertEquals(output.get(1).getDataType(), StringType.INSTANCE);
+        Assertions.assertEquals(2, output.size());
+        Assertions.assertEquals("id", output.get(0).getName());
+        Assertions.assertEquals(IntegerType.INSTANCE, output.get(0).getDataType());
+        Assertions.assertEquals("name", output.get(1).getName());
+        Assertions.assertEquals(StringType.INSTANCE, output.get(1).getDataType());
         Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
         GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
         Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());

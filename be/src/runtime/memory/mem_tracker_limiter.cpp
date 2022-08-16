@@ -19,8 +19,10 @@
 
 #include <fmt/format.h>
 
+#include <boost/stacktrace.hpp>
+
 #include "gutil/once.h"
-#include "runtime/memory/mem_tracker_observe.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/pretty_printer.h"
@@ -28,151 +30,76 @@
 
 namespace doris {
 
-// The ancestor for all trackers. Every tracker is visible from the process down.
-// All manually created trackers should specify the process tracker as the parent.
-static MemTrackerLimiter* process_tracker;
-static GoogleOnceType process_tracker_once = GOOGLE_ONCE_INIT;
+MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& label,
+                                     const std::shared_ptr<MemTrackerLimiter>& parent,
+                                     RuntimeProfile* profile)
+        : MemTracker(label, profile, true) {
+    DCHECK_GE(byte_limit, -1);
+    _limit = byte_limit;
+    _group_num = GetCurrentTimeMicros() % 1000;
+    _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
+    DCHECK(_parent || label == "Process");
 
-MemTrackerLimiter* MemTrackerLimiter::create_tracker(int64_t byte_limit, const std::string& label,
-                                                     MemTrackerLimiter* parent,
-                                                     RuntimeProfile* profile) {
-    // Do not check limit exceed when add_child_tracker, otherwise it will cause deadlock when log_usage is called.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-    if (!parent) {
-        parent = MemTrackerLimiter::get_process_tracker();
-    }
-    MemTrackerLimiter* tracker(new MemTrackerLimiter("[Limit]-" + label, parent, profile));
-    parent->add_child_tracker(tracker);
-    tracker->set_is_limited();
-    tracker->init(byte_limit);
-    return tracker;
-}
-
-void MemTrackerLimiter::init(int64_t limit) {
-    DCHECK_GE(limit, -1);
-    _limit = limit;
+    // Walks the MemTrackerLimiter hierarchy and populates _all_ancestors and _limited_ancestors
     MemTrackerLimiter* tracker = this;
     while (tracker != nullptr) {
-        _ancestor_all_trackers.push_back(tracker);
-        if (tracker->has_limit()) _ancestor_limiter_trackers.push_back(tracker);
-        tracker = tracker->_parent;
+        _all_ancestors.push_back(tracker);
+        if (tracker->has_limit()) _limited_ancestors.push_back(tracker);
+        tracker = tracker->_parent.get();
     }
-    DCHECK_GT(_ancestor_all_trackers.size(), 0);
-    DCHECK_EQ(_ancestor_all_trackers[0], this);
+    DCHECK_GT(_all_ancestors.size(), 0);
+    DCHECK_EQ(_all_ancestors[0], this);
+    if (_parent) {
+        std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
+        _child_tracker_it = _parent->_child_tracker_limiters.insert(
+                _parent->_child_tracker_limiters.end(), this);
+        _had_child_count++;
+    }
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
-    if (_label == "Process") doris::thread_local_ctx._init = false;
-    flush_untracked_mem();
-    if (parent()) {
-        // Do not call release on the parent tracker to avoid repeated releases.
-        // Ensure that all consume/release are triggered by TCMalloc new/delete hook.
-        std::lock_guard<SpinLock> l(_parent->_child_trackers_lock);
-        if (_child_tracker_it != _parent->_child_limiter_trackers.end()) {
-            _parent->_child_limiter_trackers.erase(_child_tracker_it);
-            _child_tracker_it = _parent->_child_limiter_trackers.end();
+    if (_label == "Process") doris::thread_context_ptr._init = false;
+    DCHECK(remain_child_count() == 0 || _label == "Process");
+    if (_parent) {
+        std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
+        if (_child_tracker_it != _parent->_child_tracker_limiters.end()) {
+            _parent->_child_tracker_limiters.erase(_child_tracker_it);
+            _child_tracker_it = _parent->_child_tracker_limiters.end();
         }
     }
-    // The child observe tracker life cycle is controlled by its parent limiter tarcker.
-    for (audo tracker : _child_observe_trackers) {
-        delete tracker;
-    }
-    DCHECK_EQ(_untracked_mem, 0);
 }
 
-void MemTrackerLimiter::add_child_tracker(MemTrackerLimiter* tracker) {
-    std::lock_guard<SpinLock> l(_child_trackers_lock);
-    tracker->_child_tracker_it =
-            _child_limiter_trackers.insert(_child_limiter_trackers.end(), tracker);
+MemTracker::Snapshot MemTrackerLimiter::make_snapshot(size_t level) const {
+    Snapshot snapshot;
+    snapshot.label = _label;
+    snapshot.parent = _parent != nullptr ? _parent->label() : "Root";
+    snapshot.level = level;
+    snapshot.limit = _limit;
+    snapshot.cur_consumption = _consumption->current_value();
+    snapshot.peak_consumption = _consumption->value();
+    snapshot.child_count = remain_child_count();
+    return snapshot;
 }
 
-void MemTrackerLimiter::add_child_tracker(MemTrackerObserve* tracker) {
-    std::lock_guard<SpinLock> l(_child_trackers_lock);
-    tracker->_child_tracker_it =
-            _child_observe_trackers.insert(_child_observe_trackers.end(), tracker);
-}
-
-void MemTrackerLimiter::remove_child_tracker(MemTrackerLimiter* tracker) {
-    std::lock_guard<SpinLock> l(_child_trackers_lock);
-    if (tracker->_child_tracker_it != _child_limiter_trackers.end()) {
-        _child_limiter_trackers.erase(tracker->_child_tracker_it);
-        tracker->_child_tracker_it = _child_limiter_trackers.end();
-    }
-}
-
-void MemTrackerLimiter::remove_child_tracker(MemTrackerObserve* tracker) {
-    std::lock_guard<SpinLock> l(_child_trackers_lock);
-    if (tracker->_child_tracker_it != _child_observe_trackers.end()) {
-        _child_observe_trackers.erase(tracker->_child_tracker_it);
-        tracker->_child_tracker_it = _child_observe_trackers.end();
-    }
-}
-
-void MemTrackerLimiter::create_process_tracker() {
-    process_tracker = new MemTrackerLimiter("Process", nullptr, nullptr);
-    process_tracker->init(-1);
-}
-
-MemTrackerLimiter* MemTrackerLimiter::get_process_tracker() {
-    GoogleOnceInit(&process_tracker_once, &MemTrackerLimiter::create_process_tracker);
-    return process_tracker;
-}
-
-void MemTrackerLimiter::list_process_trackers(std::vector<MemTrackerBase*>* trackers) {
-    trackers->clear();
-    std::deque<MemTrackerLimiter*> to_process;
-    to_process.push_front(get_process_tracker());
-    while (!to_process.empty()) {
-        MemTrackerLimiter* t = to_process.back();
-        to_process.pop_back();
-
-        trackers->push_back(t);
-        std::list<MemTrackerLimiter*> limiter_children;
-        std::list<MemTrackerObserve*> observe_children;
+void MemTrackerLimiter::make_snapshot(std::vector<MemTracker::Snapshot>* snapshots,
+                                      size_t cur_level, size_t upper_level) const {
+    Snapshot snapshot = MemTrackerLimiter::make_snapshot(cur_level);
+    (*snapshots).emplace_back(snapshot);
+    if (cur_level < upper_level) {
         {
-            std::lock_guard<SpinLock> l(t->_child_trackers_lock);
-            limiter_children = t->_child_limiter_trackers;
-            observe_children = t->_child_observe_trackers;
-        }
-        for (const auto& child : limiter_children) {
-            to_process.emplace_back(std::move(child));
-        }
-        if (config::show_observe_tracker) {
-            for (const auto& child : observe_children) {
-                trackers->push_back(child);
+            std::lock_guard<std::mutex> l(_child_tracker_limiter_lock);
+            for (const auto& child : _child_tracker_limiters) {
+                child->make_snapshot(snapshots, cur_level + 1, upper_level);
             }
         }
+        MemTracker::make_group_snapshot(snapshots, cur_level + 1, _group_num, _label);
     }
-}
-
-MemTrackerLimiter* MemTrackerLimiter::common_ancestor(MemTrackerLimiter* dst) {
-    if (id() == dst->id()) return dst;
-    DCHECK_EQ(_ancestor_all_trackers.back(), dst->_ancestor_all_trackers.back())
-            << "Must have same ancestor";
-    int ancestor_idx = _ancestor_all_trackers.size() - 1;
-    int dst_ancestor_idx = dst->_ancestor_all_trackers.size() - 1;
-    while (ancestor_idx > 0 && dst_ancestor_idx > 0 &&
-           _ancestor_all_trackers[ancestor_idx - 1] ==
-                   dst->_ancestor_all_trackers[dst_ancestor_idx - 1]) {
-        --ancestor_idx;
-        --dst_ancestor_idx;
-    }
-    return _ancestor_all_trackers[ancestor_idx];
-}
-
-MemTrackerLimiter* MemTrackerLimiter::limit_exceeded_tracker() const {
-    for (const auto& tracker : _ancestor_limiter_trackers) {
-        if (tracker->limit_exceeded()) {
-            return tracker;
-        }
-    }
-    return nullptr;
 }
 
 int64_t MemTrackerLimiter::spare_capacity() const {
     int64_t result = std::numeric_limits<int64_t>::max();
-    for (const auto& tracker : _ancestor_limiter_trackers) {
+    for (const auto& tracker : _limited_ancestors) {
         int64_t mem_left = tracker->limit() - tracker->consumption();
         result = std::min(result, mem_left);
     }
@@ -180,9 +107,9 @@ int64_t MemTrackerLimiter::spare_capacity() const {
 }
 
 int64_t MemTrackerLimiter::get_lowest_limit() const {
-    if (_ancestor_limiter_trackers.empty()) return -1;
+    if (_limited_ancestors.empty()) return -1;
     int64_t min_limit = std::numeric_limits<int64_t>::max();
-    for (const auto& tracker : _ancestor_limiter_trackers) {
+    for (const auto& tracker : _limited_ancestors) {
         DCHECK(tracker->has_limit());
         min_limit = std::min(min_limit, tracker->limit());
     }
@@ -216,8 +143,8 @@ bool MemTrackerLimiter::gc_memory(int64_t max_consumption) {
 Status MemTrackerLimiter::try_gc_memory(int64_t bytes) {
     if (UNLIKELY(gc_memory(_limit - bytes))) {
         return Status::MemoryLimitExceeded(
-                fmt::format("label={} TryConsume failed size={}, used={}, limit={}", label(), bytes,
-                            _consumption->current_value(), _limit));
+                fmt::format("label={}, limit={}, used={}, failed consume size={}", label(), _limit,
+                            _consumption->current_value(), bytes));
     }
     VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
                 << " consumption=" << _consumption->current_value() << " limit=" << _limit;
@@ -246,13 +173,11 @@ Status MemTrackerLimiter::try_gc_memory(int64_t bytes) {
 //                Total=6.04 MB Peak=6.45 MB
 //
 std::string MemTrackerLimiter::log_usage(int max_recursive_depth, int64_t* logged_consumption) {
-    // Make sure the consumption is up to date.
     int64_t curr_consumption = consumption();
     int64_t peak_consumption = _consumption->value();
     if (logged_consumption != nullptr) *logged_consumption = curr_consumption;
 
-    std::string detail =
-            "MemTracker log_usage Label: {}, Limit: {}, Total: {}, Peak: {}, Exceeded: {}";
+    std::string detail = "MemTrackerLimiter Label={}, Limit={}, Used={}, Peak={}, Exceeded={}";
     detail = fmt::format(detail, _label, PrettyPrinter::print(_limit, TUnit::BYTES),
                          PrettyPrinter::print(curr_consumption, TUnit::BYTES),
                          PrettyPrinter::print(peak_consumption, TUnit::BYTES),
@@ -264,18 +189,17 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth, int64_t* logge
     // Recurse and get information about the children
     int64_t child_consumption;
     std::string child_trackers_usage;
-    std::list<MemTrackerLimiter*> limiter_children;
-    std::list<MemTrackerObserve*> observe_children;
     {
-        std::lock_guard<SpinLock> l(_child_trackers_lock);
-        limiter_children = _child_limiter_trackers;
-        observe_children = _child_observe_trackers;
+        std::lock_guard<std::mutex> l(_child_tracker_limiter_lock);
+        child_trackers_usage =
+                log_usage(max_recursive_depth - 1, _child_tracker_limiters, &child_consumption);
     }
-    child_trackers_usage = log_usage(max_recursive_depth - 1, limiter_children, &child_consumption);
-    for (const auto& child : observe_children) {
-        child_trackers_usage += "\n" + child->log_usage(&child_consumption);
+    std::vector<MemTracker::Snapshot> snapshots;
+    MemTracker::make_group_snapshot(&snapshots, 0, _group_num, _label);
+    for (const auto& snapshot : snapshots) {
+        child_trackers_usage += "\n    " + MemTracker::log_usage(snapshot);
     }
-    if (!child_trackers_usage.empty()) detail += "\n" + child_trackers_usage;
+    if (!child_trackers_usage.empty()) detail += child_trackers_usage;
     return detail;
 }
 
@@ -285,49 +209,46 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth,
     *logged_consumption = 0;
     std::vector<std::string> usage_strings;
     for (const auto& tracker : trackers) {
-        if (tracker) {
-            int64_t tracker_consumption;
-            std::string usage_string =
-                    tracker->log_usage(max_recursive_depth, &tracker_consumption);
-            if (!usage_string.empty()) usage_strings.push_back(usage_string);
-            *logged_consumption += tracker_consumption;
-        }
+        int64_t tracker_consumption;
+        std::string usage_string = tracker->log_usage(max_recursive_depth, &tracker_consumption);
+        if (!usage_string.empty()) usage_strings.push_back(usage_string);
+        *logged_consumption += tracker_consumption;
     }
     return join(usage_strings, "\n");
 }
 
-Status MemTrackerLimiter::mem_limit_exceeded(RuntimeState* state, const std::string& details,
-                                             int64_t failed_allocation_size, Status failed_alloc) {
+Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size) {
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-    MemTrackerLimiter* process_tracker = MemTrackerLimiter::get_process_tracker();
-    std::string detail =
-            "Memory exceed limit. fragment={}, details={}, on backend={}. Memory left in process "
-            "limit={}.";
-    detail = fmt::format(detail, state != nullptr ? print_id(state->fragment_instance_id()) : "",
-                         details, BackendOptions::get_localhost(),
-                         PrettyPrinter::print(process_tracker->spare_capacity(), TUnit::BYTES));
-    if (!failed_alloc) {
-        detail += " failed alloc=<{}>. current tracker={}.";
-        detail = fmt::format(detail, failed_alloc.to_string(), _label);
-    } else {
-        detail += " current tracker <label={}, used={}, limit={}, failed alloc size={}>.";
-        detail = fmt::format(detail, _label, _consumption->current_value(), _limit,
-                             PrettyPrinter::print(failed_allocation_size, TUnit::BYTES));
-    }
-    detail += " If this is a query, can change the limit by session variable exec_mem_limit.";
+    std::string detail = fmt::format(
+            "{}, failed mem consume:<consume_size={}, mem_limit={}, mem_used={}, tracker_label={}, "
+            "in backend={} free memory left={}. details mem usage see be.INFO.",
+            msg, PrettyPrinter::print(failed_consume_size, TUnit::BYTES), _limit,
+            _consumption->current_value(), _label, BackendOptions::get_localhost(),
+            PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity(),
+                                 TUnit::BYTES));
     Status status = Status::MemoryLimitExceeded(detail);
-    if (state != nullptr) state->log_error(detail);
 
     // only print the tracker log_usage in be log.
-    if (process_tracker->spare_capacity() < failed_allocation_size) {
-        // Dumping the process MemTracker is expensive. Limiting the recursive depth to two
-        // levels limits the level of detail to a one-line summary for each query MemTracker.
-        detail += "\n" + process_tracker->log_usage(2);
+    if (_print_log_usage) {
+        if (ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity() < failed_consume_size) {
+            // Dumping the process MemTracker is expensive. Limiting the recursive depth to two
+            // levels limits the level of detail to a one-line summary for each query MemTracker.
+            detail += "\n" + ExecEnv::GetInstance()->process_mem_tracker()->log_usage(2);
+        } else {
+            detail += "\n" + log_usage();
+        }
+        detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+        LOG(WARNING) << detail;
+        _print_log_usage = false;
     }
-    detail += "\n" + log_usage();
-
-    LOG(WARNING) << detail;
     return status;
+}
+
+Status MemTrackerLimiter::mem_limit_exceeded(RuntimeState* state, const std::string& msg,
+                                             int64_t failed_alloc_size) {
+    Status rt = mem_limit_exceeded(msg, failed_alloc_size);
+    state->log_error(rt.to_string());
+    return rt;
 }
 
 } // namespace doris

@@ -61,5 +61,6 @@ header:
     - "docs/.vuepress/public/js/jquery.min.js"
     - "docs/.vuepress/public/js/wow.min.js"
     - "docs/package-lock.json"
+    - "regression-test/script/README"
 
   comment: on-failure

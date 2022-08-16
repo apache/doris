@@ -33,65 +33,65 @@ public class ExpressionUtilsTest {
     private static final NereidsParser PARSER = new NereidsParser();
 
     @Test
-    public void extractConjunctsTest() {
+    public void extractConjunctionTest() {
         List<Expression> expressions;
         Expression expr;
 
         expr = PARSER.parseExpression("a");
-        expressions = ExpressionUtils.extractConjunct(expr);
-        Assertions.assertEquals(expressions.size(), 1);
-        Assertions.assertEquals(expressions.get(0), expr);
+        expressions = ExpressionUtils.extractConjunction(expr);
+        Assertions.assertEquals(1, expressions.size());
+        Assertions.assertEquals(expr, expressions.get(0));
 
         expr = PARSER.parseExpression("a and b and c");
         Expression a = PARSER.parseExpression("a");
         Expression b = PARSER.parseExpression("b");
         Expression c = PARSER.parseExpression("c");
 
-        expressions = ExpressionUtils.extractConjunct(expr);
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), a);
-        Assertions.assertEquals(expressions.get(1), b);
-        Assertions.assertEquals(expressions.get(2), c);
+        expressions = ExpressionUtils.extractConjunction(expr);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(a, expressions.get(0));
+        Assertions.assertEquals(b, expressions.get(1));
+        Assertions.assertEquals(c, expressions.get(2));
 
 
         expr = PARSER.parseExpression("(a or b) and c and (e or f)");
-        expressions = ExpressionUtils.extractConjunct(expr);
+        expressions = ExpressionUtils.extractConjunction(expr);
         Expression aOrb = PARSER.parseExpression("a or b");
         Expression eOrf = PARSER.parseExpression("e or f");
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), aOrb);
-        Assertions.assertEquals(expressions.get(1), c);
-        Assertions.assertEquals(expressions.get(2), eOrf);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(aOrb, expressions.get(0));
+        Assertions.assertEquals(c, expressions.get(1));
+        Assertions.assertEquals(eOrf, expressions.get(2));
     }
 
     @Test
-    public void extractDisjunctsTest() {
+    public void extractDisjunctionTest() {
         List<Expression> expressions;
         Expression expr;
 
         expr = PARSER.parseExpression("a");
-        expressions = ExpressionUtils.extractDisjunct(expr);
-        Assertions.assertEquals(expressions.size(), 1);
-        Assertions.assertEquals(expressions.get(0), expr);
+        expressions = ExpressionUtils.extractDisjunction(expr);
+        Assertions.assertEquals(1, expressions.size());
+        Assertions.assertEquals(expr, expressions.get(0));
 
         expr = PARSER.parseExpression("a or b or c");
         Expression a = PARSER.parseExpression("a");
         Expression b = PARSER.parseExpression("b");
         Expression c = PARSER.parseExpression("c");
 
-        expressions = ExpressionUtils.extractDisjunct(expr);
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), a);
-        Assertions.assertEquals(expressions.get(1), b);
-        Assertions.assertEquals(expressions.get(2), c);
+        expressions = ExpressionUtils.extractDisjunction(expr);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(a, expressions.get(0));
+        Assertions.assertEquals(b, expressions.get(1));
+        Assertions.assertEquals(c, expressions.get(2));
 
         expr = PARSER.parseExpression("(a and b) or c or (e and f)");
-        expressions = ExpressionUtils.extractDisjunct(expr);
+        expressions = ExpressionUtils.extractDisjunction(expr);
         Expression aAndb = PARSER.parseExpression("a and b");
         Expression eAndf = PARSER.parseExpression("e and f");
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), aAndb);
-        Assertions.assertEquals(expressions.get(1), c);
-        Assertions.assertEquals(expressions.get(2), eAndf);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(aAndb, expressions.get(0));
+        Assertions.assertEquals(c, expressions.get(1));
+        Assertions.assertEquals(eAndf, expressions.get(2));
     }
 }

@@ -1389,7 +1389,7 @@ public class FunctionSet<T> {
                 "",
                 true, false, true, true));
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
-                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATEV2, Type.BOOLEAN),
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
                 Type.INT,
                 Type.VARCHAR,
                 true,
@@ -2339,10 +2339,7 @@ public class FunctionSet<T> {
                 false, true, false, true));
 
         // collect_list
-        Type[] arraySubTypes = {Type.BOOLEAN, Type.SMALLINT, Type.TINYINT, Type.INT, Type.BIGINT, Type.LARGEINT,
-                Type.FLOAT, Type.DOUBLE, Type.DATE, Type.DATETIME, Type.DECIMALV2, Type.DECIMAL32, Type.DECIMAL64,
-                Type.DECIMAL128, Type.VARCHAR, Type.STRING, Type.DATEV2};
-        for (Type t : arraySubTypes) {
+        for (Type t : Type.getArraySubTypes()) {
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_LIST, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t), new ArrayType(t), t,
@@ -2504,20 +2501,10 @@ public class FunctionSet<T> {
                         false, false));
         // Group_concat(string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
-                        Type.VARCHAR, initNullString,
-                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        stringValSerializeOrFinalize,
-                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
-                        true, false, true));
+                Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
         // Group_concat(string, string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                        Type.VARCHAR, Type.VARCHAR, initNullString,
-                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
-                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        stringValSerializeOrFinalize,
-                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
-                        true, false, true));
+                Type.VARCHAR, Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
 
         // analytic functions
         // Rank

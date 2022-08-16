@@ -57,6 +57,11 @@ public:
     Status next_batch(RowBlockV2* row_block) override;
     Status next_batch(vectorized::Block* block) override;
 
+    // Get current block row locations. This function should be called
+    // after the `next_batch` function.
+    // Only vectorized version is supported.
+    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
+
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
@@ -72,6 +77,11 @@ private:
     Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                            rowid_t* rowid);
+    // lookup the ordinal of given key from short key index
+    Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                                         rowid_t* rowid);
+    // lookup the ordinal of given key from primary key index
+    Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include, rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
@@ -106,7 +116,7 @@ private:
     void _output_non_pred_columns(vectorized::Block* block);
     Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                    std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
+                                   size_t select_size);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
@@ -150,14 +160,15 @@ private:
 
 private:
     class BitmapRangeIterator;
+    class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
     // _column_iterators.size() == _schema.num_columns()
-    // _column_iterators[cid] == nullptr if cid is not in _schema
-    std::vector<ColumnIterator*> _column_iterators;
-    // FIXME prefer vector<unique_ptr<BitmapIndexIterator>>
-    std::vector<BitmapIndexIterator*> _bitmap_index_iterators;
+    // map<unique_id, ColumnIterator*> _column_iterators/_bitmap_index_iterators;
+    // can use _schema get unique_id by cid
+    std::map<int32_t, ColumnIterator*> _column_iterators;
+    std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
@@ -213,6 +224,12 @@ private:
 
     // char_type columns cid
     std::vector<size_t> _char_type_idx;
+
+    // number of rows read in the current batch
+    uint32_t _current_batch_rows_read = 0;
+    // used for compaction, record selectd rowids of current batch
+    uint16_t _selected_size;
+    vector<uint16_t> _sel_rowid_idx;
 };
 
 } // namespace segment_v2

@@ -205,6 +205,40 @@ public:
 };
 
 template <>
+class KeyCoderTraits<OLAP_FIELD_TYPE_DATETIMEV2> {
+public:
+    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
+    using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedCppType;
+
+public:
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, value, sizeof(unsigned_val));
+        // make it bigendian
+        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        buf->append((char*)&unsigned_val, sizeof(unsigned_val));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
+                                                      sizeof(UnsignedCppType), encoded_key->size));
+        }
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
+        return Status::OK();
+    }
+};
+
+template <>
 class KeyCoderTraits<OLAP_FIELD_TYPE_DECIMAL> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {

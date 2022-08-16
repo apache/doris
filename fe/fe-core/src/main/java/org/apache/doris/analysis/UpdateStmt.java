@@ -18,15 +18,19 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -101,12 +105,19 @@ public class UpdateStmt extends DdlStmt {
         tableName.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+
+        // check priv
+        if (!Env.getCurrentEnv().getAuth()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
+        }
+
         // step2: resolve table name with catalog, only unique olap table could be update
         String dbName = tableName.getDb();
         String targetTableName = tableName.getTbl();
         Preconditions.checkNotNull(dbName);
         Preconditions.checkNotNull(targetTableName);
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         targetTable = database.getTableOrAnalysisException(tableName.getTbl());
         if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {
@@ -187,8 +198,8 @@ public class UpdateStmt extends DdlStmt {
         if (whereExpr == null) {
             throw new AnalysisException("Where clause is required");
         }
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         whereExpr.analyze(analyzer);
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         if (!whereExpr.getType().equals(Type.BOOLEAN)) {
             throw new AnalysisException("Where clause is not a valid statement return bool");
         }

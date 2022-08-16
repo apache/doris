@@ -19,8 +19,8 @@ package org.apache.doris.policy;
 
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -77,7 +77,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * Trans stmt to Policy.
      **/
     public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
-        long policyId = Catalog.getCurrentCatalog().getNextId();
+        long policyId = Env.getCurrentEnv().getNextId();
         switch (stmt.getType()) {
             case STORAGE:
                 StoragePolicy storagePolicy = new StoragePolicy(policyId, stmt.getPolicyName());
@@ -85,7 +85,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                 return storagePolicy;
             case ROW:
                 // stmt must be analyzed.
-                DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
+                DatabaseIf db = Env.getCurrentEnv().getDataSourceMgr()
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();

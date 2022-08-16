@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * This class represents the column-related metadata.
@@ -712,7 +713,8 @@ public class Column implements Writable {
         return this.uniqueId;
     }
 
-    public void setIndexFlag(TColumn tColumn, List<Index> indexes) {
+    public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
+        List<Index> indexes = olapTable.getIndexes();
         for (Index index : indexes) {
             if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
                 List<String> columns = index.getColumns();
@@ -731,6 +733,10 @@ public class Column implements Writable {
                     tColumn.setGramBfSize(Math.toIntExact(((IntLiteral) bfSize).getLongValue()));
                 }
             }
+        }
+        Set<String> bfColumns = olapTable.getCopiedBfColumns();
+        if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
+            tColumn.setIsBloomFilterColumn(true);
         }
     }
 }

@@ -35,6 +35,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/lru_cache.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
@@ -44,6 +45,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "rowset/beta_rowset.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
@@ -79,6 +81,8 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
     _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
     _txn_mutex = new std::mutex[_txn_shard_size];
+    _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
+    _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
 }
 
 Status TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -162,6 +166,31 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
                 << "partition_id: " << key.first << ", transaction_id: " << key.second
                 << ", tablet: " << tablet_info.to_string();
     return Status::OK();
+}
+
+void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
+                                               TTransactionId transaction_id, TTabletId tablet_id,
+                                               SchemaHash schema_hash, TabletUid tablet_uid,
+                                               bool unique_key_merge_on_write,
+                                               DeleteBitmapPtr delete_bitmap,
+                                               const RowsetIdUnorderedSet& rowset_ids) {
+    pair<int64_t, int64_t> key(partition_id, transaction_id);
+    TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
+
+    std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
+    {
+        // get tx
+        std::shared_lock rdlock(_get_txn_map_lock(transaction_id));
+        txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+        auto it = txn_tablet_map.find(key);
+        DCHECK(it != txn_tablet_map.end());
+        auto load_itr = it->second.find(tablet_info);
+        DCHECK(load_itr != it->second.end());
+        TabletTxnInfo& load_info = load_itr->second;
+        load_info.unique_key_merge_on_write = unique_key_merge_on_write;
+        load_info.delete_bitmap = delete_bitmap;
+        load_info.rowset_ids = rowset_ids;
+    }
 }
 
 Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
@@ -260,39 +289,59 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;
-    std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
+    TabletTxnInfo* load_info = nullptr;
     {
-        std::shared_lock rlock(_get_txn_map_lock(transaction_id));
-        txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
-        auto it = txn_tablet_map.find(key);
-        if (it != txn_tablet_map.end()) {
-            auto load_itr = it->second.find(tablet_info);
-            if (load_itr != it->second.end()) {
-                // found load for txn,tablet
-                // case 1: user commit rowset, then the load id must be equal
-                TabletTxnInfo& load_info = load_itr->second;
-                rowset_ptr = load_info.rowset;
+        std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
+        {
+            std::shared_lock rlock(_get_txn_map_lock(transaction_id));
+            txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+            auto it = txn_tablet_map.find(key);
+            if (it != txn_tablet_map.end()) {
+                auto load_itr = it->second.find(tablet_info);
+                if (load_itr != it->second.end()) {
+                    // found load for txn,tablet
+                    // case 1: user commit rowset, then the load id must be equal
+                    load_info = &load_itr->second;
+                    rowset_ptr = load_info->rowset;
+                }
             }
         }
-    }
-    // save meta need access disk, it maybe very slow, so that it is not in global txn lock
-    // it is under a single txn lock
-    if (rowset_ptr != nullptr) {
-        // TODO(ygl): rowset is already set version here, memory is changed, if save failed
-        // it maybe a fatal error
-        rowset_ptr->make_visible(version);
-        Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
-                                                     rowset_ptr->rowset_meta()->get_rowset_pb());
-        if (save_status != Status::OK()) {
-            LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
-                         << rowset_ptr->rowset_id() << ", tablet id: " << tablet_id
-                         << ", txn id:" << transaction_id;
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_SAVE_FAILED);
+        // save meta need access disk, it maybe very slow, so that it is not in global txn lock
+        // it is under a single txn lock
+        if (rowset_ptr != nullptr) {
+            // TODO(ygl): rowset is already set version here, memory is changed, if save failed
+            // it maybe a fatal error
+            rowset_ptr->make_visible(version);
+            Status save_status =
+                    RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
+                                            rowset_ptr->rowset_meta()->get_rowset_pb());
+            if (save_status != Status::OK()) {
+                LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
+                             << rowset_ptr->rowset_id() << ", tablet id: " << tablet_id
+                             << ", txn id:" << transaction_id;
+                return Status::OLAPInternalError(OLAP_ERR_ROWSET_SAVE_FAILED);
+            }
+        } else {
+            return Status::OLAPInternalError(OLAP_ERR_TRANSACTION_NOT_EXIST);
         }
-    } else {
-        return Status::OLAPInternalError(OLAP_ERR_TRANSACTION_NOT_EXIST);
+    }
+    // update delete_bitmap
+    {
+        auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+#ifdef BE_TEST
+        if (tablet == nullptr) {
+            return Status::OK();
+        }
+#endif
+        if (load_info != nullptr && load_info->unique_key_merge_on_write) {
+            RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, load_info->delete_bitmap,
+                                                         load_info->rowset_ids));
+            std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+            tablet->save_meta();
+        }
     }
     {
+        std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
@@ -308,8 +357,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 _clear_txn_partition_map_unlocked(transaction_id, partition_id);
             }
         }
-        return Status::OK();
     }
+    return Status::OK();
 }
 
 // txn could be rollbacked if it does not have related rowset
@@ -558,6 +607,53 @@ void TxnManager::_clear_txn_partition_map_unlocked(int64_t transaction_id, int64
             txn_partition_map.erase(it);
         }
     }
+}
+
+void TxnManager::add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id,
+                                             DeltaWriter* delta_writer) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find == txn_tablet_delta_writer_map.end()) {
+        txn_tablet_delta_writer_map[transaction_id] = std::map<int64_t, DeltaWriter*>();
+    }
+    txn_tablet_delta_writer_map[transaction_id][tablet_id] = delta_writer;
+}
+
+void TxnManager::finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id,
+                                                 int64_t node_id, bool is_succeed) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find_txn = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find_txn == txn_tablet_delta_writer_map.end()) {
+        LOG(WARNING) << "delta writer manager is not exist, txn_id=" << transaction_id
+                     << ", tablet_id=" << tablet_id;
+        return;
+    }
+    auto find_tablet = txn_tablet_delta_writer_map[transaction_id].find(tablet_id);
+    if (find_tablet == txn_tablet_delta_writer_map[transaction_id].end()) {
+        LOG(WARNING) << "delta writer is not exist, txn_id=" << transaction_id
+                     << ", tablet_id=" << tablet_id;
+        return;
+    }
+    DeltaWriter* delta_writer = txn_tablet_delta_writer_map[transaction_id][tablet_id];
+    delta_writer->finish_slave_tablet_pull_rowset(node_id, is_succeed);
+}
+
+void TxnManager::clear_txn_tablet_delta_writer(int64_t transaction_id) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto it = txn_tablet_delta_writer_map.find(transaction_id);
+    if (it != txn_tablet_delta_writer_map.end()) {
+        txn_tablet_delta_writer_map.erase(it);
+    }
+    VLOG_CRITICAL << "remove delta writer manager, txn_id=" << transaction_id;
 }
 
 } // namespace doris

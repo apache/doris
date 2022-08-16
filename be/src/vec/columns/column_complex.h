@@ -62,38 +62,27 @@ public:
         data.push_back(*reinterpret_cast<const T*>(pos));
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+    void insert_binary_data(const char* pos, size_t length) {
+        insert_default();
+        T* pvalue = &get_element(size() - 1);
+        if (!length) {
+            *pvalue = *reinterpret_cast<const T*>(pos);
+            return;
+        }
+
         if constexpr (std::is_same_v<T, BitmapValue>) {
-            for (size_t i = 0; i < num; i++) {
-                uint32_t len = len_array[i];
-                uint32_t start_offset = start_offset_array[i];
-                insert_default();
-                BitmapValue* pvalue = &get_element(size() - 1);
-                if (len != 0) {
-                    BitmapValue value;
-                    value.deserialize(data_array + start_offset);
-                    *pvalue = std::move(value);
-                } else {
-                    *pvalue = std::move(*reinterpret_cast<BitmapValue*>(data_array + start_offset));
-                }
-            }
+            pvalue->deserialize(pos);
         } else if constexpr (std::is_same_v<T, HyperLogLog>) {
-            for (size_t i = 0; i < num; i++) {
-                uint32_t len = len_array[i];
-                uint32_t start_offset = start_offset_array[i];
-                insert_default();
-                HyperLogLog* pvalue = &get_element(size() - 1);
-                if (len != 0) {
-                    HyperLogLog value;
-                    value.deserialize(Slice(data_array + start_offset, len));
-                    *pvalue = std::move(value);
-                } else {
-                    *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(data_array + start_offset));
-                }
-            }
+            pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
+        }
+    }
+
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
+        for (size_t i = 0; i < num; i++) {
+            insert_binary_data(data_array + start_offset_array[i], len_array[i]);
         }
     }
 
@@ -299,10 +288,7 @@ template <typename T>
 ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = data.size();
 
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
+    limit = limit ? std::min(size, limit) : size;
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";

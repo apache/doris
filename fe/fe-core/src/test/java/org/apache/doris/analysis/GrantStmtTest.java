@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -42,7 +42,7 @@ public class GrantStmtTest {
     private ConnectContext ctx;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Before
     public void setUp() {
@@ -67,11 +67,11 @@ public class GrantStmtTest {
                 minTimes = 0;
                 result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
             }

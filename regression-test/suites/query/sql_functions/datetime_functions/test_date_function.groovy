@@ -250,5 +250,46 @@ suite("test_date_function", "query") {
     qt_sql """ select yearweek('2021-1-1') """
     qt_sql """ select yearweek('2020-7-1') """
 
+    qt_sql """ select count(*) from (select * from numbers("200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
+
     sql """ drop table ${tableName} """
+
+    tableName = "test_from_unixtime"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `id` INT NOT NULL COMMENT "用户id",
+                `update_time` INT NOT NULL COMMENT "数据灌入日期时间"
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`)
+            PROPERTIES("replication_num" = "1");
+        """
+    sql """ insert into ${tableName} values (1, 1659344431) """
+    sql """ insert into ${tableName} values (2, 1659283200) """
+    sql """ insert into ${tableName} values (3, 1659283199) """
+    sql """ insert into ${tableName} values (4, 1659283201) """
+
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") = '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") > '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") < '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") >= '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") <= '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") LIKE '2022-08-01' ORDER BY id; """
+
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") > '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") < '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") >= '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") <= '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") LIKE '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
+
+    qt_sql """SELECT CURDATE() = CURRENT_DATE();"""
+    qt_sql """SELECT unix_timestamp(CURDATE()) = unix_timestamp(CURRENT_DATE());"""
+
+    sql """ drop table ${tableName} """
+
+    qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
 }

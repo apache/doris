@@ -22,7 +22,8 @@
 #include "common/object_pool.h"
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
-#include "runtime/mem_tracker.h"
+#include "olap/tablet.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -40,15 +41,15 @@ class TupleDescriptor;
 
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+    MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer,
-             const std::shared_ptr<MemTracker>& parent_tracker, bool support_vec = false);
+             RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
+             const RowsetIdUnorderedSet& rowset_ids, bool support_vec = false);
     ~MemTable();
 
-    int64_t tablet_id() const { return _tablet_id; }
+    int64_t tablet_id() const { return _tablet->tablet_id(); }
+    KeysType keys_type() const { return _tablet->keys_type(); }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
-    std::shared_ptr<MemTracker>& mem_tracker() { return _mem_tracker; }
 
     inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
@@ -134,26 +135,28 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
-    void _aggregate_two_row_with_sequence(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _replace_row(const ContiguousRow& src_row, TableKey row_in_skiplist);
     void _insert_dup(const Tuple* tuple);
     void _insert_agg(const Tuple* tuple);
     // for vectorized
     void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
 
-    int64_t _tablet_id;
+    Status _generate_delete_bitmap();
+
+private:
+    TabletSharedPtr _tablet;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     // the slot in _slot_descs are in order of tablet's schema
     const std::vector<SlotDescriptor*>* _slot_descs;
-    KeysType _keys_type;
 
     // TODO: change to unique_ptr of comparator
     std::shared_ptr<RowComparator> _row_comparator;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
     std::unique_ptr<MemPool> _buffer_mem_pool;
@@ -203,6 +206,9 @@ private:
     size_t _total_size_of_aggregate_states;
     std::vector<RowInBlock*> _row_in_blocks;
     size_t _mem_usage;
+
+    DeleteBitmapPtr _delete_bitmap;
+    RowsetIdUnorderedSet _rowset_ids;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

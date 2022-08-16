@@ -28,6 +28,7 @@
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 
@@ -46,6 +47,12 @@ std::string BetaRowset::local_segment_path(const std::string& tablet_path,
     return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id.to_string(), segment_id);
 }
 
+std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
+                                            int segment_id) {
+    // data/{tablet_id}/{rowset_id}_{seg_num}.dat
+    return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, segment_id);
+}
+
 std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                             int segment_id) {
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -53,7 +60,7 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& r
                        segment_id);
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema, const std::string& tablet_path,
+BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                        RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, tablet_path, std::move(rowset_meta)) {}
 
@@ -84,6 +91,22 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
             return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
         }
         segments->push_back(std::move(segment));
+    }
+    return Status::OK();
+}
+
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
+    DCHECK(seg_id >= 0);
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+    }
+    auto seg_path = segment_file_path(seg_id);
+    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, segment);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
+                     << " : " << s.to_string();
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
     }
     return Status::OK();
 }
@@ -221,6 +244,23 @@ bool BetaRowset::check_file_exist() {
         if (!Env::Default()->path_exists(seg_path).ok()) {
             LOG(WARNING) << "data file not existed: " << seg_path
                          << " for rowset_id: " << rowset_id();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BetaRowset::check_current_rowset_segment() {
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return false;
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        std::shared_ptr<segment_v2::Segment> segment;
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, &segment);
+        if (!s.ok()) {
+            LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return false;
         }
     }

@@ -22,7 +22,7 @@
 
 #include "common/object_pool.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
 using doris_udf::BooleanVal;
@@ -38,16 +38,15 @@ using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
 using doris_udf::DateV2Val;
+using doris_udf::DateTimeV2Val;
 
 Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
                         const std::string& mem_limit_exceeded_msg, AnyVal** result) {
     const int anyval_size = AnyValUtil::any_val_size(type);
     const int anyval_alignment = AnyValUtil::any_val_alignment(type);
-    Status rst;
-    *result = reinterpret_cast<AnyVal*>(
-            pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
+    *result = reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment));
     if (*result == nullptr) {
-        RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state, mem_limit_exceeded_msg, anyval_size, rst);
+        RETURN_LIMIT_EXCEEDED(state, mem_limit_exceeded_msg, anyval_size);
     }
     memset(static_cast<void*>(*result), 0, anyval_size);
     return Status::OK();
@@ -80,6 +79,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
         return pool->add(new FloatVal);
 
     case TYPE_TIME:
+    case TYPE_TIMEV2:
     case TYPE_DOUBLE:
         return pool->add(new DoubleVal);
 
@@ -109,8 +109,10 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DATEV2:
         return pool->add(new DateV2Val);
 
-    case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+        return pool->add(new DateTimeV2Val);
+
+    case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
 
     case TYPE_ARRAY:
@@ -147,6 +149,7 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         out.type = FunctionContext::TYPE_FLOAT;
         break;
     case TYPE_TIME:
+    case TYPE_TIMEV2:
     case TYPE_DOUBLE:
         out.type = FunctionContext::TYPE_DOUBLE;
         break;
@@ -154,11 +157,13 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         out.type = FunctionContext::TYPE_DATE;
         break;
     case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
         out.type = FunctionContext::TYPE_DATETIME;
         break;
     case TYPE_DATEV2:
         out.type = FunctionContext::TYPE_DATEV2;
+        break;
+    case TYPE_DATETIMEV2:
+        out.type = FunctionContext::TYPE_DATETIMEV2;
         break;
     case TYPE_DECIMAL32:
         out.type = FunctionContext::TYPE_DECIMAL32;

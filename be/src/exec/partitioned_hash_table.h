@@ -33,7 +33,6 @@ namespace doris {
 
 class Expr;
 class ExprContext;
-class MemTracker;
 class PartitionedHashTable;
 class RowDescriptor;
 class RuntimeState;
@@ -110,8 +109,7 @@ public:
                          const std::vector<Expr*>& probe_exprs, bool stores_nulls,
                          const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
                          int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool,
-                         const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
-                         const RowDescriptor& row_desc_probe,
+                         const RowDescriptor& row_desc, const RowDescriptor& row_desc_probe,
                          std::unique_ptr<PartitionedHashTableCtx>* ht_ctx);
 
     /// Initialize the build and probe expression evaluators.
@@ -204,11 +202,9 @@ public:
 
         /// Allocates memory and initializes various data structures. Return error status
         /// if memory allocation leads to the memory limits of the exec node to be exceeded.
-        /// 'tracker' is the memory tracker of the exec node which owns this PartitionedHashTableCtx.
-        Status Init(RuntimeState* state, const std::shared_ptr<MemTracker>& tracker,
-                    const std::vector<Expr*>& build_exprs);
+        Status Init(RuntimeState* state, const std::vector<Expr*>& build_exprs);
 
-        /// Frees up various resources and updates memory tracker with proper accounting.
+        /// Frees up various resources.
         void Close();
 
         /// Resets the cache states (iterators, end pointers etc) before writing.
@@ -373,8 +369,7 @@ private:
     PartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
                             const std::vector<Expr*>& probe_exprs, bool stores_nulls,
                             const std::vector<bool>& finds_nulls, int32_t initial_seed,
-                            int max_levels, MemPool* mem_pool, MemPool* expr_results_pool,
-                            const std::shared_ptr<MemTracker>& tracker);
+                            int max_levels, MemPool* mem_pool, MemPool* expr_results_pool);
 
     /// Allocate various buffers for storing expression evaluation results, hash values,
     /// null bits etc. Also allocate evaluators for the build and probe expressions and
@@ -439,8 +434,6 @@ private:
     /// Functions to be replaced by codegen to specialize the hash table.
     bool stores_nulls() const { return stores_nulls_; }
     bool finds_some_nulls() const { return finds_some_nulls_; }
-
-    std::shared_ptr<MemTracker> tracker_;
 
     const std::vector<Expr*>& build_exprs_;
     std::vector<ExprContext*> build_expr_evals_;

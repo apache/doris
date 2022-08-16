@@ -58,7 +58,7 @@ void VMysqlResultWriter::_init_profile() {
 template <PrimitiveType type, bool is_nullable>
 Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                                            std::unique_ptr<TFetchDataResult>& result,
-                                           const DataTypePtr& nested_type_ptr) {
+                                           const DataTypePtr& nested_type_ptr, int scale) {
     SCOPED_TIMER(_convert_tuple_timer);
 
     const auto row_size = column_ptr->size();
@@ -214,7 +214,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             if constexpr (type == TYPE_DOUBLE) {
                 buf_ret = _buffer.push_double(data[i]);
             }
-            if constexpr (type == TYPE_TIME) {
+            if constexpr (type == TYPE_TIME || type == TYPE_TIMEV2) {
                 buf_ret = _buffer.push_time(data[i]);
             }
             if constexpr (type == TYPE_DATETIME) {
@@ -229,9 +229,18 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             if constexpr (type == TYPE_DATEV2) {
                 char buf[64];
                 auto time_num = data[i];
-                doris::vectorized::DateV2Value date_val;
+                doris::vectorized::DateV2Value<DateV2ValueType> date_val;
                 memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt32));
                 char* pos = date_val.to_string(buf);
+                buf_ret = _buffer.push_string(buf, pos - buf - 1);
+            }
+            if constexpr (type == TYPE_DATETIMEV2) {
+                // TODO: use correct scale here
+                char buf[64];
+                auto time_num = data[i];
+                doris::vectorized::DateV2Value<DateTimeV2ValueType> date_val;
+                memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt64));
+                char* pos = date_val.to_string(buf, scale);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
             }
             if constexpr (type == TYPE_DECIMALV2) {
@@ -319,7 +328,7 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
     } else if (which.is_date_v2()) {
         auto& column_vector = assert_cast<const ColumnVector<UInt32>&>(*column);
         auto value = column_vector[row_idx].get<UInt32>();
-        DateV2Value datev2;
+        DateV2Value<DateV2ValueType> datev2;
         memcpy(static_cast<void*>(&datev2), static_cast<void*>(&value), sizeof(value));
         char buf[64];
         char* pos = datev2.to_string(buf);
@@ -493,6 +502,14 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             }
             break;
         }
+        case TYPE_TIMEV2: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_TIMEV2, true>(column_ptr, result);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_TIMEV2, false>(column_ptr, result);
+            }
+            break;
+        }
         case TYPE_STRING:
         case TYPE_CHAR:
         case TYPE_VARCHAR: {
@@ -565,6 +582,17 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 status = _add_one_column<PrimitiveType::TYPE_DATEV2, true>(column_ptr, result);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DATEV2, false>(column_ptr, result);
+            }
+            break;
+        }
+        case TYPE_DATETIMEV2: {
+            int scale = _output_vexpr_ctxs[i]->root()->type().scale;
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(column_ptr, result,
+                                                                               nullptr, scale);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(column_ptr, result,
+                                                                                nullptr, scale);
             }
             break;
         }

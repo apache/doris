@@ -55,7 +55,6 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status close(RuntimeState* state) override;
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
     Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range, int block_row_count,
                      bool is_begin_include, bool is_end_include,
                      const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
@@ -159,7 +158,6 @@ protected:
                                                          int conj_idx, int child_idx);
 
     friend class OlapScanner;
-    friend class vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -206,6 +204,8 @@ protected:
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
     ObjectPool _scanner_pool;
+
+    size_t _batch_size = 0;
 
     std::shared_ptr<std::thread> _transfer_thread;
 
@@ -264,10 +264,8 @@ protected:
 
     int64_t _buffered_bytes;
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
-    std::shared_ptr<MemTracker> _scanner_mem_tracker;
+    std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
-
-    bool _need_agg_finalize = true;
 
     // the max num of scan keys of this scan request.
     // it will set as BE's config `doris_max_scan_key_num`,

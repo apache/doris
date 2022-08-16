@@ -19,13 +19,13 @@
 
 #include "olap/lru_cache.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
+LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                          bool is_vec)
         : _load_id(load_id),
@@ -45,6 +45,8 @@ LoadChannel::~LoadChannel() {
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
               << ", is_vec=" << _is_vec;
+    // Load channel tracker cannot be completely accurate, offsetting the impact on the load channel mgr tracker.
+    _mem_tracker->parent()->consumption_revise(-_mem_tracker->consumption());
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -58,7 +60,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _is_high_priority, _is_vec));
+            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority, _is_vec));
             _tablets_channels.insert({index_id, channel});
         }
     }

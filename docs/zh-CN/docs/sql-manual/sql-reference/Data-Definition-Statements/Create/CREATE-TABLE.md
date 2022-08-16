@@ -313,6 +313,12 @@ distribution_info
     
         `"function_column.sequence_type" = 'Date'`
     
+    * `light_schema_change`
+
+        Doris默认不使用light schema change优化。如果想使用该优化需要指定为true。
+    
+        `"light_schema_change" = 'true'`
+
     * 动态分区相关
     
         动态分区相关参数如下：
@@ -364,8 +370,8 @@ distribution_info
     PARTITION BY RANGE(k1)
     (
         PARTITION p1 VALUES LESS THAN ("2020-02-01"),
-        PARTITION p1 VALUES LESS THAN ("2020-03-01"),
-        PARTITION p1 VALUES LESS THAN ("2020-04-01")
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (

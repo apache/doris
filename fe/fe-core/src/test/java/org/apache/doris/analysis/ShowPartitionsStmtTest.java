@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalDataSource;
@@ -39,15 +39,15 @@ public class ShowPartitionsStmtTest {
 
     @Mocked
     private Analyzer analyzer;
-    private Catalog catalog;
+    private Env env;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
     public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
-        FakeCatalog.setCatalog(catalog);
+        env = AccessTestUtil.fetchAdminCatalog();
+        FakeEnv.setEnv(env);
 
         new Expectations() {
             {
@@ -55,9 +55,9 @@ public class ShowPartitionsStmtTest {
                 minTimes = 0;
                 result = "testDb";
 
-                analyzer.getCatalog();
+                analyzer.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 analyzer.getClusterName();
                 minTimes = 0;

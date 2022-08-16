@@ -38,10 +38,10 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 
 class RowBlockChanger {
 public:
-    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler* delete_handler,
+    RowBlockChanger(TabletSchemaSPtr tablet_schema, const DeleteHandler* delete_handler,
                     DescriptorTbl desc_tbl);
 
-    RowBlockChanger(const TabletSchema& tablet_schema, DescriptorTbl desc_tbl);
+    RowBlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl);
 
     ~RowBlockChanger();
 
@@ -71,7 +71,7 @@ private:
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
+    RowBlockAllocator(TabletSchemaSPtr tablet_schema, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     Status allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
@@ -79,8 +79,8 @@ public:
     bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
 
 private:
-    const TabletSchema& _tablet_schema;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    TabletSchemaSPtr _tablet_schema;
+    std::unique_ptr<MemTracker> _tracker;
     size_t _row_len;
     size_t _memory_limitation;
 };
@@ -244,16 +244,11 @@ private:
     const RowBlockChanger& _changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 class SchemaChangeHandler {
 public:
-    static Status schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-                                         RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset,
-                                         DescriptorTbl desc_tbl,
-                                         const TabletSchema* base_schema_change);
-
     // schema change v2, it will not set alter task in base tablet
     static Status process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
@@ -306,7 +301,7 @@ private:
         AlterTabletType alter_tablet_type;
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
-        TabletSchema* base_tablet_schema = nullptr;
+        TabletSchemaSPtr base_tablet_schema = nullptr;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
@@ -325,7 +320,7 @@ private:
                                  RowBlockChanger* rb_changer, bool* sc_sorting, bool* sc_directly,
                                  const std::unordered_map<std::string, AlterMaterializedViewParam>&
                                          materialized_function_map,
-                                 DescriptorTbl desc_tbl, const TabletSchema* base_tablet_schema);
+                                 DescriptorTbl desc_tbl, TabletSchemaSPtr base_tablet_schema);
 
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,
@@ -333,6 +328,7 @@ private:
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;
+    static std::set<std::string> _supported_functions;
 };
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;

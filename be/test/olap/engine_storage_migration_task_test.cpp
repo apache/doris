@@ -25,6 +25,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "olap/delta_writer.h"
 #include "olap/field.h"
 #include "olap/options.h"
@@ -35,7 +36,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
@@ -68,7 +68,6 @@ static void set_up() {
     options.store_paths = paths;
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
-
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
@@ -176,8 +175,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -194,7 +192,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -209,8 +207,8 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
+                                                   tablet->tablet_id(), tablet->schema_hash(),
+                                                   tablet->tablet_uid(), version);
         EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);
@@ -261,7 +259,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_NE(tablet3, tablet);
     // test case 2 end
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }

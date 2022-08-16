@@ -171,6 +171,9 @@ public class AliasFunction extends Function {
                 ScalarType scalarType = (ScalarType) targetTypeDef.getType();
                 PrimitiveType primitiveType = scalarType.getPrimitiveType();
                 switch (primitiveType) {
+                    case DECIMAL32:
+                    case DECIMAL64:
+                    case DECIMAL128:
                     case DECIMALV2:
                         if (!Strings.isNullOrEmpty(scalarType.getScalarPrecisionStr())) {
                             typeDefParams.add(scalarType.getScalarPrecisionStr());

@@ -17,8 +17,8 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -65,20 +65,20 @@ public class CancelLoadAction extends RestBaseController {
 
         Database db;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         // TODO(cmy): Currently we only check priv in db level.
         // Should check priv in table level.
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullDbName, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullDbName, PrivPredicate.LOAD)) {
             throw new UnauthorizedException("Access denied for user '" + ConnectContext.get().getQualifiedUser()
                     + "' to database '" + fullDbName + "'");
         }
 
         try {
-            Catalog.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");
         } catch (UserException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }

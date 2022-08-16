@@ -20,8 +20,8 @@ package org.apache.doris.load.update;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UpdateStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -35,7 +35,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.FrontendOptions;
@@ -97,7 +96,7 @@ public class UpdateStmtExecutor {
             updatePlanner.plan(txnId);
         } catch (Throwable e) {
             LOG.warn("failed to plan update stmt, query id:{}", DebugUtil.printId(queryId), e);
-            Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
             throw new DdlException("failed to plan update stmt, query id: "
                     + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
@@ -110,11 +109,11 @@ public class UpdateStmtExecutor {
             executePlan();
         } catch (DdlException e) {
             LOG.warn("failed to execute update stmt, query id:{}", DebugUtil.printId(queryId), e);
-            Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
             throw e;
         } catch (Throwable e) {
             LOG.warn("failed to execute update stmt, query id:{}", DebugUtil.printId(queryId), e);
-            Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
             throw new DdlException("failed to execute update stmt, query id: "
                     + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
         } finally {
@@ -128,9 +127,8 @@ public class UpdateStmtExecutor {
     private void beginTxn() throws LabelAlreadyUsedException, AnalysisException, BeginTransactionException,
             DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
         LOG.info("begin transaction for update stmt, query id:{}", DebugUtil.printId(queryId));
-        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         label = "update_" + DebugUtil.printId(queryId);
-        txnId = Catalog.getCurrentGlobalTransactionMgr()
+        txnId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(targetTable.getId()), label,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         LoadJobSourceType.INSERT_STREAMING, timeoutSecond);
@@ -140,7 +138,7 @@ public class UpdateStmtExecutor {
     //           It makes stmt such as insert, load, update and export can be reused
     private void executePlan() throws Exception {
         LOG.info("begin execute update stmt, query id:{}", DebugUtil.printId(queryId));
-        coordinator = new Coordinator(Catalog.getCurrentCatalog().getNextId(), queryId, analyzer.getDescTbl(),
+        coordinator = new Coordinator(Env.getCurrentEnv().getNextId(), queryId, analyzer.getDescTbl(),
                 updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
         coordinator.setExecVecEngine(VectorizedUtil.isVectorized());
@@ -178,13 +176,13 @@ public class UpdateStmtExecutor {
     }
 
     private void commitAndPublishTxn() throws UserException {
-        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         TransactionStatus txnStatus;
         boolean isPublished;
         try {
             LOG.info("commit and publish transaction for update stmt, query id: {}", DebugUtil.printId(queryId));
             isPublished = globalTransactionMgr.commitAndPublishTransaction(
-                    Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId),
+                    Env.getCurrentInternalCatalog().getDbOrMetaException(dbId),
                     Lists.newArrayList(targetTable), txnId, TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
                     analyzer.getContext().getSessionVariable().getInsertVisibleTimeoutMs());
         } catch (Throwable e) {
@@ -199,7 +197,6 @@ public class UpdateStmtExecutor {
         if (isPublished) {
             // situation2.2: publish successful
             txnStatus = TransactionStatus.VISIBLE;
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
         } else {
             // situation2.3: be published later
             txnStatus = TransactionStatus.COMMITTED;
@@ -224,7 +221,7 @@ public class UpdateStmtExecutor {
         updateStmtExecutor.targetTable = (OlapTable) updateStmt.getTargetTable();
         updateStmtExecutor.whereExpr = updateStmt.getWhereExpr();
         updateStmtExecutor.setExprs = updateStmt.getSetExprs();
-        Database database = Catalog.getCurrentInternalCatalog()
+        Database database = Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException(updateStmt.getTableName().getDb());
         updateStmtExecutor.dbId = database.getId();
         updateStmtExecutor.analyzer = updateStmt.getAnalyzer();

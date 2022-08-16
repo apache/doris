@@ -17,35 +17,40 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * Rule for change inner join left associative to right.
+ * Rule for change inner join LAsscom (associative and commutive).
  */
+@Developing
 public class JoinLAsscom extends OneExplorationRuleFactory {
     /*
-     *        topJoin                newTopJoin
-     *        /     \                 /     \
-     *   bottomJoin  C   -->  newBottomJoin  B
-     *    /    \                  /    \
-     *   A      B                A      C
+     *      topJoin                newTopJoin
+     *      /     \                 /     \
+     * bottomJoin  C   -->  newBottomJoin  B
+     *  /    \                  /    \
+     * A      B                A      C
      */
     @Override
     public Rule build() {
-        return innerLogicalJoin(innerLogicalJoin(), any()).then(topJoin -> {
-            LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
+        return logicalJoin(logicalJoin(), groupPlan())
+            .when(JoinLAsscomHelper::check)
+            .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
+                    && (join.left().getJoinType().isInnerJoin() || join.left().getJoinType().isLeftOuterJoin()))
+            .then(topJoin -> {
 
-            GroupPlan a = bottomJoin.left();
-            GroupPlan b = bottomJoin.right();
-            Plan c = topJoin.right();
+                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
+                JoinLAsscomHelper helper = JoinLAsscomHelper.of(topJoin, bottomJoin);
+                if (!helper.initJoinOnCondition()) {
+                    return null;
+                }
 
-            Plan newBottomJoin = new LogicalJoin(bottomJoin.getJoinType(), bottomJoin.getCondition(), a, c);
-            return new LogicalJoin(bottomJoin.getJoinType(), topJoin.getCondition(), newBottomJoin, b);
-        }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                return helper.newTopJoin();
+            }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }
 }

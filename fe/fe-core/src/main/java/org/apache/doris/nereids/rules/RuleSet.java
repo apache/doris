@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
-import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
+import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
+import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
+import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalHeapSort;
@@ -37,8 +38,7 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new JoinCommutative(false))
-            .add(new JoinLeftAssociative())
+            .add(new JoinCommute(true))
             .build();
 
     public static final List<Rule> REWRITE_RULES = planRuleFactories()
@@ -49,8 +49,10 @@ public class RuleSet {
             .add(new LogicalAggToPhysicalHashAgg())
             .add(new LogicalFilterToPhysicalFilter())
             .add(new LogicalJoinToHashJoin())
+            .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalProjectToPhysicalProject())
+            .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalSortToPhysicalHeapSort())
             .build();
 

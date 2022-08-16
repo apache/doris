@@ -36,7 +36,7 @@ public class ReplicaTest {
 
     // replica serialize and deserialize test will use catalog so that it should be mocked
     @Mocked
-    Catalog catalog;
+    Env env;
 
     private Replica replica;
     private long replicaId;

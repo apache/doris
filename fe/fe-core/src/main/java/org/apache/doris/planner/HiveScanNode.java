@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -126,7 +127,7 @@ public class HiveScanNode extends BrokerScanNode {
     private void setStorageType(String location) throws UserException {
         String[] strings = StringUtils.split(location, "/");
         String storagePrefix = strings[0].split(":")[0];
-        if (storagePrefix.equalsIgnoreCase("s3")) {
+        if (Util.isS3CompatibleStorageSchema(storagePrefix)) {
             this.storageType = StorageBackend.StorageType.S3;
         } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
             this.storageType = StorageBackend.StorageType.HDFS;

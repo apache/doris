@@ -25,10 +25,10 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.ChildrenOutputPropertyDeriver;
+import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
-import org.apache.doris.nereids.properties.ParentRequiredPropertyDeriver;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 
 import com.google.common.collect.Lists;
 
@@ -37,21 +37,23 @@ import java.util.Optional;
 
 /**
  * Job to compute cost and add enforcer.
+ * Inspired by NoisePage and ORCA-Paper.
  */
-public class CostAndEnforcerJob extends Job {
+public class CostAndEnforcerJob extends Job implements Cloneable {
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
     // Current total cost
     private double curTotalCost;
 
-    // Properties from parent plan node.
-    // Like: Physical Hash Join
-    // [ [Properties ["", ANY], Properties ["", BROADCAST]],
-    //   [Properties ["", SHUFFLE_JOIN], Properties ["", SHUFFLE_JOIN]] ]
-    private List<List<PhysicalProperties>> propertiesListList;
+    // Children properties from parent plan node.
+    // Example: Physical Hash Join
+    // [ child item: [leftProperties, rightPropertie]]
+    // [ [Properties {"", ANY}, Properties {"", BROADCAST}],
+    //   [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}]]
+    private List<List<PhysicalProperties>> requestChildrenPropertyList;
 
     private List<GroupExpression> childrenBestGroupExprList;
-    private List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList();
+    private final List<PhysicalProperties> childrenOutputProperty = Lists.newArrayList();
 
     // Current stage of enumeration through child groups
     private int curChildIndex = -1;
@@ -65,51 +67,65 @@ public class CostAndEnforcerJob extends Job {
         this.groupExpression = groupExpression;
     }
 
-    @Override
-    public void execute() {
-        for (Group childGroup : groupExpression.children()) {
-            if (!childGroup.isHasCost()) {
-                // TODO: interim solution
-                pushTask(new CostAndEnforcerJob(this.groupExpression, context));
-                pushTask(new OptimizeGroupJob(childGroup, context));
-                childGroup.setHasCost(true);
-                return;
-            }
-        }
-    }
+    /*-
+     * Please read the ORCA paper
+     * - 4.1.4 Optimization.
+     * - Figure 7
+     *
+     *                currentJobSubPlanRoot
+     *             / ▲                     ▲ \
+     *   requested/ /childOutput childOutput\ \requested
+     * Properties/ /Properties     Properties\ \Properties
+     *          ▼ /                           \ ▼
+     *        child                           child
+     *
+     *
+     *         requestPropertyFromParent          parentPlanNode
+     *    ──►              │               ──►          ▲
+     *                     ▼                            │
+     *         requestPropertyToChildren        ChildOutputProperty
+     *
+     *         requestPropertyFromParent
+     *                     ┼
+     *    ──►             gap              ──►  add enforcer to fill the gap
+     *                     ┼
+     *            ChildOutputProperty
+     */
 
     /**
      * execute.
      */
-    public void execute1() {
+    @Override
+    public void execute() {
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
-        if (curChildIndex != -1) {
+        if (curChildIndex == -1) {
             curTotalCost = 0;
 
             // Get property from groupExpression plan (it's root of subplan).
-            ParentRequiredPropertyDeriver parentRequiredPropertyDeriver = new ParentRequiredPropertyDeriver(context);
-            propertiesListList = parentRequiredPropertyDeriver.getRequiredPropertyListList(groupExpression);
+            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
+            requestChildrenPropertyList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
             curChildIndex = 0;
         }
 
-        for (; curPropertyPairIndex < propertiesListList.size(); curPropertyPairIndex++) {
+        for (; curPropertyPairIndex < requestChildrenPropertyList.size(); curPropertyPairIndex++) {
             // children input properties
-            List<PhysicalProperties> childrenInputProperties = propertiesListList.get(curPropertyPairIndex);
+            List<PhysicalProperties> requestChildrenProperty = requestChildrenPropertyList.get(curPropertyPairIndex);
 
             // Calculate cost of groupExpression and update total cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
                 curTotalCost += CostCalculator.calculateCost(groupExpression);
             }
 
+            // Handle all child plannode.
             for (; curChildIndex < groupExpression.arity(); curChildIndex++) {
-                PhysicalProperties childInputProperties = childrenInputProperties.get(curChildIndex);
+                PhysicalProperties requestChildProperty = requestChildrenProperty.get(curChildIndex);
                 Group childGroup = groupExpression.child(curChildIndex);
 
-                // Whether the child group was optimized for this childInputProperties according to
+                // Whether the child group was optimized for this requestChildProperty according to
                 // the result of returning.
                 Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt = childGroup.getLowestCostPlan(
-                        childInputProperties);
+                        requestChildProperty);
 
                 if (!lowestCostPlanOpt.isPresent()) {
                     // The child should be pruned due to cost prune.
@@ -122,7 +138,7 @@ public class CostAndEnforcerJob extends Job {
                     prevChildIndex = curChildIndex;
                     pushTask((CostAndEnforcerJob) clone());
                     double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
-                    JobContext jobContext = new JobContext(context.getPlannerContext(), childInputProperties,
+                    JobContext jobContext = new JobContext(context.getPlannerContext(), requestChildProperty,
                             newCostUpperBound);
                     pushTask(new OptimizeGroupJob(childGroup, jobContext));
                     return;
@@ -130,13 +146,12 @@ public class CostAndEnforcerJob extends Job {
 
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
 
-                PhysicalProperties childOutputProperty = lowestCostExpr.getPropertyFromMap(childInputProperties);
-                // TODO: maybe need to record children lowestCostExpr
-                childrenInputProperties.set(curChildIndex, childOutputProperty);
+                PhysicalProperties childOutputProperty = lowestCostExpr.getPropertyFromMap(requestChildProperty);
+                // add childOutputProperty of children into childrenOutputProperty
+                childrenOutputProperty.add(childOutputProperty);
+                requestChildrenProperty.set(curChildIndex, childOutputProperty);
 
-                // todo: check whether split agg broadcast row count limit.
-
-                curTotalCost += lowestCostExpr.getLowestCostTable().get(childInputProperties).first;
+                curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
                 if (curTotalCost > context.getCostUpperBound()) {
                     break;
                 }
@@ -148,9 +163,9 @@ public class CostAndEnforcerJob extends Job {
                 // best expr from the child group
 
                 // TODO: it could update the cost.
-                PhysicalProperties outputProperty = ChildrenOutputPropertyDeriver.getProperties(
+                PhysicalProperties outputProperty = ChildOutputPropertyDeriver.getProperties(
                         context.getRequiredProperties(),
-                        childrenOutputProperties, groupExpression);
+                        childrenOutputProperty, groupExpression);
 
                 if (curTotalCost > context.getCostUpperBound()) {
                     break;
@@ -161,49 +176,50 @@ public class CostAndEnforcerJob extends Job {
                     return;
                 }
                 PlanContext planContext = new PlanContext(groupExpression);
-                // TODO: calculate stats.
+                // TODO: calculate stats. ??????
                 groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
 
-                enforce(outputProperty, childrenInputProperties);
+                enforce(outputProperty, requestChildrenProperty);
+
+                if (curTotalCost < context.getCostUpperBound()) {
+                    context.setCostUpperBound(curTotalCost);
+                }
             }
 
             // Reset child idx and total cost
+            childrenOutputProperty.clear();
             prevChildIndex = -1;
             curChildIndex = 0;
             curTotalCost = 0;
         }
     }
 
-    private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> inputProperties) {
+    private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> childrenInputProperties) {
 
         // groupExpression can satisfy its own output property
-        putProperty(groupExpression, outputProperty, outputProperty, inputProperties);
+        putProperty(groupExpression, outputProperty, outputProperty, childrenInputProperties);
         // groupExpression can satisfy the ANY type output property
-        putProperty(groupExpression, outputProperty, new PhysicalProperties(), inputProperties);
+        putProperty(groupExpression, outputProperty, PhysicalProperties.ANY, childrenInputProperties);
 
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper = new EnforceMissingPropertiesHelper(context,
                 groupExpression, curTotalCost);
 
-        PhysicalProperties requiredProperties = context.getRequiredProperties();
-        if (outputProperty.meet(requiredProperties)) {
+        PhysicalProperties requestedProperties = context.getRequiredProperties();
+        if (!outputProperty.satisfy(requestedProperties)) {
             Pair<PhysicalProperties, Double> pair = enforceMissingPropertiesHelper.enforceProperty(outputProperty,
-                    requiredProperties);
+                    requestedProperties);
             PhysicalProperties addEnforcedProperty = pair.first;
             curTotalCost = pair.second;
 
             // enforcedProperty is superset of requiredProperty
-            if (!addEnforcedProperty.equals(requiredProperties)) {
+            if (!addEnforcedProperty.equals(requestedProperties)) {
                 putProperty(groupExpression.getOwnerGroup().getBestExpression(addEnforcedProperty),
-                        requiredProperties, requiredProperties, Lists.newArrayList(outputProperty));
+                        requestedProperties, requestedProperties, Lists.newArrayList(outputProperty));
             }
         } else {
-            if (!outputProperty.equals(requiredProperties)) {
-                putProperty(groupExpression, outputProperty, requiredProperties, inputProperties);
+            if (!outputProperty.equals(requestedProperties)) {
+                putProperty(groupExpression, outputProperty, requestedProperties, childrenInputProperties);
             }
-        }
-
-        if (curTotalCost < context.getCostUpperBound()) {
-            context.setCostUpperBound(curTotalCost);
         }
     }
 
@@ -231,6 +247,7 @@ public class CostAndEnforcerJob extends Job {
         try {
             task = (CostAndEnforcerJob) super.clone();
         } catch (CloneNotSupportedException ignored) {
+            ignored.printStackTrace();
             return null;
         }
         return task;

@@ -224,9 +224,9 @@ Status VExpr::create_expr_trees(ObjectPool* pool, const std::vector<doris::TExpr
 }
 
 Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                      const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& tracker) {
+                      const RowDescriptor& row_desc) {
     for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
+        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc));
     }
     return Status::OK();
 }
@@ -354,7 +354,7 @@ Status VExpr::init_function_context(VExprContext* context,
 
 void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                    const FunctionBasePtr& function) const {
-    if (_fn_context_index != -1) {
+    if (_fn_context_index != -1 && !context->_stale) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
         if (scope == FunctionContext::FRAGMENT_LOCAL) {

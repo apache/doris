@@ -36,8 +36,7 @@ class VOlapScanNode;
 class VOlapScanner {
 public:
     VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
-                 bool need_agg_finalize, const TPaloScanRange& scan_range,
-                 const std::shared_ptr<MemTracker>& tracker);
+                 bool need_agg_finalize, const TPaloScanRange& scan_range, MemTracker* tracker);
     virtual ~VOlapScanner() = default;
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
@@ -84,13 +83,9 @@ public:
 
     int64_t update_wait_worker_timer() const { return _watcher.elapsed_time(); }
 
-    void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
-        _use_pushdown_conjuncts = has_pushdown_conjuncts;
-    }
-
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
-    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
+    TabletStorageType get_storage_type();
 
 private:
     Status _init_tablet_reader_params(
@@ -113,12 +108,13 @@ private:
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
 
+    int64_t _limit = -1;
+
     int _id;
     bool _is_open;
     bool _aggregation;
     bool _need_agg_finalize = true;
     bool _has_update_counter = false;
-    bool _use_pushdown_conjuncts = false;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
@@ -141,12 +137,12 @@ private:
 
     MonotonicStopWatch _watcher;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    MemTracker* _mem_tracker;
 
     VExprContext* _vconjunct_ctx = nullptr;
     bool _need_to_close = false;
 
-    TabletSchema _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 } // namespace vectorized

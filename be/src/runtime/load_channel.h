@@ -26,7 +26,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
@@ -39,7 +39,7 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
+    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                 int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                 bool is_vec);
     ~LoadChannel();
@@ -81,9 +81,11 @@ protected:
                        Response* response) {
         bool finished = false;
         auto index_id = request.index_id();
-        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), &finished,
-                                       request.partition_ids(), response->mutable_tablet_vec(),
-                                       response->mutable_tablet_errors()));
+        RETURN_IF_ERROR(channel->close(
+                this, request.sender_id(), request.backend_id(), &finished, request.partition_ids(),
+                response->mutable_tablet_vec(), response->mutable_tablet_errors(),
+                request.slave_tablet_nodes(), response->mutable_success_slave_tablet_node_ids(),
+                request.write_single_replica()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
@@ -99,7 +101,7 @@ private:
 
     UniqueId _load_id;
     // Tracks the total memory consumed by current load job on this BE
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;

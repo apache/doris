@@ -270,7 +270,7 @@ public class ColumnDef {
                 throw new AnalysisException("Array type column default value only support null");
             }
         }
-        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING) {
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING && isOlap) {
             throw new AnalysisException("String Type should not be used in key column[" + getName()
                     + "].");
         }
@@ -342,12 +342,12 @@ public class ColumnDef {
                 break;
             case DATE:
             case DATEV2:
-                new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
+                new DateLiteral(defaultValue, ScalarType.getDefaultDateType(type));
                 break;
             case DATETIME:
             case DATETIMEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
+                    new DateLiteral(defaultValue, ScalarType.getDefaultDateType(type));
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         break;

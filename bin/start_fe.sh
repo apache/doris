@@ -28,6 +28,7 @@ OPTS=$(getopt \
     -l 'daemon' \
     -l 'helper:' \
     -l 'image:' \
+    -l 'version' \
     -- "$@")
 
 eval set -- "$OPTS"
@@ -36,10 +37,15 @@ RUN_DAEMON=0
 HELPER=
 IMAGE_PATH=
 IMAGE_TOOL=
+OPT_VERSION=
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
+        shift
+        ;;
+    --version)
+        OPT_VERSION="--version"
         shift
         ;;
     --helper)
@@ -85,7 +91,7 @@ while read line; do
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
-done < $DORIS_HOME/conf/fe.conf
+done <$DORIS_HOME/conf/fe.conf
 
 if [ -e $DORIS_HOME/bin/palo_env.sh ]; then
     source $DORIS_HOME/bin/palo_env.sh
@@ -135,24 +141,24 @@ java_version=$(jdk_version)
 final_java_opt=$JAVA_OPTS
 if [ $java_version -gt 8 ]; then
     if [ -z "$JAVA_OPTS_FOR_JDK_9" ]; then
-        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >> $LOG_DIR/fe.out
+        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>$LOG_DIR/fe.out
         exit 1
     fi
     final_java_opt=$JAVA_OPTS_FOR_JDK_9
 fi
-echo "using java version $java_version" >> $LOG_DIR/fe.out
-echo $final_java_opt >> $LOG_DIR/fe.out
+echo "using java version $java_version" >>$LOG_DIR/fe.out
+echo $final_java_opt >>$LOG_DIR/fe.out
 
 # add libs to CLASSPATH
 for f in $DORIS_HOME/lib/*.jar; do
     CLASSPATH=$f:${CLASSPATH}
 done
-export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib
+export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib:${DORIS_HOME}/conf
 
 pidfile=$PID_DIR/fe.pid
 
 if [ -f $pidfile ]; then
-    if kill -0 $(cat $pidfile) > /dev/null 2>&1; then
+    if kill -0 $(cat $pidfile) >/dev/null 2>&1; then
         echo Frontend running as process $(cat $pidfile). Stop it first.
         exit 1
     fi
@@ -164,7 +170,7 @@ else
     LIMIT=/bin/limit
 fi
 
-echo $(date) >> $LOG_DIR/fe.out
+echo $(date) >>$LOG_DIR/fe.out
 
 if [ x"$HELPER" != x"" ]; then
     # change it to '-helper' to be compatible with code in Frontend
@@ -178,10 +184,10 @@ if [[ ${IMAGE_TOOL} -eq 1 ]]; then
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
 elif [[ ${RUN_DAEMON} -eq 1 ]]; then
-    nohup $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 < /dev/null &
+    nohup $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} "$@" >>$LOG_DIR/fe.out 2>&1 </dev/null &
 else
     export DORIS_LOG_TO_STDERR=1
-    $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} "$@" < /dev/null
+    $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} ${OPT_VERSION} "$@" </dev/null
 fi
 
-echo $! > $pidfile
+echo $! >$pidfile

@@ -59,6 +59,38 @@ public:
             }
             result->add_int32_value(sum);
         }
+        if(fun_name=="rpc_avg_update"){
+            result->mutable_type()->set_id(PGenericType::DOUBLE);
+            double sum=0;
+            int64_t size = request->args(0).int32_value_size();
+            for (size_t i = 0; i < request->args(0).int32_value_size(); ++i) {
+                sum += request->args(0).int32_value(i);
+            }
+            if(request->has_context() && request->context().has_function_context()){
+                sum += request->context().function_context().args_data(0).double_value(0);
+                size += request->context().function_context().args_data(0).int32_value(0);
+            }
+            result->add_double_value(sum);
+            result->add_int32_value(size);
+        }
+        if(fun_name=="rpc_avg_merge"){
+            result->mutable_type()->set_id(PGenericType::INT32);
+            double sum= 0;
+            int32_t size = 0;
+            for (size_t i = 0; i < request->args_size(); ++i) {
+                sum += request->args(i).double_value(0);
+                size += request->args(i).int32_value(0);
+            }
+            result->add_double_value(sum);
+            result->add_int32_value(size);
+        }
+        if(fun_name=="rpc_avg_finalize"){
+             result->mutable_type()->set_id(PGenericType::DOUBLE);
+             double sum = request->context().function_context().args_data(0).double_value(0);
+             int64_t size = request->context().function_context().args_data(0).int32_value(0);
+             double avg = sum / size;
+             result->add_double_value(avg);
+        }
         response->mutable_status()->set_status_code(0);
     }
 

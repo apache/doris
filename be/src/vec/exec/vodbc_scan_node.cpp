@@ -47,7 +47,7 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -67,7 +67,7 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool("OdbcScanNode"));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
@@ -87,8 +87,8 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
 Status VOdbcScanNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     VLOG_CRITICAL << _scan_node_type << "::Open";
 
     if (nullptr == state) {
@@ -103,19 +103,6 @@ Status VOdbcScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(_odbc_scanner->open());
     RETURN_IF_ERROR(_odbc_scanner->query());
     // check materialize slot num
-
-    return Status::OK();
-}
-
-Status VOdbcScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                                      RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
-                                     _tuple_pool.get())) {
-        std::stringstream ss;
-        ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
-    }
 
     return Status::OK();
 }
@@ -173,7 +160,6 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             }
 
             // Read one row from reader
-
             for (int column_index = 0, materialized_column_index = 0; column_index < column_size;
                  ++column_index) {
                 auto slot_desc = tuple_desc->slots()[column_index];
@@ -186,12 +172,27 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                 char* value_data = static_cast<char*>(column_data.target_value_ptr);
                 int value_len = column_data.strlen_or_ind;
 
-                if (!text_converter->write_column(slot_desc, &columns[column_index], value_data,
-                                                  value_len, true, false)) {
-                    std::stringstream ss;
-                    ss << "Fail to convert odbc value:'" << value_data << "' to "
-                       << slot_desc->type() << " on column:`" << slot_desc->col_name() + "`";
-                    return Status::InternalError(ss.str());
+                if (value_len == SQL_NULL_DATA) {
+                    if (slot_desc->is_nullable()) {
+                        columns[column_index]->insert_default();
+                    } else {
+                        return Status::InternalError(
+                                "nonnull column contains nullptr. table={}, column={}", _table_name,
+                                slot_desc->col_name());
+                    }
+                } else if (value_len > column_data.buffer_length) {
+                    return Status::InternalError(
+                            "column value length longer than buffer length. "
+                            "table={}, column={}, buffer_length",
+                            _table_name, slot_desc->col_name(), column_data.buffer_length);
+                } else {
+                    if (!text_converter->write_column(slot_desc, &columns[column_index], value_data,
+                                                      value_len, true, false)) {
+                        std::stringstream ss;
+                        ss << "Fail to convert odbc value:'" << value_data << "' to "
+                           << slot_desc->type() << " on column:`" << slot_desc->col_name() + "`";
+                        return Status::InternalError(ss.str());
+                    }
                 }
                 materialized_column_index++;
             }

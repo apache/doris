@@ -208,6 +208,14 @@ public:
         }
     }
 
+    void insert_many_raw_data(const char* pos, size_t num) override {
+        if constexpr (std::is_same_v<T, vectorized::Int128>) {
+            insert_many_in_copy_way(pos, num);
+        } else {
+            insert_many_default_type(pos, num);
+        }
+    }
+
     void insert_default() override { data.push_back(T()); }
 
     void insert_many_defaults(size_t length) override {
@@ -221,6 +229,11 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
+
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
 
     size_t get_max_row_byte_size() const override;
 

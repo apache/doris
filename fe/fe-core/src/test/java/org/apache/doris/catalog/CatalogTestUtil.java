@@ -94,13 +94,14 @@ public class CatalogTestUtil {
     public static String testEsTable1 = "partitionedEsTable1";
     public static long testEsTableId1 = 14;
 
-    public static Catalog createTestCatalog() throws InstantiationException, IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
-        Constructor<Catalog> constructor = Catalog.class.getDeclaredConstructor();
+    public static Env createTestCatalog()
+            throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
+            NoSuchMethodException, SecurityException {
+        Constructor<Env> constructor = Env.class.getDeclaredConstructor();
         constructor.setAccessible(true);
-        Catalog catalog = constructor.newInstance();
-        catalog.setEditLog(new EditLog("name"));
-        FakeCatalog.setCatalog(catalog);
+        Env env = constructor.newInstance();
+        env.setEditLog(new EditLog("name"));
+        FakeEnv.setEnv(env);
         Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
         Backend backend2 = createBackend(testBackendId2, "host2", 123, 124, 125);
         Backend backend3 = createBackend(testBackendId3, "host3", 123, 124, 125);
@@ -114,20 +115,21 @@ public class CatalogTestUtil {
         backend2.setDisks(ImmutableMap.of("disk1", diskInfo));
         backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend3.setDisks(ImmutableMap.of("disk1", diskInfo));
-        Catalog.getCurrentSystemInfo().addBackend(backend1);
-        Catalog.getCurrentSystemInfo().addBackend(backend2);
-        Catalog.getCurrentSystemInfo().addBackend(backend3);
-        catalog.initDefaultCluster();
+        Env.getCurrentSystemInfo().addBackend(backend1);
+        Env.getCurrentSystemInfo().addBackend(backend2);
+        Env.getCurrentSystemInfo().addBackend(backend3);
+        env.initDefaultCluster();
+
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
                 testStartVersion);
-        catalog.unprotectCreateDb(db);
-        return catalog;
+        env.unprotectCreateDb(db);
+        return env;
     }
 
-    public static boolean compareCatalog(Catalog masterCatalog, Catalog slaveCatalog) {
+    public static boolean compareCatalog(Env masterEnv, Env slaveEnv) {
         try {
-            Database masterDb = masterCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
-            Database slaveDb = slaveCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
+            Database masterDb = masterEnv.getInternalDataSource().getDbOrMetaException(testDb1);
+            Database slaveDb = slaveEnv.getInternalDataSource().getDbOrMetaException(testDb1);
             List<Table> tables = masterDb.getTables();
             for (Table table : tables) {
                 Table slaveTable = slaveDb.getTableOrMetaException(table.getId());
@@ -176,7 +178,7 @@ public class CatalogTestUtil {
 
     public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
             long version) {
-        Catalog.getCurrentInvertedIndex().clear();
+        Env.getCurrentInvertedIndex().clear();
 
         // replica
         Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,

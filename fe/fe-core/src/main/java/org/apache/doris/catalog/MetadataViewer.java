@@ -48,10 +48,10 @@ public class MetadataViewer {
             ReplicaStatus statusFilter, Operator op) throws DdlException {
         List<List<String>> result = Lists.newArrayList();
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();
@@ -166,10 +166,10 @@ public class MetadataViewer {
 
         List<List<String>> result = Lists.newArrayList();
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
         olapTable.readLock();
         try {
@@ -245,7 +245,7 @@ public class MetadataViewer {
 
     private static String graph(long num, long totalNum) {
         StringBuilder sb = new StringBuilder();
-        long normalized = num == totalNum ? 100 : (int) Math.ceil(num * 100 / totalNum);
+        long normalized = num == totalNum ? (totalNum == 0L ? 0 : 100) : (int) Math.ceil(num * 100 / totalNum);
         for (int i = 0; i < normalized; ++i) {
             sb.append(">");
         }
@@ -261,13 +261,13 @@ public class MetadataViewer {
         DecimalFormat df = new DecimalFormat("00.00 %");
 
         List<List<String>> result = Lists.newArrayList();
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
 
         if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
             throw new DdlException("Should specify one and only one partitions");
         }
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();
@@ -309,8 +309,8 @@ public class MetadataViewer {
                 row.add(rowCountTabletInfos.get(i).toString());
                 row.add(dataSizeTabletInfos.get(i).toString());
                 row.add(graph(dataSizeTabletInfos.get(i), totalSize));
-                row.add(totalSize == dataSizeTabletInfos.get(i)
-                        ? "100.00%" : df.format((double) dataSizeTabletInfos.get(i) / totalSize));
+                row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
+                        df.format((double) dataSizeTabletInfos.get(i) / totalSize));
                 result.add(row);
             }
         } finally {

@@ -34,7 +34,9 @@ void CollectIterator::init(TabletReader* reader) {
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
     if (_reader->_reader_type == READER_QUERY &&
-        (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS)) {
+        (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
+         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+          _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _merge = false;
     }
 }
@@ -193,14 +195,14 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
     if (LIKELY(rs_reader->type() == RowsetTypePB::BETA_ROWSET)) {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
     } else {
-        _refresh_current_row = &Level0Iterator::_refresh_current_row_v1;
+        LOG(FATAL) << "Not supported rowset type";
     }
 }
 
 CollectIterator::Level0Iterator::~Level0Iterator() = default;
 
 Status CollectIterator::Level0Iterator::init() {
-    RETURN_NOT_OK_LOG(_row_cursor.init(*_reader->_tablet_schema, _reader->_seek_columns),
+    RETURN_NOT_OK_LOG(_row_cursor.init(_reader->_tablet_schema, _reader->_seek_columns),
                       "failed to init row cursor");
     return (this->*_refresh_current_row)();
 }
@@ -216,31 +218,6 @@ const RowCursor* CollectIterator::Level0Iterator::current_row() const {
 
 int64_t CollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
-}
-
-Status CollectIterator::Level0Iterator::_refresh_current_row_v1() {
-    do {
-        if (_row_block != nullptr && _row_block->has_remaining()) {
-            size_t pos = _row_block->pos();
-            _row_block->get_row(pos, &_row_cursor);
-            if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
-                _reader->_delete_handler.is_filter_data(version(), _row_cursor)) {
-                _reader->_stats.rows_del_filtered++;
-                _row_block->pos_inc();
-                continue;
-            }
-            _current_row = &_row_cursor;
-            return Status::OK();
-        } else {
-            auto res = _rs_reader->next_block(&_row_block);
-            if (!res.ok()) {
-                _current_row = nullptr;
-                return res;
-            }
-        }
-    } while (_row_block != nullptr);
-    _current_row = nullptr;
-    return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
 }
 
 Status CollectIterator::Level0Iterator::_refresh_current_row_v2() {

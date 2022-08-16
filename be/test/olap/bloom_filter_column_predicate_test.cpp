@@ -37,16 +37,13 @@ namespace doris {
 
 class TestBloomFilterColumnPredicate : public testing::Test {
 public:
-    TestBloomFilterColumnPredicate() : _row_block(nullptr) {
-        _mem_tracker.reset(new MemTracker(-1));
-        _mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    TestBloomFilterColumnPredicate() : _row_block(nullptr) { _mem_pool.reset(new MemPool()); }
 
     ~TestBloomFilterColumnPredicate() {}
 
     void SetTabletSchema(std::string name, const std::string& type, const std::string& aggregation,
                          uint32_t length, bool is_allow_null, bool is_key,
-                         TabletSchema* tablet_schema) {
+                         TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
         ColumnPB* column = tablet_schema_pb.add_column();
@@ -64,22 +61,21 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void init_row_block(const TabletSchema* tablet_schema, int size) {
-        Schema schema(*tablet_schema);
+    void init_row_block(TabletSchemaSPtr tablet_schema, int size) {
+        Schema schema(tablet_schema);
         _row_block.reset(new RowBlockV2(schema, size));
     }
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<RowBlockV2> _row_block;
 };
 
 TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     const int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
 
@@ -98,7 +94,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);

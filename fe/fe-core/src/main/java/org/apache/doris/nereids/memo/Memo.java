@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -47,7 +47,7 @@ public class Memo {
     private Group root;
 
     public Memo(Plan plan) {
-        root = copyIn(plan, null, false).getOwnerGroup();
+        root = copyIn(plan, null, false).second.getOwnerGroup();
     }
 
     public Group getRoot() {
@@ -69,12 +69,13 @@ public class Memo {
      * @param node {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
      * @param rewrite whether to rewrite the node to the target group
-     * @return Reference of node in Memo
+     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
+     *         and the second element is a reference of node in Memo
      */
-    public GroupExpression copyIn(Plan node, @Nullable Group target, boolean rewrite) {
+    public Pair<Boolean, GroupExpression> copyIn(Plan node, @Nullable Group target, boolean rewrite) {
         Optional<GroupExpression> groupExpr = node.getGroupExpression();
         if (!rewrite && groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
-            return groupExpr.get();
+            return new Pair(false, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < node.children().size(); i++) {
@@ -84,13 +85,17 @@ public class Memo {
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, rewrite).getOwnerGroup());
+                childrenGroups.add(copyIn(child, null, rewrite).second.getOwnerGroup());
             }
         }
         node = replaceChildrenToGroupPlan(node, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(node);
         newGroupExpression.setChildren(childrenGroups);
-        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
+        if (rewrite) {
+            return rewriteGroupExpression(newGroupExpression, target, node.getLogicalProperties());
+        } else {
+            return insertGroupExpression(newGroupExpression, target, node.getLogicalProperties());
+        }
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -119,40 +124,64 @@ public class Memo {
     }
 
     /**
-     * Insert or rewrite groupExpression to target group.
+     * Insert groupExpression to target group.
      * If group expression is already in memo and target group is not null, we merge two groups.
      * If target is null, generate new group.
-     * If rewrite is true, rewrite the groupExpression to target group.
+     * If target is not null, add group expression to target group
      *
      * @param groupExpression groupExpression to insert
-     * @param target target group to insert or rewrite groupExpression
-     * @param rewrite whether to rewrite the groupExpression to target group
-     * @return existing groupExpression in memo or newly generated groupExpression
+     * @param target target group to insert groupExpression
+     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
+     *         and the second element is a reference of node in Memo
      */
-    private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
-            boolean rewrite, LogicalProperties logicalProperties) {
+    private Pair<Boolean, GroupExpression> insertGroupExpression(
+            GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null
-                && existedGroupExpression.getOwnerGroup().getLogicalProperties().equals(logicalProperties)) {
+        if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(target, existedGroupExpression.getOwnerGroup());
+                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
-            return existedGroupExpression;
+            return new Pair<>(false, existedGroupExpression);
         }
         if (target != null) {
-            if (rewrite) {
-                GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression, logicalProperties);
-                groupExpressions.remove(oldExpression);
-            } else {
-                target.addGroupExpression(groupExpression);
-            }
+            target.addGroupExpression(groupExpression);
         } else {
             Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
-            Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return groupExpression;
+        return new Pair<>(true, groupExpression);
+    }
+
+    /**
+     * Rewrite groupExpression to target group.
+     * If group expression is already in memo, we replace logical properties regardless the target group present or not
+     *     for replace UnboundLogicalProperties to LogicalProperties
+     * If target is null, generate new group.
+     * If target is not null, rewrite the groupExpression to target group.
+     *
+     * @param groupExpression groupExpression to rewrite old one
+     * @param target target group to rewrite groupExpression
+     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
+     *         and the second element is a reference of node in Memo
+     */
+    private Pair<Boolean, GroupExpression> rewriteGroupExpression(
+            GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
+        boolean newGroupExpressionGenerated = true;
+        GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
+        if (existedGroupExpression != null) {
+            target = existedGroupExpression.getOwnerGroup();
+            newGroupExpressionGenerated = false;
+        }
+        if (target != null) {
+            GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression, logicalProperties);
+            groupExpressions.remove(oldExpression);
+        } else {
+            Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
+            groups.add(group);
+        }
+        groupExpressions.put(groupExpression, groupExpression);
+        return new Pair<>(newGroupExpressionGenerated, groupExpression);
     }
 
     /**
@@ -164,10 +193,11 @@ public class Memo {
      *
      * @param source source group
      * @param destination destination group
+     * @return merged group
      */
-    private void mergeGroup(Group source, Group destination) {
+    private Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
-            return;
+            return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
         groupExpressions.values().forEach(groupExpression -> {
@@ -188,22 +218,24 @@ public class Memo {
                     children.set(i, destination);
                 }
             }
-            if (groupExpressions.containsKey(groupExpression)) {
-                // TODO: need to merge group recursively
+            GroupExpression that = groupExpressions.get(groupExpression);
+            if (that != null && that.getOwnerGroup() != null
+                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
+                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
+                // that.getOwnerGroup() already has this groupExpression.
+                Group ownerGroup = groupExpression.getOwnerGroup();
                 groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                mergeGroup(ownerGroup, that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
         }
-        for (GroupExpression groupExpression : source.getLogicalExpressions()) {
-            source.removeGroupExpression(groupExpression);
-            destination.addGroupExpression(groupExpression);
+        if (!source.equals(destination)) {
+            source.moveLogicalExpressionOwnership(destination);
+            source.movePhysicalExpressionOwnership(destination);
+            groups.remove(source);
         }
-        for (GroupExpression groupExpression : source.getPhysicalExpressions()) {
-            source.removeGroupExpression(groupExpression);
-            destination.addGroupExpression(groupExpression);
-        }
-        groups.remove(source);
+        return destination;
     }
 
     /**
@@ -215,7 +247,7 @@ public class Memo {
 
     private Plan replaceChildrenToGroupPlan(Plan plan, List<Group> childrenGroups) {
         List<Plan> groupPlanChildren = childrenGroups.stream()
-                .map(group -> new GroupPlan(group))
+                .map(GroupPlan::new)
                 .collect(ImmutableList.toImmutableList());
         LogicalProperties logicalProperties = plan.getLogicalProperties();
         return plan.withChildren(groupPlanChildren)

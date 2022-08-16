@@ -52,9 +52,9 @@ Status OdbcTableSink::init(const TDataSink& t_sink) {
 Status OdbcTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc));
     std::stringstream title;
-    title << "ODBC_TABLE_SINK (frag_id=" << state->fragment_instance_id() << ")";
+    title << _name << " (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     return Status::OK();

@@ -82,10 +82,6 @@ public:
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_data_dirs(const std::vector<DataDir*>& stores);
 
-    Cache* index_stream_lru_cache() { return _index_stream_lru_cache; }
-
-    std::shared_ptr<Cache> file_cache() { return _file_cache; }
-
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
@@ -179,21 +175,26 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    std::shared_ptr<MemTracker> compaction_mem_tracker() { return _compaction_mem_tracker; }
-    std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
-    std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
-    std::shared_ptr<MemTracker> storage_migration_mem_tracker() {
-        return _storage_migration_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> compaction_mem_tracker() { return _compaction_mem_tracker; }
+    MemTracker* segment_meta_mem_tracker() { return _segment_meta_mem_tracker.get(); }
+    std::shared_ptr<MemTrackerLimiter> schema_change_mem_tracker() {
+        return _schema_change_mem_tracker;
     }
-    std::shared_ptr<MemTracker> clone_mem_tracker() { return _clone_mem_tracker; }
-    std::shared_ptr<MemTracker> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
-    std::shared_ptr<MemTracker> consistency_mem_tracker() { return _consistency_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> clone_mem_tracker() { return _clone_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> consistency_mem_tracker() {
+        return _consistency_mem_tracker;
+    }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
     Status submit_quick_compaction_task(TabletSharedPtr tablet);
+
+    std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
+        return _tablet_publish_txn_thread_pool;
+    }
 
 private:
     // Instance should be inited from `static open()`
@@ -314,17 +315,6 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    Cache* _index_stream_lru_cache;
-
-    // _file_cache is a lru_cache for file descriptors of files opened by doris,
-    // which can be shared by others. Why we need to share cache with others?
-    // Because a unique memory space is easier for management. For example,
-    // we can deal with segment v1's cache and segment v2's cache at same time.
-    // Note that, we must create _file_cache before sharing it with other.
-    // (e.g. the storage engine's open function must be called earlier than
-    // FileBlockManager created.)
-    std::shared_ptr<Cache> _file_cache;
-
     static StorageEngine* _s_instance;
 
     std::mutex _gc_mutex;
@@ -332,20 +322,21 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     // Count the memory consumption of all Base and Cumulative tasks.
-    std::shared_ptr<MemTracker> _compaction_mem_tracker;
-    // Count the memory consumption of all Segment read.
-    std::shared_ptr<MemTracker> _tablet_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _compaction_mem_tracker;
+    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
+    // The memory consumed by querying is tracked in segment iterator.
+    std::unique_ptr<MemTracker> _segment_meta_mem_tracker;
     // Count the memory consumption of all SchemaChange tasks.
-    std::shared_ptr<MemTracker> _schema_change_mem_tracker;
-    // Count the memory consumption of all StorageMigration tasks.
-    std::shared_ptr<MemTracker> _storage_migration_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _schema_change_mem_tracker;
     // Count the memory consumption of all EngineCloneTask.
     // Note: Memory that does not contain make/release snapshots.
-    std::shared_ptr<MemTracker> _clone_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _clone_mem_tracker;
     // Count the memory consumption of all EngineBatchLoadTask.
-    std::shared_ptr<MemTracker> _batch_load_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _batch_load_mem_tracker;
     // Count the memory consumption of all EngineChecksumTask.
-    std::shared_ptr<MemTracker> _consistency_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _consistency_mem_tracker;
+    // StorageEngine oneself
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -385,6 +376,8 @@ private:
     std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+
+    std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 
