@@ -85,10 +85,10 @@ public:
     // and initialize the repetition and definition level decoder for current page data.
     Status load_page_data();
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
-    uint32_t num_values() const { return _num_values; };
+    uint32_t remaining_num_values() const { return _remaining_num_values; };
     // null values are not analyzing from definition levels
     // the caller should maintain the consistency after analyzing null values from definition levels.
-    void dec_num_values(uint32_t dec_num) { _num_values -= dec_num; };
+    void dec_num_values(uint32_t dec_num) { _remaining_num_values -= dec_num; };
     // Get the raw data of current page.
     Slice& get_page_data() { return _page_data; }
 
@@ -116,6 +116,7 @@ private:
     FieldSchema* _field_schema;
     level_t _max_rep_level;
     level_t _max_def_level;
+    tparquet::LogicalType _parquet_logical_type;
 
     BufferedStreamReader* _stream_reader;
     // tparquet::ColumnChunk* _column_chunk;
@@ -127,7 +128,7 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
-    uint32_t _num_values = 0;
+    uint32_t _remaining_num_values = 0;
     Slice _page_data;
     std::unique_ptr<uint8_t[]> _decompress_buf;
     size_t _decompress_buf_size = 0;
