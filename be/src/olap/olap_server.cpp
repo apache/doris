@@ -781,8 +781,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                             if (!FileUtils::mtime(cache_path, &m_time).ok()) {
                                 continue;
                             }
-                            std::string cache_file_path;
-                            StringReplace(done_file_path, "_DONE", "", true, &cache_file_path)
+                            std::string cache_file_path = StringReplace(done_file_path, "_DONE", "", true)
                             LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
                             // FileCacheManager::instance()->remove_file_cache(cache_path);
                         }
