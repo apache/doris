@@ -777,7 +777,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                         for (Path cache_file_name : cache_file_names) {
                             std::string filename = cache_file_name.native();
                             if (filename.find("_DONE") == std::string::npos) {
-                                cache_names.push_back(filename, true);
+                                cache_names.insert(filename, true);
                                 continue;
                             }
                             done_names.push_back(filename);
@@ -817,8 +817,9 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                         for (std::map<std::string, bool>::iterator itr = cache_names.begin();
                              itr != cache_names.end(); ++itr) {
                             std::stringstream file_ss;
-                            file_ss << cache_path << "/" << itr->native();
+                            file_ss << cache_path << "/" << itr->first;
                             std::string cache_file_path = file_ss.str();
+                            time_t m_time;
                             if (!FileUtils::mtime(cache_file_path, &m_time).ok()) {
                                 continue;
                             }
