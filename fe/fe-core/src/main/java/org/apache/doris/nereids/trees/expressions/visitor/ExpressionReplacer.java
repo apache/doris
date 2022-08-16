@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import java.util.Map;
 
 /**
- * replace slot reference
+ * replace expr nodes by substitutionMap
  */
 public class ExpressionReplacer
         extends DefaultExpressionRewriter<Map<Expression, Expression>> {
