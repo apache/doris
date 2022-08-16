@@ -66,8 +66,6 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     rapidjson::Document::AllocatorType& allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
     if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
-        auto
-        LOG(INFO) << "fe dsl " << properties.at(ESScanReader::KEY_QUERY_DSL).c_str();
         // use fe generate dsl.
         rapidjson::Document fe_query_dsl;
         es_query_dsl.AddMember("query",
