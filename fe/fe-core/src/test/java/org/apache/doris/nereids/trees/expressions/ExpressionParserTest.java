@@ -17,17 +17,29 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.ParserTestBase;
 
 import org.junit.jupiter.api.Test;
 
-public class ExpressionParserTest {
+public class ExpressionParserTest extends ParserTestBase {
     private static final NereidsParser PARSER = new NereidsParser();
 
+    /**
+     * This method is deprecated.
+     * Please use utility functions in {@link ParserTestBase}.
+     */
+    @Deprecated
     private void assertSql(String sql) {
         PARSER.parseSingle(sql);
     }
 
+    /**
+     * This method is deprecated.
+     * Please use utility functions in {@link ParserTestBase}.
+     */
+    @Deprecated
     private void assertExpr(String expr) {
         Expression expression = PARSER.parseExpression(expr);
         System.out.println(expression.toSql());
@@ -41,12 +53,13 @@ public class ExpressionParserTest {
 
     @Test
     public void testExprBetweenPredicate() {
-        String sql = "c BETWEEN a AND b";
-        assertExpr(sql);
+        exprSuccess("c BETWEEN a AND b",
+                new Between(new UnboundSlot("c"), new UnboundSlot("a"),
+                        new UnboundSlot("b")));
     }
 
     @Test
-    public void testInPredicate() throws Exception {
+    public void testInPredicate() {
         String in = "select * from test1 where d1 in (1, 2, 3)";
         assertSql(in);
 
@@ -55,7 +68,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testSqlAnd() throws Exception {
+    public void testSqlAnd() {
         String sql = "select * from test1 where a > 1 and b > 1";
         assertSql(sql);
     }
@@ -100,6 +113,8 @@ public class ExpressionParserTest {
 
         String subtract = "3 - 2";
         assertExpr(subtract);
+
+        exprFailure("3 += 2", "extraneous input '=' expecting {'(");
     }
 
     @Test

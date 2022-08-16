@@ -15,36 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.pattern.GroupExpressionMatching;
+import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.Optional;
-import java.util.function.BiFunction;
-import java.util.function.Supplier;
+public class GroupMatchingUtils {
 
-/**
- * Abstract class for all logical plan in Nereids.
- */
-public interface LogicalPlan extends Plan {
-
-    /**
-     * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the
-     * passed function. The original plan is returned when the context does not exist.
-     */
-    default <C> LogicalPlan optionalMap(C ctx, BiFunction<C, LogicalPlan, LogicalPlan> f) {
-        if (ctx != null) {
-            return f.apply(ctx, this);
+    public static boolean topDownFindMatching(Group group, Pattern<? extends Plan> pattern) {
+        GroupExpression logicalExpr = group.getLogicalExpression();
+        GroupExpressionMatching matchingResult = new GroupExpressionMatching(pattern, logicalExpr);
+        if (matchingResult.iterator().hasNext()) {
+            return true;
         } else {
-            return this;
+            for (Group childGroup : logicalExpr.children()) {
+                boolean checkResult = topDownFindMatching(childGroup, pattern);
+                if (checkResult) {
+                    return true;
+                }
+            }
         }
-    }
-
-    default <C> LogicalPlan optionalMap(C ctx, Supplier<LogicalPlan> f) {
-        if (ctx != null) {
-            return f.get();
-        } else {
-            return this;
-        }
+        return false;
     }
 }
