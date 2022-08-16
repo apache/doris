@@ -31,7 +31,10 @@ import java.util.List;
 
 public class PushDownNotSlotRefExprTest extends TestWithFeService implements PatternMatchSupported {
     private final List<String> testSql = ImmutableList.of(
-            "SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2"
+            //"SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2",
+            "SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2",
+            "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10",
+            "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
     );
 
     @Override
@@ -68,11 +71,13 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
 
     @Test
     public void testSimpleExpr() {
-        NereidsAnalyzer analyzer = new NereidsAnalyzer(createCascadesContext(testSql.get(0)));
-        analyzer.analyze();
-        CascadesContext ctx = analyzer.getCascadesContext();
-        System.out.println(ctx.getMemo().copyOut().treeString());
-        new PushDownNotSlotRefExprJob(ctx).execute();
-        System.out.println(ctx.getMemo().copyOut().treeString());
+        testSql.forEach(sql -> {
+            NereidsAnalyzer analyzer = new NereidsAnalyzer(createCascadesContext(sql));
+            analyzer.analyze();
+            CascadesContext ctx = analyzer.getCascadesContext();
+            System.out.println(ctx.getMemo().copyOut().treeString());
+            new PushDownNotSlotRefExprJob(ctx).execute();
+            System.out.println(ctx.getMemo().copyOut().treeString());
+        });
     }
 }

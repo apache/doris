@@ -82,10 +82,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this.condition = Objects.requireNonNull(condition, "condition can not be null");
     }
 
+    @Override
     public Optional<Expression> getCondition() {
         return condition;
     }
 
+    @Override
     public JoinType getJoinType() {
         return joinType;
     }
@@ -182,5 +184,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalJoin<>(joinType, condition, Optional.empty(), logicalProperties, left(), right());
+    }
+
+    public LogicalJoin withCondition(Optional<Expression> condition) {
+        return new LogicalJoin<>(joinType, condition, Optional.empty(), Optional.of(logicalProperties), left(), right());
     }
 }
