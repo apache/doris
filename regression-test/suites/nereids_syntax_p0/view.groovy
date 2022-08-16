@@ -61,7 +61,7 @@ suite("view") {
     qt_select_3 """
         select *
         from v3
-        order by v3.c_custkey
+        order by v3.c_custkey, v3.lo_orderkey
     """
 
     qt_select_4 """
@@ -71,7 +71,7 @@ suite("view") {
             from v1
             ) t 
         on c.c_custkey = t.c_custkey
-        order by c.c_custkey
+        order by c.c_custkey, t.c_custkey
     """
 
     qt_select_5 """
@@ -81,7 +81,7 @@ suite("view") {
             from v2
             ) t 
         on l.lo_custkey = t.lo_custkey
-        order by l.lo_custkey
+        order by l.lo_custkey, t.lo_custkey
     """
 
     qt_select_6 """
@@ -91,9 +91,9 @@ suite("view") {
             join v2 on p.p_partkey = v2.lo_partkey) t1 
         join (
             select * 
-            from v1 
-            join v3 on v1.c_custkey = v3.c_custkey) t2 
+            from supplier s 
+            join v3 on s.s_region = v3.c_region) t2 
         on t1.p_partkey = t2.lo_partkey
-        order by t1.lo_custkey
+        order by t1.lo_custkey, t1.p_partkey, t2.s_suppkey, t2.c_custkey, t2.lo_orderkey
     """
 }
