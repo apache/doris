@@ -32,6 +32,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
@@ -124,6 +125,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -154,7 +156,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Build an logical plan tree with unbounded nodes.
+ * Build a logical plan tree with unbounded nodes.
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
@@ -225,7 +227,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx, relation,
                 ctx.selectClause(),
                 Optional.ofNullable(ctx.whereClause()),
-                Optional.ofNullable(ctx.aggClause())
+                Optional.ofNullable(ctx.aggClause()),
+                Optional.ofNullable(ctx.havingClause())
             );
         });
     }
@@ -759,7 +762,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan inputRelation,
             SelectClauseContext selectClause,
             Optional<WhereClauseContext> whereClause,
-            Optional<AggClauseContext> aggClause) {
+            Optional<AggClauseContext> aggClause,
+            Optional<HavingClauseContext> havingClause) {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: add lateral views
 
@@ -768,7 +772,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan filter = withFilter(inputRelation, whereClause);
             LogicalPlan aggregate = withAggregate(filter, selectClause, aggClause);
             // TODO: replace and process having at this position
-            LogicalPlan having = aggregate; // LogicalPlan having = withFilter(aggregate, havingClause);
+            LogicalPlan having = withHaving(aggregate, havingClause);
             LogicalPlan projection = withProjection(having, selectClause, aggClause);
             return withSelectHint(projection, selectClause.selectHint());
         });
@@ -870,6 +874,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
             return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+        });
+    }
+
+    private LogicalPlan withHaving(LogicalPlan input, Optional<HavingClauseContext> havingCtx) {
+        return input.optionalMap(havingCtx, () -> {
+            if (!(input instanceof LogicalAggregate)) {
+                throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
+            }
+            return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);
         });
     }
 

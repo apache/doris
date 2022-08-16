@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -134,6 +135,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalAssertNumRows(LogicalAssertNumRows<Plan> assertNumRows, C context) {
         return visit(assertNumRows, context);
+    }
+
+    public R visitLogicalHaving(LogicalHaving<Plan> having, C context) {
+        return visit(having, context);
     }
 
     // *******************************
