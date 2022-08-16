@@ -1,4 +1,4 @@
-set enable_array_type = true;
+ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true');
 set enable_vectorized_engine=true;
 DROP TABLE IF EXISTS array_element_test;
 CREATE TABLE array_element_test (x int, arr array<int>, id int) ENGINE = Olap DUPLICATE KEY(x) DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES("replication_num" = "1");;

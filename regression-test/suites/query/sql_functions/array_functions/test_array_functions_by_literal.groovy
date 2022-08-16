@@ -17,7 +17,7 @@
 
 suite("test_array_functions_by_literal", "all") {
     sql "set enable_vectorized_engine = true"
-    sql "set enable_array_type = true"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
