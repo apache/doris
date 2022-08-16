@@ -62,22 +62,23 @@ public class MemoTestUtils {
 
     public static CascadesContext createCascadesContext(ConnectContext connectContext, String sql) {
         StatementContext statementCtx = createStatementContext(connectContext, sql);
-        LogicalPlan initPlan = parse(sql);
-        return CascadesContext.newContext(statementCtx, initPlan);
+        return createCascadesContext(statementCtx, sql);
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, String sql) {
         LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
-        return CascadesContext.newContext(statementContext, initPlan);
+        return createCascadesContext(statementContext, initPlan);
     }
 
     public static CascadesContext createCascadesContext(ConnectContext connectContext, Plan initPlan) {
         StatementContext statementCtx = createStatementContext(connectContext, "");
-        return CascadesContext.newContext(statementCtx, initPlan);
+        return createCascadesContext(statementCtx, initPlan);
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, Plan initPlan) {
-        return CascadesContext.newContext(statementContext, initPlan);
+        CascadesContext cascadesContext = CascadesContext.newContext(statementContext, initPlan);
+        MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
+        return cascadesContext;
     }
 
     public static LogicalPlan analyze(String sql) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -54,7 +55,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties(children));
+        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties());
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
 
@@ -65,6 +66,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     public Optional<GroupExpression> getGroupExpression() {
         return groupExpression;
+    }
+
+    @Override
+    public boolean canResolve() {
+        return !resolved()
+                && !(this instanceof Unbound)
+                && childrenResolved();
     }
 
     /**

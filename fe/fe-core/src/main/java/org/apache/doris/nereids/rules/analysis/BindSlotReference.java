@@ -31,10 +31,12 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultSubExprRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
@@ -74,7 +76,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
-                logicalProject().thenApply(ctx -> {
+                logicalProject().when(Plan::canResolve).thenApply(ctx -> {
                     LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundSlots =
                             bind(project.getProjects(), project.children(), project, ctx.cascadesContext);
@@ -82,7 +84,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
-                logicalFilter().thenApply(ctx -> {
+                logicalFilter().when(Plan::canResolve).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
                     Expression boundPredicates = bind(filter.getPredicates(), filter.children(),
                             filter, ctx.cascadesContext);
@@ -90,7 +92,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
-                logicalJoin().thenApply(ctx -> {
+                logicalJoin().when(Plan::canResolve).thenApply(ctx -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
                     Optional<Expression> cond = join.getOtherJoinCondition()
                             .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
@@ -99,7 +101,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
-                logicalAggregate().thenApply(ctx -> {
+                logicalAggregate().when(Plan::canResolve).thenApply(ctx -> {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
                     List<Expression> groupBy =
                             bind(agg.getGroupByExpressions(), agg.children(), agg, ctx.cascadesContext);
@@ -109,7 +111,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
-                logicalSort().thenApply(ctx -> {
+                logicalSort().when(Plan::canResolve).thenApply(ctx -> {
                     LogicalSort<GroupPlan> sort = ctx.root;
                     List<OrderKey> sortItemList = sort.getOrderKeys()
                             .stream()
@@ -122,15 +124,10 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
 
-            // this rewrite is necessary because we should replace the logicalProperties which refer the child
-            // unboundLogicalProperties to a new LogicalProperties. This restriction is because we move the
-            // analysis stage after build the memo, and cause parent's plan can not update logical properties
-            // when the children are changed. we should discuss later and refactor it.
-            RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
-                logicalSubQueryAlias().then(alias -> alias.withChildren(ImmutableList.of(alias.child())))
-            ),
-            RuleType.BINDING_LIMIT_SLOT.build(
-                logicalLimit().then(limit -> limit.withChildren(ImmutableList.of(limit.child())))
+            RuleType.BINDING_NON_LEAF_LOGICAL_PLAN.build(
+                logicalPlan()
+                        .when(plan -> plan.canResolve() && !(plan instanceof LeafPlan))
+                        .then(LogicalPlan::recomputeLogicalProperties)
             )
         );
     }

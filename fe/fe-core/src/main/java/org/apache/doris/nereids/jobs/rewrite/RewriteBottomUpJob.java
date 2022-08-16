@@ -78,11 +78,12 @@ public class RewriteBottomUpJob extends Job {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
-                List<Plan> afters = rule.transform(before, context.getPlannerContext());
+                context.onInvokeRule(rule.getRuleType());
+                List<Plan> afters = rule.transform(before, context.getCascadesContext());
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    Pair<Boolean, GroupExpression> pair = context.getPlannerContext()
+                    Pair<Boolean, GroupExpression> pair = context.getCascadesContext()
                             .getMemo()
                             .copyIn(after, group, rule.isRewrite());
                     if (pair.first) {

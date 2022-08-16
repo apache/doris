@@ -51,9 +51,9 @@ public class LogicalEnforceSingleRow<CHILD_TYPE extends Plan> extends LogicalUna
     }
 
     @Override
-    public List<Slot> computeOutput(Plan child) {
+    public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
-                .addAll(child.getOutput())
+                .addAll(child().getOutput())
                 .build();
     }
 

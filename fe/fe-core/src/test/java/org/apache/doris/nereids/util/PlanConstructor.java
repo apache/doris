@@ -42,12 +42,12 @@ public class PlanConstructor {
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("age", Type.INT, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, null, null);
-        score = new OlapTable(0L, "course",
+        score = new OlapTable(1L, "course",
                 ImmutableList.<Column>of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
                         new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, null, null);
-        course = new OlapTable(0L, "course",
+        course = new OlapTable(2L, "course",
                 ImmutableList.<Column>of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")),

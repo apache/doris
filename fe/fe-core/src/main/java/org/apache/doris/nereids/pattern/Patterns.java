@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinary;
@@ -111,6 +112,13 @@ public interface Patterns {
     }
 
     /* abstract logical plan patterns */
+
+    /**
+     * create a logicalPlan pattern.
+     */
+    default PatternDescriptor<LogicalPlan> logicalPlan() {
+        return new PatternDescriptor(new TypePattern(LogicalPlan.class, multiGroup().pattern), defaultPromise());
+    }
 
     /**
      * create a logicalLeaf pattern.

@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -67,13 +67,13 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
+    public List<Slot> computeOutput() {
+        return child().getOutput();
     }
 
     @Override
     public String toString() {
-        return "LogicalLimit ( offset=" + offset + ", limit=" + limit + ")";
+        return "LogicalLimit (offset=" + offset + ", limit=" + limit + ")";
     }
 
     @Override
@@ -99,10 +99,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     public List<Expression> getExpressions() {
-        return Lists.newArrayList(
-                new IntegerLiteral((int) limit),
-                new IntegerLiteral((int) offset)
-        );
+        return ImmutableList.of();
     }
 
     @Override
@@ -116,7 +113,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public Plan withChildren(List<Plan> children) {
+    public LogicalLimit<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalLimit<>(limit, offset, children.get(0));
     }

@@ -68,7 +68,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
+    public List<Slot> computeOutput() {
         return projects.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());

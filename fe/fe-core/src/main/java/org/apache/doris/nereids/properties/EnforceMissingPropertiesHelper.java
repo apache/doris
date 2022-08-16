@@ -128,7 +128,7 @@ public class EnforceMissingPropertiesHelper {
     private void addEnforcerUpdateCost(GroupExpression enforcer,
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
-        context.getPlannerContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
+        context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
         curTotalCost += CostCalculator.calculateCost(enforcer);
 
         if (enforcer.updateLowestCostTable(newOutputProperty, Lists.newArrayList(oldOutputProperty), curTotalCost)) {

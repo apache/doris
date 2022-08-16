@@ -27,19 +27,23 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Representation for group in cascades optimizer.
  */
 public class Group {
     private final GroupId groupId;
+    private final IdentityHashMap<GroupExpression, Void> parentExpressions = new IdentityHashMap();
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
@@ -120,6 +124,16 @@ public class Group {
         return groupExpression;
     }
 
+    public void addLogicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        logicalExpressions.add(groupExpression);
+    }
+
+    public void addPhysicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        physicalExpressions.add(groupExpression);
+    }
+
     /**
      * Rewrite the logical group expression to the new logical group expression.
      *
@@ -134,6 +148,22 @@ public class Group {
         logicalExpressions.clear();
         logicalExpressions.add(newExpression);
         return oldExpression;
+    }
+
+    public List<GroupExpression> clearLogicalExpressions() {
+        List<GroupExpression> move = logicalExpressions.stream()
+                .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .collect(Collectors.toList());
+        logicalExpressions.clear();
+        return move;
+    }
+
+    public List<GroupExpression> clearPhysicalExpressions() {
+        List<GroupExpression> move = physicalExpressions.stream()
+                .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .collect(Collectors.toList());
+        physicalExpressions.clear();
+        return move;
     }
 
     public double getCostLowerBound() {
@@ -257,6 +287,28 @@ public class Group {
         PhysicalPlan physicalPlan = (PhysicalPlan) plan;
 
         return physicalPlan;
+    }
+
+    public List<GroupExpression> getParentGroupExpressions() {
+        return ImmutableList.copyOf(parentExpressions.keySet());
+    }
+
+    public void addParentExpression(GroupExpression parent) {
+        parentExpressions.put(parent, null);
+    }
+
+    /**
+     * remove the reference to parent groupExpression
+     * @param parent group expression
+     * @return parentExpressions's num
+     */
+    public int removeParentExpression(GroupExpression parent) {
+        parentExpressions.remove(parent);
+        return parentExpressions.size();
+    }
+
+    public int parentExpressionNum() {
+        return parentExpressions.size();
     }
 
     @Override
