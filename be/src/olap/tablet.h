@@ -444,7 +444,7 @@ private:
 
 public:
     IntCounter* flush_bytes;
-    IntCounter* flush_count;
+    IntCounter* flush_finish_count;
     std::atomic<int64_t> publised_count = 0;
 };
 
