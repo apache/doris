@@ -25,6 +25,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris::vectorized {
 class VectorizedUtils {
@@ -93,6 +94,18 @@ public:
             return left_child != nullptr ? left_child : right_child;
         }
     }
+
+    // we will do some convert to slot at 2nd aggregation phase.
+    // In vectorized engine, we only use slot column id.
+    static int dfs_find_unique_slot(const VExpr* expr) {
+        if (expr->is_slot_ref()) {
+            return ((VSlotRef*)expr)->column_id();
+        }
+        if (expr->children().empty()) {
+            return -1;
+        }
+        return dfs_find_unique_slot(expr->children()[0]);
+    };
 };
 
 } // namespace doris::vectorized

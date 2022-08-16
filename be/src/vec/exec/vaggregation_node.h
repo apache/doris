@@ -27,6 +27,7 @@
 #include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class TPlanNode;
@@ -761,6 +762,16 @@ private:
         return Status::OK();
     }
 
+    int _get_slot_column_id(const AggFnEvaluator* evaluator) {
+        auto ctxs = evaluator->input_exprs_ctxs();
+        CHECK(ctxs.size() == 1);
+        int col_id = vectorized::VectorizedUtils::dfs_find_unique_slot(ctxs[0]->root());
+        CHECK(col_id != -1) << "input_exprs_ctxs is invalid, input_exprs_ctx="
+                            << ctxs[0]->root()->debug_string();
+
+        return col_id;
+    }
+
     template <bool limit>
     Status _merge_with_serialized_key_helper(Block* block) {
         SCOPED_TIMER(_merge_timer);
@@ -781,10 +792,7 @@ private:
             _find_in_hash_table(places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-                       _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-                int col_id = ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())
-                                     ->column_id();
+                int col_id = _get_slot_column_id(_aggregate_evaluators[i]);
                 if (_aggregate_evaluators[i]->is_merge()) {
                     auto column = block->get_by_position(col_id).column;
                     if (column->is_nullable()) {
@@ -811,10 +819,7 @@ private:
             _emplace_into_hash_table(places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-                       _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-                int col_id = ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())
-                                     ->column_id();
+                int col_id = _get_slot_column_id(_aggregate_evaluators[i]);
                 if (_aggregate_evaluators[i]->is_merge()) {
                     auto column = block->get_by_position(col_id).column;
                     if (column->is_nullable()) {
