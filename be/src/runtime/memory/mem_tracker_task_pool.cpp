@@ -94,7 +94,9 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
             // the negative number of the current value of consume.
             it->second->parent()->consumption_revise(-it->second->consumption());
-            LOG(INFO) << "Deregister query/load memory tracker, queryId/loadId: " << it->first;
+            LOG(INFO) << fmt::format(
+                    "Deregister query/load memory tracker, queryId={}, Limit={}, PeakUsed={}",
+                    it->first, it->second->limit(), it->second->peak_consumption());
             expired_task_ids.emplace_back(it->first);
         }
     }
