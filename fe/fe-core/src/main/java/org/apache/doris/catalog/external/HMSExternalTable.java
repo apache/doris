@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.datasource.HMSExternalDataSource;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -42,7 +42,7 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private final HMSExternalDataSource ds;
+    private final HMSExternalCatalog catalog;
     private final String dbName;
     private final List<String> supportedHiveFileFormats = Lists.newArrayList(
             "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
@@ -63,12 +63,12 @@ public class HMSExternalTable extends ExternalTable {
      * @param id Table id.
      * @param name Table name.
      * @param dbName Database name.
-     * @param ds HMSExternalDataSource.
+     * @param catalog HMSExternalCatalog.
      */
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalDataSource ds) {
+    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
         super(id, name);
         this.dbName = dbName;
-        this.ds = ds;
+        this.catalog = catalog;
         this.type = TableType.HMS_EXTERNAL_TABLE;
     }
 
@@ -158,7 +158,7 @@ public class HMSExternalTable extends ExternalTable {
                     fullSchema = Lists.newArrayList();
                     try {
                         for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name,
-                                ds.getHiveMetastoreUris())) {
+                                catalog.getHiveMetastoreUris())) {
                             fullSchema.add(new Column(field.getName(),
                                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null, true,
                                     null, field.getComment()));
@@ -179,10 +179,10 @@ public class HMSExternalTable extends ExternalTable {
             synchronized (this) {
                 if (remoteTable == null) {
                     try {
-                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, ds.getHiveMetastoreUris());
+                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, catalog.getHiveMetastoreUris());
                     } catch (DdlException e) {
                         LOG.warn("Fail to get remote hive table. db {}, table {}, uri {}", dbName, name,
-                                ds.getHiveMetastoreUris());
+                                catalog.getHiveMetastoreUris());
                         throw new MetaNotFoundException(e);
                     }
                 }
@@ -301,14 +301,14 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public String getMetastoreUri() {
-        return ds.getHiveMetastoreUris();
+        return catalog.getHiveMetastoreUris();
     }
 
     public Map<String, String> getDfsProperties() {
-        return ds.getDsProperty().getDfsProperties();
+        return catalog.getCatalogProperty().getDfsProperties();
     }
 
     public Map<String, String> getS3Properties() {
-        return ds.getDsProperty().getS3Properties();
+        return catalog.getCatalogProperty().getS3Properties();
     }
 }

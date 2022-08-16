@@ -2227,7 +2227,7 @@ public class Load {
 
     public void replayQuorumLoadJob(LoadJob job, Env env) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = env.getInternalDataSource().getDbOrMetaException(job.getDbId());
+        Database db = env.getInternalCatalog().getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2323,7 +2323,7 @@ public class Load {
     }
 
     public void replayClearRollupInfo(ReplicaPersistInfo info, Env env) throws MetaNotFoundException {
-        Database db = env.getInternalDataSource().getDbOrMetaException(info.getDbId());
+        Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {

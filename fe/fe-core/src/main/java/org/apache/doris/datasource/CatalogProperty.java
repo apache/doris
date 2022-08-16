@@ -32,10 +32,10 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * DataSourceProperty to store the properties for datasource.
+ * CatalogProperty to store the properties for catalog.
  */
 @Data
-public class DataSourceProperty implements Writable {
+public class CatalogProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
 
@@ -99,8 +99,8 @@ public class DataSourceProperty implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static DataSourceProperty read(DataInput in) throws IOException {
+    public static CatalogProperty read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DataSourceProperty.class);
+        return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
     }
 }

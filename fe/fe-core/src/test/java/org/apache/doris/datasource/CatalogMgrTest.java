@@ -49,8 +49,8 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.Map;
 
-public class DatasourceMgrTest extends TestWithFeService {
-    private DataSourceMgr mgr;
+public class CatalogMgrTest extends TestWithFeService {
+    private CatalogMgr mgr;
     private static final String MY_CATALOG = "my_catalog";
 
     private static PaloAuth auth;
@@ -62,7 +62,7 @@ public class DatasourceMgrTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         Config.enable_multi_catalog = true;
         FeConstants.runningUnitTest = true;
-        mgr = Env.getCurrentEnv().getDataSourceMgr();
+        mgr = Env.getCurrentEnv().getCatalogMgr();
 
         ConnectContext rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
@@ -89,11 +89,11 @@ public class DatasourceMgrTest extends TestWithFeService {
         CreateCatalogStmt hiveCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
                 "create catalog hive properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
-        env.getDataSourceMgr().createCatalog(hiveCatalog);
+        env.getCatalogMgr().createCatalog(hiveCatalog);
         CreateCatalogStmt iceBergCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
                 "create catalog iceberg properties('type' = 'hms', 'iceberg.hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
-        env.getDataSourceMgr().createCatalog(iceBergCatalog);
+        env.getCatalogMgr().createCatalog(iceBergCatalog);
 
         // switch to hive.
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", rootCtx);
@@ -145,7 +145,7 @@ public class DatasourceMgrTest extends TestWithFeService {
             }
         }
 
-        testDataSourceMgrPersist();
+        testCatalogMgrPersist();
 
         String dropCatalogSql = "DROP CATALOG " + MY_CATALOG;
         DropCatalogStmt dropCatalogStmt = (DropCatalogStmt) parseAndAnalyzeStmt(dropCatalogSql);
@@ -154,7 +154,7 @@ public class DatasourceMgrTest extends TestWithFeService {
         Assertions.assertEquals(3, showResultSet.getResultRows().size());
     }
 
-    private void testDataSourceMgrPersist() throws Exception {
+    private void testCatalogMgrPersist() throws Exception {
         File file = new File("./CatalogMgrTest");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
@@ -163,23 +163,23 @@ public class DatasourceMgrTest extends TestWithFeService {
         dos.flush();
         dos.close();
 
-        DataSourceIf internalCatalog = mgr.getCatalog(InternalDataSource.INTERNAL_DS_ID);
-        DataSourceIf internalCatalog2 = mgr.getInternalDataSource();
+        CatalogIf internalCatalog = mgr.getCatalog(InternalCatalog.INTERNAL_DS_ID);
+        CatalogIf internalCatalog2 = mgr.getInternalCatalog();
         Assert.assertTrue(internalCatalog == internalCatalog2);
-        DataSourceIf myCatalog = mgr.getCatalog(MY_CATALOG);
+        CatalogIf myCatalog = mgr.getCatalog(MY_CATALOG);
         Assert.assertNotNull(myCatalog);
 
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        DataSourceMgr mgr2 = DataSourceMgr.read(dis);
+        CatalogMgr mgr2 = CatalogMgr.read(dis);
 
         Assert.assertEquals(4, mgr2.listCatalogs().size());
         Assert.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
-        Assert.assertEquals(0, mgr2.getInternalDataSource().getId());
-        Assert.assertEquals(0, mgr2.getCatalog(InternalDataSource.INTERNAL_DS_ID).getId());
-        Assert.assertEquals(0, mgr2.getCatalog(InternalDataSource.INTERNAL_DS_NAME).getId());
+        Assert.assertEquals(0, mgr2.getInternalCatalog().getId());
+        Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
+        Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME).getId());
 
-        DataSourceIf hms = mgr2.getCatalog(MY_CATALOG);
+        CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         Map<String, String> properties = hms.getProperties();
         Assert.assertEquals(2, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
@@ -195,8 +195,8 @@ public class DatasourceMgrTest extends TestWithFeService {
         // mock the login of user1
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         // user1 can switch to internal catalog
-        parseAndAnalyzeStmt("switch " + InternalDataSource.INTERNAL_DS_NAME + ";", user1Ctx);
-        Assert.assertEquals(InternalDataSource.INTERNAL_DS_NAME, user1Ctx.getDefaultCatalog());
+        parseAndAnalyzeStmt("switch " + InternalCatalog.INTERNAL_CATALOG_NAME + ";", user1Ctx);
+        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
         // user1 can't switch to hive
         try {
             parseAndAnalyzeStmt("switch hive;", user1Ctx);
@@ -205,13 +205,13 @@ public class DatasourceMgrTest extends TestWithFeService {
             Assert.assertEquals(e.getMessage(),
                     "errCode = 2, detailMessage = Access denied for user 'default_cluster:user1' to catalog 'hive'");
         }
-        Assert.assertEquals(InternalDataSource.INTERNAL_DS_NAME, user1Ctx.getDefaultCatalog());
+        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
 
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");
         // user2 can switch to internal catalog
-        parseAndAnalyzeStmt("switch " + InternalDataSource.INTERNAL_DS_NAME + ";", user2Ctx);
-        Assert.assertEquals(InternalDataSource.INTERNAL_DS_NAME, user2Ctx.getDefaultCatalog());
+        parseAndAnalyzeStmt("switch " + InternalCatalog.INTERNAL_CATALOG_NAME + ";", user2Ctx);
+        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user2Ctx.getDefaultCatalog());
         // user2 can switch to hive
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
@@ -227,25 +227,25 @@ public class DatasourceMgrTest extends TestWithFeService {
         // mock the login of user1
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ShowCatalogStmt user1Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user1Ctx);
-        List<List<String>> user1ShowResult = env.getDataSourceMgr().showCatalogs(user1Show).getResultRows();
+        List<List<String>> user1ShowResult = env.getCatalogMgr().showCatalogs(user1Show).getResultRows();
         Assert.assertEquals(user1ShowResult.size(), 1);
-        Assert.assertEquals(user1ShowResult.get(0).get(1), InternalDataSource.INTERNAL_DS_NAME);
-        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalDataSource.INTERNAL_DS_ID));
+        Assert.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
+        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
 
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");
         ShowCatalogStmt user2Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user2Ctx);
-        List<List<String>> user2ShowResult = env.getDataSourceMgr().showCatalogs(user2Show).getResultRows();
+        List<List<String>> user2ShowResult = env.getCatalogMgr().showCatalogs(user2Show).getResultRows();
         Assert.assertEquals(user2ShowResult.size(), 2);
         Assert.assertTrue(user2ShowResult.stream().map(l -> l.get(1)).anyMatch(c -> c.equals("hive")));
 
         // access denied
         ShowCatalogStmt user2ShowHive = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalog hive;", user2Ctx);
-        List<List<String>> user2ShowHiveResult = env.getDataSourceMgr().showCatalogs(user2ShowHive).getResultRows();
+        List<List<String>> user2ShowHiveResult = env.getCatalogMgr().showCatalogs(user2ShowHive).getResultRows();
         Assert.assertTrue(
                 user2ShowHiveResult.stream().map(l -> l.get(0)).anyMatch(c -> c.equals("hive.metastore.uris")));
         try {
-            env.getDataSourceMgr()
+            env.getCatalogMgr()
                     .showCatalogs((ShowCatalogStmt) parseAndAnalyzeStmt("show catalog iceberg;", user2Ctx));
             Assert.fail("");
         } catch (AnalysisException e) {

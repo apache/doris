@@ -43,7 +43,7 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapPrivsChecker;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.LdapInfo;
@@ -79,7 +79,7 @@ public class PaloAuth implements Writable {
     public static final String ADMIN_USER = "admin";
     // unknown user does not have any privilege, this is just to be compatible with old version.
     public static final String UNKNOWN_USER = "unknown";
-    private static final String DEFAULT_CATALOG = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String DEFAULT_CATALOG = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     private UserPrivTable userPrivTable = new UserPrivTable();
     private CatalogPrivTable catalogPrivTable = new CatalogPrivTable();

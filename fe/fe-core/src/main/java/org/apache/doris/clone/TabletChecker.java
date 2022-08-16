@@ -241,7 +241,7 @@ public class TabletChecker extends MasterDaemon {
 
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
-            Database db = env.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -273,10 +273,10 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // 2. Traverse other partitions not in "prios"
-        List<Long> dbIds = env.getInternalDataSource().getDbIds();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
         OUT:
         for (Long dbId : dbIds) {
-            Database db = env.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -528,7 +528,7 @@ public class TabletChecker extends MasterDaemon {
     public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName,
             List<String> partitions) throws DdlException {
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         long dbId = db.getId();
         long tblId = -1;

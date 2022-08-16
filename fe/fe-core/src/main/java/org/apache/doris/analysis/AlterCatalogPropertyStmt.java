@@ -25,7 +25,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -61,7 +61,7 @@ public class AlterCatalogPropertyStmt extends DdlStmt {
                     analyzer.getQualifiedUser(), catalogName);
         }
 
-        if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException("Internal catalog can't be alter.");
         }
         FeNameFormat.checkCatalogProperties(newProperties);

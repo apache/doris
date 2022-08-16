@@ -314,7 +314,7 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                DatabaseIf db = analyzer.getEnv().getDataSourceMgr()
+                DatabaseIf db = analyzer.getEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 

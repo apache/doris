@@ -25,7 +25,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -41,7 +41,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class ExtractCommonFactorsRuleTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     // Input: k1 in (k2, 1)
     // Result: false

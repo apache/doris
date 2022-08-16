@@ -27,11 +27,11 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import java.util.List;
 
 /**
- * ExternalScanNode is used to unify data reading from external data sources
- * For this type of data source, we only access its data through the scan node,
- * and after dividing the data of the data source, the scan task is distributed to one or more Backends for execution.
+ * ExternalScanNode is used to unify data reading from external catalogs.
+ * For this type of catalog, we only access its data through the scan node,
+ * and after dividing the data of the catalog, the scan task is distributed to one or more Backends for execution.
  * For example:
- *  hive, iceberg, hudi, es, odbc
+ * hive, iceberg, hudi, es, odbc
  */
 public class ExternalScanNode extends ScanNode {
 

@@ -37,7 +37,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
@@ -70,7 +70,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class DeleteHandlerTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     private DeleteHandler deleteHandler;
 
@@ -129,22 +129,22 @@ public class DeleteHandlerTest {
             }
         };
 
-        InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
+        InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                env.getCurrentDataSource();
+                env.getCurrentCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 

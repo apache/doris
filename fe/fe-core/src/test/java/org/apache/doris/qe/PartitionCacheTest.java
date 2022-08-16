@@ -47,8 +47,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.DataSourceMgr;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -115,7 +115,7 @@ public class PartitionCacheTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -173,40 +173,40 @@ public class PartitionCacheTest {
         db.createTable(view3);
         db.createTable(view4);
 
-        new Expectations(ds) {
+        new Expectations(catalog) {
             {
-                ds.getDbNullable(fullDbName);
+                catalog.getDbNullable(fullDbName);
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNullable(dbName);
+                catalog.getDbNullable(dbName);
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNullable(db.getId());
+                catalog.getDbNullable(db.getId());
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNames();
+                catalog.getDbNames();
                 minTimes = 0;
                 result = Lists.newArrayList(fullDbName);
             }
         };
 
-        DataSourceMgr dsMgr = new DataSourceMgr();
+        CatalogMgr dsMgr = new CatalogMgr();
         new Expectations(dsMgr) {
             {
                 dsMgr.getCatalog((String) any);
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
                 dsMgr.getCatalogOrException((String) any, (Function) any);
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
                 dsMgr.getCatalogOrAnalysisException((String) any);
                 minTimes = 0;
-                result = ds;
+                result = catalog;
             }
         };
 
@@ -216,15 +216,15 @@ public class PartitionCacheTest {
                 minTimes = 0;
                 result = auth;
 
-                env.getCurrentDataSource();
+                env.getCurrentCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                env.getDataSourceMgr();
+                env.getCatalogMgr();
                 minTimes = 0;
                 result = dsMgr;
             }

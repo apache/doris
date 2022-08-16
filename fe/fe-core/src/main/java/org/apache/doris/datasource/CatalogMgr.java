@@ -55,41 +55,41 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * DataSourceMgr will load all data sources at FE startup,
+ * CatalogMgr will load all catalogs at FE startup,
  * and save them in map with name.
- * Note: Catalog in sql syntax will be treated as  datasource interface in code level.
+ * Note: Catalog in sql syntax will be treated as catalog interface in code level.
  * TODO: Change the package name into catalog.
  */
-public class DataSourceMgr implements Writable, GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(DataSourceMgr.class);
+public class CatalogMgr implements Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
-    private final Map<Long, DataSourceIf> idToCatalog = Maps.newConcurrentMap();
+    private final Map<Long, CatalogIf> idToCatalog = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
-    private final Map<String, DataSourceIf> nameToCatalog = Maps.newConcurrentMap();
+    private final Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToDataSource and nameToDataSource
-    private InternalDataSource internalDataSource;
+    private InternalCatalog internalCatalog;
 
-    public DataSourceMgr() {
-        initInternalDataSource();
+    public CatalogMgr() {
+        initInternalCatalog();
     }
 
-    private void initInternalDataSource() {
-        internalDataSource = new InternalDataSource();
-        addCatalog(internalDataSource);
+    private void initInternalCatalog() {
+        internalCatalog = new InternalCatalog();
+        addCatalog(internalCatalog);
     }
 
-    private void addCatalog(DataSourceIf catalog) {
+    private void addCatalog(CatalogIf catalog) {
         nameToCatalog.put(catalog.getName(), catalog);
         idToCatalog.put(catalog.getId(), catalog);
     }
 
-    private DataSourceIf removeCatalog(long catalogId) {
-        DataSourceIf catalog = idToCatalog.remove(catalogId);
+    private CatalogIf removeCatalog(long catalogId) {
+        CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
             nameToCatalog.remove(catalog.getName());
         }
@@ -97,38 +97,39 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     }
 
     private void unprotectedRefreshCatalog(long catalogId) {
-        DataSourceIf catalog = idToCatalog.get(catalogId);
+        CatalogIf catalog = idToCatalog.get(catalogId);
         if (catalog != null) {
             String catalogName = catalog.getName();
-            if (!catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
-                ((ExternalDataSource) catalog).setInitialized(false);
+            if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                ((ExternalCatalog) catalog).setInitialized(false);
             }
         }
     }
 
-    public InternalDataSource getInternalDataSource() {
-        return internalDataSource;
+    public InternalCatalog getInternalCatalog() {
+        return internalCatalog;
     }
 
-    public DataSourceIf getCatalog(String name) {
+    public CatalogIf getCatalog(String name) {
         return nameToCatalog.get(name);
     }
 
-    public DataSourceIf getCatalog(long id) {
+    public CatalogIf getCatalog(long id) {
         return idToCatalog.get(id);
     }
 
-    public <E extends Exception> DataSourceIf getCatalogOrException(String name, Function<String, E> e) throws E {
-        DataSourceIf ds = nameToCatalog.get(name);
-        if (ds == null) {
+    public <E extends Exception> CatalogIf getCatalogOrException(String name, Function<String, E> e) throws E {
+        CatalogIf catalog = nameToCatalog.get(name);
+        if (catalog == null) {
             throw e.apply(name);
         }
-        return ds;
+        return catalog;
     }
 
-    public DataSourceIf getCatalogOrAnalysisException(String name) throws AnalysisException {
-        return getCatalogOrException(name, ds -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(ds),
-                ErrorCode.ERR_UNKNOWN_CATALOG));
+    public CatalogIf getCatalogOrAnalysisException(String name) throws AnalysisException {
+        return getCatalogOrException(name,
+                catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
     }
 
     public List<Long> getCatalogIds() {
@@ -139,15 +140,15 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
      * Get db allow return null
      **/
     public DatabaseIf getDbNullable(long dbId) {
-        DatabaseIf db = internalDataSource.getDbNullable(dbId);
+        DatabaseIf db = internalCatalog.getDbNullable(dbId);
         if (db != null) {
             return db;
         }
-        for (DataSourceIf ds : nameToCatalog.values()) {
-            if (ds == internalDataSource) {
+        for (CatalogIf catalog : nameToCatalog.values()) {
+            if (catalog == internalCatalog) {
                 continue;
             }
-            db = ds.getDbNullable(dbId);
+            db = catalog.getDbNullable(dbId);
             if (db != null) {
                 return db;
             }
@@ -157,16 +158,16 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
 
     public List<Long> getDbIds() {
         List<Long> dbIds = Lists.newArrayList();
-        for (DataSourceIf ds : nameToCatalog.values()) {
-            dbIds.addAll(ds.getDbIds());
+        for (CatalogIf catalog : nameToCatalog.values()) {
+            dbIds.addAll(catalog.getDbIds());
         }
         return dbIds;
     }
 
     public List<String> getDbNames() {
         List<String> dbNames = Lists.newArrayList();
-        for (DataSourceIf ds : nameToCatalog.values()) {
-            dbNames.addAll(ds.getDbNames());
+        for (CatalogIf catalog : nameToCatalog.values()) {
+            dbNames.addAll(catalog.getDbNames());
         }
         return dbNames;
     }
@@ -203,7 +204,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
             replayCreateCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_CREATE_CATALOG, log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -219,13 +220,13 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
                 LOG.warn("Non catalog {} is found.", stmt.getCatalogName());
                 return;
             }
-            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_DROP_CATALOG, log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -237,13 +238,13 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
         writeLock();
         try {
-            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_CATALOG_NAME, log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
         } finally {
             writeUnlock();
         }
@@ -255,7 +256,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
         writeLock();
         try {
-            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -264,7 +265,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogProps(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
         }
@@ -273,7 +274,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     /**
      * Get catalog, or null if not exists.
      */
-    public DataSourceIf getCatalogNullable(String catalogName) {
+    public CatalogIf getCatalogNullable(String catalogName) {
         return nameToCatalog.get(catalogName);
     }
 
@@ -285,13 +286,13 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         readLock();
         try {
             if (showStmt.getCatalogName() == null) {
-                for (DataSourceIf ds : nameToCatalog.values()) {
+                for (CatalogIf catalog : nameToCatalog.values()) {
                     if (Env.getCurrentEnv().getAuth()
-                            .checkCtlPriv(ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
+                            .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                         List<String> row = Lists.newArrayList();
-                        row.add(String.valueOf(ds.getId()));
-                        row.add(ds.getName());
-                        row.add(ds.getType());
+                        row.add(String.valueOf(catalog.getId()));
+                        row.add(catalog.getName());
+                        row.add(catalog.getType());
                         rows.add(row);
                     }
                 }
@@ -299,13 +300,13 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
                 if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
-                DataSourceIf<DatabaseIf> ds = nameToCatalog.get(showStmt.getCatalogName());
-                if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
-                        ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
+                CatalogIf<DatabaseIf> catalog = nameToCatalog.get(showStmt.getCatalogName());
+                if (!Env.getCurrentEnv().getAuth()
+                        .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                            ConnectContext.get().getQualifiedUser(), ds.getName());
+                            ConnectContext.get().getQualifiedUser(), catalog.getName());
                 }
-                for (Map.Entry<String, String> elem : ds.getProperties().entrySet()) {
+                for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
                     List<String> row = Lists.newArrayList();
                     row.add(elem.getKey());
                     row.add(elem.getValue());
@@ -325,13 +326,13 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     public void refreshCatalog(RefreshCatalogStmt stmt) throws UserException {
         writeLock();
         try {
-            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayRefreshCatalog(log);
-            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_REFRESH_CATALOG, log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
         } finally {
             writeUnlock();
         }
@@ -343,8 +344,8 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     public void replayCreateCatalog(CatalogLog log) throws DdlException {
         writeLock();
         try {
-            DataSourceIf ds = CatalogFactory.constructorFromLog(log);
-            addCatalog(ds);
+            CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+            addCatalog(catalog);
         } finally {
             writeUnlock();
         }
@@ -380,15 +381,15 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     public void replayAlterCatalogName(CatalogLog log) {
         writeLock();
         try {
-            DataSourceIf ds = removeCatalog(log.getCatalogId());
-            ds.modifyDatasourceName(log.getNewCatalogName());
-            addCatalog(ds);
+            CatalogIf catalog = removeCatalog(log.getCatalogId());
+            catalog.modifyCatalogName(log.getNewCatalogName());
+            addCatalog(catalog);
         } finally {
             writeUnlock();
         }
     }
 
-    public List<DataSourceIf> listCatalogs() {
+    public List<CatalogIf> listCatalogs() {
         return nameToCatalog.values().stream().collect(Collectors.toList());
     }
 
@@ -398,8 +399,8 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     public void replayAlterCatalogProps(CatalogLog log) {
         writeLock();
         try {
-            DataSourceIf ds = idToCatalog.get(log.getCatalogId());
-            ds.modifyDatasourceProps(log.getNewProps());
+            CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            catalog.modifyCatalogProps(log.getNewProps());
         } finally {
             writeUnlock();
         }
@@ -411,16 +412,16 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         Text.writeString(out, json);
     }
 
-    public static DataSourceMgr read(DataInput in) throws IOException {
+    public static CatalogMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DataSourceMgr.class);
+        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
-        for (DataSourceIf catalog : idToCatalog.values()) {
+        for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
         }
-        internalDataSource = (InternalDataSource) idToCatalog.get(InternalDataSource.INTERNAL_DS_ID);
+        internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_DS_ID);
     }
 }

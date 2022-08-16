@@ -30,16 +30,16 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
- * The interface of DataSource(catalog).
+ * The interface of Catalog
  */
-public interface DataSourceIf<T extends DatabaseIf> {
+public interface CatalogIf<T extends DatabaseIf> {
 
-    // Type of this data source
+    // Type of this catalog
     String getType();
 
     long getId();
 
-    // Name of this data source
+    // Name of this catalog
     String getName();
 
     List<String> getDbNames();
@@ -54,9 +54,9 @@ public interface DataSourceIf<T extends DatabaseIf> {
 
     Map<String, String> getProperties();
 
-    void modifyDatasourceName(String name);
+    void modifyCatalogName(String name);
 
-    void modifyDatasourceProps(Map<String, String> props);
+    void modifyCatalogProps(Map<String, String> props);
 
     default Optional<T> getDb(String dbName) {
         return Optional.ofNullable(getDbNullable(dbName));

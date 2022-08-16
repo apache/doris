@@ -680,7 +680,7 @@ public class Analyzer {
         // to replace it with.
         tableName.analyze(this);
 
-        DatabaseIf database = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
+        DatabaseIf database = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tableName.getCtl())
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
@@ -729,7 +729,7 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
+        DatabaseIf db = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl())
                 .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }

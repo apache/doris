@@ -36,10 +36,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * External data source for hive metastore compatible data sources.
+ * External catalog for hive metastore compatible data sources.
  */
-public class HMSExternalDataSource extends ExternalDataSource {
-    private static final Logger LOG = LogManager.getLogger(HMSExternalDataSource.class);
+public class HMSExternalCatalog extends ExternalCatalog {
+    private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
     // Cache of db name to db id.
     private Map<String, Long> dbNameToId;
@@ -47,18 +47,18 @@ public class HMSExternalDataSource extends ExternalDataSource {
     protected HiveMetaStoreClient client;
 
     /**
-     * Default constructor for HMSExternalDataSource.
+     * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalDataSource(long catalogId, String name, Map<String, String> props) {
+    public HMSExternalCatalog(long catalogId, String name, Map<String, String> props) {
         this.id = catalogId;
         this.name = name;
         this.type = "hms";
-        this.dsProperty = new DataSourceProperty();
-        this.dsProperty.setProperties(props);
+        this.catalogProperty = new CatalogProperty();
+        this.catalogProperty.setProperties(props);
     }
 
     public String getHiveMetastoreUris() {
-        return dsProperty.getOrDefault("hive.metastore.uris", "");
+        return catalogProperty.getOrDefault("hive.metastore.uris", "");
     }
 
     private void init() {
@@ -91,7 +91,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     }
 
     /**
-     * Datasource can't be init when creating because the external datasource may depend on third system.
+     * Catalog can't be init when creating because the external catalog may depend on third system.
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     private synchronized void makeSureInitialized() {

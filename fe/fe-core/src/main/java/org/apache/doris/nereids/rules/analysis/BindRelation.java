@@ -61,7 +61,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Table getTable(String dbName, String tableName, Env env) {
-        Database db = env.getInternalDataSource().getDb(dbName)
+        Database db = env.getInternalCatalog().getDb(dbName)
                 .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
         db.readLock();
         try {

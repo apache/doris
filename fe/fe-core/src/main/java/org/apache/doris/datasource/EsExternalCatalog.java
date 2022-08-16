@@ -39,13 +39,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * External data source for elasticsearch
+ * External catalog for elasticsearch
  */
 @Getter
-public class EsExternalDataSource extends ExternalDataSource {
-
+public class EsExternalCatalog extends ExternalCatalog {
     public static final String DEFAULT_DB = "default_db";
-    private static final Logger LOG = LogManager.getLogger(EsExternalDataSource.class);
+    private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
+
     private static final String PROP_HOSTS = "elasticsearch.hosts";
     private static final String PROP_USERNAME = "elasticsearch.username";
     private static final String PROP_PASSWORD = "elasticsearch.password";
@@ -75,15 +75,15 @@ public class EsExternalDataSource extends ExternalDataSource {
     private boolean enableNodesDiscovery = true;
 
     /**
-     * Default constructor for EsExternalDataSource.
+     * Default constructor for EsExternalCatalog.
      */
-    public EsExternalDataSource(long catalogId, String name, Map<String, String> props) throws DdlException {
+    public EsExternalCatalog(long catalogId, String name, Map<String, String> props) throws DdlException {
         this.id = catalogId;
         this.name = name;
         this.type = "es";
         validate(props);
-        this.dsProperty = new DataSourceProperty();
-        this.dsProperty.setProperties(props);
+        this.catalogProperty = new CatalogProperty();
+        this.catalogProperty.setProperties(props);
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -147,7 +147,7 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     private void init() {
         try {
-            validate(this.dsProperty.getProperties());
+            validate(this.catalogProperty.getProperties());
         } catch (DdlException e) {
             LOG.warn("validate error", e);
         }

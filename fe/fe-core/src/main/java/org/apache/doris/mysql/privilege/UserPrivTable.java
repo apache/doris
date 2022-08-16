@@ -20,7 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
 
 import org.apache.logging.log4j.LogManager;
@@ -192,7 +192,7 @@ public class UserPrivTable extends PrivTable {
                     && !globalPrivEntry.privSet.isEmpty()) {
                 try {
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
-                            InternalDataSource.INTERNAL_DS_NAME, globalPrivEntry.isDomain, globalPrivEntry.privSet);
+                            InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, globalPrivEntry.privSet);
                     entry.setSetByDomainResolver(false);
                     catalogPrivTable.addEntry(entry, false, false);
                     degradedEntries.add(globalPrivEntry);
