@@ -15,25 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.visitor;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 
-import java.util.Map;
+import com.google.common.collect.ImmutableList;
 
 /**
- * replace expr nodes by substitutionMap
+ * Merge consecutive project rules.
  */
-public class ExpressionReplacer
-        extends DefaultExpressionRewriter<Map<Expression, Expression>> {
-    public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
+public class MergeConsecutiveProjectJob extends BatchRulesJob {
 
-    @Override
-    public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
-        if (substitutionMap.containsKey(expr)) {
-            return substitutionMap.get(expr);
-        }
-        return super.visit(expr, substitutionMap);
+    /**
+     * Execute the merge consecutive job.
+     * @param ctx planner context for execute job
+     */
+    public MergeConsecutiveProjectJob(CascadesContext ctx) {
+        //TODO: eliminate consecutive projects for view
+        super(ctx);
+        rulesJob.addAll(ImmutableList.of(
+                bottomUpBatch(ImmutableList.of(
+                        new MergeConsecutiveProjects()))));
     }
 }
-
