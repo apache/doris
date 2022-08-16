@@ -18,8 +18,8 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.EsExternalDataSource;
-import org.apache.doris.datasource.ExternalDataSource;
+import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -45,22 +45,22 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
     /**
      * Create Elasticsearch external database.
      *
-     * @param extDataSource External data source this database belongs to.
+     * @param extCatalog External data source this database belongs to.
      * @param id database id.
      * @param name database name.
      */
-    public EsExternalDatabase(ExternalDataSource extDataSource, long id, String name) {
-        super(extDataSource, id, name);
+    public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+        super(extCatalog, id, name);
         init();
     }
 
     private void init() {
-        List<String> tableNames = extDataSource.listTableNames(null, name);
+        List<String> tableNames = extCatalog.listTableNames(null, name);
         if (tableNames != null) {
             for (String tableName : tableNames) {
                 long tblId = Env.getCurrentEnv().getNextId();
                 tableNameToId.put(tableName, tblId);
-                idToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalDataSource) extDataSource));
+                idToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog));
             }
         }
     }
@@ -68,7 +68,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
     @Override
     public Set<String> getTableNamesWithLock() {
         // Doesn't need to lock because everytime we call the hive metastore api to get table names.
-        return new HashSet<>(extDataSource.listTableNames(null, name));
+        return new HashSet<>(extCatalog.listTableNames(null, name));
     }
 
     @Override

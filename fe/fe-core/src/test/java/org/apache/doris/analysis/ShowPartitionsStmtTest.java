@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -35,7 +35,7 @@ import java.util.Arrays;
 
 
 public class ShowPartitionsStmtTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Mocked
     private Analyzer analyzer;

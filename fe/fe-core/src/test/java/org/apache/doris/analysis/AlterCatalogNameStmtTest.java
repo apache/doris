@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -70,24 +70,21 @@ public class AlterCatalogNameStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testBuildIn1() throws  UserException {
-        AlterCatalogNameStmt stmt = new AlterCatalogNameStmt(
-                InternalDataSource.INTERNAL_DS_NAME, "testNewCatalog");
+        AlterCatalogNameStmt stmt = new AlterCatalogNameStmt(InternalCatalog.INTERNAL_CATALOG_NAME, "testNewCatalog");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
     public void testBuildIn2() throws  UserException {
-        AlterCatalogNameStmt stmt = new AlterCatalogNameStmt(
-                "testCatalog", InternalDataSource.INTERNAL_DS_NAME);
+        AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", InternalCatalog.INTERNAL_CATALOG_NAME);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
     public void testNameFormat() throws  UserException {
-        AlterCatalogNameStmt stmt = new AlterCatalogNameStmt(
-                "testCatalog", InternalDataSource.INTERNAL_DS_NAME);
+        AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", InternalCatalog.INTERNAL_CATALOG_NAME);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }

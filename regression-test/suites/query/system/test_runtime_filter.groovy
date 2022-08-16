@@ -15,16 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
-
-import org.apache.doris.common.UserException;
-
-public class DataSourceException extends UserException {
-    public DataSourceException(String msg) {
-        super(msg);
-    }
-
-    public DataSourceException(String msg, Throwable cause) {
-        super(msg, cause);
-    }
+suite("test_runtime_filter", "query,p0") {
+    sql("use test_query_db")
+    sql("set runtime_filter_type=2")
+    sql("set runtime_filter_mode='GLOBAL'")
+    qt_runtime_filter "SELECT DISTINCT k5 FROM baseall where k7 <> 'wang' AND k5 in (SELECT k5 FROM test WHERE k3 < 0) ORDER BY k5"
 }

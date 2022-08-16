@@ -18,7 +18,7 @@
 package org.apache.doris.datasource;
 
 /**
- * MetaObjCache caches and manages all meta objects fetched from external datasource.
+ * MetaObjCache caches and manages all meta objects fetched from external catalogs.
  * So that we don't need to get meta objects every time.
  */
 public class MetaObjCache {

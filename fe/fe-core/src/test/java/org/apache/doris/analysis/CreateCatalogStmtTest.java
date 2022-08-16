@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -77,7 +77,7 @@ public class CreateCatalogStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("type", "hms");
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalDataSource.INTERNAL_DS_NAME, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, props);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
@@ -86,7 +86,7 @@ public class CreateCatalogStmtTest {
     public void testPropsTypeException() throws UserException {
         Map<String, String> props = Maps.newHashMap();
         props.put("hive.metastore.uris", "thrift://localhost:9083");
-        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalDataSource.INTERNAL_DS_NAME, props);
+        CreateCatalogStmt stmt = new CreateCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME, props);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
