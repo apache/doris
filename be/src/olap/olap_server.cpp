@@ -767,10 +767,9 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     if (FileCacheManager::instance()->exist(cache_path)) {
                         continue;
                     }
-                    struct _stat tmpInfo;
-                    if (_stat(cache_path.c_str(), &tmpInfo) != 0) {
-                        LOG(ERROR) << "Get stat failed for path: " << tmpInfo.st_ctime;
-                    }
+                    std::filesystem::file_time_type ftime =
+                            std::filesystem::last_write_time(cache_path);
+                    LOG(INFO) << "Get stat failed for update time: " << ftime;
                     LOG(INFO) << "Remove timeout cache_path: " << cache_path;
                     // FileCacheManager::instance()->remove_file_cache(cache_path);
                 }
