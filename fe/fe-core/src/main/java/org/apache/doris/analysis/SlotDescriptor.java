@@ -346,4 +346,9 @@ public class SlotDescriptor {
     public boolean isScanSlot() {
         return parent.getTable() instanceof OlapTable;
     }
+
+    public void setMaterialized(boolean materialized) {
+        isMaterialized = materialized;
+    }
+
 }

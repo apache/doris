@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -134,6 +135,10 @@ public class PlanTranslatorContext {
      */
     public TupleDescriptor getTupleDesc(PlanNode planNode) {
         return descTable.getTupleDesc(planNode.getOutputTupleIds().get(0));
+    }
+
+    public TupleDescriptor getTupleDesc(TupleId tupleId) {
+        return descTable.getTupleDesc(tupleId);
     }
 
     public DescriptorTable getDescTable() {

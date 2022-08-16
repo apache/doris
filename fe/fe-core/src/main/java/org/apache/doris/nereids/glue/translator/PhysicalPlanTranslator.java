@@ -366,11 +366,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
         PlanFragment rightFragment = hashJoin.child(1).accept(this, context);
         PlanFragment leftFragment = hashJoin.child(0).accept(this, context);
-
-        if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
-            throw new RuntimeException("Physical hash join could not execute without equal join condition.");
-        }
-
         PlanNode leftPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightPlanRoot = rightFragment.getPlanRoot();
         JoinType joinType = hashJoin.getJoinType();
