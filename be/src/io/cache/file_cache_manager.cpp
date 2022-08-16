@@ -29,8 +29,28 @@ void FileCacheManager::add_file_cache(const Path& cache_path, FileCachePtr file_
 }
 
 void FileCacheManager::remove_file_cache(const Path& cache_path) {
-    std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
-    _file_cache_map.erase(cache_path.native());
+    bool cache_path_exist = false;
+    {
+        std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+        if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
+            bool cache_dir_exist = false;
+            if (io::global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
+                if (cache_dir_exist) {
+                    st = fs->delete_directory(cache_path);
+                    if (!st.ok()) {
+                        LOG(WARNING) << st.to_string();
+                    }
+                }
+            }
+        } else {
+            cache_path_exist = true;
+            _file_cache_map.find(cache_path)->second->clean_all_cache();
+        }
+    }
+    if (cache_path_exist) {
+        std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
+        _file_cache_map.erase(cache_path.native());
+    }
 }
 
 void FileCacheManager::clean_timeout_caches() {
@@ -51,6 +71,11 @@ FileCachePtr FileCacheManager::new_file_cache(const Path& cache_dir, int64_t ali
     } else {
         return nullptr;
     }
+}
+
+bool FileCacheManager::exist(const Path& cache_path) {
+    std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+    return _file_cache_map.find(cache_path) != _file_cache_map.end();
 }
 
 FileCacheManager* FileCacheManager::instance() {

@@ -755,7 +755,6 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
         std::vector<TabletSharedPtr> tablets =
                 StorageEngine::instance()->tablet_manager()->get_all_tablet();
         for (const auto& tablet : tablets) {
-            LOG(INFO) << "tablet path: " << tablet->tablet_path();
             std::vector<Path> seg_file_paths;
             if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
                 for (Path seg_file : seg_file_paths) {
@@ -765,7 +764,15 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     std::stringstream ss;
                     ss << tablet->tablet_path() << "/" << seg_file;
                     std::string cache_path = ss.str();
-                    LOG(INFO) << "cache_path: " << cache_path;
+                    if (FileCacheManager::instance()->exist(cache_path)) {
+                        continue;
+                    }
+                    struct _stat tmpInfo;
+                    if (_stat(cache_path.c_str(), &tmpInfo) != 0) {
+                        LOG(ERROR) << "Get stat failed for path: " << tmpInfo.st_ctime;
+                    }
+                    LOG(INFO) << "Remove timeout cache_path: " << cache_path;
+                    // FileCacheManager::instance()->remove_file_cache(cache_path);
                 }
             }
         }

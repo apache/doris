@@ -163,18 +163,6 @@ Status BetaRowset::remove() {
         if (fs->type() != io::FileSystemType::LOCAL) {
             auto cache_path = segment_cache_path(i);
             FileCacheManager::instance()->remove_file_cache(cache_path);
-            bool cache_dir_exist = false;
-            if (!io::global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
-                success = false;
-            } else {
-                if (cache_dir_exist) {
-                    st = fs->delete_directory(cache_path);
-                    if (!st.ok()) {
-                        LOG(WARNING) << st.to_string();
-                        success = false;
-                    }
-                }
-            }
         }
     }
     if (!success) {

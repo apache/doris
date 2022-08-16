@@ -43,6 +43,8 @@ public:
                                 io::FileReaderSPtr remote_file_reader,
                                 const std::string& file_cache_type);
 
+    bool exist(const Path& cache_path);
+
 private:
     std::shared_mutex _cache_map_lock;
     // cache_path -> FileCache
