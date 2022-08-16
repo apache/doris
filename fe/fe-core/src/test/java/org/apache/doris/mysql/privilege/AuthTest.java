@@ -36,7 +36,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -106,7 +106,7 @@ public class AuthTest {
 
                 analyzer.getDefaultCatalog();
                 minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
+                result = InternalCatalog.INTERNAL_CATALOG_NAME;
 
                 Env.getCurrentEnv();
                 minTimes = 0;

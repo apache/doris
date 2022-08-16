@@ -31,6 +31,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/array/function_array_join.h"
 #include "vec/functions/array/function_array_mapped.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -139,14 +140,20 @@ struct ArrayAggregateImpl {
     using column_type = ColumnArray;
     using data_type = DataTypeArray;
 
-    static DataTypePtr get_return_type(const DataTypeArray* data_type_array) {
+    static bool _is_variadic() { return false; }
+
+    static size_t _get_number_of_arguments() { return 1; }
+
+    static DataTypePtr get_return_type(const DataTypes& arguments) {
         using Function = AggregateFunction<AggregateFunctionImpl<operation>>;
+        const DataTypeArray* data_type_array =
+                static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
         auto function = Function::create(data_type_array->get_nested_type());
         return function->get_return_type();
     }
 
-    static Status execute(Block& block, size_t result, const DataTypeArray* data_type_array,
-                          const ColumnArray& array) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                          const DataTypeArray* data_type_array, const ColumnArray& array) {
         ColumnPtr res;
         DataTypePtr type = data_type_array->get_nested_type();
         const IColumn* data = array.get_data_ptr().get();
@@ -275,12 +282,15 @@ using FunctionArrayAverage =
 using FunctionArrayProduct =
         FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::PRODUCT>, NameArrayProduct>;
 
+using FunctionArrayJoin = FunctionArrayMapped<ArrayJoinImpl, NameArrayJoin>;
+
 void register_function_array_aggregation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayMin>();
     factory.register_function<FunctionArrayMax>();
     factory.register_function<FunctionArraySum>();
     factory.register_function<FunctionArrayAverage>();
     factory.register_function<FunctionArrayProduct>();
+    factory.register_function<FunctionArrayJoin>();
 }
 
 } // namespace vectorized

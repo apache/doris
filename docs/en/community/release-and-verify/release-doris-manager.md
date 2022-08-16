@@ -28,7 +28,7 @@ under the License.
 
 Its codebase is separate from the main Doris codebase at:
 
-- https://github.com/apache/incubator-doris-manager
+- https://github.com/apache/doris-manager
 
 ## ready to publish
 

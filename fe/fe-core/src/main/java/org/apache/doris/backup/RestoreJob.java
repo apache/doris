@@ -362,7 +362,7 @@ public class RestoreJob extends AbstractJob {
             return;
         }
 
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
             return;
@@ -417,7 +417,7 @@ public class RestoreJob extends AbstractJob {
      * 6. make snapshot for all replicas for incremental download later.
      */
     private void checkAndPrepareMeta() {
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
@@ -1084,7 +1084,7 @@ public class RestoreJob extends AbstractJob {
     private void replayCheckAndPrepareMeta() {
         Database db;
         try {
-            db = env.getInternalDataSource().getDbOrMetaException(dbId);
+            db = env.getInternalCatalog().getDbOrMetaException(dbId);
         } catch (MetaNotFoundException e) {
             LOG.warn("[INCONSISTENT META] replayCheckAndPrepareMeta failed", e);
             return;
@@ -1220,7 +1220,7 @@ public class RestoreJob extends AbstractJob {
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
-            Database db = env.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 status = new Status(ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
                 return;
@@ -1414,7 +1414,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     private Status allTabletCommitted(boolean isReplay) {
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
@@ -1584,7 +1584,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // clean restored objs
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
             setTableStateToNormal(db);

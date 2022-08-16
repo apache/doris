@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -53,7 +53,7 @@ public class CreateDataSyncJobStmtTest {
     @Mocked
     Env env;
     @Mocked
-    InternalDataSource ds;
+    InternalCatalog catalog;
     @Mocked
     Analyzer analyzer;
     @Mocked
@@ -68,11 +68,11 @@ public class CreateDataSyncJobStmtTest {
         properties = Maps.newHashMap();
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable("testCluster:testDb");
+                catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = database;
 

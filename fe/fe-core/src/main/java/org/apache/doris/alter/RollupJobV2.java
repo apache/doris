@@ -319,7 +319,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN, rollupKeysType, origStmt);
+                rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
+                rollupKeysType, origStmt);
         tbl.rebuildFullSchema();
     }
 
@@ -532,6 +533,18 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
+        //update max column unique id
+        int maxColUniqueId = tbl.getIndexMetaByIndexId(rollupIndexId).getMaxColUniqueId();
+        for (Column column : tbl.getIndexMetaByIndexId(rollupIndexId).getSchema(true)) {
+            if (column.getUniqueId() > maxColUniqueId) {
+                maxColUniqueId = column.getUniqueId();
+            }
+        }
+
+        tbl.getIndexMetaByIndexId(rollupIndexId).setMaxColUniqueId(maxColUniqueId);
+
+        LOG.debug("rollupIndexId:{}, maxColUniqueId:{}, indexIdToSchema:{}", rollupIndexId, maxColUniqueId,
+                tbl.getIndexIdToSchema(true));
         tbl.rebuildFullSchema();
     }
 

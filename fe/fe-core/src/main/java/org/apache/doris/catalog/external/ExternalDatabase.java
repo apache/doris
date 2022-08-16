@@ -21,7 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.datasource.ExternalDataSource;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -46,18 +46,18 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     protected long id;
     protected String name;
-    protected ExternalDataSource extDataSource;
+    protected ExternalCatalog extCatalog;
     protected DatabaseProperty dbProperties;
 
     /**
      * Create external database.
      *
-     * @param extDataSource The data source this database belongs to.
+     * @param extCatalog The catalog this database belongs to.
      * @param id Database id.
      * @param name Database name.
      */
-    public ExternalDatabase(ExternalDataSource extDataSource, long id, String name) {
-        this.extDataSource = extDataSource;
+    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+        this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
     }
@@ -130,7 +130,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     @Override
     public boolean isTableExist(String tableName) {
-        return extDataSource.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
+        return extCatalog.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
     }
 
     @Override

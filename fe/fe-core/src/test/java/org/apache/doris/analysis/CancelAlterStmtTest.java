@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
@@ -76,7 +76,7 @@ public class CancelAlterStmtTest {
         FakeEnv.setEnv(env);
         // cancel alter column
         CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN,
-                new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER COLUMN FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());
@@ -84,7 +84,7 @@ public class CancelAlterStmtTest {
         Assert.assertEquals("testTbl", stmt.getTableName());
 
         stmt = new CancelAlterTableStmt(AlterType.ROLLUP,
-                new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER ROLLUP FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());

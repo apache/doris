@@ -449,6 +449,75 @@ PROPERTIES
 );
 ```
 
+示例4： 导入 hive 分区表的数据
+
+```sql
+--hive 建表语句
+create table test_partition(
+	id int,
+	name string,
+	age int
+)
+partitioned by (dt string)
+row format delimited fields terminated by ','
+stored as textfile;
+
+--doris 建表语句
+CREATE TABLE IF NOT EXISTS test_partition_04
+(
+	dt date,
+	id int,
+	name string,
+	age int
+)
+UNIQUE KEY(`dt`, `id`)
+DISTRIBUTED BY HASH(`id`) BUCKETS 1
+PROPERTIES (
+	"replication_allocation" = "tag.location.default: 1"
+);
+--spark load 语句
+CREATE EXTERNAL RESOURCE "spark_resource"
+PROPERTIES
+(
+"type" = "spark",
+"spark.master" = "yarn",
+"spark.submit.deployMode" = "cluster",
+"spark.executor.memory" = "1g",
+"spark.yarn.queue" = "default",
+"spark.hadoop.yarn.resourcemanager.address" = "localhost:50056",
+"spark.hadoop.fs.defaultFS" = "hdfs://localhost:9000",
+"working_dir" = "hdfs://localhost:9000/tmp/doris",
+"broker" = "broker_01"
+);
+LOAD LABEL demo.test_hive_partition_table_18
+(
+    DATA INFILE("hdfs://localhost:9000/user/hive/warehouse/demo.db/test/dt=2022-08-01/*")
+    INTO TABLE test_partition_04
+    COLUMNS TERMINATED BY ","
+    FORMAT AS "csv"
+    (id,name,age)
+    COLUMNS FROM PATH AS (`dt`)
+    SET
+    (
+        dt=dt,
+        id=id,
+        name=name,
+        age=age
+    )
+)
+WITH RESOURCE 'spark_resource'
+(
+    "spark.executor.memory" = "1g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+```
+
+
+
 创建导入的详细语法执行 `HELP SPARK LOAD` 查看语法帮助。这里主要介绍 Spark load 的创建导入语法中参数意义和注意事项。
 
 **Label**
@@ -603,6 +672,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ## 常见问题
 
+- 现在Spark load 还不支持 Doris 表字段是String类型的导入，如果你的表字段有String类型的请改成varchar类型，不然会导入失败，提示 `type:ETL_QUALITY_UNSATISFIED; msg:quality not good enough to cancel`
 - 使用 Spark Load 时没有在 spark 客户端的 `spark-env.sh` 配置 `HADOOP_CONF_DIR` 环境变量。
 
 如果 `HADOOP_CONF_DIR` 环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。

@@ -978,7 +978,7 @@ public class FunctionCallExpr extends Expr {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
                         // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Env.getCurrentEnv().getInternalDataSource().getDbNullable(dbName);
+                        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
                         if (db != null && (db instanceof Database)) {
                             Function searchDesc =
                                     new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);

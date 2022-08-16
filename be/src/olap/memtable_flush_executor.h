@@ -37,7 +37,8 @@ class MemTrackerLimiter;
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     std::atomic_uint64_t flush_time_ns = 0;
-    std::atomic_uint64_t flush_count = 0;
+    std::atomic_uint64_t flush_running_count = 0;
+    std::atomic_uint64_t flush_finish_count = 0;
     std::atomic_uint64_t flush_size_bytes = 0;
     std::atomic_uint64_t flush_disk_size_bytes = 0;
     std::atomic_uint64_t flush_wait_time_ns = 0;
