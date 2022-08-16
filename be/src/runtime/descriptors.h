@@ -382,7 +382,7 @@ private:
     DescriptorTbl() = default;
 };
 
-#define RETURN_IF_VALID_IDX(tuple_id, tuple_idx)                                                 \
+#define RETURN_IF_INVALID_IDX(tuple_id, tuple_idx)                                                 \
     do {                                                                                         \
         if (UNLIKELY(RowDescriptor::INVALID_IDX == tuple_idx)) {                                 \
             return Status::InternalError("failed to get tuple idx with tuple id: {}", tuple_id); \

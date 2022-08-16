@@ -287,7 +287,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                 TupleDescriptor* parent_tuple_desc = parent_rowdesc.tuple_descriptors()[tuple_idx];
 
                 auto tuple_idx = child_rowdesc.get_tuple_idx(child_tuple_desc->id());
-                RETURN_IF_VALID_IDX(child_tuple_desc->id(), tuple_idx);
+                RETURN_IF_INVALID_IDX(child_tuple_desc->id(), tuple_idx);
                 Tuple* child_tuple = _cur_child_tuple_row->get_tuple(tuple_idx);
 
                 // The child tuple is nullptr, only when the child tuple is from outer join. so we directly set
