@@ -772,15 +772,20 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     }
                     std::vector<Path> cache_file_names;
                     if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()) {
+                        std::map<std::string, bool> cache_names;
+                        std::list<std::string> done_names;
                         for (Path cache_file_name : cache_file_names) {
-                            std::stringstream file_ss;
-                            file_ss << cache_path << "/" << cache_file_name.native();
-                            std::string done_file_path = file_ss.str();
-                            if (done_file_path.find("_DONE") == std::string::npos) {
+                            std::string filename = cache_file_name.native();
+                            if (filename.find("_DONE") == std::string::npos) {
+                                cache_names.push_back(filename, true);
                                 continue;
                             }
+                            done_names.push_back(filename);
+                            std::stringstream file_ss;
+                            file_ss << cache_path << "/" << filename;
+                            std::string done_file_path = file_ss.str();
                             time_t m_time;
-                            if (!FileUtils::mtime(cache_path, &m_time).ok()) {
+                            if (!FileUtils::mtime(done_file_path, &m_time).ok()) {
                                 continue;
                             }
                             if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
@@ -789,8 +794,41 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                             std::string cache_file_path = StringReplace(
                                     done_file_path, "_DONE", "", true);
                             LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path
-                                      << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
-                            FileCacheManager::instance()->remove_file_cache(cache_path);
+                                      << ", cache_file_path: " << cache_file_path
+                                      << ", m_time: " << m_time;
+                            if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
+                                LOG(ERROR) << "delete_file failed: " << done_file_path;
+                                continue;
+                            }
+                            if (!io::global_local_filesystem()->delete_file(cache_file_path).ok()) {
+                                LOG(ERROR) << "delete_file failed: " << cache_file_path;
+                                continue;
+                            }
+                        }
+                        // find cache file without done file.
+                        for (std::list<std::string>::iterator itr = done_names.begin();
+                             itr != done_names.end(); ++itr) {
+                            std::string cache_filename = StringReplace(*itr, "_DONE", "", true);
+                            if (cache_names.find(cache_filename) != cache_names.end()) {
+                                cache_names.erase(cache_filename);
+                            }
+                        }
+                        // remove cache file without done file
+                        for (std::map<std::string, bool>::iterator itr = cache_names.begin();
+                             itr != cache_names.end(); ++itr) {
+                            std::stringstream file_ss;
+                            file_ss << cache_path << "/" << itr->native();
+                            std::string cache_file_path = file_ss.str();
+                            if (!FileUtils::mtime(cache_file_path, &m_time).ok()) {
+                                continue;
+                            }
+                            if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
+                                continue;
+                            }
+                            LOG(INFO) << "delete cache file without done file: " << cache_file_path;
+                            if (!io::global_local_filesystem()->delete_file(cache_file_path).ok()) {
+                                LOG(ERROR) << "delete_file failed: " << cache_file_path;
+                            }
                         }
                     }
                 }
