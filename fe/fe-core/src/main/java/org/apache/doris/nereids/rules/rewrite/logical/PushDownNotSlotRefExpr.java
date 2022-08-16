@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -119,26 +120,50 @@ public class PushDownNotSlotRefExpr extends OneRewriteRuleFactory {
                 .when(join -> join.getCondition().isPresent() && checkExpr(join.getCondition().get()))
                 .then(join -> {
                     travelTreeCollectExpr(join.getCondition().get());
-                    join = LogicalJoin.class.cast(join.withChildren(join.children().stream()
-                            .map(GroupPlan.class::cast).map(p -> {
-                                List<NamedExpression> list = new ListBuilder<NamedExpression>(p.getOutput()
-                                        .stream()
-                                        .map(NamedExpression.class::cast)
-                                        .collect(Collectors.toList()))
-                                        .addAll(p.getOutput().stream()
-                                                .filter(SlotReference.class::isInstance)
-                                                .filter(expr -> exprMap1.containsKey(expr.getExprId().asInt()))
-                                                .map(expr -> exprMap1.get(expr.getExprId().asInt()))
-                                                .map(v -> v.stream().map(expr -> exprMap.get(expr)).collect(
-                                                        Collectors.toList()))
-                                                .flatMap(Collection::stream)
-                                                .map(NamedExpression.class::cast)
-                                                .collect(Collectors.toList())
-                                        ).get();
-                                return new LogicalProject<>(list, p.getGroup().getLogicalExpression().getPlan());
-                            }).collect(Collectors.toList())));
-                    join = join.withCondition(Optional.of(travelTreeReplaceExpr(join.getCondition().get())));
-                    return join;
+                    //                    join = LogicalJoin.class.cast(join.withChildren(join.children().stream()
+                    //                            .map(GroupPlan.class::cast).map(p -> {
+                    //                                List<NamedExpression> list = new ListBuilder<NamedExpression>(p.getOutput()
+                    //                                        .stream()
+                    //                                        .map(NamedExpression.class::cast)
+                    //                                        .collect(Collectors.toList()))
+                    //                                        .addAll(p.getOutput().stream()
+                    //                                                .filter(SlotReference.class::isInstance)
+                    //                                                .filter(expr -> exprMap1.containsKey(expr.getExprId().asInt()))
+                    //                                                .map(expr -> exprMap1.get(expr.getExprId().asInt()))
+                    //                                                .map(v -> v.stream().map(expr -> exprMap.get(expr)).collect(
+                    //                                                        Collectors.toList()))
+                    //                                                .flatMap(Collection::stream)
+                    //                                                .map(NamedExpression.class::cast)
+                    //                                                .collect(Collectors.toList())
+                    //                                        ).get();
+                    //                                return new LogicalProject<>(list, p.getGroup().getLogicalExpression().getPlan());
+                    //                            }).collect(Collectors.toList())));
+                    //                    join = join.withCondition(Optional.of(travelTreeReplaceExpr(join.getCondition().get())));
+                    return ((LogicalJoin<Plan, Plan>) join.withChildren(
+                            join.children().stream()
+                                    .map(GroupPlan.class::cast)
+                                    .map(p -> new LogicalProject<>(
+                                            new ListBuilder<NamedExpression>(
+                                                    p.getOutput()
+                                                            .stream()
+                                                            .map(NamedExpression.class::cast)
+                                                            .collect(Collectors.toList())
+                                            ).addAll(p.getOutput()
+                                                    .stream()
+                                                    .filter(SlotReference.class::isInstance)
+                                                    .filter(expr -> exprMap1.containsKey(expr.getExprId().asInt()))
+                                                    .map(expr -> exprMap1.get(expr.getExprId().asInt()))
+                                                    .map(v -> v.stream().map(expr -> exprMap.get(expr))
+                                                            .collect(Collectors.toList()))
+                                                    .flatMap(Collection::stream)
+                                                    .map(NamedExpression.class::cast)
+                                                    .collect(Collectors.toList())
+                                            ).get(),
+                                            p.getGroup().getLogicalExpression().getPlan()
+                                    )).collect(Collectors.toList())
+                            )).withCondition(Optional.of(
+                                    travelTreeReplaceExpr(join.getCondition().get())
+                            ));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
 
