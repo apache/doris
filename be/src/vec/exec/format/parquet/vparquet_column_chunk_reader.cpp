@@ -131,12 +131,12 @@ Status ColumnChunkReader::skip_values(size_t num_values) {
 
 size_t ColumnChunkReader::get_rep_levels(level_t* levels, size_t n) {
     DCHECK_GT(_max_rep_level, 0);
-    return _def_level_decoder.get_levels(levels, n);
+    return _rep_level_decoder.get_levels(levels, n);
 }
 
 size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     DCHECK_GT(_max_def_level, 0);
-    return _rep_level_decoder.get_levels(levels, n);
+    return _def_level_decoder.get_levels(levels, n);
 }
 
 Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type,
