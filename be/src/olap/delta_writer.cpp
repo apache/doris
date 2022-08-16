@@ -257,9 +257,6 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
                     << ", load id: " << print_id(_req.load_id);
         RETURN_NOT_OK(_flush_memtable_async());
         _reset_mem_table();
-    } else {
-        DCHECK(mem_consumption() > _mem_table->memory_usage());
-        // this means there should be at least one memtable in flush queue.
     }
 
     if (need_wait) {
