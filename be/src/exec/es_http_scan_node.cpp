@@ -448,7 +448,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
 
     bool doc_value_mode = false;
     properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
-            properties, _column_names, _docvalue_context, &doc_value_mode);
+            properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
     // start scanner to scan
     if (!_vectorized) {

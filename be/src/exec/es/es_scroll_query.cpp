@@ -59,16 +59,29 @@ std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scr
 
 std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>& properties,
                                         const std::vector<std::string>& fields,
+                                        std::vector<EsPredicate*>& predicates,
                                         const std::map<std::string, std::string>& docvalue_context,
                                         bool* doc_value_mode) {
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType& allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
-    // use fe generate dsl.
-    rapidjson::Document fe_query_dsl;
-    es_query_dsl.AddMember("query",
+    if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
+        auto
+        LOG(INFO) << "fe dsl " << properties.at(ESScanReader::KEY_QUERY_DSL).c_str();
+        // use fe generate dsl.
+        rapidjson::Document fe_query_dsl;
+        es_query_dsl.AddMember("query",
                            fe_query_dsl.Parse(properties.at(ESScanReader::KEY_QUERY_DSL).c_str()),
                            allocator);
+    } else {
+        // generate the filter clause
+        rapidjson::Document scratch_document;
+        rapidjson::Value query_node(rapidjson::kObjectType);
+        query_node.SetObject();
+        BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
+        // note: add `query` for this value....
+        es_query_dsl.AddMember("query", query_node, allocator);
+    }
     bool pure_docvalue = true;
 
     // Doris FE already has checked docvalue-scan optimization
