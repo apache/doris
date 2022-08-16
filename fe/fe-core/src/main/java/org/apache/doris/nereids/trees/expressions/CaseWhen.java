@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -43,9 +44,14 @@ public class CaseWhen extends Expression {
      */
     private final int defaultValueIndex;
 
+    private final List<WhenClause> whenClauses;
+    private final Optional<Expression> defaultValue;
+
     public CaseWhen(List<WhenClause> whenClauses) {
         super(whenClauses.toArray(new Expression[0]));
         defaultValueIndex = -1;
+        this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
+        defaultValue = Optional.empty();
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
@@ -53,20 +59,20 @@ public class CaseWhen extends Expression {
                 .addAll(whenClauses).add(defaultValue).build()
                 .toArray(new Expression[0]));
         defaultValueIndex = children().size() - 1;
+        this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
+        this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
     }
 
     public List<WhenClause> getWhenClauses() {
-        return children().stream()
-                .filter(e -> e instanceof WhenClause)
-                .map(e -> (WhenClause) e)
-                .collect(Collectors.toList());
+        return whenClauses;
     }
 
     public Optional<Expression> getDefaultValue() {
-        if (defaultValueIndex == -1) {
-            return Optional.empty();
-        }
-        return Optional.of(child(defaultValueIndex));
+        return defaultValue;
+    }
+
+    public List<DataType> dataTypesForCoercion() {
+        return whenClauses.stream().map(WhenClause::getDataType).collect(Collectors.toList());
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -80,12 +86,12 @@ public class CaseWhen extends Expression {
 
     @Override
     public boolean nullable() {
-        for (Expression child : children()) {
-            if (child.nullable()) {
+        for (WhenClause whenClause : whenClauses) {
+            if (whenClause.nullable()) {
                 return true;
             }
         }
-        return false;
+        return defaultValue.map(Expression::nullable).orElse(true);
     }
 
     @Override

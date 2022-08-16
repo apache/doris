@@ -19,10 +19,15 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -30,9 +35,21 @@ import java.util.Objects;
 /**
  * captures info of a single WHEN expr THEN expr clause.
  */
-public class WhenClause extends Expression implements BinaryExpression {
+public class WhenClause extends Expression implements BinaryExpression, ExpectsInputTypes {
+
+    public static final List<AbstractDataType> EXPECTS_INPUT_TYPES
+            = ImmutableList.of(BooleanType.INSTANCE, AnyDataType.INSTANCE);
+
     public WhenClause(Expression operand, Expression result) {
         super(operand, result);
+    }
+
+    public Expression getOperand() {
+        return left();
+    }
+
+    public Expression getResult() {
+        return right();
     }
 
     @Override
@@ -51,7 +68,6 @@ public class WhenClause extends Expression implements BinaryExpression {
         return visitor.visitWhenClause(this, context);
     }
 
-
     @Override
     public DataType getDataType() {
         // when left() then right()
@@ -63,6 +79,11 @@ public class WhenClause extends Expression implements BinaryExpression {
     public boolean nullable() throws UnboundException {
         // Depends on whether the result is nullable or not
         return right().nullable();
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTS_INPUT_TYPES;
     }
 
     @Override

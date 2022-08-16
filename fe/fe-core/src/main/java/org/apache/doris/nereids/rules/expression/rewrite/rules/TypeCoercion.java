@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
@@ -48,6 +49,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * a rule to add implicit cast for expressions.
@@ -77,59 +79,6 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     // TODO: add other expression visitor function to do type coercion.
 
-    private boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
-        if (leftType instanceof DecimalType && rightType instanceof NullType) {
-            return true;
-        }
-        if (leftType instanceof NullType && rightType instanceof DecimalType) {
-            return true;
-        }
-        if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
-            return true;
-        }
-        return false;
-    }
-
-    // TODO: compatible with origin planner and BE
-    // TODO: when add new type, add it to here
-    @Developing
-    private Optional<DataType> findTightestCommonType(DataType left, DataType right) {
-        DataType tightestCommonType = null;
-        if (left.equals(right)) {
-            tightestCommonType = left;
-        } else if (left instanceof NullType) {
-            tightestCommonType = right;
-        } else if (right instanceof NullType) {
-            tightestCommonType = left;
-        } else if (left instanceof IntegralType && right instanceof DecimalType
-                && ((DecimalType) right).isWiderThan(left)) {
-            tightestCommonType = right;
-        } else if (right instanceof IntegralType && left instanceof DecimalType
-                && ((DecimalType) left).isWiderThan(right)) {
-            tightestCommonType = left;
-        } else if (left instanceof NumericType && right instanceof NumericType
-                && !(left instanceof DecimalType) && !(right instanceof DecimalType)) {
-            for (DataType dataType : NUMERIC_PRECEDENCE) {
-                if (dataType.equals(left) || dataType.equals(right)) {
-                    tightestCommonType = dataType;
-                    break;
-                }
-            }
-        } else if (left instanceof CharacterType || right instanceof CharacterType) {
-            if (left instanceof StringType || right instanceof StringType) {
-                tightestCommonType = StringType.INSTANCE;
-            } else if (left instanceof CharacterType && right instanceof CharacterType) {
-                tightestCommonType = VarcharType.createVarcharType(
-                        Math.max(((CharacterType) left).getLen(), ((CharacterType) right).getLen()));
-            } else if (left instanceof CharacterType) {
-                tightestCommonType = VarcharType.createVarcharType(((CharacterType) left).getLen());
-            } else {
-                tightestCommonType = VarcharType.createVarcharType(((CharacterType) right).getLen());
-            }
-        }
-        return Optional.ofNullable(tightestCommonType);
-    }
-
     @Override
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
         Expression left = binaryOperator.left();
@@ -155,6 +104,32 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     }
                 })
                 .orElse(binaryOperator);
+    }
+
+    @Override
+    public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+        List<DataType> dataTypesForCoercion = caseWhen.dataTypesForCoercion();
+        if (dataTypesForCoercion.size() <= 1) {
+            return caseWhen;
+        }
+        DataType first = dataTypesForCoercion.get(0);
+        if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
+            return caseWhen;
+        }
+        Optional<DataType> optionalCommonType = findWiderCommonType(dataTypesForCoercion);
+        return optionalCommonType
+                .map(commonType -> {
+                    List<Expression> newChildren
+                            = caseWhen.getWhenClauses().stream()
+                            .map(wc -> wc.withChildren(wc.getOperand(),
+                                    castIfNotSameType(wc.getResult(), commonType)))
+                            .collect(Collectors.toList());
+                    caseWhen.getDefaultValue()
+                            .map(dv -> castIfNotSameType(dv, commonType))
+                            .ifPresent(newChildren::add);
+                    return caseWhen.withChildren(newChildren);
+                })
+                .orElse(caseWhen);
     }
 
     /**
@@ -244,5 +219,72 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
         // could not do implicit cast, just return null. Throw exception in check analysis.
         return Optional.ofNullable(returnType);
+    }
+
+    private boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
+        if (leftType instanceof DecimalType && rightType instanceof NullType) {
+            return true;
+        }
+        if (leftType instanceof NullType && rightType instanceof DecimalType) {
+            return true;
+        }
+        if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
+            return true;
+        }
+        return false;
+    }
+
+    // TODO: compatible with origin planner and BE
+    // TODO: when add new type, add it to here
+    @Developing
+    private Optional<DataType> findTightestCommonType(DataType left, DataType right) {
+        DataType tightestCommonType = null;
+        if (left.equals(right)) {
+            tightestCommonType = left;
+        } else if (left instanceof NullType) {
+            tightestCommonType = right;
+        } else if (right instanceof NullType) {
+            tightestCommonType = left;
+        } else if (left instanceof IntegralType && right instanceof DecimalType
+                && ((DecimalType) right).isWiderThan(left)) {
+            tightestCommonType = right;
+        } else if (right instanceof IntegralType && left instanceof DecimalType
+                && ((DecimalType) left).isWiderThan(right)) {
+            tightestCommonType = left;
+        } else if (left instanceof NumericType && right instanceof NumericType
+                && !(left instanceof DecimalType) && !(right instanceof DecimalType)) {
+            for (DataType dataType : NUMERIC_PRECEDENCE) {
+                if (dataType.equals(left) || dataType.equals(right)) {
+                    tightestCommonType = dataType;
+                    break;
+                }
+            }
+        } else if (left instanceof CharacterType || right instanceof CharacterType) {
+            if (left instanceof StringType || right instanceof StringType) {
+                tightestCommonType = StringType.INSTANCE;
+            } else if (left instanceof CharacterType && right instanceof CharacterType) {
+                tightestCommonType = VarcharType.createVarcharType(
+                        Math.max(((CharacterType) left).getLen(), ((CharacterType) right).getLen()));
+            } else if (left instanceof CharacterType) {
+                tightestCommonType = VarcharType.createVarcharType(((CharacterType) left).getLen());
+            } else {
+                tightestCommonType = VarcharType.createVarcharType(((CharacterType) right).getLen());
+            }
+        }
+        return Optional.ofNullable(tightestCommonType);
+    }
+
+    // TODO
+    @Developing
+    private Optional<DataType> findWiderCommonType(List<DataType> dataTypes) {
+        return Optional.empty();
+    }
+
+    private Expression castIfNotSameType(Expression input, DataType dataType) {
+        if (input.getDataType().equals(dataType)) {
+            return input;
+        } else {
+            return new Cast(input, dataType);
+        }
     }
 }
