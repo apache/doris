@@ -19,6 +19,7 @@
 
 #include "io/cache/sub_file_cache.h"
 #include "io/cache/whole_file_cache.h"
+#include "io/fs/local_file_system.h"
 
 namespace doris {
 namespace io {
@@ -34,9 +35,9 @@ void FileCacheManager::remove_file_cache(const Path& cache_path) {
         std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
         if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
             bool cache_dir_exist = false;
-            if (io::global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
+            if (global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
                 if (cache_dir_exist) {
-                    st = fs->delete_directory(cache_path);
+                    Status st = global_local_filesystem()->delete_directory(cache_path);
                     if (!st.ok()) {
                         LOG(WARNING) << st.to_string();
                     }
