@@ -147,7 +147,7 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
     // load page data into underlying container
     chunk_reader.load_page_data();
     // decode page data
-    return chunk_reader.decode_values(doris_column, data_type, chunk_reader.num_values());
+    return chunk_reader.decode_values(doris_column, data_type, chunk_reader.remaining_num_values());
 }
 
 static void create_block(std::unique_ptr<vectorized::Block>& block) {

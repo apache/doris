@@ -67,9 +67,4 @@ Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file
     RETURN_IF_ERROR(file_metadata->init_schema());
     return Status::OK();
 }
-
-//    Status parse_page_header() {
-//        uint8_t* page_buf;
-//
-//    }
 } // namespace doris::vectorized

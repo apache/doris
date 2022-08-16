@@ -39,7 +39,7 @@ Status FileMetaData::init_schema() {
     return Status();
 }
 
-const tparquet::FileMetaData& FileMetaData::to_thrift_metadata() {
+tparquet::FileMetaData& FileMetaData::to_thrift_metadata() {
     return _metadata;
 }
 
