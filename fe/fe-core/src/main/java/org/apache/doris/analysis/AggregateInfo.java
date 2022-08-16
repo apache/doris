@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TPartitionType;
@@ -149,6 +150,14 @@ public final class AggregateInfo extends AggregateInfoBase {
     public List<Expr> getPartitionExprs() { return partitionExprs_; }
     public void setPartitionExprs(List<Expr> exprs) { partitionExprs_ = exprs; }
     
+    private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
+        for (Expr expr : groupingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
+    }
+
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -165,6 +174,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         Preconditions.checkState(
                 (groupingExprs != null && !groupingExprs.isEmpty())
                         || (aggExprs != null && !aggExprs.isEmpty()));
+        validateGroupingExprs(groupingExprs);
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, AggPhase.FIRST);
 
         // collect agg exprs with DISTINCT clause
