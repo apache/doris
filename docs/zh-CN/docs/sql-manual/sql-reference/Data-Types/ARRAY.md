@@ -41,15 +41,13 @@ DATETIME, CHAR, VARCHAR, STRING
 
 ### notice
 
-使用时需要先打开`enable_array_type`开关
+使用前需要在fe.conf中添加`enable_array_type=true`配置项
 
 ### example
 
 建表示例如下：
 
 ```
-mysql> set enable_array_type=true;
-
 mysql> CREATE TABLE `array_test` (
   `id` int(11) NULL COMMENT "",
   `c_array` ARRAY<int(11)> NULL COMMENT ""
