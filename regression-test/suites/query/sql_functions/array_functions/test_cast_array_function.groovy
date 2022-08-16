@@ -42,9 +42,8 @@ suite("test_cast_array_function", "query") {
     sql """ INSERT INTO ${tableName} VALUES(3, [10000], ["2022-08-10", "2022-08-11"], [1]) """
     sql """ INSERT INTO ${tableName} VALUES(4, [], [], NULL) """
     
-    
-    qt_select "SELECT k1, cast(k2 as array<int>), cast(k3 as array<varchar>) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, cast(k2 as array<varchar>), cast(k3 as array<int>) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, cast(k4 as array<float>), cast(k4 as array<double>) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, cast(k2 as array<tinyint>), cast(k3 as array<date>) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT cast(k2 as array<int>), cast(k3 as array<varchar>), k1 FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT cast(k2 as array<varchar>), cast(k3 as array<int>), k1 FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT cast(k4 as array<float>), cast(k4 as array<double>), k1 FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT cast(k2 as array<tinyint>), cast(k3 as array<date>), k1 FROM ${tableName} ORDER BY k1"
 }
