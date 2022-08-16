@@ -57,13 +57,20 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
         /**
-         * case 1: project(project(alias, alias) -> alias, alias) => project(alias, alias)
-         * case 2: project(project(alias, alias) -> slot ref, slot ref) => project(project(alias, alias))
-         * case 3: others: use ExpressionReplacer.
+         * case 1:
+         *          project(alias(c) as d, alias(x) as y)
+         *                      |
+         *                      |                          ===>       project(alias(a) as d, alias(b) as y)
+         *                      |
+         *          project(slotRef(a) as c, slotRef(b) as x)
+         * case 2:
+         *         project(slotRef(x.c), slotRef(x.d))
+         *                      |                          ===>       project(slotRef(a) as x.c, slotRef(b) as x.d)
+         *         project(slotRef(a) as c, slotRef(b) as d)
+         * case 3: others
          */
         @Override
         public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
-            // For alias, map key is alias name, value is child.
             if (expr instanceof Alias && expr.child(0) instanceof SlotReference) {
                 // case 1:
                 Expression c = expr.child(0);

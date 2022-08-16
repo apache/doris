@@ -37,15 +37,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class ViewTest extends TestWithFeService implements PatternMatchSupported {
-    private final List<String> testSql = Lists.newArrayList(
-            "SELECT * FROM V1",
-            "SELECT * FROM V2",
-            "SELECT * FROM V3",
-            "SELECT * FROM T1 JOIN (SELECT * FROM V1) T ON T1.ID1 = T.ID1",
-            "SELECT * FROM T2 JOIN (SELECT * FROM V2) T ON T2.ID2 = T.ID2",
-            "SELECT Y.ID2 FROM (SELECT * FROM V3) Y",
-            "SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3"
-    );
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -92,6 +83,17 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
 
     @Test
     public void testTranslateAllCase() throws Exception {
+
+        List<String> testSql = Lists.newArrayList(
+                "SELECT * FROM V1",
+                "SELECT * FROM V2",
+                "SELECT * FROM V3",
+                "SELECT * FROM T1 JOIN (SELECT * FROM V1) T ON T1.ID1 = T.ID1",
+                "SELECT * FROM T2 JOIN (SELECT * FROM V2) T ON T2.ID2 = T.ID2",
+                "SELECT Y.ID2 FROM (SELECT * FROM V3) Y",
+                "SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3"
+        );
+
         // check whether they can be translated.
         for (String sql : testSql) {
             NamedExpressionUtil.clear();
@@ -108,9 +110,8 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
 
     @Test
     public void testSimpleViewMergeProjects() {
-        // FieldChecker projectCheck = new FieldChecker(ImmutableList.of("projects"));
         PlanChecker.from(connectContext)
-                .analyze(testSql.get(0))
+                .analyze("SELECT * FROM V1")
                 .applyTopDown(new EliminateAliasNode())
                 .applyTopDown(new MergeConsecutiveProjects())
                 .matches(
@@ -123,7 +124,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
     @Test
     public void testNestedView() {
         PlanChecker.from(connectContext)
-                .analyze(testSql.get(6))
+                .analyze("SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3")
                 .applyTopDown(new EliminateAliasNode())
                 .applyTopDown(new MergeConsecutiveProjects())
                 .matches(
