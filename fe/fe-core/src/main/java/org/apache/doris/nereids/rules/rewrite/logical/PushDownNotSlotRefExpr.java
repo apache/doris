@@ -120,25 +120,6 @@ public class PushDownNotSlotRefExpr extends OneRewriteRuleFactory {
                 .when(join -> join.getCondition().isPresent() && checkExpr(join.getCondition().get()))
                 .then(join -> {
                     travelTreeCollectExpr(join.getCondition().get());
-                    //                    join = LogicalJoin.class.cast(join.withChildren(join.children().stream()
-                    //                            .map(GroupPlan.class::cast).map(p -> {
-                    //                                List<NamedExpression> list = new ListBuilder<NamedExpression>(p.getOutput()
-                    //                                        .stream()
-                    //                                        .map(NamedExpression.class::cast)
-                    //                                        .collect(Collectors.toList()))
-                    //                                        .addAll(p.getOutput().stream()
-                    //                                                .filter(SlotReference.class::isInstance)
-                    //                                                .filter(expr -> exprMap1.containsKey(expr.getExprId().asInt()))
-                    //                                                .map(expr -> exprMap1.get(expr.getExprId().asInt()))
-                    //                                                .map(v -> v.stream().map(expr -> exprMap.get(expr)).collect(
-                    //                                                        Collectors.toList()))
-                    //                                                .flatMap(Collection::stream)
-                    //                                                .map(NamedExpression.class::cast)
-                    //                                                .collect(Collectors.toList())
-                    //                                        ).get();
-                    //                                return new LogicalProject<>(list, p.getGroup().getLogicalExpression().getPlan());
-                    //                            }).collect(Collectors.toList())));
-                    //                    join = join.withCondition(Optional.of(travelTreeReplaceExpr(join.getCondition().get())));
                     return ((LogicalJoin<Plan, Plan>) join.withChildren(
                             join.children().stream()
                                     .map(GroupPlan.class::cast)
@@ -208,10 +189,7 @@ public class PushDownNotSlotRefExpr extends OneRewriteRuleFactory {
                             .map(this::travelTreeReplaceExpr)
                             .collect(Collectors.toList()));
         }
-        if (root instanceof Literal) {
-            return root;
-        }
-        return ((Alias) exprMap.get(root)).toSlot();
+        return (root instanceof Literal) ? root : ((Alias) exprMap.get(root)).toSlot();
     }
 
     private Set<SlotReference> findSlotRefOfExpr(Expression root, Set<SlotReference> set) {
