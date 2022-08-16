@@ -162,10 +162,6 @@ public class JoinEstimation {
             }
         }
 
-        // TODO: tmp solution : modify to 0 from -1.
-        if (result == -1) {
-            return 0;
-        }
         return result;
     }
 }

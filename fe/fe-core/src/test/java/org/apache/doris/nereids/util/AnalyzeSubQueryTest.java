@@ -89,13 +89,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
 
     @Test
     public void testTranslateCase() throws Exception {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public boolean isEnableNereidsCBO() {
-                return true;
-            }
-        };
-
         for (String sql : testSql) {
             NamedExpressionUtil.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
