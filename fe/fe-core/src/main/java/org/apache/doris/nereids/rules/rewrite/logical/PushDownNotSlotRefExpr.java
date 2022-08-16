@@ -114,6 +114,18 @@ public class PushDownNotSlotRefExpr extends OneRewriteRuleFactory {
 
     private Map<Integer, Set<Expression>> exprMap1 = new HashMap<>();
 
+    /**
+     * rewrite example:
+     *join(t1.a + 1 = t2.b + 2 and t1.a > 2)        join(c = d and c > 2)
+     *          │                                             │
+     *          ├─olapScan(t1)                                ├────project(t1.a + 1 as c)
+     *          │                               ====>         │       │
+     *          └─olapScan(t2)                                │       └─olapScan(t1)
+     *                                                        │
+     *                                                        └────project(t2.b + 2 as d)
+     *                                                                │
+     *                                                                └─olapScan(t2)
+     */
     @Override
     public Rule build() {
         return logicalJoin()

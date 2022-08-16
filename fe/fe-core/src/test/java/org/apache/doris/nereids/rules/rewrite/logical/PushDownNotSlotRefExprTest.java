@@ -74,6 +74,12 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
 
     @Test
     public void testGeneratePhysicalPlan() {
+        List<String> testSql = ImmutableList.of(
+                "SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2",
+                "SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2",
+                "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10",
+                "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
+        );
         testSql.forEach(sql -> {
             try {
                 PhysicalPlan plan = new NereidsPlanner(createStatementCtx(sql)).plan(
@@ -90,7 +96,7 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
     @Test
     public void testSimpleCase() {
         PlanChecker.from(connectContext)
-                .analyze(testSql.get(0))
+                .analyze("SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2")
                 .applyTopDown(new PushDownNotSlotRefExpr())
                 .matches(
                         logicalProject(
@@ -109,7 +115,7 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
     @Test
     public void testSubQueryCase() {
         PlanChecker.from(connectContext)
-                .analyze(testSql.get(1))
+                .analyze("SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2")
                 .applyTopDown(new PushDownNotSlotRefExpr())
                 .matches(
                         logicalProject(
@@ -132,7 +138,7 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
     @Test
     public void testAggNodeCase() {
         PlanChecker.from(connectContext)
-                .analyze(testSql.get(2))
+                .analyze("SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10")
                 .applyTopDown(new PushDownNotSlotRefExpr())
                 .matches(
                         logicalProject(
@@ -153,7 +159,7 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
     @Test
     public void testSortNodeCase() {
         PlanChecker.from(connectContext)
-                .analyze(testSql.get(3))
+                .analyze("SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10")
                 .applyTopDown(new PushDownNotSlotRefExpr())
                 .matches(
                         logicalProject(
