@@ -269,35 +269,38 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
             return boundSlots.stream().filter(boundSlot -> {
                 List<String> nameParts = unboundSlot.getNameParts();
-                switch (nameParts.size()) {
-                    case 1:
-                        // Unbound slot name is `column`
-                        return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
-                    case 2:
-                        // Unbound slot name is `table`.`column`
-                        List<String> qualifier = boundSlot.getQualifier();
-                        String name = boundSlot.getName();
-                        switch (qualifier.size()) {
-                            case 2:
-                                // qualifier is `db`.`table`
-                                return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                        && nameParts.get(1).equalsIgnoreCase(name);
-                            case 1:
-                                // qualifier is `table`
-                                return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                        && nameParts.get(1).equalsIgnoreCase(name);
-                            case 0:
-                                // has no qualifiers
-                                return nameParts.get(1).equalsIgnoreCase(name);
-                            default:
-                                throw new AnalysisException("Not supported qualifier: "
-                                        + StringUtils.join(qualifier, "."));
-                        }
-                    default:
-                        throw new AnalysisException("Not supported name: "
-                            + StringUtils.join(nameParts, "."));
+                if (nameParts.size() == 1) {
+                    return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
+                } else if (nameParts.size() <= 3) {
+                    int size = nameParts.size();
+                    // if nameParts.size() == 3, nameParts.get(0) is cluster name.
+                    return handleNamePartsTwoOrThree(boundSlot, nameParts.subList(size - 2, size));
                 }
+                //TODO: handle name parts more than three.
+                throw new AnalysisException("Not supported name: "
+                        + StringUtils.join(nameParts, "."));
             }).collect(Collectors.toList());
+        }
+    }
+
+    private boolean handleNamePartsTwoOrThree(Slot boundSlot, List<String> nameParts) {
+        List<String> qualifier = boundSlot.getQualifier();
+        String name = boundSlot.getName();
+        switch (qualifier.size()) {
+            case 2:
+                // qualifier is `db`.`table`
+                return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
+                        && nameParts.get(1).equalsIgnoreCase(name);
+            case 1:
+                // qualifier is `table`
+                return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
+                        && nameParts.get(1).equalsIgnoreCase(name);
+            case 0:
+                // has no qualifiers
+                return nameParts.get(1).equalsIgnoreCase(name);
+            default:
+                throw new AnalysisException("Not supported qualifier: "
+                        + StringUtils.join(qualifier, "."));
         }
     }
 
