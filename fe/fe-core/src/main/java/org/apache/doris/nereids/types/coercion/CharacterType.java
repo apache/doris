@@ -24,6 +24,17 @@ import org.apache.doris.nereids.types.PrimitiveType;
  * Abstract type for all characters type in Nereids.
  */
 public abstract class CharacterType extends PrimitiveType {
+
+    protected final int len;
+
+    public CharacterType(int len) {
+        this.len = len;
+    }
+
+    public int getLen() {
+        return len;
+    }
+
     @Override
     public boolean acceptsType(DataType other) {
         return other instanceof CharacterType;

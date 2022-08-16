@@ -50,7 +50,7 @@ public abstract class ComparisonPredicate extends BinaryOperator {
     }
 
     @Override
-    protected AbstractDataType inputType() {
+    public AbstractDataType inputType() {
         return AnyDataType.INSTANCE;
     }
 

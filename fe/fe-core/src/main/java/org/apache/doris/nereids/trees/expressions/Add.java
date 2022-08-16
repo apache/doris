@@ -47,7 +47,7 @@ public class Add extends BinaryArithmetic {
     }
 
     @Override
-    protected AbstractDataType inputType() {
+    public AbstractDataType inputType() {
         return NumericType.INSTANCE;
     }
 }

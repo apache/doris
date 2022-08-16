@@ -17,19 +17,32 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.NumericType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.TypeCollection;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -43,6 +56,16 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     public static final TypeCoercion INSTANCE = new TypeCoercion();
 
+    public static final List<DataType> NUMERIC_PRECEDENCE = ImmutableList.of(
+            DoubleType.INSTANCE,
+            LargeIntType.INSTANCE,
+            FloatType.INSTANCE,
+            BigIntType.INSTANCE,
+            IntegerType.INSTANCE,
+            SmallIntType.INSTANCE,
+            TinyIntType.INSTANCE
+    );
+
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         if (expr instanceof ImplicitCastInputTypes) {
@@ -53,6 +76,86 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     }
 
     // TODO: add other expression visitor function to do type coercion.
+
+    private boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
+        if (leftType instanceof DecimalType && rightType instanceof NullType) {
+            return true;
+        }
+        if (leftType instanceof NullType && rightType instanceof DecimalType) {
+            return true;
+        }
+        if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
+            return true;
+        }
+        return false;
+    }
+
+    // TODO: compatible with origin planner and BE
+    // TODO: when add new type, add it to here
+    @Developing
+    private Optional<DataType> findTightestCommonType(DataType left, DataType right) {
+        DataType tightestCommonType = null;
+        if (left.equals(right)) {
+            tightestCommonType = left;
+        } else if (left instanceof NullType) {
+            tightestCommonType = right;
+        } else if (right instanceof NullType) {
+            tightestCommonType = left;
+        } else if (left instanceof IntegralType && right instanceof DecimalType
+                && ((DecimalType) right).isWiderThan(left)) {
+            tightestCommonType = right;
+        } else if (right instanceof IntegralType && left instanceof DecimalType
+                && ((DecimalType) left).isWiderThan(right)) {
+            tightestCommonType = left;
+        } else if (left instanceof NumericType && right instanceof NumericType
+                && !(left instanceof DecimalType) && !(right instanceof DecimalType)) {
+            for (DataType dataType : NUMERIC_PRECEDENCE) {
+                if (dataType.equals(left) || dataType.equals(right)) {
+                    tightestCommonType = dataType;
+                    break;
+                }
+            }
+        } else if (left instanceof CharacterType || right instanceof CharacterType) {
+            if (left instanceof StringType || right instanceof StringType) {
+                tightestCommonType = StringType.INSTANCE;
+            } else if (left instanceof CharacterType && right instanceof CharacterType) {
+                tightestCommonType = VarcharType.createVarcharType(
+                        Math.max(((CharacterType) left).getLen(), ((CharacterType) right).getLen()));
+            } else if (left instanceof CharacterType) {
+                tightestCommonType = VarcharType.createVarcharType(((CharacterType) left).getLen());
+            } else {
+                tightestCommonType = VarcharType.createVarcharType(((CharacterType) right).getLen());
+            }
+        }
+        return Optional.ofNullable(tightestCommonType);
+    }
+
+    @Override
+    public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
+        Expression left = binaryOperator.left();
+        Expression right = binaryOperator.right();
+        if (!canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
+            return binaryOperator;
+        }
+        return findTightestCommonType(left.getDataType(), right.getDataType())
+                .map(commonType -> {
+                    if (binaryOperator.inputType().acceptsType(commonType) && (
+                            !left.getDataType().equals(commonType) || !right.getDataType().equals(commonType))) {
+                        Expression newLeft = left;
+                        Expression newRight = right;
+                        if (!left.getDataType().equals(commonType)) {
+                            newLeft = new Cast(left, commonType);
+                        }
+                        if (!right.getDataType().equals(commonType)) {
+                            newRight = new Cast(right, commonType);
+                        }
+                        return binaryOperator.withChildren(newLeft, newRight);
+                    } else {
+                        return binaryOperator;
+                    }
+                })
+                .orElse(binaryOperator);
+    }
 
     /**
      * Do implicit cast for expression's children.
@@ -108,10 +211,16 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         }
         if (expected instanceof TypeCollection) {
             TypeCollection typeCollection = (TypeCollection) expected;
+            // use origin datatype first. use implicit cast instead if origin type cannot be accepted.
             return typeCollection.getTypes().stream()
-                    .map(e -> implicitCast(input, e))
+                    .filter(e -> e.acceptsType(input))
+                    .map(e -> input)
+                    .map(Optional::of)
                     .findFirst()
-                    .orElse(Optional.empty());
+                    .orElse(typeCollection.getTypes().stream()
+                            .map(e -> implicitCast(input, e))
+                            .findFirst()
+                            .orElse(Optional.empty()));
         }
         if (input.isNullType()) {
             // Cast null type (usually from null literals) into target types

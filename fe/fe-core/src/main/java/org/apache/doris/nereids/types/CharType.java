@@ -30,10 +30,8 @@ public class CharType extends CharacterType {
 
     public static final CharType SYSTEM_DEFAULT = new CharType(-1);
 
-    private final int len;
-
     public CharType(int len) {
-        this.len = len;
+        super(len);
     }
 
     public static CharType createCharType(int len) {

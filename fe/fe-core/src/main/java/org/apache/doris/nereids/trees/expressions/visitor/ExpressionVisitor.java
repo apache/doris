@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -80,8 +81,12 @@ public abstract class ExpressionVisitor<R, C> {
         return visitNamedExpression(alias, context);
     }
 
+    public R visitBinaryOperator(BinaryOperator binaryOperator, C context) {
+        return visit(binaryOperator, context);
+    }
+
     public R visitComparisonPredicate(ComparisonPredicate cp, C context) {
-        return visit(cp, context);
+        return visitBinaryOperator(cp, context);
     }
 
     public R visitEqualTo(EqualTo equalTo, C context) {
@@ -165,7 +170,7 @@ public abstract class ExpressionVisitor<R, C> {
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
-        return visit(compoundPredicate, context);
+        return visitBinaryOperator(compoundPredicate, context);
     }
 
     public R visitAnd(And and, C context) {
@@ -201,7 +206,7 @@ public abstract class ExpressionVisitor<R, C> {
     }
 
     public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {
-        return visit(binaryArithmetic, context);
+        return visitBinaryOperator(binaryArithmetic, context);
     }
 
     public R visitAdd(Add add, C context) {

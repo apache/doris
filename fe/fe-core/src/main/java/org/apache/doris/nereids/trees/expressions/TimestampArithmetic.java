@@ -35,6 +35,7 @@ import java.util.List;
  * Describes the addition and subtraction of time units from timestamps.
  * Arithmetic expressions on timestamps are syntactic sugar.
  * They are executed as function call exprs in the BE.
+ * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
 public class TimestampArithmetic extends Expression implements BinaryExpression {
     private static final Logger LOG = LogManager.getLogger(TimestampArithmetic.class);

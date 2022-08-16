@@ -30,10 +30,8 @@ public class VarcharType extends CharacterType {
 
     public static VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
 
-    private final int len;
-
     public VarcharType(int len) {
-        this.len = len;
+        super(len);
     }
 
     public static VarcharType createVarcharType(int len) {

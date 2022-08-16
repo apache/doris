@@ -38,7 +38,7 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
         this.symbol = symbol;
     }
 
-    protected abstract AbstractDataType inputType();
+    public abstract AbstractDataType inputType();
 
     @Override
     public List<AbstractDataType> expectedInputTypes() {

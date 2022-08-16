@@ -47,7 +47,7 @@ public class Divide extends BinaryArithmetic {
     }
 
     @Override
-    protected AbstractDataType inputType() {
+    public AbstractDataType inputType() {
         return NumericType.INSTANCE;
     }
 }

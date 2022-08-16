@@ -24,7 +24,12 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
  * String data type in Nereids.
  */
 public class StringType extends CharacterType {
+
     public static StringType INSTANCE = new StringType();
+
+    public StringType() {
+        super(-1);
+    }
 
     @Override
     public Type toCatalogDataType() {

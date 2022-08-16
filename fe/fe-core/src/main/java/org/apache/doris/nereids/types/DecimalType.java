@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -82,6 +83,20 @@ public class DecimalType extends FractionalType {
 
     public int getScale() {
         return scale;
+    }
+
+    public boolean isWiderThan(DataType other) {
+        return isWiderThanInternal(other);
+    }
+
+    private boolean isWiderThanInternal(DataType other) {
+        if (other instanceof DecimalType) {
+            DecimalType dt = (DecimalType) other;
+            return this.precision - this.scale >= dt.precision - dt.scale && this.scale >= dt.scale;
+        } else if (other instanceof IntegralType) {
+            return isWiderThanInternal(forType(other));
+        }
+        return false;
     }
 
     @Override
