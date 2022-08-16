@@ -86,9 +86,14 @@ public class AuditEvent {
     public long peakMemoryBytes = -1;
     @AuditField(value = "SqlDigest")
     public String sqlDigest = "";
-
     @AuditField(value = "TraceId")
     public String traceId = "";
+    @AuditField(value = "ErrType")
+    public String errType = "";
+    @AuditField(value = "ErrCode")
+    public String errCode = "";
+    @AuditField(value = "ErrMsg")
+    public String errMsg = "";
 
     public static class AuditEventBuilder {
 
@@ -198,6 +203,21 @@ public class AuditEvent {
 
         public AuditEventBuilder setTraceId(String traceId) {
             auditEvent.traceId = traceId;
+            return this;
+        }
+
+        public AuditEventBuilder setErrMsg(String errMsg) {
+            auditEvent.errMsg = errMsg;
+            return this;
+        }
+
+        public AuditEventBuilder setErrType(String errType) {
+            auditEvent.errType = errType;
+            return this;
+        }
+
+        public AuditEventBuilder setErrCode(String errCode) {
+            auditEvent.errCode = errCode;
             return this;
         }
 
