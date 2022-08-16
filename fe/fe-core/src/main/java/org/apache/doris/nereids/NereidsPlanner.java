@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.MergeConsecutiveProjectJob;
@@ -108,6 +109,9 @@ public class NereidsPlanner extends Planner {
         // resolve column, table and function
         analyze();
 
+        // check whether analyze result is meaningful
+        checkAnalyze();
+
         // rule-based optimize
         rewrite();
 
@@ -136,6 +140,10 @@ public class NereidsPlanner extends Planner {
 
     private void analyze() {
         cascadesContext.newAnalyzer().analyze();
+    }
+
+    private void checkAnalyze() {
+        new CheckAnalysisJob(cascadesContext).execute();
     }
 
     /**

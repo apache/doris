@@ -23,7 +23,6 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -31,9 +30,6 @@ import java.util.List;
  * And predicate expression.
  */
 public class And extends CompoundPredicate implements ExpectsInputTypes {
-
-    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES
-            = ImmutableList.of(BooleanType.INSTANCE, BooleanType.INSTANCE);
 
     /**
      * Desc: Constructor for CompoundPredicate.
@@ -72,7 +68,7 @@ public class And extends CompoundPredicate implements ExpectsInputTypes {
     }
 
     @Override
-    public List<AbstractDataType> expectedInputTypes() {
-        return EXPECTED_INPUT_TYPES;
+    public AbstractDataType inputType() {
+        return BooleanType.INSTANCE;
     }
 }

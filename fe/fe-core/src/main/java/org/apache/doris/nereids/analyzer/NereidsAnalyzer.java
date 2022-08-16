@@ -19,7 +19,6 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
-import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
@@ -46,7 +45,6 @@ public class NereidsAnalyzer {
     public void analyze() {
         new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new FinalizeAnalyzeJob(cascadesContext).execute();
-        new CheckAnalysisJob(cascadesContext).execute();
     }
 
     public CascadesContext getCascadesContext() {

@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.shape;
 
-import org.apache.doris.nereids.trees.BinaryNode;
+import org.apache.doris.nereids.trees.LeafNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
- * Interface for all expression that have two children.
+ * Interface for all expression that have no child.
  */
-public interface BinaryExpression extends BinaryNode<Expression, Expression, Expression> {
+public interface LeafExpression extends LeafNode<Expression> {
 }

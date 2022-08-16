@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 
@@ -26,7 +29,8 @@ import java.util.List;
 /**
  * Or predicate expression.
  */
-public class Or extends CompoundPredicate {
+public class Or extends CompoundPredicate implements ExpectsInputTypes {
+
     /**
      * Desc: Constructor for CompoundPredicate.
      *
@@ -61,5 +65,10 @@ public class Or extends CompoundPredicate {
     @Override
     public Class<? extends CompoundPredicate> flipType() {
         return And.class;
+    }
+
+    @Override
+    public AbstractDataType inputType() {
+        return BooleanType.INSTANCE;
     }
 }

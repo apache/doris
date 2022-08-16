@@ -17,56 +17,51 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 
-/**
- * Comparison predicate expression.
- * Such as: "=", "<", "<=", ">", ">=", "<=>"
- */
-public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
+public abstract class BinaryOperator extends Expression implements BinaryExpression, ExpectsInputTypes {
 
     protected final String symbol;
 
-    /**
-     * Constructor of ComparisonPredicate.
-     *
-     * @param left     left child of comparison predicate
-     * @param right    right child of comparison predicate
-     */
-    public ComparisonPredicate(Expression left, Expression right, String symbol) {
+    protected final Supplier<List<AbstractDataType>> expectedInputTypesSupplier
+            = Suppliers.memoize(() -> ImmutableList.of(inputType(), inputType()));
+
+    public BinaryOperator(Expression left, Expression right, String symbol) {
         super(left, right);
         this.symbol = symbol;
     }
 
-    @Override
-    public DataType getDataType() throws UnboundException {
-        return BooleanType.INSTANCE;
-    }
+    protected abstract AbstractDataType inputType();
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
+    public List<AbstractDataType> expectedInputTypes() {
+        return expectedInputTypesSupplier.get();
     }
 
     @Override
     public String toSql() {
-        return "(" + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ")";
+        return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
     }
 
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitComparisonPredicate(this, context);
+    @Override
+    public String toString() {
+        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(symbol, left(), right());
     }
+
 
     @Override
     public boolean equals(Object o) {
@@ -76,13 +71,7 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        ComparisonPredicate other = (ComparisonPredicate) o;
-        return Objects.equals(left(), other.left())
-                && Objects.equals(right(), other.right());
+        BinaryOperator other = (BinaryOperator) o;
+        return Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
     }
-
-    /**
-     * Commute between left and right children.
-     */
-    public abstract ComparisonPredicate commute();
 }

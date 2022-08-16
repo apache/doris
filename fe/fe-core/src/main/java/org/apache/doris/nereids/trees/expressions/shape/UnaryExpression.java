@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.shape;
 
-import org.apache.doris.nereids.trees.TernaryNode;
+import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
- * Interface for all expression that have three children.
+ * Abstract class for all expression that have one child.
  */
-public interface TernaryExpression extends TernaryNode<Expression, Expression, Expression, Expression> {
+public interface UnaryExpression extends UnaryNode<Expression, Expression> {
 }
