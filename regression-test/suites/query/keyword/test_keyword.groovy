@@ -60,8 +60,8 @@ suite("test_keyword", "query,p0") {
                on a.k10 = b.k10 group by k10 order by k10"
 
     // having
-    // qt_having1 "select k1, k2 from ((select * from ${tableName2}) union all (select * from bigtable)) a \
-    //         having k1 = 1 order by 1, 2"
+    qt_having1 "select k1, k2 from ((select * from ${tableName2}) union all (select * from bigtable)) a \
+             having k1 = 1 order by 1, 2"
     qt_having2 "select k1, k2 from ${tableName2} having k1 % 3 = 0 order by k1, k2"
     qt_having3 "select count(k1) b from ${tableName2} where k2 = 1989 having b >= 2 order by b"
     qt_having4 "select count(k1) b from ${tableName2} where k2 = 1989 having b > 2 order by b"
