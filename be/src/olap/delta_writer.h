@@ -145,6 +145,11 @@ private:
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
+    // The memory value automatically tracked by the Tcmalloc hook is 20% less than the manually recorded
+    // value in the memtable, because some freed memory is not allocated in the DeltaWriter.
+    // The memory value automatically tracked by the Tcmalloc hook, used for load channel mgr to trigger
+    // flush memtable when the sum of all channel memory exceeds the limit.
+    // The manually recorded value of memtable is used to flush when it is larger than write_buffer_size.
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _parent_tracker;
 

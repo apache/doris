@@ -49,6 +49,12 @@ public:
 
     ~MemTracker();
 
+    // Get a global tracker with a specified label, and the tracker will be created when the label is first get.
+    // use SCOPED_CONSUME_MEM_TRACKER count the memory in the scope to a global tracker with the specified label name.
+    // which is usually used for debugging, to finding memory hotspots.
+    static std::shared_ptr<MemTracker> get_global_mem_tracker(const std::string& label);
+    static void make_global_mem_tracker_snapshot(std::vector<MemTracker::Snapshot>* snapshots);
+
 public:
     const std::string& label() const { return _label; }
     // Returns the memory consumed in bytes.
