@@ -134,6 +134,7 @@ private:
     // time costed and row returned statistics
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
+    int64_t _num_rows_return = 0;
     int64_t _compressed_bytes_read = 0;
 
     // number rows filtered by pushed condition
