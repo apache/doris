@@ -147,7 +147,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 }
 
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
-    DCHECK(BitUtil::RoundUpToPowerOfTwo(size) == size);
+    CHECK((size > 0 && (size & (size - 1)) == 0));
 
     // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
@@ -198,6 +198,8 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 
 void ChunkAllocator::free(const Chunk& chunk) {
     DCHECK(chunk.core_id != -1);
+    CHECK((chunk.size & (chunk.size - 1)) == 0);
+
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
