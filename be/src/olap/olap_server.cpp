@@ -777,7 +777,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                         for (Path cache_file_name : cache_file_names) {
                             std::string filename = cache_file_name.native();
                             if (filename.find("_DONE") == std::string::npos) {
-                                cache_names.insert(filename, true);
+                                cache_names[filename] = true;
                                 continue;
                             }
                             done_names.push_back(filename);
