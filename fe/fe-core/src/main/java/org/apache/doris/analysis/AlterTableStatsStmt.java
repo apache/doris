@@ -118,8 +118,7 @@ public class AlterTableStatsStmt extends DdlStmt {
     }
 
     private void checkPartitionNames() throws AnalysisException {
-        Database db = analyzer.getEnv().getInternalDataSource()
-                .getDbOrAnalysisException(tableName.getDb());
+        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
         Table table = db.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() != Table.TableType.OLAP) {

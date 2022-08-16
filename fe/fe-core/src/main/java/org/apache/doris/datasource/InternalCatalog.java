@@ -195,15 +195,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * The Internal data source will manage all self-managed meta object in a Doris cluster.
+ * The Internal catalog will manage all self-managed meta object in a Doris cluster.
  * Such as Database, tables, etc.
- * There is only one internal data source in a cluster. And its id is always 0.
+ * There is only one internal catalog in a cluster. And its id is always 0.
  */
-public class InternalDataSource implements DataSourceIf<Database> {
-    public static final String INTERNAL_DS_NAME = "internal";
+public class InternalCatalog implements CatalogIf<Database> {
+    public static final String INTERNAL_CATALOG_NAME = "internal";
     public static final long INTERNAL_DS_ID = 0L;
 
-    private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
+    private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
@@ -229,7 +229,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
     @Override
     public String getName() {
-        return INTERNAL_DS_NAME;
+        return INTERNAL_CATALOG_NAME;
     }
 
 
@@ -270,13 +270,13 @@ public class InternalDataSource implements DataSourceIf<Database> {
     }
 
     @Override
-    public void modifyDatasourceName(String name) {
-        LOG.warn("Ignore the modify datasource name in build-in datasource.");
+    public void modifyCatalogName(String name) {
+        LOG.warn("Ignore the modify catalog name in build-in catalog.");
     }
 
     @Override
-    public void modifyDatasourceProps(Map<String, String> props) {
-        LOG.warn("Ignore the modify datasource props in build-in datasource.");
+    public void modifyCatalogProps(Map<String, String> props) {
+        LOG.warn("Ignore the modify catalog props in build-in catalog.");
     }
 
     // Use tryLock to avoid potential dead lock
@@ -3093,7 +3093,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
             String dbName = InfoSchemaDb.getFullInfoSchemaDbName(cluster.getName());
             // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
             // when checkpoint thread load image.
-            InfoSchemaDb db = (InfoSchemaDb) Env.getServingEnv().getInternalDataSource().getDbNullable(dbName);
+            InfoSchemaDb db = (InfoSchemaDb) Env.getServingEnv().getInternalCatalog().getDbNullable(dbName);
             if (db == null) {
                 db = new InfoSchemaDb(cluster.getName());
                 db.setClusterName(cluster.getName());
