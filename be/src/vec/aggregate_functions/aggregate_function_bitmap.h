@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
@@ -43,6 +45,10 @@ struct AggregateFunctionBitmapUnionOp {
         } else {
             res |= data;
         }
+    }
+
+    static void add_batch(BitmapValue& res, std::vector<const BitmapValue*>& data, bool& is_first) {
+        res.fastunion(data);
     }
 
     static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
@@ -86,6 +92,8 @@ struct AggregateFunctionBitmapData {
     void add(const T& data) {
         Op::add(value, data, is_first);
     }
+
+    void add_batch(std::vector<const BitmapValue*>& data) { Op::add_batch(value, data, is_first); }
 
     void merge(const BitmapValue& data) { Op::merge(value, data, is_first); }
 
@@ -175,6 +183,29 @@ public:
         } else {
             const auto& column = static_cast<const ColVecType&>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
+        }
+    }
+
+    void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
+                  std::vector<int>& rows, Arena*) const override {
+        if constexpr (nullable && std::is_same_v<ColVecType, ColumnBitmap>) {
+            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            const auto& column =
+                    static_cast<const ColVecType&>(nullable_column.get_nested_column());
+            std::vector<const BitmapValue*> values;
+            for (int i = 0; i < rows.size(); ++i) {
+                if (!nullable_column.is_null_at(rows[i])) {
+                    values.push_back(&(column.get_data()[rows[i]]));
+                }
+            }
+            this->data(place).add_batch(values);
+        } else if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
+            const auto& column = static_cast<const ColVecType&>(*columns[0]);
+            std::vector<const BitmapValue*> values;
+            for (int i = 0; i < rows.size(); ++i) {
+                values.push_back(&(column.get_data()[rows[i]]));
+            }
+            this->data(place).add_batch(values);
         }
     }
 
