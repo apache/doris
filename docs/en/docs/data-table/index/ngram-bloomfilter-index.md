@@ -46,6 +46,8 @@ PROPERTIES (
 );
 
 -- (3,256)，indicate the number of gram and bytes of bloom filter respectively.
+-- the gram size set to same as the most like query need. and the suitable bytes of bloom filter can be get by test.
+-- Usually, if the data's cardinality is small, you can increase the bytes of bloom filter to improve the efficiency.
 ```
 
 ## Show NGram BloomFilter Index

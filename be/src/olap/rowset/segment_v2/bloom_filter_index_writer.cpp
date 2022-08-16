@@ -272,7 +272,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
     return Status::OK();
 }
 
-Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
+Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
                                       const TypeInfo* typeinfo, uint8_t gram_size,
                                       uint16_t gram_bf_size,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
@@ -283,7 +283,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         res->reset(new NGramBloomFilterIndexWriterImpl(bf_options, gram_size, gram_bf_size));
         break;
     default:
-        return Status::NotSupported("unsupported type for ngram bloom filter index: " +
+        return Status::NotSupported("unsupported type for ngram bloom filter index:{}",
                                     std::to_string(type));
     }
     return Status::OK();

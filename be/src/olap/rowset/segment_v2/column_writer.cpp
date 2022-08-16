@@ -299,7 +299,7 @@ Status ScalarColumnWriter::init() {
 
     if (_opts.need_bloom_filter) {
         if (_opts.is_ngram_bf_index)
-            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
+            RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
                 BloomFilterOptions(), get_field()->type_info(), _opts.gram_size, _opts.gram_bf_size, &_bloom_filter_index_builder));
         else
             RETURN_IF_ERROR(BloomFilterIndexWriter::create(

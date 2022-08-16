@@ -42,11 +42,6 @@ class BloomFilterIndexWriter {
 public:
     static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
                             std::unique_ptr<BloomFilterIndexWriter>* res);
-    static Status   create(const BloomFilterOptions& bf_options,
-                            const TypeInfo* typeinfo,
-                            uint8_t gram_size,
-                            uint16_t gram_bf_size,
-                            std::unique_ptr<BloomFilterIndexWriter>* res);
 
     BloomFilterIndexWriter() = default;
     virtual ~BloomFilterIndexWriter() = default;
@@ -67,6 +62,12 @@ private:
 
 class NGramBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
+    static Status create(const BloomFilterOptions& bf_options,
+                            const TypeInfo* typeinfo,
+                            uint8_t gram_size,
+                            uint16_t gram_bf_size,
+                            std::unique_ptr<BloomFilterIndexWriter>* res);
+
     NGramBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options, uint8_t gram_size, uint16_t bf_size);
     void add_values(const void* values, size_t count) override;
     void add_nulls(uint32_t) override { }

@@ -45,7 +45,8 @@ PROPERTIES (
 "replication_num" = "1"
 );
 
--- 其中(3,256)，分别表示ngram的个数和bloomfilter的字节数。
+-- 其中(3,256)，分别表示gram的个数和bloom filter的字节数。
+-- gram的个数跟实际查询场景相关，通常设置为大部分查询需要的gram个数，bloom filter字节数，可以通过测试得出，通常越大过滤效果越好，当然也会带来索引存储、内存cost上升。如果数据基数比较高字节数可以不用设置过大，如果基数不是很高可以通过增加字节数来提升过滤效果。
 ```
 
 ## 查看NGram BloomFilter索引
