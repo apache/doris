@@ -222,7 +222,7 @@ Status FileUtils::mtime(const std::string& file, time_t* m_time) {
         close(fd);
         return Status::InternalError("failed to stat file");
     }
-    *m_time = statbuf.mtime;
+    *m_time = statbuf.st_mtime;
     close(fd);
     return Status::OK();
 }

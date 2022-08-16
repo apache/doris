@@ -22,7 +22,6 @@
 #include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <ctime>
-#include <format>
 #include <random>
 #include <string>
 
