@@ -1023,6 +1023,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.outputTupleDesc = outputTupleDesc;
     }
 
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
     public void setProjectList(List<Expr> projectList) {
         this.projectList = projectList;
     }

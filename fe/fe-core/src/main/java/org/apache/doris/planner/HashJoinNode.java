@@ -1211,6 +1211,10 @@ public class HashJoinNode extends PlanNode {
         return tupleIds;
     }
 
+    public List<TupleId> getPlanNodeTupleIds() {
+        return tupleIds;
+    }
+
     @Override
     public ArrayList<TupleId> getOutputTblRefIds() {
         if (vOutputTupleDesc != null) {

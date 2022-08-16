@@ -22,12 +22,14 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.visitor.UpdateAliasVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,71 +41,29 @@ public class CollapseFilterAndProject extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalFilter(logicalProject())).thenApply(ctx -> {
+        return logicalProject(logicalFilter(logicalProject(any()))).thenApply(ctx -> {
             LogicalProject topProject = ctx.root;
             LogicalFilter filter = (LogicalFilter) topProject.child(0);
             LogicalProject bottomProject = (LogicalProject) filter.child(0);
-            rewriteExpression(filter.getPredicates(), bottomProject);
+            List<NamedExpression> namedExpressionList = bottomProject.getProjects();
+            Map<Slot, Alias> slotToAlias = new HashMap<>();
+            namedExpressionList
+                    .stream()
+                    .filter(Alias.class::isInstance)
+                    .forEach(s -> {
+                        slotToAlias.put(s.toSlot(), (Alias) s);
+                    });
+            UpdateAliasVisitor updateAliasVisitor = new UpdateAliasVisitor();
+            Expression rewrittenPredicate = updateAliasVisitor.visit(filter.getPredicates(), slotToAlias);
+            LogicalFilter rewrittenFilter =
+                    new LogicalFilter<LogicalPlan>(rewrittenPredicate, (LogicalPlan) bottomProject.child(0));
             List<NamedExpression> projectList = topProject.getProjects();
-            for (NamedExpression namedExpression : projectList) {
-                if (namedExpression instanceof Alias) {
-                    Alias alias = (Alias) namedExpression;
-                    rewriteExpression(alias, bottomProject);
-                }
+            List<NamedExpression> rewrittenProjectList = new ArrayList<>();
+            for (NamedExpression expression : projectList) {
+                rewrittenProjectList.add((NamedExpression) updateAliasVisitor.visit(expression, slotToAlias));
             }
-            topProject.children().remove(0);
-            topProject.children().add(filter);
-            filter.children().remove(0);
-            filter.children().add(bottomProject.child(0));
-            return topProject;
+            return new LogicalProject(rewrittenProjectList, rewrittenFilter);
         }
         ).toRule(RuleType.REWRITE_COLLAPSE_FILTER_PROJECT);
-    }
-
-    private void rewriteExpression(Expression expression, LogicalProject project) {
-        List<NamedExpression> namedExpressionList = project.getProjects();
-        Map<Slot, Alias> slotToAlias = new HashMap<>();
-        namedExpressionList
-                .stream()
-                .filter(Alias.class::isInstance)
-                .forEach(s -> {
-                    slotToAlias.put(s.toSlot(), (Alias) s);
-                });
-        doRewriteExpression(expression, slotToAlias);
-    }
-
-    private void doRewriteExpression(Expression expr, Map<Slot, Alias> slotToAlias) {
-        if (expr instanceof LeafExpression) {
-            return;
-        }
-        List<Expression> children = expr.children();
-        int childSize = children.size();
-        if (childSize > 0) {
-            Expression leftChild = expr.child(0);
-            if (leftChild instanceof Slot) {
-                Slot slot = (Slot) leftChild;
-                Alias alias = slotToAlias.get(slot);
-                if (alias != null) {
-                    children.remove(0);
-                    children.add(0, alias.child(0));
-                }
-            } else if (!(leftChild instanceof LeafExpression)) {
-                doRewriteExpression(leftChild, slotToAlias);
-            }
-        }
-
-        if (childSize > 1) {
-            Expression rightChild = expr.child(1);
-            if (rightChild instanceof Slot) {
-                Slot slot = (Slot) rightChild;
-                Alias alias = slotToAlias.get(slot);
-                if (alias != null) {
-                    children.remove(1);
-                    children.add(1, alias.child(0));
-                }
-            } else if (!(rightChild instanceof LeafExpression)) {
-                doRewriteExpression(rightChild, slotToAlias);
-            }
-        }
     }
 }
