@@ -29,6 +29,7 @@ import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
+import org.apache.doris.nereids.jobs.batch.PushDownNotSlotRefExprJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -145,6 +146,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
+        new PushDownNotSlotRefExprJob(cascadesContext).execute();
         new NormalizeExpressionRulesJob(cascadesContext).execute();
         new JoinReorderRulesJob(cascadesContext).execute();
         new PredicatePushDownRulesJob(cascadesContext).execute();

@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
-import org.apache.doris.nereids.jobs.batch.PushDownNotSlotRefExprJob;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -31,7 +34,7 @@ import java.util.List;
 
 public class PushDownNotSlotRefExprTest extends TestWithFeService implements PatternMatchSupported {
     private final List<String> testSql = ImmutableList.of(
-            //"SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2",
+            "SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2",
             "SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2",
             "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10",
             "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
@@ -70,14 +73,103 @@ public class PushDownNotSlotRefExprTest extends TestWithFeService implements Pat
     }
 
     @Test
-    public void testSimpleExpr() {
+    public void testGeneratePhysicalPlan() {
         testSql.forEach(sql -> {
-            NereidsAnalyzer analyzer = new NereidsAnalyzer(createCascadesContext(sql));
-            analyzer.analyze();
-            CascadesContext ctx = analyzer.getCascadesContext();
-            System.out.println(ctx.getMemo().copyOut().treeString());
-            new PushDownNotSlotRefExprJob(ctx).execute();
-            System.out.println(ctx.getMemo().copyOut().treeString());
+            try {
+                PhysicalPlan plan = new NereidsPlanner(createStatementCtx(sql)).plan(
+                        new NereidsParser().parseSingle(sql),
+                        PhysicalProperties.ANY
+                );
+                System.out.println(plan.treeString());
+            } catch (AnalysisException e) {
+                throw new RuntimeException(e);
+            }
         });
+    }
+
+    @Test
+    public void testSimpleCase() {
+        PlanChecker.from(connectContext)
+                .analyze(testSql.get(0))
+                .applyTopDown(new PushDownNotSlotRefExpr())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ),
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testSubQueryCase() {
+        PlanChecker.from(connectContext)
+                .analyze(testSql.get(1))
+                .applyTopDown(new PushDownNotSlotRefExpr())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalProject(
+                                                        logicalOlapScan()
+                                                )
+                                        ),
+                                        logicalProject(
+                                                logicalProject(
+                                                        logicalOlapScan()
+                                                )
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testAggNodeCase() {
+        PlanChecker.from(connectContext)
+                .analyze(testSql.get(2))
+                .applyTopDown(new PushDownNotSlotRefExpr())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ),
+                                        logicalProject(
+                                                logicalAggregate(
+                                                        logicalOlapScan()
+                                                )
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testSortNodeCase() {
+        PlanChecker.from(connectContext)
+                .analyze(testSql.get(3))
+                .applyTopDown(new PushDownNotSlotRefExpr())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ),
+                                        logicalProject(
+                                                    logicalSort(
+                                                            logicalAggregate(
+                                                                    logicalOlapScan()
+                                                    )
+                                                )
+                                        )
+                                )
+                        )
+                );
     }
 }

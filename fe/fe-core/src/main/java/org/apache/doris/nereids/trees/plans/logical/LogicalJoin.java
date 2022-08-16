@@ -187,6 +187,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     public LogicalJoin withCondition(Optional<Expression> condition) {
-        return new LogicalJoin<>(joinType, condition, Optional.empty(), Optional.of(logicalProperties), left(), right());
+        return new LogicalJoin<>(
+                joinType, condition, Optional.empty(), Optional.of(logicalProperties), left(), right());
     }
 }
