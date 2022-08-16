@@ -100,6 +100,7 @@ public class GroupPlan extends LogicalLeaf implements PhysicalPlan {
     public String toString() {
         return "GroupPlan( " + group.getGroupId() + " )";
     }
+
     public PhysicalProperties getPhysicalProperties() {
         return null;
     }

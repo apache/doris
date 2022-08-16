@@ -816,6 +816,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
     // delete the UNLIKELY after support new optimizers
     if (UNLIKELY(_output_row_descriptor)) {
+        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
         auto status = get_next(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);

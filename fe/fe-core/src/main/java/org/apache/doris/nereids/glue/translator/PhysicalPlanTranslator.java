@@ -456,6 +456,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         inputPlanNode.setProjectList(execExprList);
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+        if (project.child(0) instanceof PhysicalFilter) {
+            PhysicalFilter<Plan> filter = (PhysicalFilter<Plan>) project.child(0);
+            addConjunctsToPlanNode(filter, inputPlanNode, context);
+        }
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<Integer> requiredSlotIdList = new HashSet<>();
         for (Expr expr : predicateList) {
@@ -493,10 +497,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalFilter(PhysicalFilter<Plan> filter, PlanTranslatorContext context) {
         PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
+        addConjunctsToPlanNode(filter, planNode, context);
+        return inputFragment;
+    }
+
+    private void addConjunctsToPlanNode(PhysicalFilter<Plan> filter,
+            PlanNode planNode,
+            PlanTranslatorContext context) {
         Expression expression = filter.getPredicates();
         List<Expression> expressionList = ExpressionUtils.extractConjunction(expression);
         expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
-        return inputFragment;
     }
 
     @Override

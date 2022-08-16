@@ -78,6 +78,7 @@ public enum RuleType {
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
     OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
     SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
+    REWRITE_COLLAPSE_FILTER_PROJECT(RuleTypeClass.REWRITE),
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),
