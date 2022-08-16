@@ -175,6 +175,12 @@ private:
     WARN_UNUSED_RESULT
     Status try_consume(int64_t bytes);
 
+    // When the accumulated untracked memory value exceeds the upper limit,
+    // the current value is returned and set to 0.
+    // Thread safety.
+    int64_t add_untracked_mem(int64_t bytes);
+    void consume_cache(int64_t bytes);
+
     // Log consumption of all the trackers provided. Returns the sum of consumption in
     // 'logged_consumption'. 'max_recursive_depth' specifies the maximum number of levels
     // of children to include in the dump. If it is zero, then no children are dumped.
@@ -195,6 +201,10 @@ private:
     std::vector<MemTrackerLimiter*> _all_ancestors;
     // _all_ancestors with valid limits
     std::vector<MemTrackerLimiter*> _limited_ancestors;
+
+    // Consume size smaller than mem_tracker_consume_min_size_bytes will continue to accumulate
+    // to avoid frequent calls to consume/release of MemTracker.
+    std::atomic<int64_t> _untracked_mem = 0;
 
     // Child trackers of this tracker limiter. Used for error reporting and
     // listing only (i.e. updating the consumption of a parent tracker limiter does not
@@ -224,12 +234,24 @@ private:
 };
 
 inline void MemTrackerLimiter::consume(int64_t bytes) {
-    if (bytes == 0) {
-        return;
-    } else {
-        for (auto& tracker : _all_ancestors) {
-            tracker->_consumption->add(bytes);
-        }
+    if (bytes == 0) return;
+    for (auto& tracker : _all_ancestors) {
+        tracker->_consumption->add(bytes);
+    }
+}
+
+inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {
+    _untracked_mem += bytes;
+    if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes) {
+        return _untracked_mem.exchange(0);
+    }
+    return 0;
+}
+
+inline void MemTrackerLimiter::consume_cache(int64_t bytes) {
+    int64_t consume_bytes = add_untracked_mem(bytes);
+    if (consume_bytes != 0) {
+        consume(consume_bytes);
     }
 }
 
