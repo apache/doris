@@ -243,9 +243,15 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         break;
     case TFileFormatType::FORMAT_JSON:
         if (_vectorized) {
-            scan = new vectorized::VJsonScanner(
-                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
-                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+            if (config::enable_simdjson_reader) {
+                scan = new vectorized::VJsonScanner<vectorized::VSIMDJsonReader>(
+                        _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                        scan_range.broker_addresses, _pre_filter_texprs, counter);
+            } else {
+                scan = new vectorized::VJsonScanner<vectorized::VJsonReader>(
+                        _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                        scan_range.broker_addresses, _pre_filter_texprs, counter);
+            }
         } else {
             scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
                                    scan_range.ranges, scan_range.broker_addresses,

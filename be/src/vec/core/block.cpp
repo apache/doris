@@ -254,6 +254,22 @@ const ColumnWithTypeAndName& Block::get_by_name(const std::string& name) const {
     return data[it->second];
 }
 
+ColumnWithTypeAndName* Block::try_get_by_name(const std::string& name) {
+    auto it = index_by_name.find(name);
+    if (index_by_name.end() == it) {
+        return nullptr;
+    }
+    return &data[it->second];
+}
+
+const ColumnWithTypeAndName* Block::try_get_by_name(const std::string& name) const {
+    auto it = index_by_name.find(name);
+    if (index_by_name.end() == it) {
+        return nullptr;
+    }
+    return &data[it->second];
+}
+
 bool Block::has(const std::string& name) const {
     return index_by_name.end() != index_by_name.find(name);
 }

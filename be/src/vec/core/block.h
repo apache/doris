@@ -150,6 +150,10 @@ public:
     ColumnWithTypeAndName& get_by_name(const std::string& name);
     const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
 
+    // return nullptr when no such column name
+    ColumnWithTypeAndName* try_get_by_name(const std::string& name);
+    const ColumnWithTypeAndName* try_get_by_name(const std::string& name) const;
+
     Container::iterator begin() { return data.begin(); }
     Container::iterator end() { return data.end(); }
     Container::const_iterator begin() const { return data.begin(); }
