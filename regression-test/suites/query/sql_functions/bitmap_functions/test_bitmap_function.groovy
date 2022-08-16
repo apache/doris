@@ -136,6 +136,13 @@ suite("test_bitmap_function", "query") {
 
     sql """ drop table ${bitmapUnionTable} """
 
+    // BITMAP_XOR
+    qt_sql """ select bitmap_count(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))) cnt; """
+    qt_sql """ select bitmap_to_string(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))); """
+    qt_sql """ select bitmap_to_string(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'))); """
+    qt_sql """ select bitmap_to_string(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),bitmap_empty())); """
+    qt_sql """ select bitmap_to_string(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),NULL)); """
+
     // TO_BITMAP
     qt_sql """ select bitmap_count(to_bitmap(10)) """
     qt_sql """ select bitmap_to_string(to_bitmap(-1)) """
@@ -143,5 +150,33 @@ suite("test_bitmap_function", "query") {
     // BITMAP_MAX
     qt_sql """ select bitmap_max(bitmap_from_string('')) value; """
     qt_sql """ select bitmap_max(bitmap_from_string('1,9999999999')) value """
+
+    // INTERSECT_COUNT
+    def intersectCountTable = "test_intersect_count"
+    sql """ DROP TABLE IF EXISTS ${intersectCountTable} """
+    sql """ create table ${intersectCountTable} (dt int (11),page varchar (10),user_id bitmap BITMAP_UNION ) DISTRIBUTED BY HASH(dt) BUCKETS 2 PROPERTIES("replication_num" = "1") """
+
+
+    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(1)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(2)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(3)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(4)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(5)); """
+    sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(1)); """
+    sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(2)); """
+    sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(3)); """
+
+    qt_sql """ select dt,bitmap_to_string(user_id) from ${intersectCountTable} where dt in (3,4); """
+    qt_sql """ select intersect_count(user_id,dt,3,4) from ${intersectCountTable}; """
+
+    // ARTHOGONAL_BITMAP_****
+    def arthogonalBitmapTable = "test_arthogonal_bitmap"
+    sql """ DROP TABLE IF EXISTS ${arthogonalBitmapTable} """
+    sql """ CREATE TABLE ${arthogonalBitmapTable} ( tag_group bigint(20) NULL COMMENT "标签组", tag_value_id varchar(64) NULL COMMENT "标签值", tag_range int(11) NOT NULL DEFAULT "0" COMMENT "", partition_sign varchar(32) NOT NULL COMMENT "分区标识", bucket int(11) NOT NULL COMMENT "分桶字段", confidence tinyint(4) NULL DEFAULT "100" COMMENT "置信度", members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP AGGREGATE KEY(tag_group, tag_value_id, tag_range, partition_sign, bucket, confidence) COMMENT "dmp_tag_map" PARTITION BY LIST(partition_sign) (PARTITION p202203231 VALUES IN ("2022-03-23-1"), PARTITION p202203251 VALUES IN ("2022-03-25-1"), PARTITION p202203261 VALUES IN ("2022-03-26-1"), PARTITION p202203271 VALUES IN ("2022-03-27-1"), PARTITION p202203281 VALUES IN ("2022-03-28-1"), PARTITION p202203291 VALUES IN ("2022-03-29-1"), PARTITION p202203301 VALUES IN ("2022-03-30-1"), PARTITION p202203311 VALUES IN ("2022-03-31-1"), PARTITION p202204011 VALUES IN ("2022-04-01-1"), PARTITION crowd VALUES IN ("crowd"), PARTITION crowd_tmp VALUES IN ("crowd_tmp"), PARTITION extend_crowd VALUES IN ("extend_crowd"), PARTITION partition_sign VALUES IN ("online_crowd")) DISTRIBUTED BY HASH(bucket) BUCKETS 64 PROPERTIES ("replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2");"""
+
+    qt_sql """ select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
+    qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
+    qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
+
 
 }
