@@ -21,19 +21,17 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Abstract for all binary operator, include binary arithmetic, compound predicate, comparison predicate.
+ */
 public abstract class BinaryOperator extends Expression implements BinaryExpression, ExpectsInputTypes {
 
     protected final String symbol;
-
-    protected final Supplier<List<AbstractDataType>> expectedInputTypesSupplier
-            = Suppliers.memoize(() -> ImmutableList.of(inputType(), inputType()));
 
     public BinaryOperator(Expression left, Expression right, String symbol) {
         super(left, right);
@@ -44,7 +42,7 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
 
     @Override
     public List<AbstractDataType> expectedInputTypes() {
-        return expectedInputTypesSupplier.get();
+        return ImmutableList.of(inputType(), inputType());
     }
 
     @Override

@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.NumericType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 
@@ -28,15 +29,10 @@ import java.util.List;
 /**
  * Add Expression.
  */
-public class Add extends Arithmetic implements BinaryExpression {
-    public Add(Expression left, Expression right) {
-        super(ArithmeticOperator.ADD, left, right);
-    }
+public class Add extends BinaryArithmetic {
 
-    @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+    public Add(Expression left, Expression right) {
+        super(left, right, "+", Operator.ADD);
     }
 
     @Override
@@ -46,17 +42,12 @@ public class Add extends Arithmetic implements BinaryExpression {
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAdd(this, context);
     }
 
-
-    public String toString() {
-        return left().toString() + ' ' + getArithmeticOperator().toString() + ' ' + right().toString();
+    @Override
+    protected AbstractDataType inputType() {
+        return NumericType.INSTANCE;
     }
 }

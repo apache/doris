@@ -38,8 +38,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -312,11 +312,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
-        Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithmeticOperator();
-        return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
-                arithmetic.child(0).accept(this, context),
-                arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
+    public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
+        return new ArithmeticExpr(binaryArithmetic.getStaleOperator(),
+                binaryArithmetic.child(0).accept(this, context),
+                binaryArithmetic.child(1).accept(this, context));
     }
 
     @Override

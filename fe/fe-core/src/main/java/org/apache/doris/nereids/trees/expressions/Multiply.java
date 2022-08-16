@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.NumericType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 
@@ -27,16 +29,16 @@ import java.util.List;
 /**
  * Multiply Expression.
  */
-public class Multiply extends Arithmetic implements BinaryExpression {
+public class Multiply extends BinaryArithmetic {
 
     public Multiply(Expression left, Expression right) {
-        super(ArithmeticOperator.MULTIPLY, left, right);
+        super(left, right, "*", Operator.MULTIPLY);
     }
 
     @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new Multiply(children.get(0), children.get(1));
     }
 
     @Override
@@ -45,8 +47,7 @@ public class Multiply extends Arithmetic implements BinaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Multiply(children.get(0), children.get(1));
+    protected AbstractDataType inputType() {
+        return NumericType.INSTANCE;
     }
 }

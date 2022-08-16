@@ -24,8 +24,8 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -200,28 +200,28 @@ public abstract class ExpressionVisitor<R, C> {
         return visitBoundFunction(aggregateFunction, context);
     }
 
-    public R visitArithmetic(Arithmetic arithmetic, C context) {
-        return visit(arithmetic, context);
+    public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {
+        return visit(binaryArithmetic, context);
     }
 
     public R visitAdd(Add add, C context) {
-        return visitArithmetic(add, context);
+        return visitBinaryArithmetic(add, context);
     }
 
     public R visitSubtract(Subtract subtract, C context) {
-        return visitArithmetic(subtract, context);
+        return visitBinaryArithmetic(subtract, context);
     }
 
     public R visitMultiply(Multiply multiply, C context) {
-        return visitArithmetic(multiply, context);
+        return visitBinaryArithmetic(multiply, context);
     }
 
     public R visitDivide(Divide divide, C context) {
-        return visitArithmetic(divide, context);
+        return visitBinaryArithmetic(divide, context);
     }
 
     public R visitMod(Mod mod, C context) {
-        return visitArithmetic(mod, context);
+        return visitBinaryArithmetic(mod, context);
     }
 
     public R visitWhenClause(WhenClause whenClause, C context) {
