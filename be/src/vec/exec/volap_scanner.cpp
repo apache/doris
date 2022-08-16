@@ -335,6 +335,8 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             _update_realtime_counter();
             RETURN_IF_ERROR(
                     VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
+            // record rows return (after filter) for _limit check
+            _num_rows_return += block->rows();
         } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
     }
     // NOTE:
@@ -344,7 +346,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
 
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
-    if (_limit > 0 && _num_rows_read > _limit) {
+    if (_limit > 0 && _num_rows_return > _limit) {
         *eof = true;
     }
 
