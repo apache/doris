@@ -211,6 +211,22 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     return Status::OK();
 }
 
+Status FileUtils::mtime(const std::string& file, time_t* m_time) {
+    int fd = open(file.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return Status::InternalError("failed to open file");
+    }
+
+    struct stat statbuf;
+    if (fstat(fd, &statbuf) < 0) {
+        close(fd);
+        return Status::InternalError("failed to stat file");
+    }
+    *m_time = statbuf.mtime;
+    close(fd);
+    return Status::OK();
+}
+
 bool FileUtils::check_exist(const std::string& path) {
     return Env::Default()->path_exists(path).ok();
 }

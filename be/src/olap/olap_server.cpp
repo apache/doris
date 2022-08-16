@@ -768,9 +768,11 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     if (FileCacheManager::instance()->exist(cache_path)) {
                         continue;
                     }
-                    std::filesystem::file_time_type ftime =
-                            std::filesystem::last_write_time(cache_path);
-                    LOG(INFO) << "Get stat failed for update time: " << std::format("File write time is {}", ftime);
+                    time_t m_time;
+                    if (!FileUtils::mtime(cache_path, &m_time).ok()) {
+                        continue;
+                    }
+                    LOG(INFO) << "Get stat failed for update time: " << m_time;
                     LOG(INFO) << "Remove timeout cache_path: " << cache_path;
                     // FileCacheManager::instance()->remove_file_cache(cache_path);
                 }
