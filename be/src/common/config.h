@@ -446,9 +446,15 @@ CONF_Bool(use_mmap_allocate_chunk, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "20%");
+CONF_mString(chunk_reserved_bytes_limit, "10%");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
+// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
+// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
+// of gperftools tcmalloc central lock.
+// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
+// gperftools tcmalloc.
+CONF_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
