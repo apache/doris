@@ -31,12 +31,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
