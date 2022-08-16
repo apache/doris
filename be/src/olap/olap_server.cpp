@@ -22,6 +22,7 @@
 #include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <ctime>
+#include <format>
 #include <random>
 #include <string>
 
@@ -769,7 +770,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
                     }
                     std::filesystem::file_time_type ftime =
                             std::filesystem::last_write_time(cache_path);
-                    LOG(INFO) << "Get stat failed for update time: " << ftime;
+                    LOG(INFO) << "Get stat failed for update time: " << std::format("File write time is {}", ftime);
                     LOG(INFO) << "Remove timeout cache_path: " << cache_path;
                     // FileCacheManager::instance()->remove_file_cache(cache_path);
                 }
