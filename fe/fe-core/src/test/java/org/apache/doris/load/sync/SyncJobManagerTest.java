@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob.JobState;
 import org.apache.doris.load.sync.SyncJob.SyncJobUpdateStateInfo;
@@ -61,7 +61,7 @@ public class SyncJobManagerTest {
     @Mocked
     Env env;
     @Mocked
-    InternalDataSource ds;
+    InternalCatalog catalog;
     @Mocked
     Database database;
     @Mocked
@@ -74,10 +74,10 @@ public class SyncJobManagerTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyString);
+                result = catalog;
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();

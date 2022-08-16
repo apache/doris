@@ -19,8 +19,8 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.ExternalDataSource;
-import org.apache.doris.datasource.HMSExternalDataSource;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.HMSExternalCatalog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -48,12 +48,12 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     /**
      * Create HMS external database.
      *
-     * @param extDataSource External data source this database belongs to.
+     * @param extCatalog External catalog this database belongs to.
      * @param id database id.
      * @param name database name.
      */
-    public HMSExternalDatabase(ExternalDataSource extDataSource, long id, String name) {
-        super(extDataSource, id, name);
+    public HMSExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+        super(extCatalog, id, name);
     }
 
     private synchronized void makeSureInitialized() {
@@ -64,12 +64,12 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     }
 
     private void init() {
-        List<String> tableNames = extDataSource.listTableNames(null, name);
+        List<String> tableNames = extCatalog.listTableNames(null, name);
         if (tableNames != null) {
             for (String tableName : tableNames) {
                 long tblId = Env.getCurrentEnv().getNextId();
                 tableNameToId.put(tableName, tblId);
-                idToTbl.put(tblId, new HMSExternalTable(tblId, tableName, name, (HMSExternalDataSource) extDataSource));
+                idToTbl.put(tblId, new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog));
             }
         }
     }

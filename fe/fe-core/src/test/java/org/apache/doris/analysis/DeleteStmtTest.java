@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -34,7 +34,7 @@ import org.junit.Test;
 import java.util.List;
 
 public class DeleteStmtTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     Analyzer analyzer;
 

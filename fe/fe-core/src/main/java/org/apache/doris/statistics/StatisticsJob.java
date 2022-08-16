@@ -319,8 +319,7 @@ public class StatisticsJob {
         }
 
         List<String> scope = Lists.newArrayList();
-        Database db = Env.getCurrentEnv()
-                .getInternalDataSource().getDbOrAnalysisException(dbId);
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(dbId);
         for (Long tblId : tblIds) {
             try {
                 Table table = db.getTableOrAnalysisException(tblId);

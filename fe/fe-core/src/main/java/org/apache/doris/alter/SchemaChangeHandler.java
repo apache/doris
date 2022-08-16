@@ -2297,7 +2297,7 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Index> indexes = info.getIndexes();
         long jobId = info.getJobId();
 
-        Database db = Env.getCurrentEnv().getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {

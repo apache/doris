@@ -39,7 +39,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -113,12 +113,12 @@ public class ConnectProcessor {
 
         // check catalog and db exists
         if (catalogName != null) {
-            DataSourceIf dataSourceIf = ctx.getEnv().getDataSourceMgr().getCatalogNullable(catalogName);
-            if (dataSourceIf == null) {
+            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+            if (catalogIf == null) {
                 ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
                 return;
             }
-            if (dataSourceIf.getDbNullable(dbName) == null) {
+            if (catalogIf.getDbNullable(dbName) == null) {
                 ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
                 return;
             }
@@ -342,7 +342,7 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        DatabaseIf db = ctx.getCurrentDataSource().getDbNullable(ctx.getDatabase());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;
