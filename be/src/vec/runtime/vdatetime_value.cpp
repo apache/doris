@@ -1009,6 +1009,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
     if (ptr >= end) {
         return false;
     }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
+        return false;
+    }
     // Skip '0'
     while (ptr < end && *ptr == '0') {
         ptr++;
@@ -1018,10 +1022,7 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         n_end = end;
     }
     uint64_t value_1 = 0;
-    while (ptr < n_end) {
-        if (!isdigit(*ptr)) {
-            return false;
-        }
+    while (ptr < n_end && isdigit(*ptr)) {
         value_1 *= 10;
         value_1 += *ptr++ - '0';
     }
