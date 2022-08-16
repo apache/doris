@@ -65,21 +65,26 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType& allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
-    if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
-        // use fe generate dsl.
-        rapidjson::Document fe_query_dsl;
-        es_query_dsl.AddMember("query",
-                           fe_query_dsl.Parse(properties.at(ESScanReader::KEY_QUERY_DSL).c_str()),
+    // use fe generate dsl.
+    rapidjson::Document fe_query_dsl;
+    es_query_dsl.AddMember("query",
+                           fe_query_dsl.Parse(properties.at(ESScanReader::KEY_QUERY_DSL).c_str(), properties.at(ESScanReader::KEY_QUERY_DSL).length()),
                            allocator);
-    } else {
-        // generate the filter clause
-        rapidjson::Document scratch_document;
-        rapidjson::Value query_node(rapidjson::kObjectType);
-        query_node.SetObject();
-        BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
-        // note: add `query` for this value....
-        es_query_dsl.AddMember("query", query_node, allocator);
-    }
+//    if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
+//        // use fe generate dsl.
+//        rapidjson::Document fe_query_dsl;
+//        es_query_dsl.AddMember("query",
+//                               fe_query_dsl.Parse(properties.at(ESScanReader::KEY_QUERY_DSL).c_str(), properties.at(ESScanReader::KEY_QUERY_DSL).length()),
+//                               allocator);
+//    } else {
+//        // generate the filter clause
+//        rapidjson::Document scratch_document;
+//        rapidjson::Value query_node(rapidjson::kObjectType);
+//        query_node.SetObject();
+//        BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
+//        // note: add `query` for this value....
+//        es_query_dsl.AddMember("query", query_node, allocator);
+//    }
     bool pure_docvalue = true;
 
     // Doris FE already has checked docvalue-scan optimization
