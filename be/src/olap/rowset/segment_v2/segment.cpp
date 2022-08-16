@@ -278,21 +278,20 @@ Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
         RETURN_IF_ERROR(index_iterator->next_batch(&num_read, &column_block_view));
         DCHECK(num_to_read == num_read);
 
-        const Slice* previous_key = reinterpret_cast<const Slice*>(cvb->cell_ptr(0));
-        Slice previous_key_without_seq =
-                Slice(previous_key->get_data(), previous_key->get_size() - seq_col_length);
+        const Slice* sought_key = reinterpret_cast<const Slice*>(cvb->cell_ptr(0));
+        Slice sought_key_without_seq =
+                Slice(sought_key->get_data(), sought_key->get_size() - seq_col_length);
 
         // compare key
-        if (key_without_seq.compare(previous_key_without_seq) != 0) {
+        if (key_without_seq.compare(sought_key_without_seq) != 0) {
             return Status::NotFound("Can't find key in the segment");
         }
 
         // compare sequence id
         Slice sequence_id =
                 Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
-        Slice previous_sequence_id =
-                Slice(previous_key->get_data() + previous_key_without_seq.get_size() + 1,
-                      seq_col_length - 1);
+        Slice previous_sequence_id = Slice(
+                sought_key->get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
         if (sequence_id.compare(previous_sequence_id) < 0) {
             return Status::AlreadyExist("key with higher sequence id exists");
         }
