@@ -890,7 +890,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                             _aggregate_evaluators[i]->execute_batch_add(
                                     in_block, _offsets_of_aggregate_states[i],
-                                    _streaming_pre_places.data(), &_agg_arena_pool);
+                                    _streaming_pre_places.data(), &_agg_arena_pool, false);
                         }
 
                         // will serialize value data to string column
@@ -954,7 +954,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             _aggregate_evaluators[i]->execute_batch_add(in_block, _offsets_of_aggregate_states[i],
-                                                        places.data(), &_agg_arena_pool);
+                                                        places.data(), &_agg_arena_pool,
+                                                        _should_expand_hash_table);
         }
     }
 
