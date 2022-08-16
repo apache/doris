@@ -173,15 +173,15 @@ public class EsScanNode extends ScanNode {
         }
         properties.put(EsTable.HTTP_SSL_ENABLED, String.valueOf(table.isHttpSslEnabled()));
         TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
-        esScanNode.setProperties(properties);
         if (table.isEnableDocValueScan()) {
             esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
-        properties.put(EsTable.ES_DSL, queryBuilder.toJson());
+        properties.put(EsTable.QUERY_DSL, queryBuilder.toJson());
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
+        esScanNode.setProperties(properties);
         msg.es_scan_node = esScanNode;
     }
 
