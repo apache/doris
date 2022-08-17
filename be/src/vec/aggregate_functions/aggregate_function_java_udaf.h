@@ -339,7 +339,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena) const override {
+                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i]);

@@ -829,7 +829,7 @@ public class FunctionCallExpr extends Expr {
      */
     public void analyzeImplForDefaultValue() throws AnalysisException {
         fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        type = fn.getReturnType();
+        type = ScalarType.getDefaultDateType(fn.getReturnType());
         for (int i = 0; i < children.size(); ++i) {
             if (getChild(i).getType().isNull()) {
                 uncheckedCastChild(Type.BOOLEAN, i);
@@ -978,7 +978,7 @@ public class FunctionCallExpr extends Expr {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
                         // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Env.getCurrentEnv().getInternalDataSource().getDbNullable(dbName);
+                        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
                         if (db != null && (db instanceof Database)) {
                             Function searchDesc =
                                     new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);

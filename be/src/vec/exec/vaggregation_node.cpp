@@ -531,11 +531,12 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
     for (int i = 0; i < block_schema.size(); ++i) {
         const auto column_type = block_schema[i].type;
         if (!column_type->equals(*data_types[i])) {
-            DCHECK(column_type->is_nullable());
-            DCHECK(((DataTypeNullable*)column_type.get())
-                           ->get_nested_type()
-                           ->equals(*data_types[i]));
-            DCHECK(!data_types[i]->is_nullable());
+            if (!is_array(remove_nullable(column_type))) {
+                DCHECK(column_type->is_nullable());
+                DCHECK(!data_types[i]->is_nullable());
+                DCHECK(remove_nullable(column_type)->equals(*data_types[i]));
+            }
+
             ColumnPtr ptr = std::move(columns[i]);
             // unless `count`, other aggregate function dispose empty set should be null
             // so here check the children row return
@@ -889,7 +890,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                             _aggregate_evaluators[i]->execute_batch_add(
                                     in_block, _offsets_of_aggregate_states[i],
-                                    _streaming_pre_places.data(), &_agg_arena_pool);
+                                    _streaming_pre_places.data(), &_agg_arena_pool, false);
                         }
 
                         // will serialize value data to string column
@@ -953,7 +954,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             _aggregate_evaluators[i]->execute_batch_add(in_block, _offsets_of_aggregate_states[i],
-                                                        places.data(), &_agg_arena_pool);
+                                                        places.data(), &_agg_arena_pool,
+                                                        _should_expand_hash_table);
         }
     }
 

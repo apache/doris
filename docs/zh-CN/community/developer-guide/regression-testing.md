@@ -136,7 +136,7 @@ sql action用于提交sql并获取结果，如果查询失败则会抛出异常
 
 参数如下
 - String sql: 输入的sql字符串
-- return List<List<Object>>: 查询结果，如果是DDL/DML，则返回一行一列，唯一的值是updateRowCount
+- `return List<List<Object>>`: 查询结果，如果是DDL/DML，则返回一行一列，唯一的值是updateRowCount
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/sql_action.groovy`:
 ```groovy
@@ -269,13 +269,13 @@ test action可以使用更复杂的校验规则来测试，比如验证行数、
 
 可用参数
 - String sql: 输入的sql字符串
-- List<List<Object>> result: 提供一个List对象，用于比较真实查询结果与List对象是否相等
-- Iterator<Object> resultIterator: 提供一个Iterator对象，用于比较真实查询结果与Iterator是否相等
+- `List<List<Object>> result`: 提供一个List对象，用于比较真实查询结果与List对象是否相等
+- `Iterator<Object> resultIterator`: 提供一个Iterator对象，用于比较真实查询结果与Iterator是否相等
 - String resultFile: 提供一个文件Uri(可以是本地文件相对路径，或http(s)路径)，用于比较真实查询结果与http响应流是否相等，格式与.out文件格式类似，但没有块头和注释
 - String exception: 校验抛出的异常是否包含某些字符串
 - long rowNum: 验证结果行数
 - long time: 验证执行时间是否小于这个值，单位是毫秒
-- Closure<List<List<Object>>, Throwable, Long, Long> check: 自定义回调校验，可传入结果、异常、时间。存在回调函数时，其他校验方式会失效。
+- `Closure<List<List<Object>>, Throwable, Long, Long> check`: 自定义回调校验，可传入结果、异常、时间。存在回调函数时，其他校验方式会失效。
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/test_action.groovy`:
 ```groovy
@@ -373,8 +373,8 @@ explain action用来校验explain返回的字符串是否包含某些字符串
 - String sql: 查询的sql，需要去掉sql中的explain
 - String contains: 校验explain是否包含某些字符串，可多次调用校验同时多个结果
 - String notContains: 校验explain是否不含某些字符串，可多次调用校验同时多个结果
-- Closure<String> check: 自定义校验回调函数，可以获取返回的字符串，存在校验函数时，其他校验方式会失效
-- Closure<String, Throwable, Long, Long> check: 自定义校验回调函数，可以额外获取异常和时间
+- `Closure<String> check`: 自定义校验回调函数，可以获取返回的字符串，存在校验函数时，其他校验方式会失效
+- `Closure<String, Throwable, Long, Long> check`: 自定义校验回调函数，可以额外获取异常和时间
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/explain_action.groovy`:
 ```groovy
@@ -419,12 +419,12 @@ streamLoad action用于导入数据
 - String db: db，默认值为regression-conf.groovy中的defaultDb
 - String table: 表名
 - String file: 要导入的文件路径，可以写data目录下的相对路径，或者写http url来导入网络文件
-- Iterator<List<Object>> inputIterator: 要导入的迭代器
+- `Iterator<List<Object>> inputIterator`: 要导入的迭代器
 - String inputText: 要导入的文本, 较为少用
 - InputStream inputStream: 要导入的字节流，较为少用
 - long time: 验证执行时间是否小于这个值，单位是毫秒
 - void set(String key, String value): 设置stream load的http请求的header，如label、columnSeparator
-- Closure<String, Throwable, Long, Long> check: 自定义校验回调函数，可以获取返回结果、异常和超时时间。当存在回调函数时，其他校验项会失效。
+- `Closure<String, Throwable, Long, Long> check`: 自定义校验回调函数，可以获取返回结果、异常和超时时间。当存在回调函数时，其他校验项会失效。
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/streamLoad_action.groovy`:
 ```groovy

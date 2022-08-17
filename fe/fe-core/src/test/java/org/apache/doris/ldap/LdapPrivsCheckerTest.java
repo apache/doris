@@ -22,7 +22,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -39,7 +39,7 @@ import java.util.Map;
 
 public class LdapPrivsCheckerTest {
     private static final String CLUSTER = "default_cluster";
-    private static final String INTERNAL = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String INTERNAL = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String DB = "palodb";
     private static final String TABLE_DB = "tabledb";
     private static final String TABLE1 = "table1";

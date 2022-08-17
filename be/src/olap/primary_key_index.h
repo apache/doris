@@ -38,8 +38,8 @@ namespace doris {
 // NOTE: for now, it's only used when unique key merge-on-write property enabled.
 class PrimaryKeyIndexBuilder {
 public:
-    PrimaryKeyIndexBuilder(io::FileWriter* file_writer)
-            : _file_writer(file_writer), _num_rows(0), _size(0) {}
+    PrimaryKeyIndexBuilder(io::FileWriter* file_writer, size_t seq_col_length)
+            : _file_writer(file_writer), _num_rows(0), _size(0), _seq_col_length(seq_col_length) {}
 
     Status init();
 
@@ -49,8 +49,8 @@ public:
 
     uint64_t size() const { return _size; }
 
-    Slice min_key() { return Slice(_min_key); }
-    Slice max_key() { return Slice(_max_key); }
+    Slice min_key() { return Slice(_min_key.data(), _min_key.size() - _seq_col_length); }
+    Slice max_key() { return Slice(_max_key.data(), _max_key.size() - _seq_col_length); }
 
     Status finalize(segment_v2::PrimaryKeyIndexMetaPB* meta);
 
@@ -58,6 +58,7 @@ private:
     io::FileWriter* _file_writer = nullptr;
     uint32_t _num_rows;
     uint64_t _size;
+    size_t _seq_col_length;
 
     faststring _min_key;
     faststring _max_key;

@@ -385,10 +385,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _has_bitmap_index = false;
     }
-    _has_referenced_column = column.has_referenced_column_id();
-    if (_has_referenced_column) {
-        _referenced_column_id = column.referenced_column_id();
-    }
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
@@ -422,9 +418,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         column->set_is_bf_column(_is_bf_column);
     }
     column->set_aggregation(get_string_by_aggregation_type(_aggregation));
-    if (_has_referenced_column) {
-        column->set_referenced_column_id(_referenced_column_id);
-    }
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
@@ -442,9 +435,6 @@ uint32_t TabletColumn::mem_size() const {
     size += _col_name.size();
     if (_has_default_value) {
         size += _default_value.size();
-    }
-    if (_has_referenced_column) {
-        size += _referenced_column.size();
     }
     for (auto& sub_column : _sub_columns) {
         size += sub_column.mem_size();
@@ -524,6 +514,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
     _is_in_memory = schema.is_in_memory();
+    _disable_auto_compaction = schema.disable_auto_compaction();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _sort_type = schema.sort_type();
@@ -556,6 +547,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     // todo(yixiu): unique_id
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
+    _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
     _delete_sign_idx = ori_tablet_schema.delete_sign_idx();
     _sequence_col_idx = ori_tablet_schema.sequence_col_idx();
     _sort_type = ori_tablet_schema.sort_type();
@@ -612,6 +604,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     }
     tablet_schema_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
+    tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
@@ -713,11 +706,6 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._length != b._length) return false;
     if (a._index_length != b._index_length) return false;
     if (a._is_bf_column != b._is_bf_column) return false;
-    if (a._has_referenced_column != b._has_referenced_column) return false;
-    if (a._has_referenced_column) {
-        if (a._referenced_column_id != b._referenced_column_id) return false;
-        if (a._referenced_column != b._referenced_column) return false;
-    }
     if (a._has_bitmap_index != b._has_bitmap_index) return false;
     return true;
 }
@@ -745,6 +733,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     }
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
+    if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
     return true;
 }
 

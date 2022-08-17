@@ -17,35 +17,28 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.Mocked;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class CostAndEnforcerJobTest {
     /*
@@ -55,8 +48,33 @@ public class CostAndEnforcerJobTest {
      *        /    \
      *       A      B
      */
+
+    private static List<LogicalOlapScan> scans = Lists.newArrayList();
+    private static List<List<SlotReference>> outputs = Lists.newArrayList();
+
+    @BeforeAll
+    public static void init() {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "b", 1);
+        LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "c", 0);
+
+        scans.add(scan1);
+        scans.add(scan2);
+        scans.add(scan3);
+
+        List<SlotReference> t1Output = scan1.getOutput().stream().map(slot -> (SlotReference) slot)
+                .collect(Collectors.toList());
+        List<SlotReference> t2Output = scan2.getOutput().stream().map(slot -> (SlotReference) slot)
+                .collect(Collectors.toList());
+        List<SlotReference> t3Output = scan3.getOutput().stream().map(slot -> (SlotReference) slot)
+                .collect(Collectors.toList());
+        outputs.add(t1Output);
+        outputs.add(t2Output);
+        outputs.add(t3Output);
+    }
+
     @Test
-    public void testExecute(@Mocked LogicalProperties logicalProperties) {
+    public void testExecute() {
         new MockUp<CostCalculator>() {
             @Mock
             public double calculateCost(GroupExpression groupExpression) {
@@ -64,51 +82,21 @@ public class CostAndEnforcerJobTest {
             }
         };
 
-        OlapTable aOlapTable = new OlapTable(0L, "a",
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "")),
-                KeysType.PRIMARY_KEYS,
-                null, null);
-        OlapTable bOlapTable = new OlapTable(0L, "b",
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "")),
-                KeysType.PRIMARY_KEYS,
-                null, null);
-        PhysicalOlapScan aScan = new PhysicalOlapScan(aOlapTable, Lists.newArrayList("a"), Optional.empty(),
-                logicalProperties);
-        PhysicalOlapScan bScan = new PhysicalOlapScan(bOlapTable, Lists.newArrayList("b"), Optional.empty(),
-                logicalProperties);
+        /*
+         *   bottomJoin
+         *    /    \
+         *   A      B
+         */
+        Expression bottomJoinOnCondition = new EqualTo(outputs.get(0).get(0), outputs.get(1).get(0));
 
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
+                Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
 
-        OlapTable cOlapTable = new OlapTable(0L, "c",
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "")),
-                KeysType.PRIMARY_KEYS,
-                null, null);
-        PhysicalPlan cScan = new PhysicalOlapScan(cOlapTable, Lists.newArrayList("c"), Optional.empty(),
-                logicalProperties);
-
-        Expression bottomJoinOnCondition = new EqualTo(
-                new SlotReference("id", new IntegerType(), true, ImmutableList.of("a")),
-                new SlotReference("id", new IntegerType(), true, ImmutableList.of("b")));
-        Expression topJoinOnCondition = new EqualTo(
-                new SlotReference("id", new IntegerType(), true, ImmutableList.of("a")),
-                new SlotReference("id", new IntegerType(), true, ImmutableList.of("c")));
-
-        PhysicalHashJoin bottomJoin = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                Optional.of(bottomJoinOnCondition),
-                logicalProperties, aScan, bScan);
-        PhysicalHashJoin topJoin = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                Optional.of(topJoinOnCondition),
-                logicalProperties, cScan, bottomJoin);
-
-
-        PlannerContext plannerContext = new Memo(topJoin).newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
-
-        OptimizeGroupJob optimizeGroupJob = new OptimizeGroupJob(plannerContext.getMemo().getRoot(),
-                plannerContext.getCurrentJobContext());
-        plannerContext.pushJob(optimizeGroupJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(bottomJoin);
+        cascadesContext.pushJob(
+                new OptimizeGroupJob(
+                        cascadesContext.getMemo().getRoot(),
+                        cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 }

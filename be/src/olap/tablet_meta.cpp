@@ -183,6 +183,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_is_in_memory(tablet_schema.is_in_memory);
     }
 
+    if (tablet_schema.__isset.disable_auto_compaction) {
+        schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
+    }
+
     if (tablet_schema.__isset.delete_sign_idx) {
         schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
@@ -783,7 +787,7 @@ void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
                     if (rowid_conversion.get(src, &dst) != 0) {
-                        LOG(WARNING) << "Can't find rowid, may be deleted by the delete_handler.";
+                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler.";
                         continue;
                     }
                     output_rowset_delete_bitmap.add({dst.rowset_id, dst.segment_id, cur_version},

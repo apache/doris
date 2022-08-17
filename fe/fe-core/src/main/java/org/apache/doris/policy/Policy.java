@@ -85,7 +85,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                 return storagePolicy;
             case ROW:
                 // stmt must be analyzed.
-                DatabaseIf db = Env.getCurrentEnv().getDataSourceMgr()
+                DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();

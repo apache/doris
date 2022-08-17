@@ -133,8 +133,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
      * TODO(wzt): Support for external tables
      */
     private void checkPartitionAndColumnNames() throws AnalysisException {
-        Database db = analyzer.getEnv().getInternalDataSource()
-                .getDbOrAnalysisException(tableName.getDb());
+        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
         Table table = db.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() != Table.TableType.OLAP) {

@@ -328,6 +328,9 @@ set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(minizip STATIC IMPORTED)
 set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
+add_library(simdjson STATIC IMPORTED)
+set_target_properties(simdjson PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libsimdjson.a)
+
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
@@ -701,6 +704,7 @@ set(COMMON_THIRDPARTY
     hdfs3
     xml2
     lzma
+    simdjson
 )
 
 if (${MAKE_TEST} STREQUAL "ON")
@@ -844,6 +848,7 @@ install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
     ${BASE_DIR}/../conf/asan_suppr.conf
+    ${BASE_DIR}/../conf/hdfs-site.xml
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

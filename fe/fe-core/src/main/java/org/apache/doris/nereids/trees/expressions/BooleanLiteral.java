@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 
@@ -49,5 +51,10 @@ public class BooleanLiteral extends Literal {
     @Override
     public String toString() {
         return Boolean.valueOf(value).toString().toUpperCase();
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new BoolLiteral(value);
     }
 }

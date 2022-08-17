@@ -40,15 +40,15 @@ namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                     TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output) {
+Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
+                     uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+                     std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
     if (config::file_cache_type.empty()) {
         segment->_file_reader = std::move(file_reader);
     } else {
-        std::string cache_path = path.substr(0, path.size() - 4);
         io::FileReaderSPtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
@@ -245,19 +245,58 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
     RETURN_IF_ERROR(load_index());
+    bool has_seq_col = _tablet_schema->has_sequence_col();
+    size_t seq_col_length = 0;
+    if (has_seq_col) {
+        seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
+    }
+    Slice key_without_seq = Slice(key.get_data(), key.get_size() - seq_col_length);
+
     DCHECK(_pk_index_reader != nullptr);
-    if (!_pk_index_reader->check_present(key)) {
+    if (!_pk_index_reader->check_present(key_without_seq)) {
         return Status::NotFound("Can't find key in the segment");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
-    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key, &exact_match));
-    if (!exact_match) {
+    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
+    if (!has_seq_col && !exact_match) {
         return Status::NotFound("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
+
+    if (has_seq_col) {
+        MemPool pool;
+        size_t num_to_read = 1;
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read, false, _pk_index_reader->type_info(),
+                                                  nullptr, &cvb));
+        ColumnBlock block(cvb.get(), &pool);
+        ColumnBlockView column_block_view(&block);
+        size_t num_read = num_to_read;
+        RETURN_IF_ERROR(index_iterator->next_batch(&num_read, &column_block_view));
+        DCHECK(num_to_read == num_read);
+
+        const Slice* sought_key = reinterpret_cast<const Slice*>(cvb->cell_ptr(0));
+        Slice sought_key_without_seq =
+                Slice(sought_key->get_data(), sought_key->get_size() - seq_col_length);
+
+        // compare key
+        if (key_without_seq.compare(sought_key_without_seq) != 0) {
+            return Status::NotFound("Can't find key in the segment");
+        }
+
+        // compare sequence id
+        Slice sequence_id =
+                Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
+        Slice previous_sequence_id = Slice(
+                sought_key->get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
+        if (sequence_id.compare(previous_sequence_id) < 0) {
+            return Status::AlreadyExist("key with higher sequence id exists");
+        }
+    }
+
     return Status::OK();
 }
 

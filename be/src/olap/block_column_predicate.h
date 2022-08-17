@@ -43,6 +43,9 @@ public:
 
     virtual void get_all_column_ids(std::set<ColumnId>& column_id_set) const = 0;
 
+    virtual void get_all_column_predicate(
+            std::set<const ColumnPredicate*>& predicate_set) const = 0;
+
     virtual uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                               uint16_t selected_size) const {
         return selected_size;
@@ -67,6 +70,10 @@ public:
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         column_id_set.insert(_predicate->column_id());
     };
+
+    void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
+        predicate_set.insert(_predicate);
+    }
 
     uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
@@ -102,6 +109,12 @@ public:
             child_block_predicate->get_all_column_ids(column_id_set);
         }
     };
+
+    void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
+        for (auto child_block_predicate : _block_column_predicate_vec) {
+            child_block_predicate->get_all_column_predicate(predicate_set);
+        }
+    }
 
 protected:
     std::vector<const BlockColumnPredicate*> _block_column_predicate_vec;

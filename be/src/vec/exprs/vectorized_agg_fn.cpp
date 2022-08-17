@@ -150,10 +150,10 @@ void AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Ar
 }
 
 void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                                       Arena* arena) {
+                                       Arena* arena, bool agg_many) {
     _calc_argment_columns(block);
     SCOPED_TIMER(_exec_timer);
-    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena);
+    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
 }
 
 void AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,

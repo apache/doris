@@ -21,7 +21,7 @@ suite("test_array_load", "load") {
     
     def create_test_table = {testTablex, enable_vectorized_flag ->
         // multi-line sql
-        sql """ set enable_array_type = true """
+        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """

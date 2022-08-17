@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -78,6 +79,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -243,7 +245,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tabletType,
                                 null,
                                 tbl.getCompressionType(),
-                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
+                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
+                                tbl.disableAutoCompaction());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -317,7 +320,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN, rollupKeysType, origStmt);
+                rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
+                rollupKeysType, origStmt);
         tbl.rebuildFullSchema();
     }
 
@@ -369,20 +373,28 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
 
                     Map<String, Expr> defineExprs = Maps.newHashMap();
-                    for (Column column : rollupSchema) {
-                        if (column.getDefineExpr() != null) {
-                            defineExprs.put(column.getName(), column.getDefineExpr());
-                        }
-                    }
 
-                    List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
                     TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-                    for (Column column : fullSchema) {
+                    Map<String, SlotDescriptor> descMap = Maps.newHashMap();
+                    for (Column column : tbl.getFullSchema()) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
+
+                        descMap.put(column.getName(), destSlotDesc);
+                    }
+
+                    for (Column column : tbl.getFullSchema()) {
+                        if (column.getDefineExpr() != null) {
+                            defineExprs.put(column.getName(), column.getDefineExpr());
+
+                            List<SlotRef> slots = new ArrayList<>();
+                            column.getDefineExpr().collect(SlotRef.class, slots);
+                            Preconditions.checkArgument(slots.size() == 1);
+                            slots.get(0).setDesc(descMap.get(slots.get(0).getColumnName()));
+                        }
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
@@ -390,7 +402,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
-                                JobType.ROLLUP, defineExprs, descTable, null);
+                                JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId));
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
@@ -522,6 +534,18 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
+        //update max column unique id
+        int maxColUniqueId = tbl.getIndexMetaByIndexId(rollupIndexId).getMaxColUniqueId();
+        for (Column column : tbl.getIndexMetaByIndexId(rollupIndexId).getSchema(true)) {
+            if (column.getUniqueId() > maxColUniqueId) {
+                maxColUniqueId = column.getUniqueId();
+            }
+        }
+
+        tbl.getIndexMetaByIndexId(rollupIndexId).setMaxColUniqueId(maxColUniqueId);
+
+        LOG.debug("rollupIndexId:{}, maxColUniqueId:{}, indexIdToSchema:{}", rollupIndexId, maxColUniqueId,
+                tbl.getIndexIdToSchema(true));
         tbl.rebuildFullSchema();
     }
 

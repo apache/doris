@@ -21,7 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -37,7 +37,7 @@ import org.junit.Test;
  * Comparison Predicate unit test.
  */
 public class ComparisonPredicateTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Mocked
     Analyzer analyzer;

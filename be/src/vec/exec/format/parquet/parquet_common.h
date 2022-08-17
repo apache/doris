@@ -21,8 +21,11 @@
 
 #include "common/status.h"
 #include "gen_cpp/parquet_types.h"
+#include "util/bit_stream_utils.inline.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -33,22 +36,23 @@ public:
     Decoder() = default;
     virtual ~Decoder() = default;
 
-    static Status getDecoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
-                             std::unique_ptr<Decoder>& decoder);
-
-    static MutableColumnPtr getMutableColumnPtr(ColumnPtr& doris_column);
+    static Status get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
+                              std::unique_ptr<Decoder>& decoder);
 
     // The type with fix length
     void set_type_length(int32_t type_length) { _type_length = type_length; }
 
     // Set the data to be decoded
-    void set_data(Slice* data) {
+    virtual void set_data(Slice* data) {
         _data = data;
         _offset = 0;
     }
 
     // Write the decoded values batch to doris's column
-    virtual Status decode_values(ColumnPtr& doris_column, size_t num_values) = 0;
+    Status decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
+
+    virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                 size_t num_values) = 0;
 
     virtual Status decode_values(Slice& slice, size_t num_values) = 0;
 
@@ -60,49 +64,103 @@ protected:
     uint32_t _offset = 0;
 };
 
-template <typename T>
 class PlainDecoder final : public Decoder {
 public:
-    PlainDecoder() = default;
+    PlainDecoder(tparquet::Type::type physical_type) : _physical_type(physical_type) {};
     ~PlainDecoder() override = default;
 
-    Status decode_values(ColumnPtr& doris_column, size_t num_values) override {
-        size_t to_read_bytes = TYPE_LENGTH * num_values;
+    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                         size_t num_values) override;
+
+    Status decode_values(Slice& slice, size_t num_values) override;
+
+    Status skip_values(size_t num_values) override;
+
+protected:
+    Status _decode_short_int(MutableColumnPtr& doris_column, size_t num_values, size_t real_length);
+
+    template <typename Numeric>
+    Status _decode_numeric(MutableColumnPtr& doris_column, size_t num_values) {
+        size_t to_read_bytes = _type_length * num_values;
         if (UNLIKELY(_offset + to_read_bytes > _data->size)) {
             return Status::IOError("Out-of-bounds access in parquet data decoder");
         }
-        auto data_column = getMutableColumnPtr(doris_column);
-        auto& column_data = static_cast<ColumnVector<T>&>(*data_column).get_data();
-        const auto* raw_data = reinterpret_cast<const T*>(_data->data + _offset);
+        auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
+        const auto* raw_data = reinterpret_cast<const Numeric*>(_data->data + _offset);
         column_data.insert(raw_data, raw_data + num_values);
         _offset += to_read_bytes;
         return Status::OK();
     }
 
-    Status decode_values(Slice& slice, size_t num_values) override {
-        size_t to_read_bytes = TYPE_LENGTH * num_values;
-        if (UNLIKELY(_offset + to_read_bytes > _data->size)) {
-            return Status::IOError("Out-of-bounds access in parquet data decoder");
-        }
-        if (UNLIKELY(to_read_bytes > slice.size)) {
-            return Status::IOError(
-                    "Slice does not have enough space to write out the decoding data");
-        }
-        memcpy(slice.data, _data->data + _offset, to_read_bytes);
-        _offset += to_read_bytes;
-        return Status::OK();
+    tparquet::Type::type _physical_type;
+};
+
+class ByteArrayPlainDecoder final : public Decoder {
+public:
+    ByteArrayPlainDecoder() = default;
+    ~ByteArrayPlainDecoder() override = default;
+
+    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                         size_t num_values) override;
+
+    Status decode_values(Slice& slice, size_t num_values) override;
+
+    Status skip_values(size_t num_values) override;
+};
+
+/// Decoder bit-packed boolean-encoded values.
+/// Implementation from https://github.com/apache/impala/blob/master/be/src/exec/parquet/parquet-bool-decoder.h
+class BoolPlainDecoder final : public Decoder {
+public:
+    BoolPlainDecoder() = default;
+    ~BoolPlainDecoder() override = default;
+
+    // Set the data to be decoded
+    void set_data(Slice* data) override {
+        bool_values_.Reset((const uint8_t*)data->data, data->size);
+        num_unpacked_values_ = 0;
+        unpacked_value_idx_ = 0;
+        _offset = 0;
     }
 
-    Status skip_values(size_t num_values) override {
-        _offset += TYPE_LENGTH * num_values;
-        if (UNLIKELY(_offset > _data->size)) {
-            return Status::IOError("Out-of-bounds access in parquet data decoder");
-        }
-        return Status::OK();
-    }
+    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                         size_t num_values) override;
+
+    Status decode_values(Slice& slice, size_t num_values) override;
+
+    Status skip_values(size_t num_values) override;
 
 protected:
-    enum { TYPE_LENGTH = sizeof(T) };
+    inline bool _decode_value(bool* value) {
+        if (LIKELY(unpacked_value_idx_ < num_unpacked_values_)) {
+            *value = unpacked_values_[unpacked_value_idx_++];
+        } else {
+            num_unpacked_values_ =
+                    bool_values_.UnpackBatch(1, UNPACKED_BUFFER_LEN, &unpacked_values_[0]);
+            if (UNLIKELY(num_unpacked_values_ == 0)) {
+                return false;
+            }
+            *value = unpacked_values_[0];
+            unpacked_value_idx_ = 1;
+        }
+        return true;
+    }
+
+    /// A buffer to store unpacked values. Must be a multiple of 32 size to use the
+    /// batch-oriented interface of BatchedBitReader. We use uint8_t instead of bool because
+    /// bit unpacking is only supported for unsigned integers. The values are converted to
+    /// bool when returned to the user.
+    static const int UNPACKED_BUFFER_LEN = 128;
+    uint8_t unpacked_values_[UNPACKED_BUFFER_LEN];
+
+    /// The number of valid values in 'unpacked_values_'.
+    int num_unpacked_values_ = 0;
+
+    /// The next value to return from 'unpacked_values_'.
+    int unpacked_value_idx_ = 0;
+
+    /// Bit packed decoder, used if 'encoding_' is PLAIN.
+    BatchedBitReader bool_values_;
 };
 
 } // namespace doris::vectorized

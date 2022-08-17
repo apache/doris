@@ -24,18 +24,12 @@
 
 namespace doris {
 
-template <class T, PredicateType PT>
+template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
+    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {
-        if constexpr (std::is_same_v<T, uint24_t>) {
-            _value_real = 0;
-            memory_copy(&_value_real, _value.get_data(), sizeof(T));
-        } else {
-            _value_real = _value;
-        }
-    }
+            : ColumnPredicate(column_id, opposite), _value(value) {}
 
     PredicateType type() const override { return PT; }
 
@@ -45,17 +39,34 @@ public:
             for (uint16_t i = 0; i < *size; ++i) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                new_size += _opposite ? !result : result;
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
+                    new_size += _opposite ? !result : result;
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    new_size += _opposite ? !result : result;
+                }
             }
         } else {
             for (uint16_t i = 0; i < *size; ++i) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = _operator(*cell_value, _value);
-                new_size += _opposite ? !result : result;
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result = _operator(tmp_uint32_value, _value);
+                    new_size += _opposite ? !result : result;
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = _operator(*cell_value, _value);
+                    new_size += _opposite ? !result : result;
+                }
             }
         }
         *size = new_size;
@@ -68,9 +79,18 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                flags[i] = flags[i] | (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                }
             }
         } else {
             for (uint16_t i = 0; i < size; ++i) {
@@ -78,9 +98,17 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = _operator(*cell_value, _value);
-                flags[i] = flags[i] | (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result = _operator(tmp_uint32_value, _value);
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = _operator(*cell_value, _value);
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                }
             }
         }
     }
@@ -93,9 +121,18 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                flags[i] = flags[i] & (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                }
             }
         } else {
             for (uint16_t i = 0; i < size; ++i) {
@@ -103,9 +140,17 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = _operator(*cell_value, _value);
-                flags[i] = flags[i] & (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result = _operator(tmp_uint32_value, _value);
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = _operator(*cell_value, _value);
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                }
             }
         }
     }
@@ -186,12 +231,12 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<TReal>&>(
+                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<Type>&>(
                                            nested_column)
                                            .get_data()
                                            .data();
 
-                _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value_real);
+                _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -209,12 +254,12 @@ public:
                 }
             } else {
                 auto* data_array =
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(
+                        vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(
                                 column)
                                 ->get_data()
                                 .data();
 
-                _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value_real);
+                _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value);
             }
         }
 
@@ -236,8 +281,6 @@ public:
     }
 
 private:
-    using TReal = std::conditional_t<std::is_same_v<T, uint24_t>, uint32_t, T>;
-
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {
@@ -389,12 +432,11 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column)
                             ->get_data()
                             .data();
 
-            _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
-                                                _value_real);
+            _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array, _value);
         }
     }
 
@@ -436,29 +478,15 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<TReal>>(column)
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column)
                             ->get_data()
                             .data();
 
-            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value_real);
+            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value);
         }
     }
 
     T _value;
-    TReal _value_real;
 };
-
-template <class T>
-using EqualPredicate = ComparisonPredicateBase<T, PredicateType::EQ>;
-template <class T>
-using NotEqualPredicate = ComparisonPredicateBase<T, PredicateType::NE>;
-template <class T>
-using LessPredicate = ComparisonPredicateBase<T, PredicateType::LT>;
-template <class T>
-using LessEqualPredicate = ComparisonPredicateBase<T, PredicateType::LE>;
-template <class T>
-using GreaterPredicate = ComparisonPredicateBase<T, PredicateType::GT>;
-template <class T>
-using GreaterEqualPredicate = ComparisonPredicateBase<T, PredicateType::GE>;
 
 } //namespace doris

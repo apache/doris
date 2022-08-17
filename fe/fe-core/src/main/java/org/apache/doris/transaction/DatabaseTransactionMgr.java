@@ -351,7 +351,7 @@ public class DatabaseTransactionMgr {
     }
 
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
-        Database db = env.getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         if (usedQuotaDataBytes == -1) {
             usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
@@ -372,7 +372,7 @@ public class DatabaseTransactionMgr {
             throws UserException {
         // check status
         // the caller method already own db lock, we do not obtain db lock here
-        Database db = env.getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         TransactionState transactionState;
         readLock();
         try {
@@ -417,7 +417,7 @@ public class DatabaseTransactionMgr {
                                    List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
                                    Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
                                     Set<Long> totalInvolvedBackends) throws UserException {
-        Database db = env.getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
@@ -579,7 +579,7 @@ public class DatabaseTransactionMgr {
             throws UserException {
         // check status
         // the caller method already own tables' write lock
-        Database db = env.getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         TransactionState transactionState;
         readLock();
         try {
@@ -815,7 +815,7 @@ public class DatabaseTransactionMgr {
         // the transaction with empty commit info only three cases mentioned above may happen, because user cannot
         // drop table without force while there are committed transactions on table and writeLockTablesIfExist is
         // a blocking function, the returned result would be the existed table list which hold write lock
-        Database db = env.getInternalDataSource().getDbOrMetaException(transactionState.getDbId());
+        Database db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
@@ -1672,7 +1672,7 @@ public class DatabaseTransactionMgr {
         Database db = null;
         List<? extends TableIf> tableList = null;
         if (shouldAddTableListLock) {
-            db = env.getInternalDataSource().getDbOrMetaException(transactionState.getDbId());
+            db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
             tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
             tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }

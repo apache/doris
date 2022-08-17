@@ -61,8 +61,9 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
+    static Status open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
+                       uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+                       std::shared_ptr<Segment>* output);
 
     ~Segment();
 

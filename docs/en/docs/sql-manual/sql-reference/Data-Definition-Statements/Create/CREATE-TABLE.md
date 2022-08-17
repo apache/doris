@@ -318,6 +318,14 @@ distribution_info
     
         `"light_schema_change"="true"`
     
+    * `disable_auto_compaction`
+
+        Whether to disable automatic compaction for this table.
+
+        If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
+
+        `"disable_auto_compaction" = "false"`
+    
     * Dynamic partition related
     
         The relevant parameters of dynamic partition are as follows:
@@ -369,8 +377,8 @@ distribution_info
     PARTITION BY RANGE(k1)
     (
         PARTITION p1 VALUES LESS THAN ("2020-02-01"),
-        PARTITION p1 VALUES LESS THAN ("2020-03-01"),
-        PARTITION p1 VALUES LESS THAN ("2020-04-01")
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
