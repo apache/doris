@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`B00LEAN BITMAP_CONTAINS(BITMAP bitmap, BIGINT input)`
+`BOOLEAN BITMAP_CONTAINS(BITMAP bitmap, BIGINT input)`
 
 Calculates whether the input value is in the Bitmap column and returns a Boolean value.
 
