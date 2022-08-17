@@ -443,8 +443,11 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         if (*scanner->vconjunct_ctx_ptr()) {
             scanner->discard_conjuncts();
         }
-        WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
-                      "Something wrong for runtime filters: ");
+        {
+            std::unique_lock<std::mutex> l(_rf_lock);
+            WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
+                          "Something wrong for runtime filters: ");
+        }
     }
 
     std::vector<Block*> blocks;
