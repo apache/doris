@@ -376,9 +376,9 @@ public class CreateTableStmt extends DdlStmt {
         if (Config.enable_batch_delete_by_default
                 && keysDesc != null
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-            // TODO(zhangchen): Disable the delete sign column for primary key temporary, will replace
-            // with a better solution later.
-            if (!enableUniqueKeyMergeOnWrite) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.NONE));
+            } else {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
