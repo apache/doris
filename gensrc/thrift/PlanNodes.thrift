@@ -412,6 +412,17 @@ struct TMetaScanNode {
   5: optional string user
 }
 
+struct TSortInfo {
+  1: required list<Exprs.TExpr> ordering_exprs
+  2: required list<bool> is_asc_order
+  // Indicates, for each expr, if nulls should be listed first or last. This is
+  // independent of is_asc_order.
+  3: required list<bool> nulls_first
+  // Expressions evaluated over the input row that materialize the tuple to be sorted.
+  // Contains one expr per slot in the materialized tuple.
+  4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
+}
+
 struct TOlapScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> key_column_name
@@ -421,6 +432,11 @@ struct TOlapScanNode {
   6: optional Types.TKeysType keyType
   7: optional string table_name
   8: required list<Descriptors.TColumn> columns_desc
+  9: optional TSortInfo sort_info
+  // When scan match sort_info, we can push limit into OlapScanNode.
+  // It's limit for scanner instead of scanNode so we add a new limit.
+  10: optional i64 sort_limit
+  11: optional bool enable_unique_key_merge_on_write
 }
 
 struct TEqJoinCondition {
@@ -545,6 +561,7 @@ struct TAggregationNode {
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
+  8: optional bool is_first_phase;
 }
 
 struct TRepeatNode {
@@ -558,22 +575,12 @@ struct TRepeatNode {
   4: required list<list<i64>> grouping_list
   // A list of all slot
   5: required set<Types.TSlotId> all_slot_ids
+  6: required list<Exprs.TExpr> exprs
 }
 
 struct TPreAggregationNode {
   1: required list<Exprs.TExpr> group_exprs
   2: required list<Exprs.TExpr> aggregate_exprs
-}
-
-struct TSortInfo {
-  1: required list<Exprs.TExpr> ordering_exprs
-  2: required list<bool> is_asc_order
-  // Indicates, for each expr, if nulls should be listed first or last. This is
-  // independent of is_asc_order.
-  3: required list<bool> nulls_first
-  // Expressions evaluated over the input row that materialize the tuple to be sorted.
-  // Contains one expr per slot in the materialized tuple.
-  4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
 }
 
 struct TSortNode {

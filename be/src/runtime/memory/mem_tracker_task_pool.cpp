@@ -23,58 +23,63 @@
 
 namespace doris {
 
-MemTrackerLimiter* MemTrackerTaskPool::register_task_mem_tracker_impl(const std::string& task_id,
-                                                                      int64_t mem_limit,
-                                                                      const std::string& label,
-                                                                      MemTrackerLimiter* parent) {
+std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_task_mem_tracker_impl(
+        const std::string& task_id, int64_t mem_limit, const std::string& label,
+        const std::shared_ptr<MemTrackerLimiter>& parent) {
     DCHECK(!task_id.empty());
+    std::lock_guard<std::mutex> l(_task_tracker_lock);
     // First time this task_id registered, make a new object, otherwise do nothing.
     // Combine new tracker and emplace into one operation to avoid the use of locks
     // Name for task MemTrackers. '$0' is replaced with the task id.
+    std::shared_ptr<MemTrackerLimiter> tracker;
     bool new_emplace = _task_mem_trackers.lazy_emplace_l(
-            task_id, [&](std::shared_ptr<MemTrackerLimiter>) {},
+            task_id, [&](const std::shared_ptr<MemTrackerLimiter>& v) { tracker = v; },
             [&](const auto& ctor) {
-                ctor(task_id, std::make_shared<MemTrackerLimiter>(mem_limit, label, parent));
+                tracker = std::make_shared<MemTrackerLimiter>(mem_limit, label, parent);
+                ctor(task_id, tracker);
             });
     if (new_emplace) {
         LOG(INFO) << "Register query/load memory tracker, query/load id: " << task_id
                   << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     }
-    return _task_mem_trackers[task_id].get();
+    return tracker;
 }
 
-MemTrackerLimiter* MemTrackerTaskPool::register_query_mem_tracker(const std::string& query_id,
-                                                                  int64_t mem_limit) {
+std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_query_mem_tracker(
+        const std::string& query_id, int64_t mem_limit) {
     return register_task_mem_tracker_impl(query_id, mem_limit,
                                           fmt::format("Query#queryId={}", query_id),
                                           ExecEnv::GetInstance()->query_pool_mem_tracker());
 }
 
-MemTrackerLimiter* MemTrackerTaskPool::register_load_mem_tracker(const std::string& load_id,
-                                                                 int64_t mem_limit) {
+std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_load_mem_tracker(
+        const std::string& load_id, int64_t mem_limit) {
     // In load, the query id of the fragment is executed, which is the same as the load id of the load channel.
     return register_task_mem_tracker_impl(load_id, mem_limit,
                                           fmt::format("Load#queryId={}", load_id),
                                           ExecEnv::GetInstance()->load_pool_mem_tracker());
 }
 
-MemTrackerLimiter* MemTrackerTaskPool::get_task_mem_tracker(const std::string& task_id) {
+std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::get_task_mem_tracker(
+        const std::string& task_id) {
     DCHECK(!task_id.empty());
-    MemTrackerLimiter* tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> tracker = nullptr;
     // Avoid using locks to resolve erase conflicts
     _task_mem_trackers.if_contains(
-            task_id, [&tracker](std::shared_ptr<MemTrackerLimiter> v) { tracker = v.get(); });
+            task_id, [&tracker](const std::shared_ptr<MemTrackerLimiter>& v) { tracker = v; });
     return tracker;
 }
 
 void MemTrackerTaskPool::logout_task_mem_tracker() {
-    for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end();) {
+    std::lock_guard<std::mutex> l(_task_tracker_lock);
+    std::vector<std::string> expired_task_ids;
+    for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end(); it++) {
         if (!it->second) {
             // Unknown exception case with high concurrency, after _task_mem_trackers.erase,
             // the key still exists in _task_mem_trackers. https://github.com/apache/incubator-doris/issues/10006
-            _task_mem_trackers._erase(it++);
-        } else if (it->second->remain_child_count() == 0 && it->second->had_child_count() != 0) {
-            // No RuntimeState uses this task MemTracker, it is only referenced by this map,
+            expired_task_ids.emplace_back(it->first);
+        } else if (it->second.use_count() == 1 && it->second->had_child_count() != 0) {
+            // No RuntimeState uses this task MemTrackerLimiter, it is only referenced by this map,
             // and tracker was not created soon, delete it.
             //
             // If consumption is not equal to 0 before query mem tracker is destructed,
@@ -89,18 +94,17 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
             // the negative number of the current value of consume.
             it->second->parent()->consumption_revise(-it->second->consumption());
-            LOG(INFO) << "Deregister query/load memory tracker, queryId/loadId: " << it->first;
-            _task_mem_trackers._erase(it++);
-        } else {
-            // Log limit exceeded query tracker.
-            if (it->second->limit_exceeded()) {
-                it->second->mem_limit_exceeded(
-                        nullptr,
-                        fmt::format("Task mem limit exceeded but no cancel, queryId:{}", it->first),
-                        0, Status::OK());
-            }
-            ++it;
+            LOG(INFO) << fmt::format(
+                    "Deregister query/load memory tracker, queryId={}, Limit={}, PeakUsed={}",
+                    it->first, it->second->limit(), it->second->peak_consumption());
+            expired_task_ids.emplace_back(it->first);
         }
+    }
+    for (auto tid : expired_task_ids) {
+        // Verify the condition again to make sure the tracker is not being used again.
+        _task_mem_trackers.erase_if(tid, [&](const std::shared_ptr<MemTrackerLimiter>& v) {
+            return !v || v.use_count() == 1;
+        });
     }
 }
 

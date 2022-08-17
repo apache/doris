@@ -48,7 +48,11 @@ uint8_t mysql_week_mode(uint32_t mode) {
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
                                    uint32_t minute, uint32_t second, uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59;
-    return time || check_date(year, month, day);
+    if (type == TIME_TIME) {
+        return time;
+    } else {
+        return time || check_date(year, month, day);
+    }
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
@@ -278,6 +282,11 @@ void VecDateTimeValue::set_zero(int type) {
 
 void VecDateTimeValue::set_type(int type) {
     _type = type;
+    if (type == TIME_DATE) {
+        _hour = 0;
+        _minute = 0;
+        _second = 0;
+    }
 }
 
 void VecDateTimeValue::set_max_time(bool neg) {
@@ -793,7 +802,7 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
                 return false;
             }
             uint32_t year = 0;
-            calc_week(*this, mysql_week_mode(3), &year);
+            calc_week(*this, mysql_week_mode(3), &year, true);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
             break;
@@ -829,15 +838,18 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
     return true;
 }
 
-uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year) {
+uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year,
+                                    bool disable_lut) {
     // mode=3 is used for week_of_year()
-    if (config::enable_time_lut && mode == 3 && value._year >= 1950 && value._year < 2030) {
+    if (config::enable_time_lut && !disable_lut && mode == 3 && value._year >= 1950 &&
+        value._year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_of_year_table[value._year - doris::LUT_START_YEAR][value._month - 1]
                                     [value._day - 1];
     }
     // mode=4 is used for week()
-    if (config::enable_time_lut && mode == 4 && value._year >= 1950 && value._year < 2030) {
+    if (config::enable_time_lut && !disable_lut && mode == 4 && value._year >= 1950 &&
+        value._year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_table[value._year - doris::LUT_START_YEAR][value._month - 1][value._day - 1];
     }
@@ -995,6 +1007,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         cutoff_3 = (ULONGLONG_MAX % LFACTOR2) % 100;
     }
     if (ptr >= end) {
+        return false;
+    }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
         return false;
     }
     // Skip '0'
@@ -1305,22 +1321,32 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 val = tmp;
                 time_part_used = true;
                 already_set_time_part = true;
                 break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 time_part_used = true;
                 already_set_time_part = true;
                 val = tmp;
                 break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;
@@ -1668,13 +1694,19 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 
 template <typename T>
 bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                                uint8_t minute, uint8_t second, uint32_t microsecond) {
+                                uint8_t minute, uint8_t second, uint32_t microsecond,
+                                bool only_time_part) {
     if (hour > 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
         return true;
     }
+    if (only_time_part) {
+        return false;
+    }
+    if (year < MIN_YEAR || year > MAX_YEAR) {
+        return true;
+    }
     if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (year < MIN_YEAR || year > MAX_YEAR || month == 0 || month > 12 ||
-        day > s_days_in_month[month] || day == 0) {
+    if (month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
         return true;
     }
     return false;
@@ -2050,22 +2082,41 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                if constexpr (is_datetime) {
+                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val,
+                                                      &tmp)) {
+                        return false;
+                    }
+                    this->date_v2_value_.hour_ = tmp_val.hour();
+                    this->date_v2_value_.minute_ = tmp_val.minute();
+                    this->date_v2_value_.second_ = tmp_val.second();
+                    val = tmp;
+                    time_part_used = true;
+                    already_set_time_part = true;
+                    break;
+                } else {
                     return false;
                 }
-                val = tmp;
-                time_part_used = true;
-                already_set_time_part = true;
-                break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                if constexpr (is_datetime) {
+                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+                        return false;
+                    }
+                    this->date_v2_value_.hour_ = tmp_val.hour();
+                    this->date_v2_value_.minute_ = tmp_val.minute();
+                    this->date_v2_value_.second_ = tmp_val.second();
+                    time_part_used = true;
+                    already_set_time_part = true;
+                    val = tmp;
+                    break;
+                } else {
                     return false;
                 }
-                time_part_used = true;
-                already_set_time_part = true;
-                val = tmp;
-                break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;
@@ -2145,20 +2196,9 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
             LOG(WARNING) << "Microsecond is not allowed for date type!";
             return false;
         }
-        if (!date_part_used) {
-            LOG(WARNING) << "Time type is not supported yet!";
-            return false;
-        }
-    } else {
-        if (date_part_used) {
-            if (time_part_used) {
-                if constexpr (!is_datetime) {
-                    LOG(WARNING) << "Time part is not allowed for date type!";
-                    return false;
-                }
-            }
-        } else {
-            LOG(WARNING) << "Time type is not supported yet!";
+    } else if (time_part_used) {
+        if constexpr (!is_datetime) {
+            LOG(WARNING) << "Time part is not allowed for date type!";
             return false;
         }
     }
@@ -2217,7 +2257,8 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     if constexpr (is_datetime) {
-        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
+                                        time_part_used && !date_part_used);
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
@@ -2328,6 +2369,10 @@ uint8_t DateV2Value<T>::week(uint8_t mode) const {
 
 template <typename T>
 uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
+    if (config::enable_time_lut && mode == 4 && this->year() >= 1950 && this->year() < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->year_week_table[this->year() - 1950][this->month() - 1][this->day() - 1];
+    }
     uint16_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
     uint8_t week =
@@ -2797,7 +2842,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             // numeric, four digits; used with %v
             uint16_t year = 0;
             calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
-                      &year);
+                      &year, true);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
             break;
@@ -2806,7 +2851,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             // Year for the week where Sunday is the first day of the week,
             // numeric, four digits; used with %V
             uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
+            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(2),
                       &year);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
@@ -2938,7 +2983,16 @@ bool DateV2Value<T>::from_date_int64(int64_t value) {
 template <typename T>
 uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,
-                                  uint16_t* to_year) {
+                                  uint16_t* to_year, bool disable_lut) {
+    if (config::enable_time_lut && !disable_lut && mode == 3 && year >= 1950 && year < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->week_of_year_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
+    }
+    // mode=4 is used for week()
+    if (config::enable_time_lut && !disable_lut && mode == 4 && year >= 1950 && year < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->week_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
+    }
     bool monday_first = mode & WEEK_MONDAY_FIRST;
     bool week_year = mode & WEEK_YEAR;
     bool first_weekday = mode & WEEK_FIRST_WEEKDAY;

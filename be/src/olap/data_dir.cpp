@@ -18,6 +18,7 @@
 #include "olap/data_dir.h"
 
 #include <ctype.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <mntent.h>
 #include <stdio.h>
 #include <sys/file.h>
@@ -475,8 +476,8 @@ Status DataDir::load() {
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
-                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+            if (!rowset_meta->tablet_schema()) {
+                rowset_meta->set_tablet_schema(tablet->tablet_schema());
                 RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
                                         rowset_meta->get_rowset_pb());
             }
@@ -498,8 +499,8 @@ Status DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
-                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+            if (!rowset_meta->tablet_schema()) {
+                rowset_meta->set_tablet_schema(tablet->tablet_schema());
                 RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
                                         rowset_meta->get_rowset_pb());
             }
@@ -870,11 +871,16 @@ void DataDir::perform_remote_tablet_gc() {
     for (auto& [key, resource] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
         auto fs = io::FileSystemMap::instance()->get(resource);
-        auto st = fs->delete_directory(DATA_PREFIX + "/" + tablet_id);
+        if (!fs) {
+            LOG(WARNING) << "could not get file system. resource_id=" << resource;
+            continue;
+        }
+        auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
         } else {
-            LOG(WARNING) << st;
+            LOG(WARNING) << "failed to perform remote tablet gc. tablet_id=" << tablet_id
+                         << ", reason: " << st;
         }
     }
     for (const auto& key : deleted_keys) {

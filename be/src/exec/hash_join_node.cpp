@@ -29,6 +29,7 @@
 #include "exprs/runtime_filter.h"
 #include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
@@ -132,7 +133,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     for (int i = 0; i < _build_tuple_size; ++i) {
         TupleDescriptor* build_tuple_desc = child(1)->row_desc().tuple_descriptors()[i];
-        _build_tuple_idx.push_back(_row_descriptor.get_tuple_idx(build_tuple_desc->id()));
+        auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
+        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
+        _build_tuple_idx.push_back(tuple_idx);
     }
     _probe_tuple_row_size = num_left_tuples * sizeof(Tuple*);
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
@@ -184,7 +187,6 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
     // The hash join node needs to keep in memory all build tuples, including the tuple
     // row ptrs.  The row ptrs are copied into the hash table's internal structure so they
     // don't need to be stored in the _build_pool.
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Hash join, while constructing the hash table.");
     RowBatch build_batch(child(1)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(1)->open(state));
 
@@ -301,7 +303,6 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     // In most cases, no additional memory overhead will be applied for at this stage,
     // but if the expression calculation in this node needs to apply for additional memory,
     // it may cause the memory to exceed the limit.
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Hash join, while execute get_next.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 

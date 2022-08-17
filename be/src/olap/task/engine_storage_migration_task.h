@@ -49,14 +49,14 @@ private:
     bool _is_rowsets_size_less_than_threshold(
             const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
-    Status _gen_and_write_header_to_hdr_file(
-            uint64_t shard, const std::string& full_path,
-            const std::vector<RowsetSharedPtr>& consistent_rowsets);
+    Status _gen_and_write_header_to_hdr_file(uint64_t shard, const std::string& full_path,
+                                             const std::vector<RowsetSharedPtr>& consistent_rowsets,
+                                             int64_t end_version);
     Status _reload_tablet(const std::string& full_path);
 
     void _generate_new_header(uint64_t new_shard,
                               const std::vector<RowsetSharedPtr>& consistent_rowsets,
-                              TabletMetaSharedPtr new_tablet_meta);
+                              TabletMetaSharedPtr new_tablet_meta, int64_t end_version);
 
     // TODO: hkp
     // rewrite this function

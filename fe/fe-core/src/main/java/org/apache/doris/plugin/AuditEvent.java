@@ -87,6 +87,9 @@ public class AuditEvent {
     @AuditField(value = "SqlDigest")
     public String sqlDigest = "";
 
+    @AuditField(value = "TraceId")
+    public String traceId = "";
+
     public static class AuditEventBuilder {
 
         private AuditEvent auditEvent = new AuditEvent();
@@ -190,6 +193,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setSqlDigest(String sqlDigest) {
             auditEvent.sqlDigest = sqlDigest;
+            return this;
+        }
+
+        public AuditEventBuilder setTraceId(String traceId) {
+            auditEvent.traceId = traceId;
             return this;
         }
 

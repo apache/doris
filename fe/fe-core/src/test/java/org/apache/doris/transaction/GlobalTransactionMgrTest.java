@@ -169,7 +169,7 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
                 transTablets);
@@ -177,7 +177,7 @@ public class GlobalTransactionMgrTest {
         // check status is committed
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         // check replica version
-        Partition testPartition = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Partition testPartition = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1).getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         Assert.assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
@@ -210,7 +210,7 @@ public class GlobalTransactionMgrTest {
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
-        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
 
@@ -241,7 +241,7 @@ public class GlobalTransactionMgrTest {
             Assert.assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
         }
         // check replica version
-        Partition testPartition = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Partition testPartition = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1).getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         Assert.assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
@@ -267,7 +267,7 @@ public class GlobalTransactionMgrTest {
         // check status is commit
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         // check replica version
-        testPartition = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        testPartition = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1).getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         Assert.assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
@@ -358,7 +358,7 @@ public class GlobalTransactionMgrTest {
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
         Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
-        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
         RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob, "jobStatistic");
@@ -429,7 +429,7 @@ public class GlobalTransactionMgrTest {
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
         Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
-        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
 
@@ -461,7 +461,7 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
@@ -473,7 +473,7 @@ public class GlobalTransactionMgrTest {
         transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         // check replica version
-        Partition testPartition = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Partition testPartition = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1).getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
@@ -496,7 +496,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testFinishTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
-        Partition testPartition = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Partition testPartition = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1).getPartition(CatalogTestUtil.testPartition1);
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
         FakeEnv.setEnv(masterEnv);
@@ -512,7 +512,7 @@ public class GlobalTransactionMgrTest {
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
-        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
 
@@ -590,7 +590,7 @@ public class GlobalTransactionMgrTest {
         // check status is commit
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         // check replica version
-        testPartition = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        testPartition = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1).getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());

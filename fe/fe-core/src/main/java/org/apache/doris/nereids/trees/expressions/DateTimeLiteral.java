@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -135,6 +136,11 @@ public class DateTimeLiteral extends DateLiteral {
     @Override
     public String toString() {
         return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second);
     }
 
     public long getHour() {

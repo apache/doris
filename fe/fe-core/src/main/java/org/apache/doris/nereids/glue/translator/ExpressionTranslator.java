@@ -24,19 +24,23 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -47,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -59,11 +64,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Used to translate expression of new optimizer to stale expr.
@@ -141,10 +148,26 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitNot(Not not, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.CompoundPredicate(
-                org.apache.doris.analysis.CompoundPredicate.Operator.NOT,
-                not.child(0).accept(this, context),
-                null);
+        if (not.child() instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) not.child();
+            List<Expr> inList = inPredicate.getOptions().stream()
+                    .map(e -> translate(e, context))
+                    .collect(Collectors.toList());
+            return new org.apache.doris.analysis.InPredicate(
+                    inPredicate.getCompareExpr().accept(this, context),
+                    inList,
+                    true);
+        } else if (not.child() instanceof EqualTo) {
+            EqualTo equalTo = (EqualTo) not.child();
+            BinaryPredicate binaryPredicate =  new BinaryPredicate(Operator.NE,
+                    equalTo.child(0).accept(this, context),
+                    equalTo.child(1).accept(this, context));
+            return binaryPredicate;
+        } else {
+            return new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                    not.child(0).accept(this, context),
+                    null);
+        }
     }
 
     @Override
@@ -166,6 +189,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitIntegerLiteral(IntegerLiteral integerLiteral, PlanTranslatorContext context) {
         return new IntLiteral(integerLiteral.getValue());
+    }
+
+    @Override
+    public Expr visitBigIntLiteral(BigIntLiteral bigIntLiteral, PlanTranslatorContext context) {
+        try {
+            return new IntLiteral(bigIntLiteral.getValue(), Type.BIGINT);
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not translate BigIntLiteral: " + bigIntLiteral.getValue(), t);
+        }
     }
 
     @Override
@@ -253,12 +285,28 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 cast.left().accept(this, context));
     }
 
+    @Override
+    public Expr visitInPredicate(InPredicate inPredicate, PlanTranslatorContext context) {
+        List<Expr> inList = inPredicate.getOptions().stream()
+                .map(e -> translate(e, context))
+                .collect(Collectors.toList());
+        return new org.apache.doris.analysis.InPredicate(inPredicate.getCompareExpr().accept(this, context),
+                inList,
+                false);
+    }
+
     // TODO: Supports for `distinct`
     @Override
     public Expr visitBoundFunction(BoundFunction function, PlanTranslatorContext context) {
         List<Expr> paramList = new ArrayList<>();
         for (Expression expr : function.getArguments()) {
             paramList.add(expr.accept(this, context));
+        }
+        if (function instanceof Count) {
+            Count count = (Count) function;
+            if (count.isStar()) {
+                return new FunctionCallExpr(function.getName(), FunctionParams.createStarParam());
+            }
         }
         return new FunctionCallExpr(function.getName(), paramList);
     }

@@ -94,7 +94,7 @@ protected:
     OlapReaderStatistics _stats;
 
     // (k1 int, k2 varchar(20), k3 int) duplicated key (k1, k2)
-    void create_tablet_schema(TabletSchema* tablet_schema) {
+    void create_tablet_schema(TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(DUP_KEYS);
         tablet_schema_pb.set_num_short_key_columns(2);
@@ -137,7 +137,7 @@ protected:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void create_rowset_writer_context(TabletSchema* tablet_schema,
+    void create_rowset_writer_context(TabletSchemaSPtr tablet_schema,
                                       RowsetWriterContext* rowset_writer_context) {
         RowsetId rowset_id;
         rowset_id.init(10000);
@@ -170,8 +170,8 @@ private:
 
 TEST_F(BetaRowsetTest, BasicFunctionTest) {
     Status s;
-    TabletSchema tablet_schema;
-    create_tablet_schema(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
 
     RowsetSharedPtr rowset;
     const int num_segments = 3;
@@ -179,7 +179,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
-        create_rowset_writer_context(&tablet_schema, &writer_context);
+        create_rowset_writer_context(tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
@@ -216,11 +216,10 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
     { // test return ordered results and return k1 and k2
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = &tablet_schema;
+        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
         // without predicates
@@ -266,7 +265,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k1 = 10
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
             column_predicates.emplace_back(predicate.get());
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;
@@ -306,11 +306,10 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
     { // test return unordered data and only k3
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = &tablet_schema;
+        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {2};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
         // without predicate
@@ -350,7 +349,8 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k3 < 100
-            ColumnPredicate* predicate = new LessPredicate<int32_t>(2, 100);
+            ColumnPredicate* predicate =
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(2, 100);
             column_predicates.emplace_back(predicate);
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;

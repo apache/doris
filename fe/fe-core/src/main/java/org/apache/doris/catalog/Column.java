@@ -47,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * This class represents the column-related metadata.
@@ -240,11 +241,15 @@ public class Column implements Writable {
     }
 
     public boolean isDeleteSignColumn() {
-        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(DELETE_SIGN, true);
+        // aggregationType is NONE for unique table with merge on write.
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(DELETE_SIGN, true);
     }
 
     public boolean isSequenceColumn() {
-        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
+        // aggregationType is NONE for unique table with merge on write.
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(SEQUENCE_COL, true);
     }
 
     public PrimitiveType getDataType() {
@@ -550,7 +555,6 @@ public class Column implements Writable {
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
         }
-
         return sb.toString();
     }
 
@@ -711,7 +715,8 @@ public class Column implements Writable {
         return this.uniqueId;
     }
 
-    public void setIndexFlag(TColumn tColumn, List<Index> indexes) {
+    public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
+        List<Index> indexes = olapTable.getIndexes();
         for (Index index : indexes) {
             if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
                 List<String> columns = index.getColumns();
@@ -719,6 +724,10 @@ public class Column implements Writable {
                     tColumn.setHasBitmapIndex(true);
                 }
             }
+        }
+        Set<String> bfColumns = olapTable.getCopiedBfColumns();
+        if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
+            tColumn.setIsBloomFilterColumn(true);
         }
     }
 }

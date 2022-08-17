@@ -79,7 +79,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
         try {
             long dbId = Long.parseLong(dbIdStr);
-            return env.getInternalDataSource().getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
+            return env.getInternalCatalog().getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
@@ -87,9 +87,9 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBTabletStatistic> statistics = env.getInternalDataSource().getDbIds().parallelStream()
+        List<DBTabletStatistic> statistics = env.getInternalCatalog().getDbIds().parallelStream()
                 // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalDataSource().getDbNullable(id)))
+                .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
                 .filter(Objects::nonNull).map(DBTabletStatistic::new)
                 // sort by dbName
                 .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());

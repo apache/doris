@@ -55,6 +55,7 @@ protected:
     virtual void _init_profiles(RuntimeProfile* profile) = 0;
 
     Status finalize_block(vectorized::Block* dest_block, bool* eof);
+    Status _fill_columns_from_path(vectorized::Block* output_block, size_t rows);
     Status init_block(vectorized::Block* block);
 
     std::unique_ptr<TextConverter> _text_converter;
@@ -106,7 +107,6 @@ protected:
 private:
     Status _init_expr_ctxes();
     Status _filter_block(vectorized::Block* output_block);
-    Status _fill_columns_from_path(vectorized::Block* output_block);
 };
 
 } // namespace doris::vectorized

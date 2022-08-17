@@ -19,18 +19,17 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.SlotExtractor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -80,7 +79,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             List<Slot> leftInput = join.left().getOutput();
             List<Slot> rightInput = join.right().getOutput();
 
-            ExpressionUtils.extractConjunctive(ExpressionUtils.and(onPredicates, wherePredicates))
+            ExpressionUtils.extractConjunction(ExpressionUtils.and(onPredicates, wherePredicates))
                     .forEach(predicate -> {
                         if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
                             eqConditions.add(predicate);
@@ -122,15 +121,14 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
         Expression left = ExpressionUtils.and(leftPredicates);
         Expression right = ExpressionUtils.and(rightPredicates);
         //todo expr should optimize again using expr rewrite
-        ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
         if (!left.equals(BooleanLiteral.TRUE)) {
-            leftPlan = new LogicalFilter(exprRewriter.rewrite(left), leftPlan);
+            leftPlan = new LogicalFilter(left, leftPlan);
         }
 
         if (!right.equals(BooleanLiteral.TRUE)) {
-            rightPlan = new LogicalFilter(exprRewriter.rewrite(right), rightPlan);
+            rightPlan = new LogicalFilter(right, rightPlan);
         }
 
         return new LogicalJoin<>(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);

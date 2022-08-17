@@ -17,7 +17,7 @@
 
 -- Modified
 
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=4, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true, enable_remove_no_conjuncts_runtime_filter_policy=true, runtime_filter_wait_time_ms=10000) */
+select/*+SET_VAR(exec_mem_limit=17179869184, parallel_fragment_exec_instance_num=4, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true, enable_remove_no_conjuncts_runtime_filter_policy=true, runtime_filter_wait_time_ms=10000) */
     nation,
     o_year,
     sum(amount) as sum_profit
@@ -28,20 +28,14 @@ from
             extract(year from o_orderdate) as o_year,
             l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
         from
-            part,
-            supplier,
-            lineitem,
-            partsupp,
-            orders,
-            nation
+            lineitem join orders on o_orderkey = l_orderkey
+            join[shuffle] part on p_partkey = l_partkey
+            join[shuffle] partsupp on ps_partkey = l_partkey
+            join[shuffle] supplier on s_suppkey = l_suppkey
+            join[broadcast] nation on s_nationkey = n_nationkey
         where
-            s_suppkey = l_suppkey
-            and ps_suppkey = l_suppkey
-            and ps_partkey = l_partkey
-            and p_partkey = l_partkey
-            and o_orderkey = l_orderkey
-            and s_nationkey = n_nationkey
-            and p_name like '%green%'
+            ps_suppkey = l_suppkey and 
+            p_name like '%green%'
     ) as profit
 group by
     nation,

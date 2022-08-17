@@ -247,7 +247,7 @@ private:
                     "failed to send brpc batch, error={}, error_text={}, client: {}",
                     berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost());
             LOG(WARNING) << err;
-            return Status::ThriftRpcError(err);
+            return Status::RpcError(err);
         }
         return Status::OK();
     }

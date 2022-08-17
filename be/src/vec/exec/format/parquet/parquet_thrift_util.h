@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #include <common/status.h>
 
 #include <cstdint>
@@ -66,22 +67,4 @@ Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file
     RETURN_IF_ERROR(file_metadata->init_schema());
     return Status::OK();
 }
-
-//    Status parse_page_header() {
-//        uint8_t* page_buf;
-//
-//    }
-
-//    Status parse_page_index() {
-//
-//    }
-
-//    void deserialize_column_index(int64_t start_offset, tparquet::ColumnIndex) {
-//
-//    }
-//
-//    void deserialize_offset_index(int64_t start_offset, tparquet::OffsetIndex) {
-//
-//    }
-
 } // namespace doris::vectorized

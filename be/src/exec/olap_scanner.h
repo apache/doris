@@ -88,6 +88,10 @@ public:
 
     const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
+    TabletStorageType get_storage_type();
+
+    void set_batch_size(size_t batch_size) { _batch_size = batch_size; }
+
 protected:
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
@@ -138,6 +142,8 @@ protected:
     int64_t _raw_rows_read = 0;
     int64_t _compressed_bytes_read = 0;
 
+    size_t _batch_size = 0;
+
     // number rows filtered by pushed condition
     int64_t _num_rows_pushed_cond_filtered = 0;
 
@@ -147,7 +153,7 @@ protected:
 
     MemTracker* _mem_tracker;
 
-    TabletSchema _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 } // namespace doris

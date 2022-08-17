@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -118,7 +118,7 @@ public class ArrayType extends Type {
             return false;
         }
         ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType);
+        return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
     }
 
     public static boolean canCastTo(ArrayType type, ArrayType targetType) {
@@ -155,7 +155,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        if (!ConnectContext.get().getSessionVariable().isEnableArrayType()) {
+        if (!Config.enable_array_type) {
             return false;
         }
         return !itemType.isNull();

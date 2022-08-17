@@ -727,6 +727,12 @@ public class Config extends ConfigBase {
     public static boolean disable_show_stream_load = false;
 
     /**
+     * Whether to enable to write single replica for stream load and broker load.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_single_replica_load = false;
+
+    /**
      * maximum concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
      */
@@ -1631,9 +1637,27 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    /**
+     * If this configuration is enabled, you should also specify the trace_export_url.
+     */
     @ConfField(mutable = false, masterOnly = false)
     public static boolean enable_tracing = false;
 
+    /**
+     * Current support for exporting traces:
+     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+     *   collector: The collector can be used to receive and process traces and support export to a variety of
+     *     third-party systems.
+     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String trace_exporter = "zipkin";
+
+    /**
+     * The endpoint to export spans to.
+     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
+     * export to collector like: http://127.0.0.1:4318/v1/traces
+     */
     @ConfField(mutable = false, masterOnly = false)
     public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
 
@@ -1696,4 +1720,22 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
+
+    /**
+     * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_decimal_conversion = false;
+
+    /**
+     * List of S3 API compatible object storage systems.
+     */
+    @ConfField
+    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
+
+    /**
+     * Support complex data type ARRAY.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_array_type = false;
 }

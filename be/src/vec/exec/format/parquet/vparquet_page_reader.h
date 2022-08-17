@@ -16,19 +16,46 @@
 // under the License.
 
 #pragma once
-#include <common/status.h>
-#include <gen_cpp/parquet_types.h>
+
+#include "common/status.h"
+#include "gen_cpp/parquet_types.h"
+#include "io/buffered_reader.h"
 
 namespace doris::vectorized {
 
+/**
+ * Use to deserialize parquet page header, and get the page data in iterator interface.
+ */
 class PageReader {
 public:
-    Status init();
-    Status read_page_header();
-    Status read_page_data();
+public:
+    PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length);
+    ~PageReader() = default;
 
-    //private:
-    //    tparquet::PageHeader* _page_header;
+    bool has_next_page() const { return _offset < _end_offset; }
+
+    Status next_page_header();
+
+    Status skip_page();
+
+    const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
+
+    Status get_page_date(Slice& slice);
+
+    void seek_to_page(int64_t page_header_offset) {
+        _offset = page_header_offset;
+        _next_header_offset = page_header_offset;
+    }
+
+private:
+    BufferedStreamReader* _reader;
+    tparquet::PageHeader _cur_page_header;
+
+    uint64_t _offset = 0;
+    uint64_t _next_header_offset = 0;
+
+    uint64_t _start_offset = 0;
+    uint64_t _end_offset = 0;
 };
 
 } // namespace doris::vectorized

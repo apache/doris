@@ -48,7 +48,7 @@ static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
 // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
 static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
-static std::u16string utf8_to_wstring(const std::string& str) {
+static std::u16string utf8_to_u16string(const std::string& str) {
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> utf8_utf16_cvt;
     return utf8_utf16_cvt.from_bytes(str);
 }
@@ -128,7 +128,7 @@ Status ODBCConnector::query() {
                  "alloc statement");
 
     // Translate utf8 string to utf16 to use unicode encoding
-    auto wquery = utf8_to_wstring(_sql_str);
+    auto wquery = RETURN_IF_ERROR(utf8_to_u16string(_sql_str, wquery));
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
                  SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
 
@@ -307,9 +307,9 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
             }
         }
         // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = utf8_to_wstring(
+        insert_stmt = RETURN_IF_ERROR(utf8_to_u16string(
                 std::string(_insert_stmt_buffer.data(),
-                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()));
+                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
     }
 
     {
@@ -492,9 +492,10 @@ Status ODBCConnector::append(const std::string& table_name, vectorized::Block* b
             }
         }
         // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = utf8_to_wstring(
+        RETURN_IF_ERROR(utf8_to_wstring(
                 std::string(_insert_stmt_buffer.data(),
-                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()));
+                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()),
+                insert_stmt));
     }
 
     {

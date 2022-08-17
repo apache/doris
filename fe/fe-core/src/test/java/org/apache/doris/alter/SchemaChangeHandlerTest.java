@@ -58,20 +58,20 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "last_visit_date DATETIME REPLACE DEFAULT '1970-01-01 00:00:00',\n" + "cost BIGINT SUM DEFAULT '0',\n"
                 + "max_dwell_time INT MAX DEFAULT '0',\n" + "min_dwell_time INT MIN DEFAULT '99999')\n"
                 + "AGGREGATE KEY(user_id, date, city, age, sex)\n" + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1');";
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
         createTable(createAggTblStmtStr);
 
         String createUniqTblStmtStr = "CREATE TABLE IF NOT EXISTS test.sc_uniq (\n" + "user_id LARGEINT NOT NULL,\n"
                 + "username VARCHAR(50) NOT NULL,\n" + "city VARCHAR(20),\n" + "age SMALLINT,\n" + "sex TINYINT,\n"
                 + "phone LARGEINT,\n" + "address VARCHAR(500),\n" + "register_time DATETIME)\n"
                 + "UNIQUE  KEY(user_id, username)\n" + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1');";
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
         createTable(createUniqTblStmtStr);
 
         String createDupTblStmtStr = "CREATE TABLE IF NOT EXISTS test.sc_dup (\n" + "timestamp DATETIME,\n"
                 + "type INT,\n" + "error_code INT,\n" + "error_msg VARCHAR(1024),\n" + "op_id BIGINT,\n"
                 + "op_time DATETIME)\n" + "DUPLICATE  KEY(timestamp, type)\n" + "DISTRIBUTED BY HASH(type) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1');";
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
         createTable(createDupTblStmtStr);
     }
 
@@ -123,6 +123,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
             Assertions.assertNotNull(indexMeta);
+            //col_unique_id 0-9
+            Assertions.assertEquals(9, indexMeta.getMaxColUniqueId());
         } finally {
             tbl.readUnlock();
         }
@@ -228,7 +230,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
             Assertions.assertNotNull(indexMeta);
-            Assertions.assertEquals(12, tbl.getMaxColUniqueId());
+            Assertions.assertEquals(12, indexMeta.getMaxColUniqueId());
         } finally {
             tbl.readUnlock();
         }
@@ -365,7 +367,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
-                    new Long(2), new Long(1), Maps.newHashMap(), Sets.newHashSet(), false);
+                    new Long(2), new Long(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
             Assert.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());

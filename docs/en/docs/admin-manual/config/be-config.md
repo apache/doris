@@ -212,7 +212,7 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
-default: 20G
+default: 50%
 
 Clean up pages that may be saved by the buffer pool
 
@@ -220,7 +220,7 @@ Clean up pages that may be saved by the buffer pool
 
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
-* Default value: 80G
+* Default value: 20%
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
@@ -925,6 +925,12 @@ Default: 0
 
 The maximum number of threads per disk is also the maximum queue depth of each disk
 
+### `number_slave_replica_download_threads`
+
+Default: 64
+
+Number of threads for slave replica synchronize data, used for single replica load.
+
 ### `number_tablet_writer_threads`
 
 Default: 16
@@ -1100,6 +1106,36 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 * Type: int32
 * Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
 
+### `single_replica_load_brpc_port`
+
+* Type: int32
+* Description: The port of BRPC on BE, used for single replica load. There is a independent BRPC thread pool for the communication between the Master replica and Slave replica during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for data distribution and query tasks when the load concurrency is large.
+* Default value: 9070
+
+### `single_replica_load_brpc_num_threads`
+
+* Type: int32
+* Description: This configuration is mainly used to modify the number of bthreads for single replica load brpc. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
+* Default value: 64
+
+### `single_replica_load_download_port`
+
+* Type: int32
+* Description: The port of http for segment download on BE, used for single replica load. There is a independent HTTP thread pool for the Slave replica to download segments during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for other http tasks when the load concurrency is large.
+* Default value: 8050
+
+### `single_replica_load_download_num_workers`
+
+* Type: int32
+* Description: This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
+* Default value: 64
+
+### `slave_replica_writer_rpc_timeout_sec`
+
+* Type: int32
+* Description: This configuration is mainly used to modify timeout of brpc between master replica and slave replica, used for single replica load.
+* Default value: 60
+
 ### `sleep_one_second`
 
 + Type: int32
@@ -1165,16 +1201,16 @@ Shard size of StoragePageCache, the value must be power of two. It's recommended
 
 * Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, separate by ','
 
-    eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
-
-    * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
-    * 2./home/disk2/doris.SSD,1, indicates capacity limit is 1GB, SSD;
-    * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
+    eg.1: `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
+  
+    * 1./home/disk1/doris.HDD, indicates that the storage medium is HDD;
+    * 2./home/disk2/doris.SSD, indicates that the storage medium is SSD;
+    * 3./home/disk2/doris, indicates that the storage medium is HDD by default
     
-    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
     
-    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
-    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
+    * 1./home/disk1/doris,medium:hdd，indicates that the storage medium is HDD;
+    * 2./home/disk2/doris,medium:ssd，indicates that the storage medium is SSD;
 
 * Default: ${DORIS_HOME}
 

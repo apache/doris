@@ -42,10 +42,9 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.datasource.DataSourceIf;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.policy.Policy;
@@ -159,10 +158,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Env env = Env.getCurrentEnv();
-        List<DataSourceIf> dataSourceIfs = env.getDataSourceMgr().listCatalogs();
-        for (DataSourceIf ds : dataSourceIfs) {
-            List<String> dbNames = ds.getDbNames();
-            LOG.debug("get db names: {}, in data source: {}", dbNames, ds.getName());
+        List<CatalogIf> catalogIfs = env.getCatalogMgr().listCatalogs();
+        for (CatalogIf catalog : catalogIfs) {
+            List<String> dbNames = catalog.getDbNames();
+            LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
 
             UserIdentity currentUser = null;
             if (params.isSetCurrentUserIdent()) {
@@ -180,7 +179,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     continue;
                 }
 
-                catalogs.add(ds.getName());
+                catalogs.add(catalog.getName());
                 dbs.add(fullName);
             }
         }
@@ -213,14 +212,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        String catalog = Strings.isNullOrEmpty(params.catalog) ? InternalDataSource.INTERNAL_DS_NAME : params.catalog;
-        DatabaseIf<TableIf> db = Env.getCurrentEnv().getDataSourceMgr()
-                .getCatalogOrException(catalog, ds -> new TException("Unknown catalog " + ds)).getDbNullable(params.db);
+        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                : params.catalog;
+        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
+                .getDbNullable(params.db);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
-                if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, params.db,
-                        tableName, PrivPredicate.SHOW)) {
+                if (!Env.getCurrentEnv().getAuth()
+                        .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -257,13 +258,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
 
-        String catalogName = InternalDataSource.INTERNAL_DS_NAME;
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
         }
-        DataSourceIf ds = Env.getCurrentEnv().getDataSourceMgr().getCatalog(catalogName);
-        if (ds != null) {
-            DatabaseIf db = ds.getDbNullable(params.db);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog != null) {
+            DatabaseIf db = catalog.getDbNullable(params.db);
             if (db != null) {
                 List<TableIf> tables = null;
                 if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
@@ -394,14 +395,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, params.db,
-                params.getTableName(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAuth()
+                .checkTblPriv(currentUser, params.db, params.getTableName(), PrivPredicate.SHOW)) {
             return result;
         }
 
-        String catalog = Strings.isNullOrEmpty(params.catalog) ? InternalDataSource.INTERNAL_DS_NAME : params.catalog;
-        DatabaseIf<TableIf> db = Env.getCurrentEnv().getDataSourceMgr()
-                .getCatalogOrException(catalog, ds -> new TException("Unknown catalog " + ds)).getDbNullable(params.db);
+        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                : params.catalog;
+        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
+                .getDbNullable(params.db);
         if (db != null) {
             TableIf table = db.getTableNullable(params.getTableName());
             if (table != null) {
@@ -584,7 +587,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // check database
         Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = env.getInternalDataSource().getDbNullable(fullDbName);
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -596,7 +599,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
-        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
@@ -653,9 +655,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = env.getInternalDataSource().getDbNullable(request.getDbId());
+            db = env.getInternalCatalog().getDbNullable(request.getDbId());
         } else {
-            db = env.getInternalDataSource().getDbNullable(fullDbName);
+            db = env.getInternalCatalog().getDbNullable(fullDbName);
         }
         if (db == null) {
             String dbName = fullDbName;
@@ -711,7 +713,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // get database
         Env env = Env.getCurrentEnv();
-        Database database = env.getInternalDataSource().getDbNullable(fullDbName);
+        Database database = env.getInternalCatalog().getDbNullable(fullDbName);
         if (database == null) {
             throw new UserException("unknown database, database=" + fullDbName);
         }
@@ -789,9 +791,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = env.getInternalDataSource().getDbNullable(request.getDbId());
+            db = env.getInternalCatalog().getDbNullable(request.getDbId());
         } else {
-            db = env.getInternalDataSource().getDbNullable(fullDbName);
+            db = env.getInternalCatalog().getDbNullable(fullDbName);
         }
         if (db == null) {
             String dbName = fullDbName;
@@ -803,15 +805,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        boolean ret = Env.getCurrentGlobalTransactionMgr()
-                .commitAndPublishTransaction((Database) db, Lists.newArrayList(table), request.getTxnId(),
+        return Env.getCurrentGlobalTransactionMgr()
+                .commitAndPublishTransaction(db, Lists.newArrayList(table), request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                         TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
-        if (ret) {
-            // if commit and publish is success, load can be regarded as success
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-        }
-        return ret;
     }
 
     @Override
@@ -898,7 +895,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = env.getInternalDataSource().getDbNullable(fullDbName);
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -1053,7 +1050,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     result.addToResultEntrys(rEntry);
                 }
         );
-        if (policyList.size() == 0) {
+        if (!result.isSetResultEntrys()) {
             result.setResultEntrys(new ArrayList<>());
         }
 

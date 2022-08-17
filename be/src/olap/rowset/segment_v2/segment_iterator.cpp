@@ -41,9 +41,12 @@ namespace segment_v2 {
 // Example:
 //   input bitmap:  [0 1 4 5 6 7 10 15 16 17 18 19]
 //   output ranges: [0,2), [4,8), [10,11), [15,20) (when max_range_size=10)
-//   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
+//   output ranges: [0,2), [4,7), [7,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
+    BitmapRangeIterator() {}
+    virtual ~BitmapRangeIterator() = default;
+
     explicit BitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
         _read_next_batch();
@@ -53,7 +56,7 @@ public:
 
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
-    bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+    virtual bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) {
         if (_eof) {
             return false;
         }
@@ -104,11 +107,46 @@ private:
     bool _eof = false;
 };
 
+// A backward range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
+// Example:
+//   input bitmap:  [0 1 4 5 6 7 10 15 16 17 18 19]
+//   output ranges: , [15,20), [10,11), [4,8), [0,2) (when max_range_size=10)
+//   output ranges: [17,20), [15,17), [10,11), [5,8), [4, 5), [0,2) (when max_range_size=3)
+class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::BitmapRangeIterator {
+public:
+    explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {
+        roaring_init_iterator_last(&bitmap.roaring, &_riter);
+    }
+
+    bool has_more_range() const { return !_riter.has_value; }
+
+    // read next range into [*from, *to) whose size <= max_range_size.
+    // return false when there is no more range.
+    bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) override {
+        if (!_riter.has_value) {
+            return false;
+        }
+
+        uint32_t range_size = 0;
+        *to = _riter.current_value + 1;
+
+        do {
+            *from = _riter.current_value;
+            range_size++;
+            roaring_previous_uint32_iterator(&_riter);
+        } while (range_size < max_range_size && _riter.has_value &&
+                 _riter.current_value + 1 == *from);
+
+        return true;
+    }
+
+private:
+    roaring::api::roaring_uint32_iterator_t _riter;
+};
+
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema)
         : _segment(std::move(segment)),
           _schema(schema),
-          _column_iterators(_schema.num_columns(), nullptr),
-          _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _inited(false),
@@ -116,10 +154,10 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
-        delete iter;
+        delete iter.second;
     }
     for (auto iter : _bitmap_index_iterators) {
-        delete iter;
+        delete iter.second;
     }
 }
 
@@ -143,7 +181,7 @@ Status SegmentIterator::_init(bool is_vec) {
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
-    if (_segment->_tablet_schema.sort_type() != SortType::ZORDER) {
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -159,8 +197,15 @@ Status SegmentIterator::_init(bool is_vec) {
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
         _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
+        VLOG_DEBUG << "read on segment: " << segment_id() << ", delete bitmap cardinality: "
+                   << _opts.delete_bitmap[segment_id()]->cardinality() << ", "
+                   << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
     }
-    _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
+    } else {
+        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    }
     return Status::OK();
 }
 
@@ -195,7 +240,6 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     size_t pre_size = _row_bitmap.cardinality();
     _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
     _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
-    DorisMetrics::instance()->segment_rows_by_short_key->increment(_row_bitmap.cardinality());
 
     return Status::OK();
 }
@@ -223,13 +267,14 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
-        if (_column_iterators[cid] == nullptr) {
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid]));
+                                                          &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
 
@@ -257,21 +302,21 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 }
 
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
-    std::set<int32_t> cids;
+    std::set<int32_t> uids;
     if (_opts.conditions != nullptr) {
         for (auto& column_condition : _opts.conditions->columns()) {
-            cids.insert(column_condition.first);
+            uids.insert(column_condition.first);
         }
     }
 
     // first filter data by bloom filter index
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
-    for (auto& cid : cids) {
+    for (auto& uid : uids) {
         // get row ranges by bf index of this column,
         RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
-        CondColumn* column_cond = _opts.conditions->get_column(cid);
-        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
+        CondColumn* column_cond = _opts.conditions->get_column(uid);
+        RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_bloom_filter(
                 column_cond, &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
@@ -281,14 +326,14 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
     // second filter data by zone map
-    for (auto& cid : cids) {
+    for (auto& uid : uids) {
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
         CondColumn* column_cond = nullptr;
         if (_opts.conditions != nullptr) {
-            column_cond = _opts.conditions->get_column(cid);
+            column_cond = _opts.conditions->get_column(uid);
         }
-        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(column_cond, nullptr,
+        RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_zone_map(column_cond, nullptr,
                                                                            &column_row_ranges));
         // intersect different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
@@ -299,13 +344,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& delete_condition : _opts.delete_conditions) {
         RowRanges delete_condition_row_ranges = RowRanges::create_single(0);
         for (auto& delete_column_condition : delete_condition->columns()) {
-            const int32_t cid = delete_column_condition.first;
+            const int32_t uid = delete_column_condition.first;
             CondColumn* column_cond = nullptr;
             if (_opts.conditions != nullptr) {
-                column_cond = _opts.conditions->get_column(cid);
+                column_cond = _opts.conditions->get_column(uid);
             }
             RowRanges single_delete_condition_row_ranges = RowRanges::create_single(num_rows());
-            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
+            RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_zone_map(
                     column_cond, delete_column_condition.second,
                     &single_delete_condition_row_ranges));
             RowRanges::ranges_union(delete_condition_row_ranges, single_delete_condition_row_ranges,
@@ -315,7 +360,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                        &zone_map_row_ranges);
     }
 
-    DorisMetrics::instance()->segment_rows_read_by_zone_map->increment(zone_map_row_ranges.count());
     pre_size = condition_row_ranges->count();
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                    condition_row_ranges);
@@ -331,11 +375,13 @@ Status SegmentIterator::_apply_bitmap_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
 
     for (auto pred : _col_predicates) {
-        if (_bitmap_index_iterators[pred->column_id()] == nullptr) {
+        int32_t unique_id = _schema.unique_id(pred->column_id());
+        if (_bitmap_index_iterators.count(unique_id) < 1 ||
+            _bitmap_index_iterators[unique_id] == nullptr) {
             // no bitmap index for this column
             remaining_predicates.push_back(pred);
         } else {
-            RETURN_IF_ERROR(pred->evaluate(_schema, _bitmap_index_iterators, _segment->num_rows(),
+            RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
                                            &_row_bitmap));
             if (_row_bitmap.isEmpty()) {
                 break; // all rows have been pruned, no need to process further predicates
@@ -352,14 +398,15 @@ Status SegmentIterator::_init_return_column_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema.column_ids()) {
-        if (_column_iterators[cid] == nullptr) {
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid]));
+                                                          &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
     return Status::OK();
@@ -370,9 +417,10 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema.column_ids()) {
-        if (_bitmap_index_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
-                                                                &_bitmap_index_iterators[cid]));
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_bitmap_index_iterators.count(unique_id) < 1) {
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(
+                    _opts.tablet_schema->column(cid), &_bitmap_index_iterators[unique_id]));
         }
     }
     return Status::OK();
@@ -393,7 +441,7 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
 
 Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                         rowid_t* rowid) {
-    if (_segment->_tablet_schema.keys_type() == UNIQUE_KEYS &&
+    if (_segment->_tablet_schema->keys_type() == UNIQUE_KEYS &&
         _segment->get_primary_key_index() != nullptr) {
         return _lookup_ordinal_from_pk_index(key, is_include, rowid);
     }
@@ -415,7 +463,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     DCHECK(sk_index_decoder != nullptr);
 
     std::string index_key;
-    encode_key_with_padding(&index_key, key, _segment->_tablet_schema.num_short_key_columns(),
+    encode_key_with_padding(&index_key, key, _segment->_tablet_schema->num_short_key_columns(),
                             is_include);
 
     uint32_t start_block_id = 0;
@@ -467,13 +515,13 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
 
 Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include,
                                                       rowid_t* rowid) {
-    DCHECK(_segment->_tablet_schema.keys_type() == UNIQUE_KEYS);
+    DCHECK(_segment->_tablet_schema->keys_type() == UNIQUE_KEYS);
     const PrimaryKeyIndexReader* pk_index_reader = _segment->get_primary_key_index();
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
     encode_key_with_padding<RowCursor, true, true>(
-            &index_key, key, _segment->_tablet_schema.num_key_columns(), is_include);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
     bool exact_match = false;
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
@@ -543,7 +591,7 @@ void SegmentIterator::_init_lazy_materialization() {
 
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
     for (auto cid : column_ids) {
-        RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->seek_to_ordinal(pos));
     }
     return Status::OK();
 }
@@ -554,7 +602,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, R
         auto column_block = block->column_block(cid);
         ColumnBlockView dst(&column_block, row_offset);
         size_t rows_read = nrows;
-        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, &dst));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, &dst));
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
@@ -703,6 +751,16 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     std::set<ColumnId> del_cond_id_set;
     _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
 
+    std::set<const ColumnPredicate*> delete_predicate_set {};
+    _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
+    for (const auto predicate : delete_predicate_set) {
+        if (PredicateTypeTraits::is_range(predicate->type())) {
+            _delete_range_column_ids.push_back(predicate->column_id());
+        } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+            _delete_bloom_filter_column_ids.push_back(predicate->column_id());
+        }
+    }
+
     if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;
@@ -811,7 +869,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
         if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
             field_type == OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
-                   _column_iterators[cid]->is_all_dict_encoding();
+                   _column_iterators[_schema.unique_id(cid)]->is_all_dict_encoding();
         } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
             return false;
         }
@@ -838,7 +896,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     for (auto cid : column_ids) {
         auto& column = column_block[cid];
         size_t rows_read = nrows;
-        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, column));
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
@@ -863,10 +921,6 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
-                current_columns[cid]->set_date_v2_type();
-            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIMEV2) {
-                current_columns[cid]->set_datetime_v2_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
@@ -917,7 +971,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         } else {
             nrows_read += rows_to_read;
         }
-    } while (nrows_read < nrows_read_limit);
+        // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
+    } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
     return Status::OK();
 }
 
@@ -1003,16 +1058,15 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
 
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
-                                                uint16_t* sel_rowid_idx, size_t select_size,
-                                                vectorized::MutableColumns* mutable_columns) {
+                                                uint16_t* sel_rowid_idx, size_t select_size) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
     for (size_t i = 0; i < select_size; ++i) {
         rowids[i] = rowid_vector[sel_rowid_idx[i]];
     }
     for (auto cid : read_column_ids) {
-        auto& column = (*mutable_columns)[cid];
-        RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size, column));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_rowids(
+                rowids.data(), select_size, _current_return_columns[cid]));
     }
 
     return Status::OK();
@@ -1119,8 +1173,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
         // step3: read non_predicate column
         RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                sel_rowid_idx, selected_size,
-                                                &_current_return_columns));
+                                                sel_rowid_idx, selected_size));
 
         // step4: output columns
         // 4.1 output non-predicate column
@@ -1140,7 +1193,49 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
         _update_max_row(block);
     }
+
+    // reverse block row order
+    if (_opts.read_orderby_key_reverse) {
+        size_t num_rows = block->rows();
+        size_t num_columns = block->columns();
+        vectorized::IColumn::Permutation permutation;
+        for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
+
+        for (size_t i = 0; i < num_columns; ++i)
+            block->get_by_position(i).column =
+                    block->get_by_position(i).column->permute(permutation, num_rows);
+    }
+
     return Status::OK();
+}
+
+void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
+    for (auto predicate : _short_cir_eval_predicate) {
+        _convert_dict_code_for_predicate_if_necessary_impl(predicate);
+    }
+
+    for (auto predicate : _pre_eval_block_predicate) {
+        _convert_dict_code_for_predicate_if_necessary_impl(predicate);
+    }
+
+    for (auto column_id : _delete_range_column_ids) {
+        _current_return_columns[column_id].get()->convert_dict_codes_if_necessary();
+    }
+
+    for (auto column_id : _delete_bloom_filter_column_ids) {
+        _current_return_columns[column_id].get()->generate_hash_values_for_runtime_filter();
+    }
+}
+
+void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
+        ColumnPredicate* predicate) {
+    auto& column = _current_return_columns[predicate->column_id()];
+    auto* col_ptr = column.get();
+    if (PredicateTypeTraits::is_range(predicate->type())) {
+        col_ptr->convert_dict_codes_if_necessary();
+    } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
+        col_ptr->generate_hash_values_for_runtime_filter();
+    }
 }
 
 void SegmentIterator::_update_max_row(const vectorized::Block* block) {

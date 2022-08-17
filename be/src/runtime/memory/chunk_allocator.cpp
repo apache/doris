@@ -67,6 +67,8 @@ ChunkAllocator* ChunkAllocator::instance() {
 // Keep free chunk's ptr in size separated free list.
 // This class is thread-safe.
 class ChunkArena {
+    int TRY_LOCK_TIMES = 3;
+
 public:
     ChunkArena() : _chunk_lists(64) {}
 
@@ -86,14 +88,23 @@ public:
         int idx = BitUtil::Log2Ceiling64(size);
         auto& free_list = _chunk_lists[idx];
 
-        std::lock_guard<SpinLock> l(_lock);
-        if (free_list.empty()) {
-            return false;
+        if (free_list.empty()) return false;
+
+        for (int i = 0; i < TRY_LOCK_TIMES; ++i) {
+            if (_lock.try_lock()) {
+                if (free_list.empty()) {
+                    _lock.unlock();
+                    return false;
+                } else {
+                    *ptr = free_list.back();
+                    free_list.pop_back();
+                    ASAN_UNPOISON_MEMORY_REGION(*ptr, size);
+                    _lock.unlock();
+                    return true;
+                }
+            }
         }
-        *ptr = free_list.back();
-        free_list.pop_back();
-        ASAN_UNPOISON_MEMORY_REGION(*ptr, size);
-        return true;
+        return false;
     }
 
     void push_free_chunk(uint8_t* ptr, size_t size) {
@@ -136,7 +147,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 }
 
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
-    DCHECK(BitUtil::RoundUpToPowerOfTwo(size) == size);
+    CHECK((size > 0 && (size & (size - 1)) == 0));
 
     // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
@@ -187,6 +198,8 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 
 void ChunkAllocator::free(const Chunk& chunk) {
     DCHECK(chunk.core_id != -1);
+    CHECK((chunk.size & (chunk.size - 1)) == 0);
+
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {

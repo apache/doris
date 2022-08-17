@@ -1513,7 +1513,7 @@ This projects includes binary packages with the following licenses (BE part):
 The Apache Software License, Version 2.0
     * thrift: 0.13
     * flatbuffers: 2.0.0
-    * brpc: 1.0.0
+    * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
     * S2: 0.9.0
@@ -1557,7 +1557,7 @@ Other dependencies:
     * vectorscan: 5.4.7 -- license/LICENSE-vectorscan.txt
     * boost: 1.73.0 -- license/LICENSE-boost.txt
     * unixodbc: 2.3.7 -- license/LICENSE-unixodbc.txt
-    * leveldb: 1.20 -- license/LICENSE-leveldb.txt
+    * leveldb: 1.23 -- license/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
     * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
     * zstd: 1.5.0 -- license/LICENSE-zstd.txt

@@ -45,7 +45,7 @@ Status VIntersectNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VIntersectNode::open");
     RETURN_IF_ERROR(VSetOperationNode::open(state));
     bool eos = false;
-    Status st;
+    Status st = Status::OK();
 
     for (int i = 1; i < _children.size(); ++i) {
         if (i > 1) {

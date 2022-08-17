@@ -52,7 +52,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class LoadSubmitter {
     private static final Logger LOG = LogManager.getLogger(LoadSubmitter.class);
 
-    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "Load submitter", true);
+    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "load-submitter", true);
 
     private static final String STREAM_LOAD_URL_PATTERN = "http://%s:%d/api/%s/%s/_stream_load";
 

@@ -29,8 +29,9 @@ ThreadContextPtr::ThreadContextPtr() {
     _init = true;
 }
 
-AttachTask::AttachTask(MemTrackerLimiter* mem_tracker, const ThreadContext::TaskType& type,
-                       const std::string& task_id, const TUniqueId& fragment_instance_id) {
+AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                       const ThreadContext::TaskType& type, const std::string& task_id,
+                       const TUniqueId& fragment_instance_id) {
     DCHECK(mem_tracker);
 #ifdef USE_MEM_TRACKER
     thread_context()->attach_task(type, task_id, fragment_instance_id, mem_tracker);
@@ -75,24 +76,6 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
 #endif // NDEBUG
         thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
     }
-#endif // USE_MEM_TRACKER
-}
-
-UpdateMemExceedCallBack::UpdateMemExceedCallBack(const std::string& cancel_msg, bool cancel_task,
-                                                 ExceedCallBack cb_func) {
-#ifdef USE_MEM_TRACKER
-    DCHECK(cancel_msg != std::string());
-    _old_cb = thread_context()->_thread_mem_tracker_mgr->update_exceed_call_back(
-            cancel_msg, cancel_task, cb_func);
-#endif
-}
-
-UpdateMemExceedCallBack::~UpdateMemExceedCallBack() {
-#ifdef USE_MEM_TRACKER
-    thread_context()->_thread_mem_tracker_mgr->update_exceed_call_back(_old_cb);
-#ifndef NDEBUG
-    DorisMetrics::instance()->thread_mem_tracker_exceed_call_back_count->increment(1);
-#endif
 #endif // USE_MEM_TRACKER
 }
 

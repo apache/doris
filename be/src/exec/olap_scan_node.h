@@ -158,7 +158,6 @@ protected:
                                                          int conj_idx, int child_idx);
 
     friend class OlapScanner;
-    friend class vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -205,6 +204,8 @@ protected:
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
     ObjectPool _scanner_pool;
+
+    size_t _batch_size = 0;
 
     std::shared_ptr<std::thread> _transfer_thread;
 

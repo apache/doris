@@ -17,12 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -33,19 +29,8 @@ import java.util.stream.Collectors;
  */
 public class ExpressionRuleExecutor {
 
-    public static final List<ExpressionRewriteRule> REWRITE_RULES = ImmutableList.of(
-        new BetweenToCompoundRule(),
-        new SimplifyNotExprRule(),
-        new NormalizeBinaryPredicatesRule()
-    );
-
     private final ExpressionRewriteContext ctx;
     private final List<ExpressionRewriteRule> rules;
-
-    public ExpressionRuleExecutor() {
-        this.rules = REWRITE_RULES;
-        this.ctx = new ExpressionRewriteContext();
-    }
 
     public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
         this.rules = rules;

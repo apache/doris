@@ -112,7 +112,7 @@ Status StorageEngine::start_bg_threads() {
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
                     [this, data_dir]() {
-                        SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+                        SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
                         this->_path_scan_thread_callback(data_dir);
                     },
                     &path_scan_thread));
@@ -122,7 +122,7 @@ Status StorageEngine::start_bg_threads() {
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
                     [this, data_dir]() {
-                        SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+                        SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
                         this->_path_gc_thread_callback(data_dir);
                     },
                     &path_gc_thread));
@@ -523,11 +523,17 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policy);
-            if (tablet != nullptr) {
+            if (tablet != nullptr &&
+                !tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                 if (need_pick_tablet) {
                     tablets_compaction.emplace_back(tablet);
                 }
                 max_compaction_score = std::max(max_compaction_score, disk_max_score);
+            } else if (tablet != nullptr &&
+                       tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                LOG(INFO) << "Tablet " << tablet->full_name()
+                          << " will be ignored by automatic compaction tasks since it's set to "
+                          << "disabled automatic compaction.";
             }
         }
     }

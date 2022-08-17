@@ -22,6 +22,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/metrics.h"
 
@@ -57,14 +58,14 @@ public:
     int64_t replica_id() const;
     int32_t schema_hash() const;
     int16_t shard_id() const;
-    bool equal(int64_t tablet_id, int32_t schema_hash);
+    bool equal(int64_t tablet_id, int32_t schema_hash) const;
 
     const std::string& storage_policy() const { return _tablet_meta->storage_policy(); }
 
     void set_storage_policy(const std::string& policy) { _tablet_meta->set_storage_policy(policy); }
 
     // properties encapsulated in TabletSchema
-    virtual const TabletSchema& tablet_schema() const;
+    virtual TabletSchemaSPtr tablet_schema() const;
 
     bool set_tablet_schema_into_rowset_meta();
 
@@ -74,7 +75,7 @@ protected:
 protected:
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
-    const TabletSchema& _schema;
+    TabletSchemaSPtr _schema;
 
     DataDir* _data_dir;
     std::string _tablet_path;
@@ -141,11 +142,11 @@ inline int16_t BaseTablet::shard_id() const {
     return _tablet_meta->shard_id();
 }
 
-inline bool BaseTablet::equal(int64_t id, int32_t hash) {
+inline bool BaseTablet::equal(int64_t id, int32_t hash) const {
     return (tablet_id() == id) && (schema_hash() == hash);
 }
 
-inline const TabletSchema& BaseTablet::tablet_schema() const {
+inline TabletSchemaSPtr BaseTablet::tablet_schema() const {
     return _schema;
 }
 

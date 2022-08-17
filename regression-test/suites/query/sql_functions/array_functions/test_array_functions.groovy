@@ -18,7 +18,7 @@
 suite("test_array_functions", "query") {
     def tableName = "tbl_test_array_functions"
     // open enable_array_type
-    sql """ set enable_array_type = true """
+    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
 
@@ -51,9 +51,11 @@ suite("test_array_functions", "query") {
     qt_select "SELECT k1, array_distinct(k2), array_distinct(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT array_remove(k2, k1), k1 FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_sort(k2), array_sort(k3), array_sort(k4) FROM ${tableName} ORDER BY k1"
-    qt_select "select k1, array_union(k2, k4) FROM ${tableName} ORDER BY k1"
-    qt_select "select k1, array_except(k2, k4) FROM ${tableName} ORDER BY k1"
-    qt_select "select k1, array_intersect(k2, k4) FROM ${tableName} ORDER BY k1"
-    qt_select "select k1, array_slice(k2, 2) FROM ${tableName} ORDER BY k1"
-    qt_select "select k1, array_slice(k2, 1, 2) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_union(k2, k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_except(k2, k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_intersect(k2, k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_slice(k2, 2) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_slice(k2, 1, 2) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, reverse(k2), reverse(k3), reverse(k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_join(k2, '_', 'null'), array_join(k3, '-', 'null') FROM ${tableName} ORDER BY k1"
 }

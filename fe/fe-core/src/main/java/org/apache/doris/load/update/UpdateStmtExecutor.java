@@ -35,7 +35,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.FrontendOptions;
@@ -128,7 +127,6 @@ public class UpdateStmtExecutor {
     private void beginTxn() throws LabelAlreadyUsedException, AnalysisException, BeginTransactionException,
             DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
         LOG.info("begin transaction for update stmt, query id:{}", DebugUtil.printId(queryId));
-        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         label = "update_" + DebugUtil.printId(queryId);
         txnId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(targetTable.getId()), label,
@@ -199,7 +197,6 @@ public class UpdateStmtExecutor {
         if (isPublished) {
             // situation2.2: publish successful
             txnStatus = TransactionStatus.VISIBLE;
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
         } else {
             // situation2.3: be published later
             txnStatus = TransactionStatus.COMMITTED;

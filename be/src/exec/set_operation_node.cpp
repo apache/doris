@@ -19,6 +19,7 @@
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -57,7 +58,9 @@ Status SetOperationNode::prepare(RuntimeState* state) {
 
     for (int i = 0; i < _build_tuple_size; ++i) {
         TupleDescriptor* build_tuple_desc = child(0)->row_desc().tuple_descriptors()[i];
-        _build_tuple_idx.push_back(_row_descriptor.get_tuple_idx(build_tuple_desc->id()));
+        auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
+        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
+        _build_tuple_idx.push_back(tuple_idx);
     }
     _find_nulls = std::vector<bool>();
     for (auto ctx : _child_expr_lists[0]) {
@@ -136,7 +139,6 @@ Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("SetOperation, while constructing the hash table.");
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
     for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {

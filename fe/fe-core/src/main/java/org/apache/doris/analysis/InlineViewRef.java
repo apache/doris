@@ -185,7 +185,7 @@ public class InlineViewRef extends TableRef {
 
         // Analyze the inline view query statement with its own analyzer
         inlineViewAnalyzer = new Analyzer(analyzer);
-
+        inlineViewAnalyzer.setInlineView(true);
         queryStmt.analyze(inlineViewAnalyzer);
         correlatedTupleIds.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
@@ -206,7 +206,6 @@ public class InlineViewRef extends TableRef {
             desc.setIsMaterialized(true);
             materializedTupleIds.add(desc.getId());
         }
-
         // create sMap and baseTblSmap and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
@@ -222,6 +221,7 @@ public class InlineViewRef extends TableRef {
             String colName = getColLabels().get(i);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
             Expr colExpr = queryStmt.getResultExprs().get(i);
+            slotDesc.setSourceExpr(colExpr);
             SlotRef slotRef = new SlotRef(slotDesc);
             sMap.put(slotRef, colExpr);
             baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));

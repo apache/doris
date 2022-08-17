@@ -29,6 +29,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -69,6 +70,7 @@ class DataDir;
 class TabletMeta;
 class DeleteBitmap;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
+using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
@@ -144,7 +146,7 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    const TabletSchema& tablet_schema() const;
+    TabletSchemaSPtr tablet_schema() const;
 
     TabletSchema* mutable_tablet_schema();
 
@@ -159,6 +161,7 @@ public:
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -203,6 +206,9 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
+
+    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
+                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -272,7 +278,7 @@ class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
     using SegmentId = uint32_t;
-    using Version = uint32_t;
+    using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
 
@@ -298,6 +304,12 @@ public:
      * process
      */
     DeleteBitmap snapshot() const;
+
+    /**
+     * Makes a snapshot of delete bimap on given version, read lock will be
+     * acquired temporary in this process
+     */
+    DeleteBitmap snapshot(Version version) const;
 
     /**
      * Marks the specific row deleted
@@ -326,7 +338,7 @@ public:
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
-     * @return 0 if the insertion took place, 1 if the assignment took place
+     * @return 1 if the insertion took place, 0 if the assignment took place
      */
     int set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
 
@@ -515,8 +527,8 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return *_schema;
+inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+    return _schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {

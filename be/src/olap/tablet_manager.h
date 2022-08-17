@@ -78,6 +78,8 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
+    std::vector<TabletSharedPtr> get_all_tablet();
+
     // Extract tablet_id and schema_hash from given path.
     //
     // The normal path pattern is like "/data/{shard_id}/{tablet_id}/{schema_hash}/xxx.data".
@@ -137,6 +139,8 @@ public:
     void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
+
+    std::set<int64_t> check_all_tablet_segment(bool repair);
 
 private:
     // Add a tablet pointer to StorageEngine

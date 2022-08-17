@@ -40,7 +40,7 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, DataDir* data_dir,
+                             TabletSchemaSPtr tablet_schema, DataDir* data_dir,
                              uint32_t max_row_per_segment, const SegmentWriterOptions& opts)
         : _segment_id(segment_id),
           _tablet_schema(tablet_schema),
@@ -50,7 +50,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _file_writer(file_writer),
           _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
                                                     std::to_string(segment_id))),
-          _olap_data_convertor(tablet_schema) {
+          _olap_data_convertor(tablet_schema.get()) {
     CHECK_NOTNULL(file_writer);
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         _num_key_columns = _tablet_schema->num_key_columns();
@@ -62,6 +62,12 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
         _key_coders.push_back(get_key_coder(column.type()));
         _key_index_size.push_back(column.index_length());
     }
+    // encode the sequence id into the primary key index
+    if (_tablet_schema->has_sequence_col() && _tablet_schema->keys_type() == UNIQUE_KEYS &&
+        _opts.enable_unique_key_merge_on_write) {
+        const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
+        _key_coders.push_back(get_key_coder(column.type()));
+    }
 }
 
 SegmentWriter::~SegmentWriter() {
@@ -69,8 +75,7 @@ SegmentWriter::~SegmentWriter() {
 }
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                     const TabletColumn& column,
-                                     const TabletSchema* tablet_schema) {
+                                     const TabletColumn& column, TabletSchemaSPtr tablet_schema) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
@@ -117,7 +122,12 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
 
     // we don't need the short key index for unique key merge on write table.
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
-        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer));
+        size_t seq_col_length = 0;
+        if (_tablet_schema->has_sequence_col()) {
+            seq_col_length =
+                    _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
+        }
+        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
         RETURN_IF_ERROR(_primary_key_index_builder->init());
     } else {
         _short_key_index_builder.reset(
@@ -153,7 +163,9 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         if (converted_result.first != Status::OK()) {
             return converted_result.first;
         }
-        if (cid < _num_key_columns) {
+        if (cid < _num_key_columns ||
+            (_tablet_schema->has_sequence_col() && _tablet_schema->keys_type() == UNIQUE_KEYS &&
+             _opts.enable_unique_key_merge_on_write && cid == _tablet_schema->sequence_col_idx())) {
             key_columns.push_back(converted_result.second);
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
@@ -192,8 +204,15 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 std::string SegmentWriter::_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
-    assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns &&
-           _key_index_size.size() == _num_key_columns);
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write &&
+        _tablet_schema->has_sequence_col()) {
+        assert(key_columns.size() == _num_key_columns + 1 &&
+               _key_coders.size() == _num_key_columns + 1 &&
+               _key_index_size.size() == _num_key_columns);
+    } else {
+        assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns &&
+               _key_index_size.size() == _num_key_columns);
+    }
 
     std::string encoded_keys;
     size_t cid = 0;
@@ -228,6 +247,12 @@ Status SegmentWriter::append_row(const RowType& row) {
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         std::string encoded_key;
         encode_key<RowType, true, true>(&encoded_key, row, _num_key_columns);
+        if (_tablet_schema->has_sequence_col()) {
+            encoded_key.push_back(KEY_NORMAL_MARKER);
+            auto cid = _tablet_schema->sequence_col_idx();
+            auto cell = row.cell(cid);
+            row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+        }
         RETURN_IF_ERROR(_primary_key_index_builder->add_item(encoded_key));
     } else {
         // At the beginning of one block, so add a short key index entry

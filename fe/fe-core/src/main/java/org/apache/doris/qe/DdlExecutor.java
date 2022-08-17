@@ -33,6 +33,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
@@ -47,6 +48,7 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
@@ -55,6 +57,7 @@ import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
@@ -92,7 +95,9 @@ import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
@@ -112,7 +117,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.sync.SyncJobManager;
 
+/**
+ * Use for execute ddl.
+ **/
 public class DdlExecutor {
+    /**
+     * Execute ddl.
+     **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
@@ -147,8 +158,8 @@ public class DdlExecutor {
             env.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
-            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateMultiTableMaterializedViewStmt) {
+            env.createMultiTableMaterializedView((CreateMultiTableMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStatsStmt) {
@@ -308,13 +319,23 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterPolicyStmt) {
             env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
-            env.getDataSourceMgr().createCatalog((CreateCatalogStmt) ddlStmt);
+            env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
-            env.getDataSourceMgr().dropCatalog((DropCatalogStmt) ddlStmt);
+            env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogNameStmt) {
-            env.getDataSourceMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
+            env.getCatalogMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
-            env.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
+            env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CleanLabelStmt) {
+            env.getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterMaterializedViewStmt) {
+            env.alterMaterializedView((AlterMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
+            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshMaterializedViewStmt) {
+            env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshCatalogStmt) {
+            env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

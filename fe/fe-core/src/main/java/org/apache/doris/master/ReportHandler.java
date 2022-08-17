@@ -110,7 +110,7 @@ public class ReportHandler extends Daemon {
                 return (long) reportQueue.size();
             }
         };
-        MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     public TMasterResult handleReport(TReportRequest request) throws TException {
@@ -607,7 +607,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getPartitionInfo().getTabletType(partitionId),
                                             null,
                                             olapTable.getCompressionType(),
-                                            olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy());
+                                            olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
+                                            olapTable.disableAutoCompaction());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);

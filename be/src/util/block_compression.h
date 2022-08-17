@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/parquet_types.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "util/slice.h"
 
@@ -68,6 +69,9 @@ public:
 //
 // Return not OK, if error happens.
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
+                                   std::unique_ptr<BlockCompressionCodec>& codec);
+
+Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
                                    std::unique_ptr<BlockCompressionCodec>& codec);
 
 } // namespace doris

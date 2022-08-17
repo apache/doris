@@ -65,6 +65,26 @@ struct JsonPath {
         return ss.str();
     }
 
+    std::string to_simdjson_pointer(bool* valid) const {
+        std::stringstream ss;
+        if (!is_valid) {
+            *valid = false;
+            return "";
+        }
+        ss << "/";
+        if (!key.empty()) {
+            ss << key;
+        }
+        if (idx == -2) {
+            // not support [*]
+            *valid = false;
+            return "";
+        } else if (idx > -1) {
+            ss << "/" << idx;
+        }
+        return ss.str();
+    }
+
     std::string debug_string() const {
         return fmt::format("key:{}, idx:{}, valid:{}", key, idx, is_valid);
     }
