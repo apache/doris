@@ -258,20 +258,20 @@ public class EsUtil {
         }
         TExprOpcode opCode = expr.getOpcode();
         String column;
+        Expr leftExpr = expr.getChild(0);
         // Type transformed cast can not pushdown
-        if (expr.getChild(0) instanceof CastExpr) {
-            Expr withoutCastExpr = exprWithoutCast(expr.getChild(0));
+        if (leftExpr instanceof CastExpr) {
+            Expr withoutCastExpr = exprWithoutCast(leftExpr);
             // pushdown col(float) >= 3
-            if (withoutCastExpr.getType().equals(expr.getChild(0).getType()) || (
-                    withoutCastExpr.getType().isFloatingPointType() && expr.getChild(0).getType()
-                            .isFloatingPointType())) {
+            if (withoutCastExpr.getType().equals(leftExpr.getType()) || (withoutCastExpr.getType().isFloatingPointType()
+                    && leftExpr.getType().isFloatingPointType())) {
                 column = ((SlotRef) withoutCastExpr).getColumnName();
             } else {
                 notPushDownList.add(expr);
                 return null;
             }
         } else {
-            column = ((SlotRef) expr.getChild(0)).getColumnName();
+            column = ((SlotRef) leftExpr).getColumnName();
         }
         if (expr instanceof BinaryPredicate) {
             Object value = toDorisLiteral(expr.getChild(1));
