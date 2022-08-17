@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
@@ -545,15 +547,29 @@ public abstract class Type {
     }
 
     /**
-     * Returns null if this expr is not instance of StringLiteral or StringLiteral
-     * inner value could not parse to long. otherwise return parsed Long result.
+     * Returns true if expr is StringLiteral and can parse to valid BigInt, false otherwise.
      */
-    public static Long tryParseToLong(Expr expectStringExpr) {
-        if (expectStringExpr instanceof StringLiteral) {
-            String value = ((StringLiteral) expectStringExpr).getValue();
-            return Longs.tryParse(value);
+    public static boolean canParseToBigInt(Expr expr) {
+        if (expr instanceof StringLiteral) {
+            String value = ((StringLiteral) expr).getValue();
+            return Longs.tryParse(value) != null;
         }
-        return null;
+        return false;
+    }
+
+    /**
+     * Returns true if expr is StringLiteral and can parse to valid LargeInt, false otherwise.
+     */
+    public static boolean canParseToLargeInt(Expr expr) {
+        if (expr instanceof StringLiteral) {
+            try {
+                new LargeIntLiteral(((StringLiteral) expr).getValue());
+            } catch (AnalysisException e) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     /**

@@ -376,22 +376,19 @@ public class BinaryPredicate extends Predicate implements Writable {
         // When int column compares with string, Mysql will convert string to int.
         // So it is also compatible with Mysql.
 
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) {
-            Expr rightChild = getChild(1);
-            Long parsedLong = Type.tryParseToLong(rightChild);
-            if (parsedLong != null) {
+        if (t1.isStringType() || t2.isStringType()) {
+            if (t1 == PrimitiveType.BIGINT && Type.canParseToBigInt(getChild(1))
+                    || t2 == PrimitiveType.BIGINT && Type.canParseToBigInt(getChild(0))) {
                 return Type.BIGINT;
             }
-        }
-        if ((t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
-            Expr leftChild = getChild(0);
-            Long parsedLong = Type.tryParseToLong(leftChild);
-            if (parsedLong != null) {
-                return Type.BIGINT;
+
+            if (t1 == PrimitiveType.LARGEINT && Type.canParseToLargeInt(getChild(1))
+                    || t2 == PrimitiveType.LARGEINT && Type.canParseToLargeInt(getChild(0))) {
+                return Type.LARGEINT;
             }
         }
 
-        return Type.VARCHAR;
+        return Type.DOUBLE;
     }
 
     @Override
