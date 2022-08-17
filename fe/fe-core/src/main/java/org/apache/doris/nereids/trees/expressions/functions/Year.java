@@ -37,6 +37,7 @@ import java.util.List;
  */
 public class Year extends BoundFunction implements UnaryExpression, ImplicitCastInputTypes {
 
+    // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
             new TypeCollection(DateType.INSTANCE, DateTimeType.INSTANCE)
     );

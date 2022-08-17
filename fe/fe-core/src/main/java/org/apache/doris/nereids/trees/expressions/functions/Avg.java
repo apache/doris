@@ -38,6 +38,7 @@ import java.util.List;
 /** avg agg function. */
 public class Avg extends AggregateFunction implements UnaryExpression, ImplicitCastInputTypes {
 
+    // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
             new TypeCollection(NumericType.INSTANCE, DateTimeType.INSTANCE, DateType.INSTANCE)
     );
@@ -49,8 +50,7 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
     @Override
     public DataType getDataType() {
         if (child().getDataType() instanceof DecimalType) {
-            DecimalType childType = (DecimalType) child().getDataType();
-            return DecimalType.createDecimalType(childType.getPrecision(), childType.getScale());
+            return child().getDataType();
         } else if (child().getDataType().isDate()) {
             return DateType.INSTANCE;
         } else if (child().getDataType().isDateTime()) {

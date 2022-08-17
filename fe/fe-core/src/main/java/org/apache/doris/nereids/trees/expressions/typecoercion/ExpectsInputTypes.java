@@ -24,11 +24,12 @@ import java.util.List;
 /**
  * An interface to define the expected input types of an expression.
  *
- * This trait is typically used by operator expressions (e.g. {@link org.apache.doris.nereids.trees.expressions.Add})
+ * This interface is typically used by operator expressions
+ * (e.g. {@link org.apache.doris.nereids.trees.expressions.Add})
  * to define expected input types without any implicit casting.
  *
- * Most function expressions (e.g. {@link org.apache.doris.nereids.trees.expressions.functions.Substring} should extend
- * {@link ImplicitCastInputTypes}) instead.
+ * Most function expressions (e.g. {@link org.apache.doris.nereids.trees.expressions.functions.Substring}
+ * should extend {@link ImplicitCastInputTypes}) instead.
  */
 public interface ExpectsInputTypes {
 

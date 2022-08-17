@@ -36,6 +36,7 @@ import java.util.List;
 /** sum agg function. */
 public class Sum extends AggregateFunction implements UnaryExpression, ImplicitCastInputTypes {
 
+    // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(NumericType.INSTANCE);
 
     public Sum(Expression child) {

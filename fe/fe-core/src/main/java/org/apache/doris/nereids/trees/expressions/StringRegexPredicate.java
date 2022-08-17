@@ -37,6 +37,7 @@ import java.util.Objects;
  */
 public abstract class StringRegexPredicate extends Expression implements BinaryExpression, ImplicitCastInputTypes {
 
+    // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
             TypeCollection.CHARACTER_TYPE_COLLECTION,
             TypeCollection.CHARACTER_TYPE_COLLECTION

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -30,13 +29,14 @@ import java.util.Objects;
 /**
  * In predicate expression.
  */
-public class InSubquery extends SubqueryExpr implements BinaryExpression {
+public class InSubquery extends SubqueryExpr {
+
     private final Expression compareExpr;
     private final ListQuery listQuery;
 
     public InSubquery(Expression compareExpression, ListQuery listQuery) {
         super(Objects.requireNonNull(listQuery.getQueryPlan(), "subquery can not be null"));
-        this.compareExpr = compareExpression;
+        this.compareExpr = Objects.requireNonNull(compareExpression);
         this.listQuery = listQuery;
     }
 
@@ -71,7 +71,6 @@ public class InSubquery extends SubqueryExpr implements BinaryExpression {
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        Preconditions.checkArgument(children.get(0) != null);
         Preconditions.checkArgument(children.get(1) instanceof ListQuery);
         return new InSubquery(children.get(0), (ListQuery) children.get(1));
     }
