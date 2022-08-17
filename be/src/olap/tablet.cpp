@@ -1879,7 +1879,12 @@ TabletSchemaSPtr Tablet::tablet_schema() const {
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
                               RowLocation* row_location, uint32_t version) {
     std::vector<std::pair<RowsetSharedPtr, int32_t>> selected_rs;
-    _rowset_tree->FindRowsetsWithKeyInRange(encoded_key, rowset_ids, &selected_rs);
+    size_t seq_col_length = 0;
+    if (_schema->has_sequence_col()) {
+        seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+    }
+    Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
+    _rowset_tree->FindRowsetsWithKeyInRange(key_without_seq, rowset_ids, &selected_rs);
     if (selected_rs.empty()) {
         return Status::NotFound("No rowsets contains the key in key range");
     }
@@ -1912,6 +1917,11 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
         loc.rowset_id = rs.first->rowset_id();
         if (version >= 0 && _tablet_meta->delete_bitmap().contains_agg(
                                     {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+            // if has sequence col, we continue to compare the sequence_id of
+            // all rowsets, util we find an existing key.
+            if (_schema->has_sequence_col()) {
+                continue;
+            }
             // The key is deleted, we don't need to search for it any more.
             break;
         }
@@ -1944,6 +1954,7 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
         auto pk_idx = seg->get_primary_key_index();
         int cnt = 0;
         int total = pk_idx->num_rows();
+        uint32_t row_id = 0;
         int32_t remaining = total;
         bool exact_match = false;
         std::string last_key;
@@ -1984,9 +1995,18 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 }
                 RowLocation loc;
                 auto st = lookup_row_key(*key, specified_rowset_ids, &loc, dummy_version.first - 1);
-                CHECK(st.ok() || st.is_not_found());
+                CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
                 if (st.is_not_found()) continue;
+
+                // sequece id smaller than the previous one, so delelte current row
+                if (st.is_already_exist()) {
+                    loc.rowset_id = rowset_id;
+                    loc.segment_id = seg->id();
+                    loc.row_id = row_id;
+                }
+
                 ++cnt;
+                ++row_id;
                 delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
                                    loc.row_id);
             }
