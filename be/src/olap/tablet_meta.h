@@ -146,7 +146,7 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    const TabletSchema& tablet_schema() const;
+    TabletSchemaSPtr tablet_schema() const;
 
     TabletSchema* mutable_tablet_schema();
 
@@ -527,8 +527,8 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return *_schema;
+inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+    return _schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {
