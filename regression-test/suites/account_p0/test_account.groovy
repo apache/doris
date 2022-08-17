@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_account", "account") {
+suite("test_account") {
     // todo: test account management, such as role, user, grant, revoke ...
     sql "show roles"
 }
