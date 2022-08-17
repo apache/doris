@@ -150,6 +150,10 @@ public:
     ColumnWithTypeAndName& get_by_name(const std::string& name);
     const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
 
+    // return nullptr when no such column name
+    ColumnWithTypeAndName* try_get_by_name(const std::string& name);
+    const ColumnWithTypeAndName* try_get_by_name(const std::string& name) const;
+
     Container::iterator begin() { return data.begin(); }
     Container::iterator end() { return data.end(); }
     Container::const_iterator begin() const { return data.begin(); }
@@ -289,6 +293,24 @@ public:
         DCHECK_LE(n, rows());
         DCHECK_LE(m, rhs.rows());
         for (size_t i = 0; i < num_columns; ++i) {
+            DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
+            auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
+                                                             nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
+    int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
+                   const Block& rhs, int nan_direction_hint) const {
+        DCHECK_GE(columns(), compare_columns->size());
+        DCHECK_GE(rhs.columns(), compare_columns->size());
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (auto i : *compare_columns) {
             DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
             auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
                                                              nan_direction_hint);

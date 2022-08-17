@@ -46,9 +46,18 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testSqlAnd() {
+    public void testInPredicate() throws Exception {
+        String in = "select * from test1 where d1 in (1, 2, 3)";
+        assertSql(in);
+
+        String inExpr = "c IN (a, b)";
+        assertExpr(inExpr);
+    }
+
+    @Test
+    public void testSqlAnd() throws Exception {
         String sql = "select * from test1 where a > 1 and b > 1";
-        PARSER.parseSingle(sql);
+        assertSql(sql);
     }
 
     @Test
@@ -106,6 +115,12 @@ public class ExpressionParserTest {
 
         String substring = "select substr(a, 1, 2), substring(b ,3 ,4) from test1";
         assertSql(substring);
+
+        String count = "select count(*), count(b) from test1";
+        assertSql(count);
+
+        String min = "select min(a), min(b) as m from test1";
+        assertSql(min);
     }
 
     @Test

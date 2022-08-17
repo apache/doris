@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
+#include "vec/columns/column_complex.h"
 #include "vec/common/exception.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -31,6 +34,12 @@ namespace doris::vectorized {
 class Arena;
 class IColumn;
 class IDataType;
+
+template <bool nullable, typename ColVecType>
+class AggregateFunctionBitmapCount;
+template <typename Op>
+class AggregateFunctionBitmapOp;
+struct AggregateFunctionBitmapUnionOp;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -87,12 +96,20 @@ public:
     virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
                      Arena* arena) const = 0;
 
+    virtual void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
+                          std::vector<int>& rows, Arena* arena) const {}
+
     /// Merges state (on which place points to) with other state of current aggregation function.
     virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                        Arena* arena) const = 0;
 
     virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
                            Arena* arena, const size_t num_rows) const = 0;
+
+    // same as merge_vec, but only call "merge" function when place is not nullptr
+    virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                    ConstAggregateDataPtr rhs, Arena* arena,
+                                    const size_t num_rows) const = 0;
 
     /// Serializes state (to transmit it over the network, for example).
     virtual void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
@@ -130,7 +147,12 @@ public:
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                           const IColumn** columns, Arena* arena) const = 0;
+                           const IColumn** columns, Arena* arena, bool agg_many = false) const = 0;
+
+    // same as add_batch, but only call "add" function when place is not nullptr
+    virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
+                                    size_t place_offset, const IColumn** columns,
+                                    Arena* arena) const = 0;
 
     /** The same for single place.
       */
@@ -163,9 +185,44 @@ public:
             : IAggregateFunction(argument_types_, parameters_) {}
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena) const override {
+                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+        if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<false, ColumnBitmap>> ||
+                      std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>> ||
+                      std::is_same_v<Derived,
+                                     AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>) {
+            if (agg_many) {
+                phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
+                for (int i = 0; i < batch_size; ++i) {
+                    auto iter = place_rows.find(places[i] + place_offset);
+                    if (iter == place_rows.end()) {
+                        std::vector<int> rows;
+                        rows.push_back(i);
+                        place_rows.emplace(places[i] + place_offset, rows);
+                    } else {
+                        iter->second.push_back(i);
+                    }
+                }
+                auto iter = place_rows.begin();
+                while (iter != place_rows.end()) {
+                    static_cast<const Derived*>(this)->add_many(iter->first, columns, iter->second,
+                                                                arena);
+                    iter++;
+                }
+                return;
+            }
+        }
+
         for (size_t i = 0; i < batch_size; ++i) {
             static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+        }
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena* arena) const override {
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+            }
         }
     }
 
@@ -226,6 +283,18 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
                                                      arena);
+        }
+    }
+
+    void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                            ConstAggregateDataPtr rhs, Arena* arena,
+                            const size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
+                                                         arena);
+            }
         }
     }
 };

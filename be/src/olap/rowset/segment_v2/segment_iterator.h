@@ -116,7 +116,7 @@ private:
     void _output_non_pred_columns(vectorized::Block* block);
     Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                    std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
+                                   size_t select_size);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
@@ -134,40 +134,23 @@ private:
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
     // Dictionary column should do something to initial.
-    void _convert_dict_code_for_predicate_if_necessary() {
-        for (auto predicate : _short_cir_eval_predicate) {
-            auto& column = _current_return_columns[predicate->column_id()];
-            auto* col_ptr = column.get();
-            if (PredicateTypeTraits::is_range(predicate->type())) {
-                col_ptr->convert_dict_codes_if_necessary();
-            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-                col_ptr->generate_hash_values_for_runtime_filter();
-            }
-        }
+    void _convert_dict_code_for_predicate_if_necessary();
 
-        for (auto predicate : _pre_eval_block_predicate) {
-            auto& column = _current_return_columns[predicate->column_id()];
-            auto* col_ptr = column.get();
-            if (PredicateTypeTraits::is_range(predicate->type())) {
-                col_ptr->convert_dict_codes_if_necessary();
-            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-                col_ptr->generate_hash_values_for_runtime_filter();
-            }
-        }
-    }
+    void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
     void _update_max_row(const vectorized::Block* block);
 
 private:
     class BitmapRangeIterator;
+    class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
     // _column_iterators.size() == _schema.num_columns()
-    // _column_iterators[cid] == nullptr if cid is not in _schema
-    std::vector<ColumnIterator*> _column_iterators;
-    // FIXME prefer vector<unique_ptr<BitmapIndexIterator>>
-    std::vector<BitmapIndexIterator*> _bitmap_index_iterators;
+    // map<unique_id, ColumnIterator*> _column_iterators/_bitmap_index_iterators;
+    // can use _schema get unique_id by cid
+    std::map<int32_t, ColumnIterator*> _column_iterators;
+    std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
@@ -197,6 +180,8 @@ private:
     vectorized::MutableColumns _current_return_columns;
     std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
+    std::vector<uint32_t> _delete_range_column_ids;
+    std::vector<uint32_t> _delete_bloom_filter_column_ids;
     // when lazy materialization is enable, segmentIter need to read data at least twice
     // first, read predicate columns by various index
     // second, read non-predicate columns

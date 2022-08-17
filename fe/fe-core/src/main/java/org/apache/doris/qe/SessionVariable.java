@@ -174,6 +174,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
+    public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
+
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
@@ -193,8 +195,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
-    static final String ENABLE_ARRAY_TYPE = "enable_array_type";
-
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
 
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
@@ -206,6 +206,8 @@ public class SessionVariable implements Serializable, Writable {
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
+
+    public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -233,6 +235,12 @@ public class SessionVariable implements Serializable, Writable {
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
+
+    // using hashset intead of group by + count can improve performance
+    //        but may cause rpc failed when cluster has less BE
+    // Whether this switch is turned on depends on the BE number
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_DISTINCT_COLUMN_OPT)
+    public boolean enableSingleDistinctColumnOpt = false;
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
@@ -487,9 +495,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
-    private boolean enableArrayType = false;
-
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -516,6 +521,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
     public boolean enableSingleReplicaInsert = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
+    public boolean enableFunctionPushdown;
+
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
     }
@@ -538,6 +546,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean enableProfile() {
         return enableProfile;
+    }
+
+    public boolean enableSingleDistinctColumnOpt() {
+        return enableSingleDistinctColumnOpt;
     }
 
     public int getWaitTimeoutS() {
@@ -901,6 +913,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
+    public boolean getEnableFunctionPushdown() {
+        return this.enableFunctionPushdown;
+    }
+
     /**
      * getInsertVisibleTimeoutMs.
      **/
@@ -1015,14 +1031,6 @@ public class SessionVariable implements Serializable, Writable {
         this.disableJoinReorder = disableJoinReorder;
     }
 
-    public boolean isEnableArrayType() {
-        return enableArrayType;
-    }
-
-    public void setEnableArrayType(boolean enableArrayType) {
-        this.enableArrayType = enableArrayType;
-    }
-
     /**
      * Nereids only support vectorized engine.
      *
@@ -1105,6 +1113,8 @@ public class SessionVariable implements Serializable, Writable {
             resourceLimit.setCpuLimit(cpuResourceLimit);
             tResult.setResourceLimit(resourceLimit);
         }
+
+        tResult.setEnableFunctionPushdown(enableFunctionPushdown);
 
         return tResult;
     }

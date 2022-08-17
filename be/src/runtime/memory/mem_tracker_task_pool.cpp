@@ -27,6 +27,7 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_task_mem_tracker
         const std::string& task_id, int64_t mem_limit, const std::string& label,
         const std::shared_ptr<MemTrackerLimiter>& parent) {
     DCHECK(!task_id.empty());
+    std::lock_guard<std::mutex> l(_task_tracker_lock);
     // First time this task_id registered, make a new object, otherwise do nothing.
     // Combine new tracker and emplace into one operation to avoid the use of locks
     // Name for task MemTrackers. '$0' is replaced with the task id.
@@ -70,6 +71,7 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::get_task_mem_tracker(
 }
 
 void MemTrackerTaskPool::logout_task_mem_tracker() {
+    std::lock_guard<std::mutex> l(_task_tracker_lock);
     std::vector<std::string> expired_task_ids;
     for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end(); it++) {
         if (!it->second) {
@@ -92,7 +94,9 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
             // the negative number of the current value of consume.
             it->second->parent()->consumption_revise(-it->second->consumption());
-            LOG(INFO) << "Deregister query/load memory tracker, queryId/loadId: " << it->first;
+            LOG(INFO) << fmt::format(
+                    "Deregister query/load memory tracker, queryId={}, Limit={}, PeakUsed={}",
+                    it->first, it->second->limit(), it->second->peak_consumption());
             expired_task_ids.emplace_back(it->first);
         }
     }

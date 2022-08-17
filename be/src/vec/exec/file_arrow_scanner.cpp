@@ -127,7 +127,7 @@ Status FileArrowScanner::_next_arrow_batch() {
 Status FileArrowScanner::_init_arrow_batch_if_necessary() {
     // 1. init batch if first time
     // 2. reset reader if end of file
-    Status status;
+    Status status = Status::OK();
     if (_scanner_eof) {
         return Status::EndOfFile("EOF");
     }
@@ -186,7 +186,10 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->GetColumnByName(slot_desc->col_name()).get();
+        std::string real_column_name = _cur_file_reader->is_case_sensitive()
+                                               ? slot_desc->col_name()
+                                               : slot_desc->col_name_lower_case();
+        auto* array = _batch->GetColumnByName(real_column_name).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,
@@ -228,7 +231,7 @@ ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
                                                         int64_t range_start_offset,
                                                         int64_t range_size) {
     return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
-                                 range_start_offset, range_size);
+                                 range_start_offset, range_size, false);
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
@@ -252,7 +255,7 @@ ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(FileReader* file_reader, int
                                                     int64_t range_start_offset,
                                                     int64_t range_size) {
     return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size);
+                             range_size, false);
 }
 
 } // namespace doris::vectorized

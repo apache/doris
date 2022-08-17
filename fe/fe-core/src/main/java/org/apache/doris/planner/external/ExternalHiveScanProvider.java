@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TFileType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -39,6 +40,8 @@ import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -50,6 +53,8 @@ import java.util.stream.Collectors;
  * A HiveScanProvider to get information for scan node.
  */
 public class ExternalHiveScanProvider implements ExternalFileScanProvider {
+    private static final Logger LOG = LogManager.getLogger(ExternalHiveScanProvider.class);
+
     protected HMSExternalTable hmsTable;
 
     public ExternalHiveScanProvider(HMSExternalTable hmsTable) {
@@ -112,38 +117,45 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
         List<InputSplit> splits;
         if (!hivePartitions.isEmpty()) {
-            splits = hivePartitions.stream()
-                    .flatMap(x -> getSplitsByPath(inputFormat, configuration, x.getSd().getLocation()).stream())
-                    .collect(Collectors.toList());
+            try {
+                splits = hivePartitions.stream().flatMap(x -> {
+                    try {
+                        return getSplitsByPath(inputFormat, configuration, x.getSd().getLocation()).stream();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).collect(Collectors.toList());
+            } catch (RuntimeException e) {
+                throw new IOException(e);
+            }
         } else {
             splits = getSplitsByPath(inputFormat, configuration, splitsPath);
         }
-        return HiveBucketUtil.getPrunedSplitsByBuckets(
-                splits,
-                hmsTable.getName(),
-                exprs,
-                getRemoteHiveTable().getSd().getBucketCols(),
-                getRemoteHiveTable().getSd().getNumBuckets(),
+        return HiveBucketUtil.getPrunedSplitsByBuckets(splits, hmsTable.getName(), exprs,
+                getRemoteHiveTable().getSd().getBucketCols(), getRemoteHiveTable().getSd().getNumBuckets(),
                 getRemoteHiveTable().getParameters());
     }
 
-    private List<InputSplit> getSplitsByPath(
-            InputFormat<?, ?> inputFormat,
-            Configuration configuration,
-            String splitsPath) {
+    private List<InputSplit> getSplitsByPath(InputFormat<?, ?> inputFormat, Configuration configuration,
+            String splitsPath) throws IOException {
         JobConf jobConf = new JobConf(configuration);
+        // For Tez engine, it may generate subdirectoies for "union" query.
+        // So there may be files and directories in the table directory at the same time. eg:
+        //      /user/hive/warehouse/region_tmp_union_all2/000000_0
+        //      /user/hive/warehouse/region_tmp_union_all2/1
+        //      /user/hive/warehouse/region_tmp_union_all2/2
+        // So we need to set this config to support visit dir recursively.
+        // Otherwise, getSplits() may throw exception: "Not a file xxx"
+        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
         FileInputFormat.setInputPaths(jobConf, splitsPath);
-        try {
-            InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
-            return Lists.newArrayList(splits);
-        } catch (IOException e) {
-            return new ArrayList<InputSplit>();
-        }
+        InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
+        return Lists.newArrayList(splits);
     }
 
 
     protected Configuration setConfiguration() {
-        Configuration conf = new Configuration();
+        Configuration conf = new HdfsConfiguration();
         Map<String, String> dfsProperties = hmsTable.getDfsProperties();
         for (Map.Entry<String, String> entry : dfsProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());

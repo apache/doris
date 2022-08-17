@@ -49,9 +49,9 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
         Env env = Env.getCurrentEnv();
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         ImmutableSet.Builder builder = ImmutableSet.builder();
-        List<Long> dbIdList = env.getInternalDataSource().getDbIds();
+        List<Long> dbIdList = env.getInternalCatalog().getDbIds();
         for (Long dbId : dbIdList) {
-            Database db = env.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;

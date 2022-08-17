@@ -221,6 +221,7 @@ LEFT: 'LEFT';
 LIKE: 'LIKE';
 ILIKE: 'ILIKE';
 LIMIT: 'LIMIT';
+OFFSET: 'OFFSET';
 LINES: 'LINES';
 LIST: 'LIST';
 LOAD: 'LOAD';
@@ -396,8 +397,8 @@ CONCAT_PIPE: '||';
 HAT: '^';
 COLON: ':';
 ARROW: '->';
-HENT_START: '/*+';
-HENT_END: '*/';
+HINT_START: '/*+';
+HINT_END: '*/';
 
 STRING
     : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''

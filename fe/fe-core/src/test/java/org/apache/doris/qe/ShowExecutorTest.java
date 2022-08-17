@@ -50,8 +50,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.DataSourceMgr;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.system.SystemInfoService;
@@ -74,10 +74,10 @@ import java.util.List;
 import java.util.function.Function;
 
 public class ShowExecutorTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private ConnectContext ctx;
     private Env env;
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -170,42 +170,42 @@ public class ShowExecutorTest {
         // mock auth
         PaloAuth auth = AccessTestUtil.fetchAdminAccess();
 
-        // mock ds
-        ds = Deencapsulation.newInstance(InternalDataSource.class);
-        new Expectations(ds) {
+        // mock catalog
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
+        new Expectations(catalog) {
             {
-                ds.getDbNullable("testCluster:testDb");
+                catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNullable("testCluster:emptyDb");
+                catalog.getDbNullable("testCluster:emptyDb");
                 minTimes = 0;
                 result = null;
 
-                ds.getClusterDbNames("testCluster");
+                catalog.getClusterDbNames("testCluster");
                 minTimes = 0;
                 result = Lists.newArrayList("testCluster:testDb");
 
-                ds.getClusterDbNames("");
+                catalog.getClusterDbNames("");
                 minTimes = 0;
                 result = Lists.newArrayList("");
             }
         };
 
-        DataSourceMgr dsMgr = new DataSourceMgr();
+        CatalogMgr dsMgr = new CatalogMgr();
         new Expectations(dsMgr) {
             {
                 dsMgr.getCatalog((String) any);
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
                 dsMgr.getCatalogOrException((String) any, (Function) any);
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
                 dsMgr.getCatalogOrAnalysisException((String) any);
                 minTimes = 0;
-                result = ds;
+                result = catalog;
             }
         };
 
@@ -213,13 +213,13 @@ public class ShowExecutorTest {
         env = Deencapsulation.newInstance(Env.class);
         new Expectations(env) {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                env.getCurrentDataSource();
+                env.getCurrentCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
                 env.getAuth();
                 minTimes = 0;
@@ -239,7 +239,7 @@ public class ShowExecutorTest {
                 Env.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
                 minTimes = 0;
 
-                env.getDataSourceMgr();
+                env.getCatalogMgr();
                 minTimes = 0;
                 result = dsMgr;
             }
@@ -255,7 +255,7 @@ public class ShowExecutorTest {
             }
         };
 
-        ctx.changeDefaultCatalog(InternalDataSource.INTERNAL_DS_NAME);
+        ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("testCluster:testUser");
@@ -287,6 +287,16 @@ public class ShowExecutorTest {
         ShowResultSet resultSet = executor.execute();
 
         Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowDbFromCatalog() throws AnalysisException {
+        ShowDbStmt stmt = new ShowDbStmt(null, null, InternalCatalog.INTERNAL_CATALOG_NAME);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
+        Assert.assertTrue(resultSet.next());
+        Assert.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test

@@ -1726,4 +1726,16 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_decimal_conversion = false;
+
+    /**
+     * List of S3 API compatible object storage systems.
+     */
+    @ConfField
+    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
+
+    /**
+     * Support complex data type ARRAY.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_array_type = false;
 }

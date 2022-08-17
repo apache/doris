@@ -78,7 +78,7 @@ querySpecification
     ;
 
 selectClause
-    : SELECT namedExpressionSeq
+    : SELECT selectHint? namedExpressionSeq
     ;
 
 whereClause
@@ -109,26 +109,44 @@ havingClause
     : HAVING booleanExpression
     ;
 
+selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+
+hintStatement
+    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    ;
+
+hintAssignment
+    : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
+    ;
+
 queryOrganization
-    : sortClause
+    : sortClause? limitClause?
     ;
 
 sortClause
-    : (ORDER BY sortItem (',' sortItem)*)?
+    : (ORDER BY sortItem (',' sortItem)*)
     ;
 
 sortItem
     :  expression ordering = (ASC | DESC)?
     ;
 
+limitClause
+    : (LIMIT limit=INTEGER_VALUE)
+    | (LIMIT limit=INTEGER_VALUE OFFSET offset=INTEGER_VALUE)
+    | (LIMIT offset=INTEGER_VALUE COMMA limit=INTEGER_VALUE)
+    ;
+
 joinType
     : INNER?
     | CROSS
     | LEFT OUTER?
-    | LEFT? SEMI
     | RIGHT OUTER?
     | FULL OUTER?
-    | LEFT? ANTI
+    | LEFT SEMI
+    | RIGHT SEMI
+    | LEFT ANTI
+    | RIGHT ANTI
     ;
 
 joinCriteria
@@ -381,6 +399,7 @@ ansiNonReserved
     | LIKE
     | ILIKE
     | LIMIT
+    | OFFSET
     | LINES
     | LIST
     | LOAD

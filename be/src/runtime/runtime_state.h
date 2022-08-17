@@ -146,6 +146,11 @@ public:
     // Returns true if codegen is enabled for this query.
     bool codegen_enabled() const { return !_query_options.disable_codegen; }
 
+    bool enable_function_pushdown() const {
+        return _query_options.__isset.enable_function_pushdown &&
+               _query_options.enable_function_pushdown;
+    }
+
     // Create a codegen object in _codegen. No-op if it has already been called.
     // If codegen is enabled for the query, this is created when the runtime
     // state is created. If codegen is disabled for the query, this is created

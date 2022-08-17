@@ -119,7 +119,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena) const override {
+                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
 

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
@@ -127,31 +129,35 @@ public abstract class ExpressionVisitor<R, C> {
     }
 
     public R visitBooleanLiteral(BooleanLiteral booleanLiteral, C context) {
-        return visit(booleanLiteral, context);
+        return visitLiteral(booleanLiteral, context);
     }
 
     public R visitStringLiteral(StringLiteral stringLiteral, C context) {
-        return visit(stringLiteral, context);
+        return visitLiteral(stringLiteral, context);
     }
 
     public R visitIntegerLiteral(IntegerLiteral integerLiteral, C context) {
-        return visit(integerLiteral, context);
+        return visitLiteral(integerLiteral, context);
+    }
+
+    public R visitBigIntLiteral(BigIntLiteral bigIntLiteral, C context) {
+        return visitLiteral(bigIntLiteral, context);
     }
 
     public R visitNullLiteral(NullLiteral nullLiteral, C context) {
-        return visit(nullLiteral, context);
+        return visitLiteral(nullLiteral, context);
     }
 
     public R visitDoubleLiteral(DoubleLiteral doubleLiteral, C context) {
-        return visit(doubleLiteral, context);
+        return visitLiteral(doubleLiteral, context);
     }
 
     public R visitDateLiteral(DateLiteral dateLiteral, C context) {
-        return visit(dateLiteral, context);
+        return visitLiteral(dateLiteral, context);
     }
 
     public R visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, C context) {
-        return visit(dateTimeLiteral, context);
+        return visitLiteral(dateTimeLiteral, context);
     }
 
     public R visitBetween(Between between, C context) {
@@ -224,6 +230,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitCaseWhen(CaseWhen caseWhen, C context) {
         return visit(caseWhen, context);
+    }
+
+    public R visitInPredicate(InPredicate inPredicate, C context) {
+        return visit(inPredicate, context);
     }
 
     public R visitInSubquery(InSubquery in, C context) {

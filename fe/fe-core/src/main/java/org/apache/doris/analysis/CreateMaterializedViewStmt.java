@@ -34,6 +34,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +56,8 @@ import java.util.Set;
  * [PROPERTIES ("key" = "value")]
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
+    private static final Logger LOG = LogManager.getLogger(CreateMaterializedViewStmt.class);
+
     public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
     public static final Map<String, MVColumnPattern> FN_NAME_TO_PATTERN;
 
@@ -139,7 +143,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
-        analyzeSelectClause();
+        analyzeSelectClause(analyzer);
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
@@ -156,7 +160,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    public void analyzeSelectClause() throws AnalysisException {
+    public void analyzeSelectClause(Analyzer analyzer) throws AnalysisException {
         SelectList selectList = selectStmt.getSelectList();
         if (selectList.getItems().isEmpty()) {
             throw new AnalysisException("The materialized view must contain at least one column");
@@ -222,7 +226,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 }
                 meetAggregate = true;
                 // build mv column item
-                mvColumnItemList.add(buildMVColumnItem(functionCallExpr));
+                mvColumnItemList.add(buildMVColumnItem(analyzer, functionCallExpr));
                 // TODO(ml): support REPLACE, REPLACE_IF_NOT_NULL, bitmap_union, hll_union only for aggregate table
                 // TODO(ml): support different type of column, int -> bigint(sum)
             }
@@ -347,7 +351,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    private MVColumnItem buildMVColumnItem(FunctionCallExpr functionCallExpr) throws AnalysisException {
+    private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
+            throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
         List<SlotRef> slots = new ArrayList<>();
         functionCallExpr.collect(SlotRef.class, slots);
@@ -410,6 +415,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 defineExpr = new CaseExpr(null, Lists.newArrayList(new CaseWhenClause(
                         new IsNullPredicate(baseColumnRef, false),
                         new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
+                defineExpr.analyze(analyzer);
                 type = Type.BIGINT;
                 break;
             default:

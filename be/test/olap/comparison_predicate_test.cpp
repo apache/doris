@@ -26,6 +26,7 @@
 #include "olap/row_block2.h"
 #include "olap/wrapper_field.h"
 #include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.hpp"
 #include "util/logging.h"
 
@@ -33,12 +34,12 @@ namespace doris {
 
 namespace datetime {
 
-static uint24_t to_date_timestamp(const char* date_string) {
+static uint32_t to_date_timestamp(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
     int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-    return uint24_t(value);
+    return uint32_t(value);
 }
 
 static uint64_t to_datetime_timestamp(const std::string& value_string) {
@@ -92,7 +93,7 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
         ~CLASS_NAME() {}                                                                          \
         void SetTabletSchema(std::string name, const std::string& type,                           \
                              const std::string& aggregation, uint32_t length, bool is_allow_null, \
-                             bool is_key, TabletSchema* tablet_schema) {                          \
+                             bool is_key, TabletSchemaSPtr tablet_schema) {                       \
             TabletSchemaPB tablet_schema_pb;                                                      \
             static int id = 0;                                                                    \
             ColumnPB* column = tablet_schema_pb.add_column();                                     \
@@ -109,8 +110,8 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
             tablet_schema->init_from_pb(tablet_schema_pb);                                        \
         }                                                                                         \
                                                                                                   \
-        void init_row_block(const TabletSchema* tablet_schema, int size) {                        \
-            Schema schema(*tablet_schema);                                                        \
+        void init_row_block(TabletSchemaSPtr tablet_schema, int size) {                           \
+            Schema schema(tablet_schema);                                                         \
             _row_block.reset(new RowBlockV2(schema, size));                                       \
         }                                                                                         \
         std::unique_ptr<MemPool> _mem_pool;                                                       \
@@ -121,18 +122,18 @@ TEST_PREDICATE_DEFINITION(TestEqualPredicate)
 TEST_PREDICATE_DEFINITION(TestLessPredicate)
 
 TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     float value = 5.0;
-    ColumnPredicate* pred = new EqualPredicate<float>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -164,19 +165,19 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     double value = 5.0;
-    ColumnPredicate* pred = new EqualPredicate<double>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -208,19 +209,20 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     decimal12_t value = {5, 5};
-    ColumnPredicate* pred = new EqualPredicate<decimal12_t>(0, value);
+    ColumnPredicate* pred =
+            new ComparisonPredicateBase<TYPE_DECIMALV2, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -254,11 +256,11 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, STRING_COLUMN) {
-    TabletSchema char_tablet_schema;
+    TabletSchemaSPtr char_tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("STRING_COLUMN"), "CHAR", "REPLACE", 5, true, true,
-                    &char_tablet_schema);
+                    char_tablet_schema);
     // test WrapperField.from_string() for char type
-    WrapperField* field = WrapperField::create(char_tablet_schema.column(0));
+    WrapperField* field = WrapperField::create(char_tablet_schema->column(0));
     EXPECT_EQ(Status::OK(), field->from_string("true"));
     const std::string tmp = field->to_string();
     EXPECT_EQ(5, tmp.size());
@@ -268,12 +270,12 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     EXPECT_EQ('e', tmp[3]);
     EXPECT_EQ(0, tmp[4]);
 
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
 
@@ -282,10 +284,10 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     value.len = 4;
     value.ptr = const_cast<char*>(value_buffer);
 
-    ColumnPredicate* pred = new EqualPredicate<StringValue>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_STRING, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -331,15 +333,15 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DATE_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    uint24_t value = datetime::to_date_timestamp("2017-09-10");
-    ColumnPredicate* pred = new EqualPredicate<uint24_t>(0, value);
+    uint32_t value = datetime::to_date_timestamp("2017-09-10");
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -350,13 +352,16 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+        const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+        uint24_t timestamp = 0;
+        memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+               sizeof(uint24_t));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -372,7 +377,10 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+            const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+            uint24_t timestamp = 0;
+            memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+                   sizeof(uint24_t));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }
@@ -388,16 +396,16 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     uint64_t value = datetime::to_datetime_timestamp("2017-09-10 01:00:00");
-    ColumnPredicate* pred = new EqualPredicate<uint64_t>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
@@ -408,7 +416,7 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
     date_array.push_back("2017-09-12 01:01:01");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -446,18 +454,18 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, FLOAT_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     float value = 5.0;
-    ColumnPredicate* pred = new LessPredicate<float>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -497,19 +505,19 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     double value = 5.0;
-    ColumnPredicate* pred = new LessPredicate<double>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -549,19 +557,20 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     decimal12_t value = {5, 5};
-    ColumnPredicate* pred = new LessPredicate<decimal12_t>(0, value);
+    ColumnPredicate* pred =
+            new ComparisonPredicateBase<TYPE_DECIMALV2, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -593,12 +602,12 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, STRING_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
 
@@ -606,10 +615,10 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
     const char* value_buffer = "dddd";
     value.len = 4;
     value.ptr = const_cast<char*>(value_buffer);
-    ColumnPredicate* pred = new LessPredicate<StringValue>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_STRING, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -660,15 +669,15 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DATE_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, true, true, tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    uint24_t value = datetime::to_date_timestamp("2017-09-10");
-    ColumnPredicate* pred = new LessPredicate<uint24_t>(0, value);
+    uint32_t value = datetime::to_date_timestamp("2017-09-10");
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATE, PredicateType::LT>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -679,13 +688,16 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     date_array.push_back("2017-09-12");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+        const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+        uint24_t timestamp = 0;
+        memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+               sizeof(uint24_t));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -701,7 +713,10 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+            const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+            uint24_t timestamp = 0;
+            memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+                   sizeof(uint24_t));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }
@@ -717,18 +732,18 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DATETIME_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     TabletColumn tablet_column;
     SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
 
     uint64_t value = datetime::to_datetime_timestamp("2017-09-10 01:00:00");
-    ColumnPredicate* pred = new LessPredicate<uint64_t>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::LT>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
@@ -739,7 +754,7 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
     date_array.push_back("2017-09-12 01:01:01");
 
     // for ColumnBlock no nulls
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);

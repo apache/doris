@@ -38,7 +38,6 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -142,8 +141,6 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
-    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
-
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -161,12 +158,12 @@ public class OlapTable extends Table {
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
-                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+            PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
         this(id, tableName, baseSchema, keysType, partitionInfo, defaultDistributionInfo, null);
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
-                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
+            PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
@@ -192,20 +189,6 @@ public class OlapTable extends Table {
 
     public TableProperty getTableProperty() {
         return this.tableProperty;
-    }
-
-    //take care: only use at create olap table.
-    public int incAndGetMaxColUniqueId() {
-        this.maxColUniqueId++;
-        return this.maxColUniqueId;
-    }
-
-    public int getMaxColUniqueId() {
-        return this.maxColUniqueId;
-    }
-
-    public void setMaxColUniqueId(int maxColUniqueId) {
-        this.maxColUniqueId = maxColUniqueId;
     }
 
     public boolean dynamicPartitionExists() {
@@ -324,6 +307,7 @@ public class OlapTable extends Table {
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
                 schemaHash, shortKeyColumnCount, storageType, keysType, origStmt);
+
         indexIdToMeta.put(indexId, indexMeta);
         indexNameToId.put(indexName, indexId);
     }
@@ -519,7 +503,7 @@ public class OlapTable extends Table {
                     try {
                         Map<Tag, List<Long>> tag2beIds =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                replicaAlloc, db.getClusterName(), null);
+                                        replicaAlloc, db.getClusterName(), null);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -901,8 +885,16 @@ public class OlapTable extends Table {
         this.hasSequenceCol = true;
         this.sequenceType = type;
 
-        // sequence column is value column with REPLACE aggregate type
-        Column sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
+        Column sequenceCol;
+        if (getEnableUniqueKeyMergeOnWrite()) {
+            // sequence column is value column with NONE aggregate type for
+            // unique key table with merge on write
+            sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.NONE).toColumn();
+        } else {
+            // sequence column is value column with REPLACE aggregate type for
+            // unique key table
+            sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
+        }
         // add sequence column at last
         fullSchema.add(sequenceCol);
         nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
@@ -1161,7 +1153,6 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
-        out.writeInt(maxColUniqueId);
     }
 
     @Override
@@ -1254,9 +1245,6 @@ public class OlapTable extends Table {
         }
         tempPartitions.unsetPartitionInfo();
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_112) {
-            maxColUniqueId = in.readInt();
-        }
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
@@ -1468,6 +1456,7 @@ public class OlapTable extends Table {
 
     /**
      * Get the proximate row count of this table, if you need accurate row count should select count(*) from table.
+     *
      * @return proximate row count
      */
     public long proximateRowCount() {
@@ -1561,6 +1550,23 @@ public class OlapTable extends Table {
         tableProperty.buildInMemory();
     }
 
+    public boolean getEnableLightSchemaChange() {
+        if (tableProperty != null) {
+            return tableProperty.getUseSchemaLightChange();
+        }
+        // property is set false by default
+        return false;
+    }
+
+    public void setEnableLightSchemaChange(boolean enableLightSchemaChange) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE,
+                Boolean.valueOf(enableLightSchemaChange).toString());
+        tableProperty.buildEnableLightSchemaChange();
+    }
+
     public void setStoragePolicy(String storagePolicy) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
@@ -1574,6 +1580,22 @@ public class OlapTable extends Table {
             return tableProperty.getStoragePolicy();
         }
         return "";
+    }
+
+    public void setDisableAutoCompaction(boolean disableAutoCompaction) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
+                Boolean.valueOf(disableAutoCompaction).toString());
+        tableProperty.buildDisableAutoCompaction();
+    }
+
+    public Boolean disableAutoCompaction() {
+        if (tableProperty != null) {
+            return tableProperty.disableAutoCompaction();
+        }
+        return false;
     }
 
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
@@ -1675,7 +1697,7 @@ public class OlapTable extends Table {
     }
 
     private void checkPartition(List<String> partitionNames, List<String> tempPartitionNames,
-                                boolean strictRange) throws DdlException {
+            boolean strictRange) throws DdlException {
         if (strictRange) {
             List<PartitionItem> list = Lists.newArrayList();
             List<PartitionItem> tempList = Lists.newArrayList();
@@ -1844,11 +1866,32 @@ public class OlapTable extends Table {
                         curMap.put(be.getLocationTag(), (short) (num + 1));
                     }
                     if (!curMap.equals(allocMap)) {
-                        throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"
-                                + ", expected: " + allocMap.toString() + ", actual: " + curMap.toString());
+                        throw new UserException(
+                                "replica allocation of tablet " + tablet.getId() + " is not expected" + ", expected: "
+                                        + allocMap.toString() + ", actual: " + curMap.toString());
                     }
                 }
             }
+        }
+    }
+
+    public void setReplicaAllocation(Map<String, String> properties) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(properties);
+        } else {
+            tableProperty.modifyTableProperties(properties);
+        }
+        tableProperty.buildReplicaAllocation();
+    }
+
+    //for light schema change
+    public void initSchemaColumnUniqueId() {
+        if (!getEnableLightSchemaChange()) {
+            return;
+        }
+
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            indexMeta.initSchemaColumnUniqueId();
         }
     }
 }

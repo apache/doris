@@ -27,7 +27,7 @@ public:
     FileMetaData(tparquet::FileMetaData& metadata);
     ~FileMetaData() = default;
     Status init_schema();
-    const tparquet::FileMetaData& to_thrift_metadata();
+    tparquet::FileMetaData& to_thrift_metadata();
     int32_t num_row_groups() const { return _num_groups; }
     int32_t num_columns() const { return _num_columns; };
     int32_t num_rows() const { return _num_rows; };

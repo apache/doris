@@ -32,12 +32,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
-import org.apache.doris.external.elasticsearch.EsUrls;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -167,8 +165,12 @@ public class EsScanNode extends ScanNode {
         buildQuery();
         msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsTable.USER, table.getUserName());
-        properties.put(EsTable.PASSWORD, table.getPasswd());
+        if (table.getUserName() != null) {
+            properties.put(EsTable.USER, table.getUserName());
+        }
+        if (table.getPasswd() != null) {
+            properties.put(EsTable.PASSWORD, table.getPasswd());
+        }
         properties.put(EsTable.HTTP_SSL_ENABLED, String.valueOf(table.isHttpSslEnabled()));
         TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
         esScanNode.setProperties(properties);
@@ -177,16 +179,6 @@ public class EsScanNode extends ScanNode {
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
         properties.put(EsTable.ES_DSL, queryBuilder.toJson());
-
-        // Be use it add es host_port and shardId to query.
-        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isEnableDocValueScan(),
-                ConnectContext.get().getSessionVariable().batchSize, msg.limit);
-        if (esUrls.getSearchUrl() != null) {
-            properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
-        } else {
-            properties.put(EsTable.INIT_SCROLL_URL, esUrls.getInitScrollUrl());
-            properties.put(EsTable.NEXT_SCROLL_URL, esUrls.getNextScrollUrl());
-        }
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
@@ -346,15 +338,11 @@ public class EsScanNode extends ScanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
-            // reserved for later using: LOCAL_PREDICATES is processed by Doris EsScanNode
-            output.append(prefix).append("LOCAL_PREDICATES: ").append(" ").append("\n");
-            // reserved for later using: REMOTE_PREDICATES is processed by remote ES Cluster
-            output.append(prefix).append("REMOTE_PREDICATES: ").append(" ").append("\n");
+            output.append(prefix).append("LOCAL_PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
             buildQuery();
-            output.append(prefix).append("ES_QUERY_DSL: ").append(queryBuilder.toJson()).append("\n");
+            output.append(prefix).append("REMOTE_PREDICATES: ").append(queryBuilder.toJson()).append("\n");
         } else {
-            output.append(prefix).append("ES_QUERY_DSL: ").append("{\"match_all\": {}}").append("\n");
+            output.append(prefix).append("REMOTE_PREDICATES: ").append("{\"match_all\": {}}").append("\n");
         }
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
@@ -368,8 +356,9 @@ public class EsScanNode extends ScanNode {
         } else {
             boolean hasFilter = false;
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+            List<Expr> notPushDownList = new ArrayList<>();
             for (Expr expr : conjuncts) {
-                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr);
+                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr, notPushDownList);
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

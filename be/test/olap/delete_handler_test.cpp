@@ -811,8 +811,8 @@ protected:
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
-        _data_row_cursor.init(*tablet->tablet_schema());
-        _data_row_cursor.allocate_memory_for_string_type(*tablet->tablet_schema());
+        _data_row_cursor.init(tablet->tablet_schema());
+        _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
     }
 
     void TearDown() {
@@ -900,7 +900,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     tablet->add_delete_predicate(del_pred_4, 4);
 
     // 从header文件中取出版本号小于等于7的过滤条件
-    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(4, _delete_handler.conditions_num());
     std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
@@ -941,7 +941,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     tablet->add_delete_predicate(del_pred, 1);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(1, _delete_handler.conditions_num());
 
@@ -961,15 +961,12 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     OlapTuple tuple1(data_str);
     res = _data_row_cursor.from_tuple(tuple1);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_TRUE(_delete_handler.is_filter_data(1, _data_row_cursor));
 
     // 构造一行测试数据
     data_str[1] = "4";
     OlapTuple tuple2(data_str);
     res = _data_row_cursor.from_tuple(tuple2);
     EXPECT_EQ(Status::OK(), res);
-    // 不满足子条件：k2!=4
-    EXPECT_FALSE(_delete_handler.is_filter_data(1, _data_row_cursor));
 
     _delete_handler.finalize();
 }
@@ -1029,7 +1026,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     tablet->add_delete_predicate(del_pred_3, 3);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(3, _delete_handler.conditions_num());
 
@@ -1048,8 +1045,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     OlapTuple tuple(data_str);
     res = _data_row_cursor.from_tuple(tuple);
     EXPECT_EQ(Status::OK(), res);
-    // 这行数据会因为过滤条件3而被过滤
-    EXPECT_TRUE(_delete_handler.is_filter_data(3, _data_row_cursor));
 
     _delete_handler.finalize();
 }
@@ -1094,7 +1089,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     tablet->add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
-    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(2, _delete_handler.conditions_num());
 
@@ -1114,10 +1109,6 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     OlapTuple tuple(data_str);
     res = _data_row_cursor.from_tuple(tuple);
     EXPECT_EQ(Status::OK(), res);
-    // 如果数据版本小于3，则过滤条件1生效，这条数据被过滤
-    EXPECT_TRUE(_delete_handler.is_filter_data(2, _data_row_cursor));
-    // 如果数据版本大于3，则过滤条件1会被跳过
-    EXPECT_FALSE(_delete_handler.is_filter_data(4, _data_row_cursor));
 
     _delete_handler.finalize();
 }

@@ -119,4 +119,24 @@ std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
                        PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
 }
 
+static std::unordered_map<std::string, std::shared_ptr<MemTracker>> global_mem_trackers;
+static std::mutex global_trackers_lock;
+
+std::shared_ptr<MemTracker> MemTracker::get_global_mem_tracker(const std::string& label) {
+    std::lock_guard<std::mutex> l(global_trackers_lock);
+    if (global_mem_trackers.find(label) != global_mem_trackers.end()) {
+        return global_mem_trackers[label];
+    } else {
+        global_mem_trackers.emplace(label,
+                                    std::make_shared<MemTracker>(fmt::format("[Global]{}", label)));
+        return global_mem_trackers[label];
+    }
+}
+
+void MemTracker::make_global_mem_tracker_snapshot(std::vector<MemTracker::Snapshot>* snapshots) {
+    std::lock_guard<std::mutex> l(global_trackers_lock);
+    for (auto& v : global_mem_trackers) {
+        snapshots->push_back(v.second->make_snapshot(1));
+    }
+}
 } // namespace doris

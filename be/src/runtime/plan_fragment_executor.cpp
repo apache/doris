@@ -251,6 +251,7 @@ Status PlanFragmentExecutor::open() {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
+            // status = Status::MemoryAllocFailed(_cancel_msg);
             status = Status::MemoryLimitExceeded(_cancel_msg);
         }
     }
@@ -687,6 +688,7 @@ void PlanFragmentExecutor::close() {
                   << print_id(_runtime_state->fragment_instance_id());
     }
 
+    profile()->add_to_span();
     _closed = true;
 }
 

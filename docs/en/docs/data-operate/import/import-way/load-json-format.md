@@ -443,12 +443,12 @@ code INT NULL
 ```bash
 curl --location-trusted -u user:passwd -H "format: json" -H "read_json_by_line: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
 ```
-​	   Import result:
-
-    100     beijing                     1
-    101     shanghai                    NULL
-    102     tianjin                     3
-    103     chongqing                   4
+	   Import result:
+	
+	100     beijing                     1
+	101     shanghai                    NULL
+	102     tianjin                     3
+	103     chongqing                   4
 
 5. Transform the imported data
 

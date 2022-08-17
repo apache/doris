@@ -40,10 +40,11 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/**  TableProperty contains additional information about OlapTable
- *  TableProperty includes properties to persistent the additional information
- *  Different properties is recognized by prefix such as dynamic_partition
- *  If there is different type properties is added, write a method such as buildDynamicProperty to build it.
+/**
+ * TableProperty contains additional information about OlapTable
+ * TableProperty includes properties to persistent the additional information
+ * Different properties is recognized by prefix such as dynamic_partition
+ * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
@@ -71,6 +72,10 @@ public class TableProperty implements Writable {
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
+
+    private boolean enableLightSchemaChange = false;
+
+    private Boolean disableAutoCompaction;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -110,6 +115,7 @@ public class TableProperty implements Writable {
 
     /**
      * Reset properties to correct values.
+     *
      * @return this for chained
      */
     public TableProperty resetPropertiesForRestore() {
@@ -140,6 +146,22 @@ public class TableProperty implements Writable {
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
         return this;
+    }
+
+    public TableProperty buildEnableLightSchemaChange() {
+        enableLightSchemaChange = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "false"));
+        return this;
+    }
+
+    public TableProperty buildDisableAutoCompaction() {
+        disableAutoCompaction = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
+        return this;
+    }
+
+    public boolean disableAutoCompaction() {
+        return disableAutoCompaction;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -251,18 +273,22 @@ public class TableProperty implements Writable {
         return compressionType;
     }
 
+    public boolean getUseSchemaLightChange() {
+        return enableLightSchemaChange;
+    }
+
     public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                    PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
     public void buildReplicaAllocation() {
         try {
-            // Must copy the properties because "analyzeReplicaAllocation" with remove the property
+            // Must copy the properties because "analyzeReplicaAllocation" will remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
             this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
@@ -286,7 +312,8 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildRemoteStoragePolicy()
                 .buildCompressionType()
-                .buildStoragePolicy();
+                .buildStoragePolicy()
+                .buildEnableLightSchemaChange();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

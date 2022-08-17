@@ -26,10 +26,8 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -38,12 +36,7 @@ import java.util.Optional;
 public class PhysicalHashJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
-        extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
-    private final JoinType joinType;
-
-    private final Optional<Expression> condition;
-
+        extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
@@ -59,27 +52,13 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition,
                             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_HASH_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
-        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.condition = Objects.requireNonNull(condition, "condition can not be null");
-    }
-
-    public JoinType getJoinType() {
-        return joinType;
-    }
-
-    public Optional<Expression> getCondition() {
-        return condition;
+        super(PlanType.PHYSICAL_HASH_JOIN, joinType, condition,
+                groupExpression, logicalProperties, leftChild, rightChild);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalHashJoin((PhysicalHashJoin<Plan, Plan>) this, context);
-    }
-
-    @Override
-    public List<Expression> getExpressions() {
-        return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 
     @Override
@@ -91,23 +70,6 @@ public class PhysicalHashJoin<
         );
         sb.append(")");
         return sb.toString();
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        PhysicalHashJoin that = (PhysicalHashJoin) o;
-        return joinType == that.joinType && Objects.equals(condition, that.condition);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(joinType, condition);
     }
 
     @Override

@@ -46,7 +46,7 @@ public class LockTablesStmt extends StatementBase {
         for (LockTable lockTable : lockTables) {
             TableName tableName = lockTable.getTableName();
             tableName.analyze(analyzer);
-            Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(tableName.getDb());
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
             db.getTableOrAnalysisException(tableName.getTbl());
 
             // check auth

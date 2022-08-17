@@ -26,6 +26,9 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/tablet.h"
 #include "util/progress_updater.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class ObjectPool;
@@ -63,40 +66,16 @@ private:
     // In order to ensure the accuracy of the query result
     // only key column conjuncts will be remove as idle conjunct
     bool is_key_column(const std::string& key_name);
-    void remove_pushed_conjuncts(RuntimeState* state);
 
     Status start_scan(RuntimeState* state);
-    void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
-    Status build_function_filters();
 
-    template <PrimitiveType T>
-    Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
-
-    template <PrimitiveType T>
-    Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
-
-    template <PrimitiveType T>
-    Status normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
-
-    template <PrimitiveType T>
-    Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
-
-    Status normalize_bloom_filter_predicate(SlotDescriptor* slot);
-
-    template <PrimitiveType T>
-    static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
-                                            const std::string& is_null_str,
-                                            ColumnValueRange<T>* range);
-    bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
-
-    template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, void* value,
-                                           const ChangeFixedValueRangeFunc& func);
-
-    std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
-                                                         int conj_idx, int child_idx);
+    template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+    static Status change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
+                                     const ChangeFixedValueRangeFunc& func,
+                                     const std::string& fn_name, bool cast_date_to_datetime = true,
+                                     int slot_ref_child = -1);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
@@ -114,6 +93,54 @@ private:
         return _runtime_filter_descs;
     }
 
+    template <PrimitiveType T>
+    Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                          SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                          bool* push_down);
+    template <PrimitiveType T>
+    Status _normalize_not_in_and_not_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                  bool* push_down);
+
+    template <PrimitiveType T>
+    Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                             SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                             bool* push_down);
+
+    template <PrimitiveType T>
+    Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                        SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                        bool* push_down);
+
+    Status _normalize_bloom_filter(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                   SlotDescriptor* slot, bool* push_down);
+
+    void eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, bool* push_down);
+
+    vectorized::VExpr* _normalize_predicate(RuntimeState* state,
+                                            vectorized::VExpr* conjunct_expr_root);
+
+    Status _normalize_function_filters(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                       SlotDescriptor* slot, bool* push_down);
+
+    template <bool IsNotIn>
+    bool _should_push_down_in_predicate(VInPredicate* in_pred, VExprContext* expr_ctx);
+
+    bool _is_predicate_acting_on_slot(VExpr* expr,
+                                      const std::function<bool(const std::vector<VExpr*>&,
+                                                               const VSlotRef**, VExpr**)>& checker,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
+
+    bool _should_push_down_binary_predicate(
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
+            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
+
+    bool _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
+                                           StringVal* constant_str,
+                                           doris_udf::FunctionContext** fn_ctx);
+
+    Status _append_rf_into_conjuncts(RuntimeState* state, std::vector<VExpr*>& vexprs);
+
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
     // doris scan node used to scan doris
@@ -124,9 +151,6 @@ private:
     int _tuple_idx;
     // string slots
     std::vector<SlotDescriptor*> _string_slots;
-    // conjunct's index which already be push down storage engine
-    // should be remove in olap_scan_node, no need check this conjunct again
-    std::set<uint32_t> _pushed_conjuncts_index;
     // collection slots
     std::vector<SlotDescriptor*> _collection_slots;
 
@@ -149,11 +173,6 @@ private:
     // push down functions to storage engine
     // only support scalar functions, now just support like / not like
     std::vector<FunctionFilter> _push_down_functions;
-    // functions conjunct's index which already be push down storage engine
-    std::set<uint32_t> _pushed_func_conjuncts_index;
-    // need keep these conjunct to the end of scan node,
-    // since some memory referenced by pushed function filters
-    std::vector<ExprContext*> _pushed_func_conjunct_ctxs;
 
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
@@ -183,7 +202,6 @@ private:
     // Used in Scan thread to ensure thread-safe
     std::atomic_bool _scanner_done;
     std::atomic_bool _transfer_done;
-    size_t _direct_conjunct_size;
 
     int _total_assign_num;
     int _nice;
@@ -321,6 +339,9 @@ private:
 
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    int64_t _limit_per_scanner = -1;
+    phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
+            _id_to_slot_column_value_range;
 };
 } // namespace vectorized
 } // namespace doris

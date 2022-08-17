@@ -596,7 +596,7 @@ build_re2() {
     check_if_source_exist "${RE2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
@@ -605,7 +605,14 @@ build_hyperscan() {
     check_if_source_exist "${RAGEL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
 
-    ./configure --prefix="${TP_INSTALL_DIR}"
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cxxflags='-static'
+    else
+        cxxflags=''
+    fi
+
+    CXXFLAGS="${cxxflags}" \
+        ./configure --prefix="${TP_INSTALL_DIR}"
     make install
 
     check_if_source_exist "${HYPERSCAN_SOURCE}"
@@ -716,7 +723,7 @@ build_brpc() {
     # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`
     # to the dependencies which are required by BRPC. Dependencies: zlib, glog, protobuf, leveldb
     LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
 

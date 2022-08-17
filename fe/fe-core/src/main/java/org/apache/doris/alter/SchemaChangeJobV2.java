@@ -265,7 +265,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     null,
                                     tbl.getCompressionType(),
-                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
+                                    tbl.disableAutoCompaction());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -352,7 +353,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
-                             tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)));
+                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)));
         }
 
         tbl.rebuildFullSchema();
@@ -416,8 +417,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                     List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
-                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
@@ -486,7 +487,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // and the job will be in RUNNING state forever.
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
-
         OlapTable tbl;
         try {
             tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
@@ -620,6 +620,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             long originIdxId = entry.getValue();
             String shadowIdxName = tbl.getIndexNameById(shadowIdxId);
             String originIdxName = tbl.getIndexNameById(originIdxId);
+            int maxColUniqueId = tbl.getIndexMetaByIndexId(originIdxId).getMaxColUniqueId();
+            for (Column column : indexSchemaMap.get(shadowIdxId)) {
+                if (column.getUniqueId() > maxColUniqueId) {
+                    maxColUniqueId = column.getUniqueId();
+                }
+            }
+            tbl.getIndexMetaByIndexId(shadowIdxId).setMaxColUniqueId(maxColUniqueId);
+            LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
+                    originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+
             tbl.deleteIndexInfo(originIdxName);
             // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'
             // this will also remove the prefix of columns
@@ -647,16 +657,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (storageFormat == TStorageFormat.V2) {
             tbl.setStorageFormat(storageFormat);
         }
-
-        //update max column unique id
-        int maxColUniqueId = tbl.getMaxColUniqueId();
-        for (Column column : tbl.getFullSchema()) {
-            if (column.getUniqueId() > maxColUniqueId) {
-                maxColUniqueId = column.getUniqueId();
-            }
-        }
-        tbl.setMaxColUniqueId(maxColUniqueId);
-        LOG.debug("fullSchema:{}, maxColUniqueId:{}", tbl.getFullSchema(), maxColUniqueId);
 
         tbl.setState(OlapTableState.NORMAL);
     }
@@ -709,6 +709,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         tbl.deleteIndexInfo(shadowIndexName);
                     }
                     tbl.setState(OlapTableState.NORMAL);
+                    LOG.info("set table's state to NORMAL when cancel job: {}", tbl.getId(), jobId);
                 } finally {
                     tbl.writeUnlock();
                 }
@@ -856,8 +857,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<Comparable> info = Lists.newArrayList();
             info.add(jobId);
             info.add(tableName);
-            info.add(TimeUtils.longToTimeString(createTimeMs));
-            info.add(TimeUtils.longToTimeString(finishedTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
             // only show the origin index name
             info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             info.add(shadowIndexId);

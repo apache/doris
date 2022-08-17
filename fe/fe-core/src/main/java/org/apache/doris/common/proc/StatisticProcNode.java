@@ -52,11 +52,10 @@ public class StatisticProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBStatistic> statistics = env.getDataSourceMgr().getDbIds().parallelStream()
+        List<DBStatistic> statistics = env.getCatalogMgr().getDbIds().parallelStream()
                 // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : env.getDataSourceMgr().getDbNullable(id)))
-                .filter(Objects::nonNull)
-                .map(DBStatistic::new)
+                .flatMap(id -> Stream.of(id == 0 ? null : env.getCatalogMgr().getDbNullable(id)))
+                .filter(Objects::nonNull).map(DBStatistic::new)
                 // sort by dbName
                 .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
 
@@ -89,7 +88,7 @@ public class StatisticProcNode implements ProcNodeInterface {
             this.db = db;
             this.dbNum = 1;
 
-            this.db.getTables().stream().filter(t -> t != null).forEach(t -> {
+            this.db.getTables().stream().filter(Objects::nonNull).forEach(t -> {
                 ++tableNum;
                 if (t.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) t;

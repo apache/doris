@@ -25,9 +25,9 @@
 
 #include "runtime/string_search.hpp"
 #include "util/encryption_util.h"
-#include "util/simd/vstring_function.h"
 #include "util/url_coding.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/functions/function_reverse.h"
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
@@ -235,28 +235,6 @@ struct StringFunctionImpl {
             OP::execute(lview, rview, res[i]);
         }
 
-        return Status::OK();
-    }
-};
-
-struct NameReverse {
-    static constexpr auto name = "reverse";
-};
-
-struct ReverseImpl {
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        auto rows_count = offsets.size();
-        res_offsets.resize(rows_count);
-        res_data.reserve(data.size());
-        for (int i = 0; i < rows_count; ++i) {
-            auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int64_t src_len = offsets[i] - offsets[i - 1] - 1;
-            char dst[src_len];
-            simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                            StringVal((uint8_t*)dst, src_len));
-            StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
-        }
         return Status::OK();
     }
 };
@@ -605,8 +583,6 @@ using FunctionStringLocate =
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
-using FunctionReverse = FunctionStringToString<ReverseImpl, NameReverse>;
-
 using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
 
 using FunctionToLower = FunctionStringToString<TransferImpl<::tolower>, NameToLower>;
@@ -640,7 +616,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringFindInSet>();
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
-    factory.register_function<FunctionReverse>();
+    factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();

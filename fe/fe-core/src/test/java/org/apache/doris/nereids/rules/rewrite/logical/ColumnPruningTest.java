@@ -17,17 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -36,8 +33,7 @@ import java.util.stream.Collectors;
 /**
  * column prune ut.
  */
-public class ColumnPruningTest extends TestWithFeService {
-
+public class ColumnPruningTest extends TestWithFeService implements PatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -53,146 +49,135 @@ public class ColumnPruningTest extends TestWithFeService {
                 + "teacher varchar(128))\n" + "distributed by hash(cid) buckets 10\n"
                 + "properties('replication_num' = '1');");
 
-
         connectContext.setDatabase("default_cluster:test");
     }
 
     @Test
     public void testPruneColumns1() {
-        String sql
-                = "select id,name,grade from student left join score on student.id = score.sid where score.grade > 60";
-        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
-        Plan out = rewrite(plan);
-
-        System.out.println(out.treeString());
-        Plan l1 = out.child(0).child(0);
-        Plan l20 = l1.child(0).child(0);
-        Plan l21 = l1.child(0).child(1);
-
-        LogicalProject p1 = (LogicalProject) l1;
-        LogicalProject p20 = (LogicalProject) l20;
-        LogicalProject p21 = (LogicalProject) l21;
-
-        List<String> target;
-        List<String> source;
-
-        source = getOutputQualifiedNames(p1);
-        target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.student.id",
-                "default_cluster:test.score.grade");
-        Assertions.assertTrue(source.containsAll(target));
-
-        source = getOutputQualifiedNames(p20);
-        target = Lists.newArrayList("default_cluster:test.student.id", "default_cluster:test.student.name");
-        Assertions.assertTrue(source.containsAll(target));
-
-        source = getOutputQualifiedNames(p21);
-        target = Lists.newArrayList("default_cluster:test.score.sid", "default_cluster:test.score.grade");
-        Assertions.assertTrue(source.containsAll(target));
-
+        // TODO: It's inconvenient and less efficient to use planPattern().when(...) to check plan properties.
+        // Enhance the generated patterns in the future.
+        PlanChecker.from(connectContext)
+                .analyze("select id,name,grade from student left join score on student.id = score.sid"
+                        + " where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject()
+                                                                .when(p -> getOutputQualifiedNames(p).containsAll(
+                                                                        ImmutableList.of(
+                                                                                "default_cluster:test.student.id",
+                                                                                "default_cluster:test.student.name"))),
+                                                        logicalProject().when(
+                                                                p -> getOutputQualifiedNames(p).containsAll(
+                                                                        ImmutableList.of(
+                                                                                "default_cluster:test.score.sid",
+                                                                                "default_cluster:test.score.grade")))
+                                                ))
+                                                .when(p -> getOutputQualifiedNames(p)
+                                                        .containsAll(
+                                                                ImmutableList.of("default_cluster:test.student.name",
+                                                                        "default_cluster:test.student.id")))
+                                )
+                        )
+                );
     }
 
     @Test
     public void testPruneColumns2() {
-        String sql
-                = "select name,sex,cid,grade from student left join score on student.id = score.sid "
-                + "where score.grade > 60";
-        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
-        Plan out = rewrite(plan);
+        PlanChecker.from(connectContext)
+                .analyze("select name,sex,cid,grade "
+                        + "from student left join score on student.id = score.sid "
+                        + "where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject()
+                                                                .when(p -> getOutputQualifiedNames(p).containsAll(
+                                                                        ImmutableList.of(
+                                                                                "default_cluster:test.student.id",
+                                                                                "default_cluster:test.student.name",
+                                                                                "default_cluster:test.student.sex"))),
 
-        Plan l1 = out.child(0).child(0);
-        Plan l20 = l1.child(0).child(0);
-        Plan l21 = l1.child(0).child(1);
-
-        LogicalProject p1 = (LogicalProject) l1;
-        LogicalProject p20 = (LogicalProject) l20;
-        Assertions.assertTrue(l21 instanceof LogicalRelation);
-
-        List<String> target;
-        List<String> source;
-
-        source = getOutputQualifiedNames(p1);
-        target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.score.cid",
-                "default_cluster:test.score.grade", "default_cluster:test.student.sex");
-        Assertions.assertTrue(source.containsAll(target));
-
-        source = getOutputQualifiedNames(p20);
-        target = Lists.newArrayList("default_cluster:test.student.id", "default_cluster:test.student.name",
-                "default_cluster:test.student.sex");
-        Assertions.assertTrue(source.containsAll(target));
+                                                        logicalRelation()
+                                                ))
+                                                .when(p -> getOutputQualifiedNames(p)
+                                                        .containsAll(
+                                                                ImmutableList.of("default_cluster:test.student.name",
+                                                                        "default_cluster:test.score.cid",
+                                                                        "default_cluster:test.score.grade",
+                                                                        "default_cluster:test.student.sex")))
+                                )
+                        )
+                );
     }
-
 
     @Test
     public void testPruneColumns3() {
-        String sql = "select id,name from student where age > 18";
-        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
-        Plan out = rewrite(plan);
-
-        Plan l1 = out.child(0).child(0);
-        LogicalProject p1 = (LogicalProject) l1;
-
-        List<String> target;
-        List<String> source;
-
-        source = getOutputQualifiedNames(p1);
-        target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.student.id",
-                "default_cluster:test.student.age");
-        Assertions.assertTrue(source.containsAll(target));
-
+        PlanChecker.from(connectContext)
+                .analyze("select id,name from student where age > 18")
+                .applyTopDown(new ColumnPruning())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalProject().when(p -> getOutputQualifiedNames(p)
+                                                .containsAll(ImmutableList.of(
+                                                        "default_cluster:test.student.name",
+                                                        "default_cluster:test.student.id",
+                                                        "default_cluster:test.student.age")))
+                                )
+                        )
+                );
     }
 
     @Test
     public void testPruneColumns4() {
-        String sql
-                = "select name,cname,grade from student left join score on student.id = score.sid left join course "
-                + "on score.cid = course.cid where score.grade > 60";
-        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
-        Plan out = rewrite(plan);
+        PlanChecker.from(connectContext)
+                .analyze("select name,cname,grade "
+                        + "from student left join score "
+                        + "on student.id = score.sid left join course "
+                        + "on score.cid = course.cid "
+                        + "where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject(logicalJoin(
+                                                                logicalProject(logicalRelation())
+                                                                        .when(p -> getOutputQualifiedNames(
+                                                                                p).containsAll(ImmutableList.of(
+                                                                                "default_cluster:test.student.id",
+                                                                                "default_cluster:test.student.name"))),
+                                                                logicalRelation()
 
-        Plan l1 = out.child(0).child(0);
-        Plan l20 = l1.child(0).child(0);
-        Plan l21 = l1.child(0).child(1);
-
-        Plan l20Left = l20.child(0).child(0);
-        Plan l20Right = l20.child(0).child(1);
-
-        Assertions.assertTrue(l20 instanceof LogicalProject);
-        Assertions.assertTrue(l20Left instanceof LogicalProject);
-        Assertions.assertTrue(l20Right instanceof LogicalRelation);
-
-        LogicalProject p1 = (LogicalProject) l1;
-        LogicalProject p20 = (LogicalProject) l20;
-        LogicalProject p21 = (LogicalProject) l21;
-
-        LogicalProject p20lo = (LogicalProject) l20Left;
-
-        List<String> target;
-        List<String> source;
-
-        source = getOutputQualifiedNames(p1);
-        target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.course.cname",
-                "default_cluster:test.score.grade");
-        Assertions.assertTrue(source.containsAll(target));
-
-        source = getOutputQualifiedNames(p20);
-        target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.score.cid",
-                "default_cluster:test.score.grade");
-        Assertions.assertTrue(source.containsAll(target));
-
-        source = getOutputQualifiedNames(p21);
-        target = Lists.newArrayList("default_cluster:test.course.cid", "default_cluster:test.course.cname");
-        Assertions.assertTrue(source.containsAll(target));
-
-        source = getOutputQualifiedNames(p20lo);
-        target = Lists.newArrayList("default_cluster:test.student.id", "default_cluster:test.student.name");
-        Assertions.assertTrue(source.containsAll(target));
+                                                        )).when(p -> getOutputQualifiedNames(p)
+                                                                .containsAll(ImmutableList.of(
+                                                                        "default_cluster:test.student.name",
+                                                                        "default_cluster:test.score.cid",
+                                                                        "default_cluster:test.score.grade"))),
+                                                        logicalProject(logicalRelation())
+                                                                .when(p -> getOutputQualifiedNames(p)
+                                                                        .containsAll(ImmutableList.of(
+                                                                                "default_cluster:test.course.cid",
+                                                                                "default_cluster:test.course.cname")))
+                                                )
+                                        ).when(p -> getOutputQualifiedNames(p).containsAll(ImmutableList.of(
+                                                "default_cluster:test.student.name",
+                                                "default_cluster:test.course.cname",
+                                                "default_cluster:test.score.grade")))
+                                )
+                        )
+                );
     }
 
-    private Plan rewrite(Plan plan) {
-        return PlanRewriter.topDownRewrite(plan, new ConnectContext(), new ColumnPruning());
-    }
-
-    private List<String> getOutputQualifiedNames(LogicalProject<Plan> p) {
+    private List<String> getOutputQualifiedNames(LogicalProject<? extends Plan> p) {
         return p.getProjects().stream().map(NamedExpression::getQualifiedName).collect(Collectors.toList());
     }
 }

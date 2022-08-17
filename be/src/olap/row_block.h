@@ -54,7 +54,7 @@ class RowBlock {
     friend class RowBlockChanger;
 
 public:
-    RowBlock(const TabletSchema* schema);
+    RowBlock(TabletSchemaSPtr schema);
 
     // 注意回收内部buffer
     ~RowBlock();
@@ -80,7 +80,7 @@ public:
 
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }
-    const TabletSchema& tablet_schema() const { return *_schema; }
+    const TabletSchemaSPtr tablet_schema() const { return _schema; }
     size_t capacity() const { return _capacity; }
 
     // Return field pointer, this pointer point to the nullbyte before the field
@@ -112,7 +112,7 @@ private:
 
     uint32_t _capacity;
     RowBlockInfo _info;
-    const TabletSchema* _schema; // 内部保存的schema句柄
+    TabletSchemaSPtr _schema; // 内部保存的schema句柄
 
     bool _null_supported;
 

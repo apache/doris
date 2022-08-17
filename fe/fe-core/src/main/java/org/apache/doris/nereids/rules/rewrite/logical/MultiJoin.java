@@ -20,15 +20,13 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.util.SlotExtractor;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -53,9 +51,11 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     public final List<Plan> joinInputs = new ArrayList<>();
     public final List<Expression> conjuncts = new ArrayList<>();
 
-    public Plan reorderJoinsAccordingToConditions() {
-        Preconditions.checkArgument(joinInputs.size() >= 2);
-        return reorderJoinsAccordingToConditions(joinInputs, conjuncts);
+    public Optional<Plan> reorderJoinsAccordingToConditions() {
+        if (joinInputs.size() >= 2) {
+            return Optional.of(reorderJoinsAccordingToConditions(joinInputs, conjuncts));
+        }
+        return Optional.empty();
     }
 
     /**
@@ -79,14 +79,15 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             List<Expression> joinConditions = split.get(true);
             List<Expression> nonJoinConditions = split.get(false);
 
-            Optional<Expression> cond;
+            LogicalJoin join;
             if (joinConditions.isEmpty()) {
-                cond = Optional.empty();
+                join = new LogicalJoin(JoinType.CROSS_JOIN, Optional.empty(), joinInputs.get(0), joinInputs.get(1));
             } else {
-                cond = Optional.of(ExpressionUtils.and(joinConditions));
+                join = new LogicalJoin(JoinType.INNER_JOIN,
+                        Optional.of(ExpressionUtils.and(joinConditions)),
+                        joinInputs.get(0), joinInputs.get(1));
             }
 
-            LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, joinInputs.get(0), joinInputs.get(1));
             if (nonJoinConditions.isEmpty()) {
                 return join;
             } else {

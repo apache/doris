@@ -152,6 +152,17 @@ public class Analyzer {
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
 
+    public boolean isInlineView() {
+        return isInlineView;
+    }
+
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    // Flag indicating if this analyzer instance belongs to an inlineview.
+    private boolean isInlineView = false;
+
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
 
@@ -205,6 +216,18 @@ public class Analyzer {
 
     public String getTimezone() {
         return timezone;
+    }
+
+    public void putEquivalentSlot(SlotId srcSid, SlotId targetSid) {
+        globalState.equivalentSlots.put(srcSid, targetSid);
+    }
+
+    public SlotId getEquivalentSlot(SlotId srcSid) {
+        return globalState.equivalentSlots.get(srcSid);
+    }
+
+    public boolean containEquivalentSlot(SlotId srcSid) {
+        return globalState.equivalentSlots.containsKey(srcSid);
     }
 
     public void putAssignedRuntimeFilter(RuntimeFilter rf) {
@@ -342,6 +365,8 @@ public class Analyzer {
         private final ExprRewriter mvExprRewriter;
 
         private final long autoBroadcastJoinThreshold;
+
+        private final Map<SlotId, SlotId> equivalentSlots = Maps.newHashMap();
 
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
@@ -655,7 +680,7 @@ public class Analyzer {
         // to replace it with.
         tableName.analyze(this);
 
-        DatabaseIf database = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
+        DatabaseIf database = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tableName.getCtl())
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
@@ -704,7 +729,7 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
+        DatabaseIf db = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl())
                 .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
@@ -762,6 +787,21 @@ public class Analyzer {
             d = resolveColumnRef(colName);
         } else {
             d = resolveColumnRef(newTblName, colName);
+            //in reanalyze, the inferred expr may contain upper level table alias, and the upper level alias has not
+            // been PROCESSED. So we resolve this column without tbl name.
+            // For example: a view V "select * from t where t.a>1"
+            // sql: select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2)
+            // after first analyze, sql becomes:
+            //  select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2) and t2.a in (1, 2)
+            // in reanalyze, when we process V as t2, we indeed process sql like this:
+            //    select * from t where t.a>1 and t2.a in (1, 2)
+            //  in order to resolve t2.a, we have to ignore "t2"
+            // ===================================================
+            // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
+            // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
+            if (d == null && isInlineView) {
+                d = resolveColumnRef(colName);
+            }
         }
         /*
          * Now, we only support the columns in the subquery to associate the outer query columns in parent level.
@@ -2256,7 +2296,7 @@ public class Analyzer {
      * TODO(zxy) Use value-transfer graph to check
      */
     public boolean hasValueTransfer(SlotId a, SlotId b) {
-        return a.equals(b);
+        return getValueTransferTargets(a).contains(b);
     }
 
     /**
@@ -2268,6 +2308,11 @@ public class Analyzer {
     public List<SlotId> getValueTransferTargets(SlotId srcSid) {
         List<SlotId> result = new ArrayList<>();
         result.add(srcSid);
+        SlotId equalSlot = srcSid;
+        while (containEquivalentSlot(equalSlot)) {
+            result.add(getEquivalentSlot(equalSlot));
+            equalSlot = getEquivalentSlot(equalSlot);
+        }
         return result;
     }
 
@@ -2284,5 +2329,32 @@ public class Analyzer {
             }
         }
         return false;
+    }
+
+
+    /**
+     * Change all outer joined slots to nullable
+     * Returns the slots actually be changed from not nullable to nullable
+     */
+    public List<SlotDescriptor> changeSlotToNullableOfOuterJoinedTuples() {
+        List<SlotDescriptor> result = new ArrayList<>();
+        for (TupleId id : globalState.outerJoinedTupleIds.keySet()) {
+            TupleDescriptor tupleDescriptor = globalState.descTbl.getTupleDesc(id);
+            if (tupleDescriptor != null) {
+                for (SlotDescriptor desc : tupleDescriptor.getSlots()) {
+                    if (!desc.getIsNullable()) {
+                        desc.setIsNullable(true);
+                        result.add(desc);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    public void changeSlotsToNotNullable(List<SlotDescriptor> slots) {
+        for (SlotDescriptor slot : slots) {
+            slot.setIsNullable(false);
+        }
     }
 }

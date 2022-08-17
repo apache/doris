@@ -43,7 +43,7 @@ public:
 
     void SetTabletSchema(std::string name, const std::string& type, const std::string& aggregation,
                          uint32_t length, bool is_allow_null, bool is_key,
-                         TabletSchema* tablet_schema) {
+                         TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
         ColumnPB* column = tablet_schema_pb.add_column();
@@ -61,8 +61,8 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void init_row_block(const TabletSchema* tablet_schema, int size) {
-        Schema schema(*tablet_schema);
+    void init_row_block(TabletSchemaSPtr tablet_schema, int size) {
+        Schema schema(tablet_schema);
         _row_block.reset(new RowBlockV2(schema, size));
     }
 
@@ -71,11 +71,11 @@ public:
 };
 
 TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     const int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
 
@@ -94,7 +94,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -125,7 +125,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.1);
 
     // for vectorized::Block no null
-    auto pred_col = PredicateColumnType<vectorized::Float32>::create();
+    auto pred_col = PredicateColumnType<TYPE_FLOAT>::create();
     pred_col->reserve(size);
     for (int i = 0; i < size; ++i) {
         *(col_data + i) = i + 0.1f;
@@ -151,7 +151,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
             vectorized::ColumnNullable::create(std::move(pred_col), std::move(null_map));
     select_size = pred->evaluate(*nullable_col, _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 1);
-    auto nested_col = check_and_get_column<PredicateColumnType<vectorized::Float32>>(
+    auto nested_col = check_and_get_column<PredicateColumnType<TYPE_FLOAT>>(
             nullable_col->get_nested_column());
     EXPECT_FLOAT_EQ((float)nested_col->get_data()[_row_block->selection_vector()[0]], 5.1);
 

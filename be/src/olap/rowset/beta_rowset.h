@@ -44,6 +44,8 @@ public:
 
     std::string segment_file_path(int segment_id);
 
+    std::string segment_cache_path(int segment_id);
+
     static std::string local_segment_path(const std::string& tablet_path, const RowsetId& rowset_id,
                                           int segment_id);
 
@@ -75,6 +77,8 @@ public:
     bool check_file_exist() override;
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
 
 protected:
     BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,

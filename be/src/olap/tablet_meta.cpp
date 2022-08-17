@@ -148,8 +148,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         if (tcolumn.col_unique_id >= 0) {
             unique_id = tcolumn.col_unique_id;
         } else {
-            unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
+            unique_id = col_ordinal_to_unique_id.at(col_ordinal);
         }
+        col_ordinal++;
         init_column_from_tcolumn(unique_id, tcolumn, column);
 
         if (column->is_key()) {
@@ -180,6 +181,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
     if (tablet_schema.__isset.is_in_memory) {
         schema->set_is_in_memory(tablet_schema.is_in_memory);
+    }
+
+    if (tablet_schema.__isset.disable_auto_compaction) {
+        schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
 
     if (tablet_schema.__isset.delete_sign_idx) {
@@ -782,7 +787,7 @@ void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
                     if (rowid_conversion.get(src, &dst) != 0) {
-                        LOG(WARNING) << "Can't find rowid, may be deleted by the delete_handler.";
+                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler.";
                         continue;
                     }
                     output_rowset_delete_bitmap.add({dst.rowset_id, dst.segment_id, cur_version},

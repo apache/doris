@@ -314,7 +314,7 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                DatabaseIf db = analyzer.getEnv().getDataSourceMgr()
+                DatabaseIf db = analyzer.getEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
@@ -1048,17 +1048,24 @@ public class SelectStmt extends QueryStmt {
         List<TupleId> groupingByTupleIds = new ArrayList<>();
         if (groupByClause != null) {
             groupByClause.genGroupingExprs();
+            ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
             if (groupingInfo != null) {
-                groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
+                groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer);
+
+            if (!groupByClause.isGroupByExtension()) {
+                groupingExprs.removeIf(Expr::isConstant);
+            }
+
             if (groupingInfo != null) {
-                groupingInfo.genOutputTupleDescAndSMap(analyzer, groupByClause.getGroupingExprs(), aggExprs);
+                groupingInfo.genOutputTupleDescAndSMap(analyzer, groupingExprs, aggExprs);
                 // must do it before copying for createAggInfo()
                 groupingByTupleIds.add(groupingInfo.getOutputTupleDesc().getId());
             }
             groupByClause.analyze(analyzer);
-            createAggInfo(groupByClause.getGroupingExprs(), aggExprs, analyzer);
+            createAggInfo(groupingExprs, aggExprs, analyzer);
         } else {
             createAggInfo(new ArrayList<>(), aggExprs, analyzer);
         }
@@ -1166,8 +1173,8 @@ public class SelectStmt extends QueryStmt {
             }
         }
         final ExprSubstitutionMap result = new ExprSubstitutionMap();
-        final boolean hasMultiDistinct = AggregateInfo.estimateIfContainsMultiDistinct(distinctExprs);
-        if (!hasMultiDistinct) {
+        final boolean isUsingSetForDistinct = AggregateInfo.estimateIfUsingSetForDistinct(distinctExprs);
+        if (!isUsingSetForDistinct) {
             return result;
         }
         for (FunctionCallExpr inputExpr : distinctExprs) {
@@ -1339,6 +1346,11 @@ public class SelectStmt extends QueryStmt {
             ref.rewriteExprs(rewriter, analyzer);
         }
         // Also equal exprs in the statements of subqueries.
+        // TODO: (minghong) if this a view, even no whereClause,
+        //  we should analyze whereClause to enable filter inference
+        // for example, a view without where clause, `V`,
+        // `select * from T join V on T.id = V.id and T.id=1`
+        // we could infer `V.id=1`
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
             whereClause = rewriter.rewrite(whereClause, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);

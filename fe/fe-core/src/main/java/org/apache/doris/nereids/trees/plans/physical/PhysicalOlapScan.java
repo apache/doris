@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -39,8 +40,9 @@ public class PhysicalOlapScan extends PhysicalRelation {
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
-
     private final OlapTable olapTable;
+    private final DistributionSpec distributionSpec;
+
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -48,13 +50,14 @@ public class PhysicalOlapScan extends PhysicalRelation {
      * @param olapTable OlapTable in Doris
      * @param qualifier qualifier of table name
      */
-    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier,
+    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
         this.olapTable = olapTable;
         this.selectedIndexId = olapTable.getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();
         this.selectedPartitionId = olapTable.getPartitionIds();
+        this.distributionSpec = distributionSpec;
         for (Partition partition : olapTable.getAllPartitions()) {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
@@ -74,6 +77,10 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     public OlapTable getTable() {
         return olapTable;
+    }
+
+    public DistributionSpec getDistributionSpec() {
+        return distributionSpec;
     }
 
     @Override
@@ -110,11 +117,11 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(olapTable, qualifier, groupExpression, logicalProperties);
+        return new PhysicalOlapScan(olapTable, qualifier, distributionSpec, groupExpression, logicalProperties);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties.get());
+        return new PhysicalOlapScan(olapTable, qualifier, distributionSpec, Optional.empty(), logicalProperties.get());
     }
 }
