@@ -318,6 +318,14 @@ distribution_info
         Doris默认不使用light schema change优化。如果想使用该优化需要指定为true。
     
         `"light_schema_change" = 'true'`
+    
+    * `disable_auto_compaction`
+
+        是否对这个表禁用自动compaction。
+
+        如果这个属性设置成 `true`, 后台的自动compaction进程会跳过这个表的所有tablet。
+
+        `"disable_auto_compaction" = "false"`
 
     * 动态分区相关
     
