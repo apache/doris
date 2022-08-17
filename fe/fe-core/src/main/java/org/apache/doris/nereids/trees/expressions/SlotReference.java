@@ -18,10 +18,11 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
-import org.apache.commons.lang.StringUtils;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -35,6 +36,14 @@ public class SlotReference extends Slot {
     private final List<String> qualifier;
     private final DataType dataType;
     private final boolean nullable;
+
+    public SlotReference(String name, DataType dataType) {
+        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of());
+    }
+
+    public SlotReference(String name, DataType dataType, boolean nullable) {
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of());
+    }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
         this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);
@@ -50,7 +59,6 @@ public class SlotReference extends Slot {
      * @param qualifier slot reference qualifier
      */
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        super(NodeType.SLOT_REFERENCE);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
@@ -89,18 +97,14 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public String sql() {
-        return null;
+    public String toSql() {
+        return name;
     }
 
     @Override
     public String toString() {
-        String uniqueName = name + "#" + exprId;
-        if (qualifier.isEmpty()) {
-            return uniqueName;
-        } else {
-            return StringUtils.join(qualifier, ".") + "." + uniqueName;
-        }
+        // Just return name and exprId, add another method to show fully qualified name when it's necessary.
+        return name + "#" + exprId;
     }
 
     @Override
@@ -113,6 +117,7 @@ public class SlotReference extends Slot {
         }
         SlotReference that = (SlotReference) o;
         return nullable == that.nullable
+                && dataType.equals(that.dataType)
                 && exprId.equals(that.exprId)
                 && name.equals(that.name)
                 && qualifier.equals(that.qualifier);
@@ -123,13 +128,30 @@ public class SlotReference extends Slot {
         return Objects.hash(exprId, name, qualifier, nullable);
     }
 
-    // TODO: return real org.apache.doris.catalog.Column
     public Column getColumn() {
-        return null;
+        return new Column(name, dataType.toCatalogDataType());
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSlotReference(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return this;
+    }
+
+    public Slot withNullable(boolean newNullable) {
+        if (this.nullable == newNullable) {
+            return this;
+        }
+        return new SlotReference(exprId, name, dataType, newNullable, qualifier);
+    }
+
+    @Override
+    public Slot withQualifier(List<String> qualifiers) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifiers);
     }
 }

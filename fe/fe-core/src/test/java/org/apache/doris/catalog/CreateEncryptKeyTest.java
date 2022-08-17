@@ -62,10 +62,10 @@ public class CreateEncryptKeyTest {
         // create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";

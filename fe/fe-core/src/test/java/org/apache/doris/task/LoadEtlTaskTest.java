@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
@@ -63,9 +63,9 @@ public class LoadEtlTaskTest {
 
     private String label;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -90,27 +90,27 @@ public class LoadEtlTaskTest {
     public void testRunEtlTask(@Mocked DppScheduler dppScheduler) throws Exception {
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(dbId);
-                minTimes = 0;
-                result = db;
-
-                ds.getDbNullable(db.getFullName());
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                catalog.getDbNullable(db.getFullName());
+                minTimes = 0;
+                result = db;
+
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
         // create job
@@ -145,7 +145,7 @@ public class LoadEtlTaskTest {
                 times = 1;
                 result = true;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 1;
                 result = load;
             }

@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -93,5 +93,7 @@ if [ `grep -c "4.5.13" $DATAX_CORE_POM` -eq 0 ]; then
 else
     echo "httpclient 4.5.13 exists in $DATAX_CORE_POM"  
 fi
+
+cp $DATAX_POM $DATAX_EXTENSION_HOME
 
 echo "Finish DataX environment initialization"

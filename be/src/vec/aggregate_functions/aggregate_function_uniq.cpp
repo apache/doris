@@ -50,7 +50,11 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
         // TODO: DateType
         if (res) {
             return res;
-        } else if (which.is_decimal()) {
+        } else if (which.is_decimal32()) {
+            return std::make_shared<AggregateFunctionUniq<Decimal32, Data<Int32>>>(argument_types);
+        } else if (which.is_decimal64()) {
+            return std::make_shared<AggregateFunctionUniq<Decimal64, Data<Int64>>>(argument_types);
+        } else if (which.is_decimal128()) {
             return std::make_shared<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
                     argument_types);
         } else if (which.is_string_or_fixed_string()) {

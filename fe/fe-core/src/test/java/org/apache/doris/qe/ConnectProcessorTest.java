@@ -18,8 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -152,7 +153,7 @@ public class ConnectProcessorTest {
         }
     }
 
-    private static ConnectContext initMockContext(MysqlChannel channel, Catalog catalog) {
+    private static ConnectContext initMockContext(MysqlChannel channel, Env env) {
         ConnectContext context = new ConnectContext(socketChannel) {
             private boolean firstTimeToSetCommand = true;
             @Override
@@ -191,6 +192,8 @@ public class ConnectProcessorTest {
             }
         };
 
+        CatalogIf catalog = env.getCurrentCatalog();
+
         new Expectations(context) {
             {
                 context.getMysqlChannel();
@@ -202,9 +205,9 @@ public class ConnectProcessorTest {
                 maxTimes = 3;
                 returns(false, true, false);
 
-                context.getCatalog();
+                context.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 context.getAuditEventBuilder();
                 minTimes = 0;
@@ -236,6 +239,10 @@ public class ConnectProcessorTest {
                 context.queryId();
                 minTimes = 0;
                 result = new TUniqueId();
+
+                context.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
             }
         };
 

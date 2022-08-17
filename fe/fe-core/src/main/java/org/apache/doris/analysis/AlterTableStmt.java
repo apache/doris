@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,7 +47,7 @@ public class AlterTableStmt extends DdlStmt {
     }
 
     public void setTableName(String newTableName) {
-        tbl = new TableName(tbl.getDb(), newTableName);
+        tbl = new TableName(tbl.getCtl(), tbl.getDb(), newTableName);
     }
 
     public TableName getTbl() {
@@ -64,7 +65,9 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
                     ConnectContext.get().getQualifiedUser(),

@@ -124,8 +124,48 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
-                     << ", code=" << client_status.code();
+                     << ", code=" << client_status.code() << ", reason=" << e.what();
         return Status::InternalError("Fail to report to master");
+    }
+
+    return Status::OK();
+}
+
+Status MasterServerClient::refresh_storage_policy(TGetStoragePolicyResult* result) {
+    Status client_status;
+    FrontendServiceConnection client(_client_cache, _master_info.network_address,
+                                     config::thrift_rpc_timeout_ms, &client_status);
+
+    if (!client_status.ok()) {
+        LOG(WARNING) << "fail to get master client from cache. "
+                     << "host=" << _master_info.network_address.hostname
+                     << ", port=" << _master_info.network_address.port
+                     << ", code=" << client_status.code();
+        return Status::InternalError("Fail to get master client from cache");
+    }
+
+    try {
+        try {
+            client->refreshStoragePolicy(*result);
+        } catch (TTransportException& e) {
+            // LOG(WARNING) << "master client, retry refresh_storage_policy: " << e.what();
+            client_status = client.reopen(config::thrift_rpc_timeout_ms);
+            if (!client_status.ok()) {
+                LOG(WARNING) << "fail to get master client from cache. "
+                             << "host=" << _master_info.network_address.hostname
+                             << ", port=" << _master_info.network_address.port
+                             << ", code=" << client_status.code();
+                return Status::InternalError("Master client refresh storage policy failed");
+            }
+            client->refreshStoragePolicy(*result);
+        }
+    } catch (TException& e) {
+        client.reopen(config::thrift_rpc_timeout_ms);
+        LOG(WARNING) << "fail to refresh storge policy. "
+                     << "host=" << _master_info.network_address.hostname
+                     << ", port=" << _master_info.network_address.port
+                     << ", code=" << client_status.code() << ", reason=" << e.what();
+        return Status::InternalError("Fail to refresh storage policy from master");
     }
 
     return Status::OK();

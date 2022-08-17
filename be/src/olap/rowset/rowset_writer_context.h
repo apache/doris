@@ -54,8 +54,8 @@ struct RowsetWriterContext {
         context.partition_id = new_tablet->partition_id();
         context.tablet_schema_hash = new_tablet->schema_hash();
         context.rowset_type = new_rowset_type;
-        context.path_desc = new_tablet->tablet_path_desc();
-        context.tablet_schema = &(new_tablet->tablet_schema());
+        context.tablet_path = new_tablet->tablet_path();
+        context.tablet_schema = new_tablet->tablet_schema();
         context.data_dir = new_tablet->data_dir();
         context.rowset_state = VISIBLE;
         context.version = version;
@@ -69,8 +69,8 @@ struct RowsetWriterContext {
     int64_t tablet_schema_hash;
     int64_t partition_id;
     RowsetTypePB rowset_type;
-    FilePathDesc path_desc;
-    const TabletSchema* tablet_schema;
+    std::string tablet_path;
+    TabletSchemaSPtr tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
@@ -93,6 +93,10 @@ struct RowsetWriterContext {
     // ATTN: not support for RowsetConvertor.
     // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
     DataDir* data_dir = nullptr;
+
+    int64_t oldest_write_timestamp;
+    int64_t newest_write_timestamp;
+    bool enable_unique_key_merge_on_write = false;
 };
 
 } // namespace doris

@@ -26,7 +26,6 @@
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
-#include "runtime/vectorized_row_batch.h"
 
 namespace doris {
 
@@ -53,10 +52,9 @@ class RowBlock {
     // Please keep these classes as 'friend'.  They have to use lots of private fields for
     // faster operation.
     friend class RowBlockChanger;
-    friend class VectorizedRowBatch;
 
 public:
-    RowBlock(const TabletSchema* schema);
+    RowBlock(TabletSchemaSPtr schema);
 
     // 注意回收内部buffer
     ~RowBlock();
@@ -82,7 +80,7 @@ public:
 
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }
-    const TabletSchema& tablet_schema() const { return *_schema; }
+    const TabletSchemaSPtr tablet_schema() const { return _schema; }
     size_t capacity() const { return _capacity; }
 
     // Return field pointer, this pointer point to the nullbyte before the field
@@ -114,7 +112,7 @@ private:
 
     uint32_t _capacity;
     RowBlockInfo _info;
-    const TabletSchema* _schema; // 内部保存的schema句柄
+    TabletSchemaSPtr _schema; // 内部保存的schema句柄
 
     bool _null_supported;
 
@@ -128,7 +126,6 @@ private:
     // Field offset of memory row format, used to get field ptr in memory row
     std::vector<size_t> _field_offset_in_memory;
 
-    // only used for SegmentReader to covert VectorizedRowBatch to RowBlock
     // Be careful to use this
     size_t _pos = 0;
     size_t _limit = 0;

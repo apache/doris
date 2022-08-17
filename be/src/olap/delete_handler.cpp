@@ -48,9 +48,9 @@ using google::protobuf::RepeatedPtrField;
 
 namespace doris {
 
-Status DeleteConditionHandler::generate_delete_predicate(const TabletSchema& schema,
-                                                         const std::vector<TCondition>& conditions,
-                                                         DeletePredicatePB* del_pred) {
+Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
+                                                const std::vector<TCondition>& conditions,
+                                                DeletePredicatePB* del_pred) {
     if (conditions.empty()) {
         LOG(WARNING) << "invalid parameters for store_cond."
                      << " condition_size=" << conditions.size();
@@ -89,7 +89,7 @@ Status DeleteConditionHandler::generate_delete_predicate(const TabletSchema& sch
     return Status::OK();
 }
 
-std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
+std::string DeleteHandler::construct_sub_predicates(const TCondition& condition) {
     string op = condition.condition_op;
     if (op == "<") {
         op += "<";
@@ -110,9 +110,9 @@ std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& c
     return condition_str;
 }
 
-bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column,
-                                                      const std::string& condition_op,
-                                                      const string& value_str) {
+bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
+                                             const std::string& condition_op,
+                                             const string& value_str) {
     if ("IS" == condition_op && ("NULL" == value_str || "NOT NULL" == value_str)) {
         return true;
     }
@@ -139,6 +139,12 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
         return valid_unsigned_number<uint64_t>(value_str);
     case OLAP_FIELD_TYPE_DECIMAL:
         return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        return valid_decimal(value_str, column.precision(), column.frac());
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();
@@ -147,6 +153,7 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
     case OLAP_FIELD_TYPE_DATE:
     case OLAP_FIELD_TYPE_DATETIME:
     case OLAP_FIELD_TYPE_DATEV2:
+    case OLAP_FIELD_TYPE_DATETIMEV2:
         return valid_datetime(value_str);
     case OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
@@ -156,8 +163,7 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
     return false;
 }
 
-Status DeleteConditionHandler::check_condition_valid(const TabletSchema& schema,
-                                                     const TCondition& cond) {
+Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TCondition& cond) {
     // Check whether the column exists
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
@@ -231,8 +237,9 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-Status DeleteHandler::init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
-                           int64_t version, const TabletReader* reader) {
+Status DeleteHandler::init(TabletSchemaSPtr schema,
+                           const std::vector<DeletePredicatePB>& delete_conditions, int64_t version,
+                           const TabletReader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 
@@ -251,7 +258,7 @@ Status DeleteHandler::init(const TabletSchema& schema, const DelPredicateArray& 
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
-        temp.del_cond->set_tablet_schema(&schema);
+        temp.del_cond->set_tablet_schema(schema);
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
@@ -301,19 +308,6 @@ Status DeleteHandler::init(const TabletSchema& schema, const DelPredicateArray& 
     _is_inited = true;
 
     return Status::OK();
-}
-
-bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
-    // According to semantics, the delete condition stored in _del_conds should be an OR relationship,
-    // so as long as the data matches one of the _del_conds, it will return true.
-    for (const auto& del_cond : _del_conds) {
-        if (data_version <= del_cond.filter_version &&
-            del_cond.del_cond->delete_conditions_eval(row)) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::vector<int64_t> DeleteHandler::get_conds_version() {

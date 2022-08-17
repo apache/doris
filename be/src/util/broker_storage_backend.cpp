@@ -64,7 +64,7 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
     Status ost =
             file_handler.open_with_mode(local, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
     if (!ost.ok()) {
-        return Status::InternalError("failed to open file: " + local);
+        return Status::InternalError("failed to open file: {}", local);
     }
 
     // 4. read remote and write to local
@@ -85,7 +85,7 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
         if (read_len > 0) {
             ost = file_handler.pwrite(read_buf, read_len, write_offset);
             if (!ost.ok()) {
-                return Status::InternalError("failed to write file: " + local);
+                return Status::InternalError("failed to write file: {}", local);
             }
 
             write_offset += read_len;
@@ -105,12 +105,12 @@ Status BrokerStorageBackend::upload(const std::string& local, const std::string&
     FileHandler file_handler;
     Status ost = file_handler.open(local, O_RDONLY);
     if (!ost.ok()) {
-        return Status::InternalError("failed to open file: " + local);
+        return Status::InternalError("failed to open file: {}", local);
     }
 
     size_t file_len = file_handler.length();
     if (file_len == -1) {
-        return Status::InternalError("failed to get length of file: " + local);
+        return Status::InternalError("failed to get length of file: {}", local);
     }
 
     // NOTICE: broker writer must be closed before calling rename
@@ -128,7 +128,7 @@ Status BrokerStorageBackend::upload(const std::string& local, const std::string&
         size_t read_len = left_len > buf_sz ? buf_sz : left_len;
         ost = file_handler.pread(read_buf, read_len, read_offset);
         if (!ost.ok()) {
-            return Status::InternalError("failed to read file: " + local);
+            return Status::InternalError("failed to read file: {}", local);
         }
         // write through broker
         size_t write_len = 0;
@@ -184,7 +184,7 @@ Status BrokerStorageBackend::rename(const std::string& orig_name, const std::str
         std::stringstream ss;
         ss << "Fail to rename file: " << orig_name << " to: " << new_name << " msg:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     LOG(INFO) << "finished to rename file. orig: " << orig_name << ", new: " << new_name;
@@ -264,7 +264,7 @@ Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_m
         std::stringstream ss;
         ss << "failed to list files in remote path: " << remote_path << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     return status;
@@ -321,7 +321,7 @@ Status BrokerStorageBackend::rm(const std::string& remote) {
         std::stringstream ss;
         ss << "failed to delete file in remote path: " << remote << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 }
 
@@ -376,7 +376,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         } else if (!check_rep.isPathExist) {
-            return Status::NotFound(path + " not exists!");
+            return Status::NotFound("{} not exists!", path);
         } else {
             return Status::OK();
         }
@@ -384,7 +384,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
         std::stringstream ss;
         ss << "failed to check exist: " << path << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 }
 

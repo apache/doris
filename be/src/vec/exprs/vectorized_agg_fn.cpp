@@ -21,19 +21,21 @@
 #include "fmt/ranges.h"
 #include "runtime/descriptors.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function_sort.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
+
 namespace doris::vectorized {
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
           _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-          _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
           _intermediate_slot_desc(nullptr),
           _output_slot_desc(nullptr),
           _exec_timer(nullptr),
@@ -44,9 +46,16 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         nullable = desc.is_nullable;
     }
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
+
+    auto& param_types = desc.agg_expr.param_types;
+    for (int i = 0; i < param_types.size(); i++) {
+        _argument_types_with_sort.push_back(
+                DataTypeFactory::instance().create_data_type(param_types[i]));
+    }
 }
 
-Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {
+Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
+                              AggFnEvaluator** result) {
     *result = pool->add(new AggFnEvaluator(desc.nodes[0]));
     auto& agg_fn_evaluator = *result;
     int node_idx = 0;
@@ -55,53 +64,67 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluato
         VExpr* expr = nullptr;
         VExprContext* ctx = nullptr;
         RETURN_IF_ERROR(
-                VExpr::create_tree_from_thrift(pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
+                VExpr::create_tree_from_thrift(pool, desc.nodes, nullptr, &node_idx, &expr, &ctx));
         agg_fn_evaluator->_input_exprs_ctxs.push_back(ctx);
+    }
+
+    auto sort_size = sort_info.ordering_exprs.size();
+    auto real_arguments_size = agg_fn_evaluator->_argument_types_with_sort.size() - sort_size;
+    // Child arguments conatins [real arguments, order by arguments], we pass the arguments
+    // to the order by functions
+    for (int i = 0; i < sort_size; ++i) {
+        agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,
+                                                         sort_info.is_asc_order[i] == true,
+                                                         sort_info.nulls_first[i] == true);
+    }
+
+    // Pass the real arguments to get functions
+    for (int i = 0; i < real_arguments_size; ++i) {
+        agg_fn_evaluator->_real_argument_types.emplace_back(
+                agg_fn_evaluator->_argument_types_with_sort[i]);
     }
     return Status::OK();
 }
 
 Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
                                const SlotDescriptor* intermediate_slot_desc,
-                               const SlotDescriptor* output_slot_desc,
-                               const std::shared_ptr<MemTracker>& mem_tracker) {
-    DCHECK(pool != NULL);
-    DCHECK(intermediate_slot_desc != NULL);
-    DCHECK(_intermediate_slot_desc == NULL);
+                               const SlotDescriptor* output_slot_desc) {
+    DCHECK(pool != nullptr);
+    DCHECK(intermediate_slot_desc != nullptr);
+    DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
     _intermediate_slot_desc = intermediate_slot_desc;
 
-    Status status = VExpr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
+    Status status = VExpr::prepare(_input_exprs_ctxs, state, desc);
     RETURN_IF_ERROR(status);
-
-    DataTypes argument_types;
-    argument_types.reserve(_input_exprs_ctxs.size());
 
     std::vector<std::string_view> child_expr_name;
 
-    doris::vectorized::Array params;
     // prepare for argument
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
-        argument_types.emplace_back(data_type);
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
 #ifdef LIBJVM
-        _function = AggregateJavaUdaf::create(_fn, argument_types, params, _data_type);
+        _function = AggregateJavaUdaf::create(_fn, _real_argument_types, {}, _data_type);
 #else
         return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
 #endif
+    } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
+        _function = AggregateRpcUdaf::create(_fn, _real_argument_types, {}, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, argument_types, params, _data_type->is_nullable());
+                _fn.name.function_name, _real_argument_types, {}, _data_type->is_nullable());
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                fmt::format("Agg Function {} is not implemented", _fn.name.function_name));
+        return Status::InternalError("Agg Function {} is not implemented", _fn.name.function_name);
     }
 
+    if (!_sort_description.empty()) {
+        _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
+                                                   _sort_description);
+    }
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     return Status::OK();
 }
@@ -127,14 +150,26 @@ void AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Ar
 }
 
 void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                                       Arena* arena) {
+                                       Arena* arena, bool agg_many) {
     _calc_argment_columns(block);
     SCOPED_TIMER(_exec_timer);
-    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena);
+    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
+}
+
+void AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
+                                                AggregateDataPtr* places, Arena* arena) {
+    _calc_argment_columns(block);
+    SCOPED_TIMER(_exec_timer);
+    _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
 }
 
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
     _function->insert_result_into(place, *column);
+}
+
+void AggFnEvaluator::insert_result_info_vec(const std::vector<AggregateDataPtr>& places,
+                                            size_t offset, IColumn* column, const size_t num_rows) {
+    _function->insert_result_into_vec(places, offset, *column, num_rows);
 }
 
 void AggFnEvaluator::reset(AggregateDataPtr place) {

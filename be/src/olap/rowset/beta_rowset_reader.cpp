@@ -26,6 +26,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
+#include "olap/tablet_meta.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -45,9 +46,6 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         // only statistics of this RowsetReader is necessary.
         _stats = _context->stats;
     }
-    // SegmentIterator will load seek columns on demand
-    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(),
-                                       *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
@@ -61,15 +59,44 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                                  read_context->is_upper_keys_included->at(i));
         }
     }
+    // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
+    // or predicates when it is not inited.
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), &read_options.delete_conditions,
                 read_options.delete_condition_predicates.get());
     }
+    std::vector<uint32_t> read_columns;
+    std::set<uint32_t> read_columns_set;
+    std::set<uint32_t> delete_columns_set;
+    for (int i = 0; i < _context->return_columns->size(); ++i) {
+        read_columns.push_back(_context->return_columns->at(i));
+        read_columns_set.insert(_context->return_columns->at(i));
+    }
+    read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    for (auto cid : delete_columns_set) {
+        if (read_columns_set.find(cid) == read_columns_set.end()) {
+            read_columns.push_back(cid);
+        }
+    }
+    _input_schema = std::make_unique<Schema>(_context->tablet_schema->columns(), read_columns);
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
                                               read_context->predicates->begin(),
                                               read_context->predicates->end());
+    }
+    // Take a delete-bitmap for each segment, the bitmap contains all deletes
+    // until the max read version, which is read_context->version.second
+    if (read_context->delete_bitmap != nullptr) {
+        RowsetId rowset_id = rowset()->rowset_id();
+        for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+            auto d = read_context->delete_bitmap->get_agg(
+                    {rowset_id, seg_id, read_context->version.second});
+            if (d->isEmpty()) continue; // Empty delete bitmap for the segment
+            VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
+                       << ", segment id:" << seg_id << ", size:" << d->cardinality();
+            read_options.delete_bitmap.emplace(seg_id, std::move(d));
+        }
     }
 
     if (_should_push_down_value_predicates()) {
@@ -83,6 +110,10 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         }
     }
     read_options.use_page_cache = read_context->use_page_cache;
+    read_options.tablet_schema = read_context->tablet_schema;
+    read_options.record_rowids = read_context->record_rowids;
+    read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
+    read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
@@ -93,7 +124,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*_schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(*_input_schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_ROWSET_READER_INIT);
@@ -113,15 +144,20 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = vectorized::new_merge_iterator(
-                    iterators, read_context->sequence_id_idx, read_context->is_unique);
+                    iterators, read_context->sequence_id_idx, read_context->is_unique,
+                    read_context->read_orderby_key_reverse, read_context->merged_rows);
         } else {
+            if (read_context->read_orderby_key_reverse) {
+                // reverse iterators to read backward for ORDER BY key DESC
+                std::reverse(iterators.begin(), iterators.end());
+            }
             final_iterator = vectorized::new_union_iterator(iterators);
         }
     } else {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx,
-                                                read_context->is_unique);
+                                                read_context->is_unique, read_context->merged_rows);
         } else {
             final_iterator = new_union_iterator(iterators);
         }
@@ -135,7 +171,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(*_schema, std::min(1024, read_context->batch_size)));
+    _input_block.reset(new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
 
     if (!read_context->is_vec) {
         // init input/output block and row
@@ -144,12 +180,10 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         RowBlockInfo output_block_info;
         output_block_info.row_num = std::min(1024, read_context->batch_size);
         output_block_info.null_supported = true;
-        // the output block's schema should be seek_columns to conform to v1
-        // TODO(hkp): this should be optimized to use return_columns
-        output_block_info.column_ids = *(_context->seek_columns);
+        output_block_info.column_ids = *(_context->return_columns);
         _output_block->init(output_block_info);
         _row.reset(new RowCursor());
-        RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
+        RETURN_NOT_OK(_row->init(read_context->tablet_schema, *(_context->return_columns)));
     }
 
     return Status::OK();
@@ -241,8 +275,17 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
     // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
     return _rowset->keys_type() == UNIQUE_KEYS &&
-           (_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
-           !_rowset->_rowset_meta->is_segments_overlapping();
+           (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+             !_rowset->_rowset_meta->is_segments_overlapping()) ||
+            _context->enable_unique_key_merge_on_write);
 }
 
+Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
+    auto& seg_ptrs = _segment_cache_handle.get_segments();
+    segment_num_rows->resize(seg_ptrs.size());
+    for (size_t i = 0; i < seg_ptrs.size(); i++) {
+        (*segment_num_rows)[i] = seg_ptrs[i]->num_rows();
+    }
+    return Status::OK();
+}
 } // namespace doris

@@ -21,8 +21,9 @@ import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.DdlException;
 
 import java.util.Map;
 
@@ -34,23 +35,22 @@ public class CatalogFactory {
     /**
      * Convert the sql statement into catalog log.
      */
-    public static CatalogLog constructorCatalogLog(StatementBase stmt) {
+    public static CatalogLog constructorCatalogLog(long catalogId, StatementBase stmt) {
         CatalogLog log = new CatalogLog();
         if (stmt instanceof CreateCatalogStmt) {
+            log.setCatalogId(catalogId);
             log.setCatalogName(((CreateCatalogStmt) stmt).getCatalogName());
             log.setProps(((CreateCatalogStmt) stmt).getProperties());
         } else if (stmt instanceof DropCatalogStmt) {
-            log.setCatalogName(((DropCatalogStmt) stmt).getCatalogName());
+            log.setCatalogId(catalogId);
         } else if (stmt instanceof AlterCatalogPropertyStmt) {
-            log.setCatalogName(((AlterCatalogPropertyStmt) stmt).getCatalogName());
+            log.setCatalogId(catalogId);
             log.setNewProps(((AlterCatalogPropertyStmt) stmt).getNewProperties());
         } else if (stmt instanceof AlterCatalogNameStmt) {
-            log.setCatalogName(((AlterCatalogNameStmt) stmt).getCatalogName());
+            log.setCatalogId(catalogId);
             log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
-        } else if (stmt instanceof ShowCatalogStmt) {
-            if (((ShowCatalogStmt) stmt).getCatalogName() != null) {
-                log.setCatalogName(((ShowCatalogStmt) stmt).getCatalogName());
-            }
+        } else if (stmt instanceof RefreshCatalogStmt) {
+            log.setCatalogId(catalogId);
         } else {
             throw new RuntimeException("Unknown stmt for datasource manager " + stmt.getClass().getSimpleName());
         }
@@ -58,25 +58,26 @@ public class CatalogFactory {
     }
 
     /**
-     * create the datasource instance from data source log.
+     * create the catalog instance from catalog log.
      */
-    public static DataSourceIf constructorFromLog(CatalogLog log) {
-        return constructorDataSource(log.getCatalogName(), log.getProps());
+    public static CatalogIf constructorFromLog(CatalogLog log) throws DdlException {
+        return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getProps());
     }
 
-    private static DataSourceIf constructorDataSource(String name, Map<String, String> props) {
+    private static CatalogIf constructorCatalog(long catalogId, String name, Map<String, String> props)
+            throws DdlException {
         String type = props.get("type");
-        DataSourceIf dataSource;
+        CatalogIf catalog;
         switch (type) {
             case "hms":
-                dataSource = new HMSExternalDataSource(name, props);
+                catalog = new HMSExternalCatalog(catalogId, name, props);
                 break;
             case "es":
-                dataSource = new EsExternalDataSource(name, props);
+                catalog = new EsExternalCatalog(catalogId, name, props);
                 break;
             default:
-                throw new RuntimeException("Unknown datasource type for " + type);
+                throw new RuntimeException("Unknown catalog type: " + type);
         }
-        return dataSource;
+        return catalog;
     }
 }

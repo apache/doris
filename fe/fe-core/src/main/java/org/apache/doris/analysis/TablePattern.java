@@ -17,14 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -118,7 +118,7 @@ public class TablePattern implements Writable {
         if (isAnalyzed) {
             return;
         }
-        this.ctl = Strings.isNullOrEmpty(catalogName) ? InternalDataSource.INTERNAL_DS_NAME : catalogName;
+        this.ctl = Strings.isNullOrEmpty(catalogName) ? InternalCatalog.INTERNAL_CATALOG_NAME : catalogName;
         if ((!tbl.equals("*") && (db.equals("*") || ctl.equals("*")))
                 || (!db.equals("*") && ctl.equals("*"))) {
             throw new AnalysisException("Do not support format: " + toString());
@@ -145,10 +145,10 @@ public class TablePattern implements Writable {
 
     public static TablePattern read(DataInput in) throws IOException {
         TablePattern tablePattern;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             tablePattern = GsonUtils.GSON.fromJson(Text.readString(in), TablePattern.class);
         } else {
-            String ctl = InternalDataSource.INTERNAL_DS_NAME;
+            String ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             String db = Text.readString(in);
             String tbl = Text.readString(in);
             tablePattern = new TablePattern(ctl, db, tbl);

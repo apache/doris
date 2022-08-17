@@ -32,8 +32,8 @@ namespace doris {
 class TypeInfo;
 class BlockCompressionCodec;
 
-namespace fs {
-class WritableBlock;
+namespace io {
+class FileWriter;
 }
 
 namespace segment_v2 {
@@ -50,7 +50,7 @@ struct ColumnWriterOptions {
     bool need_zone_map = false;
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
-    std::string to_string() {
+    std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
            << ", data_page_size=" << data_page_size
@@ -72,7 +72,7 @@ class ZoneMapIndexWriter;
 class ColumnWriter {
 public:
     static Status create(const ColumnWriterOptions& opts, const TabletColumn* column,
-                         fs::WritableBlock* _wblock, std::unique_ptr<ColumnWriter>* writer);
+                         io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer);
 
     explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
             : _field(std::move(field)), _is_nullable(is_nullable) {}
@@ -133,12 +133,6 @@ public:
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
 
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    virtual Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) = 0;
-
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    virtual Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) = 0;
-
     bool is_nullable() const { return _is_nullable; }
 
     Field* get_field() const { return _field.get(); }
@@ -147,9 +141,6 @@ private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
     std::vector<uint8_t> _null_bitmap;
-
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {
@@ -164,7 +155,7 @@ public:
 class ScalarColumnWriter final : public ColumnWriter {
 public:
     ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                       fs::WritableBlock* output_file);
+                       io::FileWriter* file_writer);
 
     ~ScalarColumnWriter() override;
 
@@ -191,8 +182,10 @@ public:
     }
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override;
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override;
+    // used for append not null data. When page is full, will append data not reach num_rows.
+    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
+
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -241,7 +234,7 @@ private:
     Status _write_data_page(Page* page);
 
 private:
-    fs::WritableBlock* _wblock = nullptr;
+    io::FileWriter* _file_writer = nullptr;
     // total size of data page list
     uint64_t _data_size;
 
@@ -270,14 +263,6 @@ public:
     Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override {
-        return Status::NotSupported(
-                "array writer has no data, can not append_data_in_current_page");
-    }
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override {
-        return Status::NotSupported(
-                "array writer has no data, can not append_data_in_current_page");
-    }
 
     uint64_t estimate_buffer_size() override;
 

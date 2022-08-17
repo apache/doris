@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
@@ -57,7 +57,7 @@ public class ConnectScheduler {
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
     // 2. Use a thread to poll maybe lose some accurate, but is enough to us.
     private final ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-            "Connect-Scheduler-Check-Timer", true);
+            "connect-scheduler-check-timer", true);
 
     public ConnectScheduler(int maxConnections) {
         this.maxConnections = maxConnections;
@@ -108,7 +108,7 @@ public class ConnectScheduler {
                 numberConnection.decrementAndGet();
                 return false;
             }
-        } else if (conns.incrementAndGet() > ctx.getCatalog().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+        } else if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
@@ -136,17 +136,16 @@ public class ConnectScheduler {
         return numberConnection.get();
     }
 
-    public List<ConnectContext.ThreadInfo> listConnection(String user) {
+    public List<ConnectContext.ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getQualifiedUser().equals(user)
-                    && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                            PrivPredicate.GRANT)) {
+            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAuth()
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 continue;
             }
 
-            infos.add(ctx.toThreadInfo());
+            infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
     }

@@ -19,7 +19,7 @@
 
 #include "common/logging.h"
 #include "olap/row.h"
-#include "olap/rowset/column_data_writer.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"
@@ -30,39 +30,44 @@
 
 namespace doris {
 
-MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer,
-                   const std::shared_ptr<MemTracker>& parent_tracker, bool support_vec)
-        : _tablet_id(tablet_id),
+                   RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
+                   const RowsetIdUnorderedSet& rowset_ids, bool support_vec)
+        : _tablet(std::move(tablet)),
           _schema(schema),
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
-          _keys_type(keys_type),
-          _mem_tracker(MemTracker::create_tracker(-1, "MemTable", parent_tracker)),
+          _mem_tracker(std::make_unique<MemTracker>(
+                  fmt::format("MemTable:tabletId={}", std::to_string(tablet_id())))),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer),
           _is_first_insertion(true),
           _agg_functions(schema->num_columns()),
-          _mem_usage(0) {
+          _offsets_of_aggregate_states(schema->num_columns()),
+          _total_size_of_aggregate_states(0),
+          _mem_usage(0),
+          _delete_bitmap(delete_bitmap),
+          _rowset_ids(rowset_ids) {
     if (support_vec) {
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
         // TODO: Support ZOrderComparator in the future
-        _vec_skip_list = std::make_unique<VecTable>(
-                _vec_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+        _vec_skip_list =
+                std::make_unique<VecTable>(_vec_row_comparator.get(), _table_mem_pool.get(),
+                                           keys_type() == KeysType::DUP_KEYS);
         _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     } else {
         _vec_skip_list = nullptr;
-        if (_keys_type == KeysType::DUP_KEYS) {
+        if (keys_type() == KeysType::DUP_KEYS) {
             _insert_fn = &MemTable::_insert_dup;
         } else {
             _insert_fn = &MemTable::_insert_agg;
         }
-        if (_tablet_schema->has_sequence_col()) {
-            _aggregate_two_row_fn = &MemTable::_aggregate_two_row_with_sequence;
+        if (keys_type() == KeysType::UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write()) {
+            _aggregate_two_row_fn = &MemTable::_replace_row;
         } else {
             _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
         }
@@ -73,7 +78,7 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
             _row_comparator = std::make_shared<RowCursorComparator>(_schema);
         }
         _skip_list = std::make_unique<Table>(_row_comparator.get(), _table_mem_pool.get(),
-                                             _keys_type == KeysType::DUP_KEYS);
+                                             keys_type() == KeysType::DUP_KEYS);
     }
 }
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -91,21 +96,61 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
-        vectorized::AggregateFunctionPtr function =
-                _tablet_schema->column(cid).get_aggregate_function({block->get_data_type(cid)},
-                                                                   vectorized::AGG_LOAD_SUFFIX);
+        vectorized::AggregateFunctionPtr function;
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write()) {
+            // In such table, non-key column's aggregation type is NONE, so we need to construct
+            // the aggregate function manually.
+            function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                    "replace_load", {block->get_data_type(cid)}, {},
+                    block->get_data_type(cid)->is_nullable());
+        } else {
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    {block->get_data_type(cid)}, vectorized::AGG_LOAD_SUFFIX);
+        }
 
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
     }
+
+    for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
+        _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
+        _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
+
+        // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
+        if (cid + 1 < _agg_functions.size()) {
+            size_t alignment_of_next_state = _agg_functions[cid + 1]->align_of_data();
+
+            /// Extend total_size to next alignment requirement
+            /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
+            _total_size_of_aggregate_states =
+                    (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
+                    alignment_of_next_state * alignment_of_next_state;
+        }
+    }
 }
 
 MemTable::~MemTable() {
+    if (_vec_skip_list != nullptr && keys_type() != KeysType::DUP_KEYS) {
+        VecTable::Iterator it(_vec_skip_list.get());
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            // We should release agg_places here, because they are not relesed when a
+            // load is canceled.
+            for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
+                auto function = _agg_functions[i];
+                DCHECK(function != nullptr);
+                DCHECK(it.key()->agg_places(i) != nullptr);
+                function->destroy(it.key()->agg_places(i));
+            }
+        }
+    }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
     _buffer_mem_pool->free_all();
     _table_mem_pool->free_all();
-    MemTracker::memory_leak_check(_mem_tracker.get(), true);
+    DCHECK_EQ(_mem_tracker->consumption(), 0)
+            << std::endl
+            << MemTracker::log_usage(_mem_tracker->make_snapshot(0));
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -130,7 +175,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-        if (_keys_type != KeysType::DUP_KEYS) {
+        if (keys_type() != KeysType::DUP_KEYS) {
             _init_agg_functions(&target_block);
         }
     }
@@ -150,7 +195,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     _rows++;
     bool overwritten = false;
-    if (_keys_type == KeysType::DUP_KEYS) {
+    if (keys_type() == KeysType::DUP_KEYS) {
         // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
         _vec_skip_list->Insert(row_in_block, &overwritten);
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
@@ -161,12 +206,14 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     if (is_exist) {
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
-        row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
+        row_in_block->init_agg_places(
+                (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
+                _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            auto place = row_in_block->_agg_places[cid];
-            _agg_functions[cid]->add(place,
-                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+            auto data = row_in_block->agg_places(cid);
+            _agg_functions[cid]->create(data);
+            _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                      row_in_block->_row_pos, nullptr);
         }
 
@@ -223,14 +270,35 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
+    if (_tablet_schema->has_sequence_col()) {
+        return agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
+                                            _table_mem_pool.get());
+    }
     agg_update_row(&dst_row, src_row, _table_mem_pool.get());
 }
 
-void MemTable::_aggregate_two_row_with_sequence(const ContiguousRow& src_row,
-                                                TableKey row_in_skiplist) {
+// In the Unique Key table with primary key index, the non-key column's aggregation
+// type is NONE, to replace the data in duplicate row, we should copy the data manually.
+void MemTable::_replace_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
-    agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
-                                 _table_mem_pool.get());
+    if (_tablet_schema->has_sequence_col()) {
+        const int32_t sequence_idx = _tablet_schema->sequence_col_idx();
+        auto seq_dst_cell = dst_row.cell(sequence_idx);
+        auto seq_src_cell = src_row.cell(sequence_idx);
+        auto res = _schema->column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
+        // dst sequence column larger than src, don't need to replace
+        if (res > 0) {
+            return;
+        }
+    }
+    // do replace
+    for (uint32_t cid = dst_row.schema()->num_key_columns(); cid < dst_row.schema()->num_columns();
+         ++cid) {
+        auto dst_cell = dst_row.cell(cid);
+        auto src_cell = src_row.cell(cid);
+        auto column = _schema->column(cid);
+        column->deep_copy(&dst_cell, src_cell, _table_mem_pool.get());
+    }
 }
 
 void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist) {
@@ -245,9 +313,9 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
-        auto place = row_in_skiplist->_agg_places[cid];
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-        _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+        _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
+                                 const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                  new_row->_row_pos, nullptr);
     }
 }
@@ -255,7 +323,7 @@ template <bool is_final>
 void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
-    if (_keys_type == KeysType::DUP_KEYS) {
+    if (keys_type() == KeysType::DUP_KEYS) {
         std::vector<int> row_pos_vec;
         DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
         row_pos_vec.reserve(in_block.rows());
@@ -276,10 +344,16 @@ void MemTable::_collect_vskiplist_results() {
             // get value columns from agg_places
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
-                function->insert_result_into(it.key()->_agg_places[i],
-                                             *(_output_mutable_block.get_column_by_position(i)));
+                auto agg_place = it.key()->agg_places(i);
+                auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
+                function->insert_result_into(agg_place, *col_ptr);
                 if constexpr (is_final) {
-                    function->destroy(it.key()->_agg_places[i]);
+                    function->destroy(agg_place);
+                } else {
+                    function->reset(agg_place);
+                    function->add(agg_place,
+                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr), idx,
+                                  nullptr);
                 }
             }
             if constexpr (!is_final) {
@@ -302,10 +376,14 @@ void MemTable::_collect_vskiplist_results() {
             _output_mutable_block.clear_column_data();
         }
     }
+
+    if (is_final) {
+        _vec_skip_list.reset();
+    }
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    if (_keys_type == KeysType::DUP_KEYS) {
+    if (keys_type() == KeysType::DUP_KEYS) {
         return;
     }
     _collect_vskiplist_results<false>();
@@ -316,19 +394,40 @@ bool MemTable::is_flush() const {
 }
 
 bool MemTable::need_to_agg() {
-    return _keys_type == KeysType::DUP_KEYS ? is_flush()
-                                            : memory_usage() >= config::memtable_max_buffer_size;
+    return keys_type() == KeysType::DUP_KEYS ? is_flush()
+                                             : memory_usage() >= config::memtable_max_buffer_size;
+}
+
+Status MemTable::_generate_delete_bitmap() {
+    // generate delete bitmap, build a tmp rowset and load recent segment
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        auto rowset = _rowset_writer->build_tmp();
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        segment_v2::SegmentSharedPtr segment;
+        if (beta_rowset->num_segments() == 0) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
+        segments.push_back(segment);
+        std::lock_guard<std::shared_mutex> meta_wrlock(_tablet->get_header_lock());
+        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments,
+                                                    &_rowset_ids, _delete_bitmap));
+    }
+    return Status::OK();
 }
 
 Status MemTable::flush() {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     RETURN_NOT_OK(_do_flush(duration_ns));
+    RETURN_NOT_OK(_generate_delete_bitmap());
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
+    VLOG_CRITICAL << "after flush memtable for tablet: " << tablet_id()
                   << ", flushsize: " << _flush_size;
+
     return Status::OK();
 }
 

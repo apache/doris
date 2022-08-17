@@ -65,6 +65,9 @@ enum PrimitiveType {
     TYPE_DATEV2,         /* 25 */
     TYPE_DATETIMEV2,     /* 26 */
     TYPE_TIMEV2,         /* 27 */
+    TYPE_DECIMAL32,      /* 28 */
+    TYPE_DECIMAL64,      /* 29 */
+    TYPE_DECIMAL128,     /* 30 */
 };
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
@@ -129,6 +132,11 @@ struct PrimitiveTypeTraits<TYPE_TIME> {
     using ColumnType = vectorized::ColumnFloat64;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_TIMEV2> {
+    using CppType = double;
+    using ColumnType = vectorized::ColumnFloat64;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_DOUBLE> {
     using CppType = double;
     using ColumnType = vectorized::ColumnFloat64;
@@ -144,13 +152,33 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
+    using CppType = doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>;
+    using ColumnType = vectorized::ColumnVector<vectorized::DateTimeV2>;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
-    using CppType = doris::vectorized::DateV2Value;
+    using CppType = doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>;
     using ColumnType = vectorized::ColumnVector<vectorized::DateV2>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
+    using CppType = int32_t;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
+    using CppType = int64_t;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL128> {
+    using CppType = __int128_t;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
 };
 template <>
@@ -175,7 +203,12 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     using ColumnType = vectorized::ColumnString;
 };
 
-// only for adapt get_predicate_column_ptr
+template <>
+struct PrimitiveTypeTraits<TYPE_HLL> {
+    using CppType = StringValue;
+    using ColumnType = vectorized::ColumnString;
+};
+
 template <PrimitiveType type>
 struct PredicatePrimitiveTypeTraits {
     using PredicateFieldType = typename PrimitiveTypeTraits<type>::CppType;
@@ -188,7 +221,7 @@ struct PredicatePrimitiveTypeTraits<TYPE_DECIMALV2> {
 
 template <>
 struct PredicatePrimitiveTypeTraits<TYPE_DATE> {
-    using PredicateFieldType = uint24_t;
+    using PredicateFieldType = uint32_t;
 };
 
 template <>
@@ -204,6 +237,22 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATEV2> {
 template <>
 struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using PredicateFieldType = uint64_t;
+};
+
+// used for VInPredicate. VInPredicate should use vectorized data type
+template <PrimitiveType type>
+struct VecPrimitiveTypeTraits {
+    using CppType = typename PrimitiveTypeTraits<type>::CppType;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DATE> {
+    using CppType = vectorized::VecDateTimeValue;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
+    using CppType = vectorized::VecDateTimeValue;
 };
 
 } // namespace doris

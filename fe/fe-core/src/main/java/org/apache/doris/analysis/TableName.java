@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -29,7 +29,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -55,7 +55,7 @@ public class TableName implements Writable {
     }
 
     public TableName(String ctl, String db, String tbl) {
-        if (Catalog.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
             tbl = tbl.toLowerCase();
         }
         this.ctl = ctl;
@@ -63,21 +63,14 @@ public class TableName implements Writable {
         this.tbl = tbl;
     }
 
-    /**
-     * Initialize catalog in analyze.
-     */
-    public TableName(String db, String tbl) {
-        this(null, db, tbl);
-    }
-
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(ctl)) {
             ctl = analyzer.getDefaultCatalog();
             if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalDataSource.INTERNAL_DS_NAME;
+                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
         }
-        if (!ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (!ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Util.checkCatalogEnabled();
         }
         if (Strings.isNullOrEmpty(db)) {
@@ -129,16 +122,30 @@ public class TableName implements Writable {
         return Stream.of(ctl, db, tbl).noneMatch(Strings::isNullOrEmpty);
     }
 
+    /**
+     * Analyzer.registerTableRef task alias of index 1 as the legal implicit alias.
+     */
+    public String[] tableAliases() {
+        if (ctl == null || ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            return new String[] {toString(), getNoClusterString(), tbl};
+        } else {
+            return new String[] {toString(), // with cluster name
+                    getNoClusterString(), // without cluster name, legal implicit alias
+                    String.format("%s.%s", db, tbl),
+                    String.format("%s.%s", ClusterNamespace.getNameFromFullName(db), tbl), tbl};
+        }
+    }
+
     public String getNoClusterString() {
-        return Stream.of(ctl, ClusterNamespace.getNameFromFullName(db), tbl)
-                .filter(Objects::nonNull)
+        return Stream.of(InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctl) ? null : ctl,
+                        ClusterNamespace.getNameFromFullName(db), tbl).filter(Objects::nonNull)
                 .collect(Collectors.joining("."));
     }
 
     @Override
     public String toString() {
         StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             stringBuilder.append(ctl).append(".");
         }
         if (db != null) {
@@ -161,7 +168,7 @@ public class TableName implements Writable {
 
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             stringBuilder.append("`").append(ctl).append("`.");
         }
         if (db != null) {
@@ -178,13 +185,13 @@ public class TableName implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             TableName fromJson = GsonUtils.GSON.fromJson(Text.readString(in), TableName.class);
             ctl = fromJson.ctl;
             db = fromJson.db;
             tbl = fromJson.tbl;
         } else {
-            ctl = InternalDataSource.INTERNAL_DS_NAME;
+            ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             db = Text.readString(in);
             tbl = Text.readString(in);
         }

@@ -123,6 +123,26 @@ Status VNodeChannel::open_wait() {
                     commit_info.tabletId = tablet.tablet_id();
                     commit_info.backendId = _node_id;
                     _tablet_commit_infos.emplace_back(std::move(commit_info));
+                    VLOG_CRITICAL << "master replica commit info: tabletId=" << tablet.tablet_id()
+                                  << ", backendId=" << _node_id
+                                  << ", master node id: " << this->node_id()
+                                  << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
+                }
+                if (_parent->_write_single_replica) {
+                    for (auto& tablet_slave_node_ids : result.success_slave_tablet_node_ids()) {
+                        for (auto slave_node_id : tablet_slave_node_ids.second.slave_node_ids()) {
+                            TTabletCommitInfo commit_info;
+                            commit_info.tabletId = tablet_slave_node_ids.first;
+                            commit_info.backendId = slave_node_id;
+                            _tablet_commit_infos.emplace_back(std::move(commit_info));
+                            VLOG_CRITICAL << "slave replica commit info: tabletId="
+                                          << tablet_slave_node_ids.first
+                                          << ", backendId=" << slave_node_id
+                                          << ", master node id: " << this->node_id()
+                                          << ", host: " << this->host()
+                                          << ", txn_id=" << _parent->_txn_id;
+                        }
+                    }
                 }
                 _add_batches_finished = true;
             }
@@ -141,14 +161,15 @@ Status VNodeChannel::open_wait() {
 }
 
 Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. " + _cancel_msg);
+            return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
-            return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
+            return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
     }
 
@@ -159,7 +180,9 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled &&
            (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->any_limit_exceeded()) &&
+            thread_context()
+                    ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                    ->any_limit_exceeded()) &&
            _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -168,7 +191,8 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     _cur_mutable_block->add_row(block_row.first, block_row.second);
     _cur_add_block_request.add_tablet_ids(tablet_id);
 
-    if (_cur_mutable_block->rows() == _batch_size) {
+    if (_cur_mutable_block->rows() == _batch_size ||
+        _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -214,7 +238,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
-    SCOPED_ATTACH_TASK_THREAD(state, _node_channel_tracker);
+    SCOPED_ATTACH_TASK(state);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
@@ -270,6 +294,28 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (request.eos()) {
         for (auto pid : _parent->_partition_ids) {
             request.add_partition_ids(pid);
+        }
+
+        request.set_write_single_replica(false);
+        if (_parent->_write_single_replica) {
+            request.set_write_single_replica(true);
+            for (std::unordered_map<int64_t, std::vector<int64_t>>::iterator iter =
+                         _slave_tablet_nodes.begin();
+                 iter != _slave_tablet_nodes.end(); iter++) {
+                PSlaveTabletNodes slave_tablet_nodes;
+                for (auto node_id : iter->second) {
+                    auto node = _parent->_nodes_info->find_node(node_id);
+                    if (node == nullptr) {
+                        return;
+                    }
+                    PNodeInfo* pnode = slave_tablet_nodes.add_slave_nodes();
+                    pnode->set_id(node->id);
+                    pnode->set_option(node->option);
+                    pnode->set_host(node->host);
+                    pnode->set_async_internal_port(node->brpc_port);
+                }
+                request.mutable_slave_tablet_nodes()->insert({iter->first, slave_tablet_nodes});
+            }
         }
 
         // eos request must be the last request
@@ -362,19 +408,28 @@ Status VOlapTableSink::init(const TDataSink& sink) {
 Status VOlapTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(OlapTableSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc,
-                                               _expr_mem_tracker));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
     return Status::OK();
 }
 
 Status VOlapTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     return OlapTableSink::open(state);
 }
 
+size_t VOlapTableSink::get_pending_bytes() const {
+    size_t mem_consumption = 0;
+    for (auto& indexChannel : _channels) {
+        mem_consumption += indexChannel->get_pending_bytes();
+    }
+    return mem_consumption;
+}
+
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
     auto rows = input_block->rows();
@@ -426,6 +481,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
+
+    //if pending bytes is more than 500M, wait
+    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
+    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    //}
+
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -475,6 +537,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) return _close_status;
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     return OlapTableSink::close(state, exec_status);
 }
@@ -553,8 +616,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
 
                     if (dec_val.greater_than_scale(desc->type().scale)) {
                         auto code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
-                        column_decimal->get_data()[j] =
-                                binary_cast<DecimalV2Value, vectorized::Int128>(dec_val);
+                        column_decimal->get_data()[j] = dec_val.value();
 
                         if (code != E_DEC_OK) {
                             fmt::format_to(error_msg, "round one decimal failed.value={}; ",

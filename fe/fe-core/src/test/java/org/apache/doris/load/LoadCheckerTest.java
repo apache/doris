@@ -17,8 +17,8 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -27,7 +27,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.persist.EditLog;
@@ -61,9 +61,9 @@ public class LoadCheckerTest {
     private String label;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -85,29 +85,29 @@ public class LoadCheckerTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(dbId);
-                minTimes = 0;
-                result = db;
-
-                ds.getDbNullable(db.getFullName());
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                catalog.getDbNullable(db.getFullName());
+                minTimes = 0;
+                result = db;
+
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -152,7 +152,7 @@ public class LoadCheckerTest {
                 times = 1;
                 result = pendingJobs;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 2;
                 result = load;
 
@@ -193,7 +193,7 @@ public class LoadCheckerTest {
                 times = 1;
                 result = Lists.newArrayList(job);
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 1;
                 result = load;
 
@@ -235,7 +235,7 @@ public class LoadCheckerTest {
                 times = 1;
                 result = etlJobs;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 2;
                 result = load;
 
@@ -303,7 +303,7 @@ public class LoadCheckerTest {
                 minTimes = 0;
                 result = true;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 4;
                 result = load;
             }
@@ -324,7 +324,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex olapIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : olapIndex.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateVersionInfo(newVersion, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, 0L, 0L, 0L);
                 }
             }
         }
@@ -360,7 +360,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateVersionInfo(newVersion, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, 0L, 0L, 0L);
                 }
                 TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("/label/path", 1L);
                 tabletLoadInfos.put(tablet.getId(), tabletLoadInfo);
@@ -382,7 +382,7 @@ public class LoadCheckerTest {
                 load.clearJob(job, JobState.QUORUM_FINISHED);
                 minTimes = 0;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 minTimes = 0;
                 result = load;
             }

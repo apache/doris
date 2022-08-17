@@ -164,13 +164,13 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         if (status == 404) {
             LOG(WARNING) << "request scroll search failure 404["
                          << ", response: " << (response.empty() ? "empty response" : response);
-            return Status::InternalError("No search context found for " + _scroll_id);
+            return Status::InternalError("No search context found for {}", _scroll_id);
         }
         if (status != 200) {
             LOG(WARNING) << "request scroll search failure["
                          << "http status" << status
                          << ", response: " << (response.empty() ? "empty response" : response);
-            return Status::InternalError("request scroll search failure: " +
+            return Status::InternalError("request scroll search failure: {}",
                                          (response.empty() ? "empty response" : response));
         }
     }

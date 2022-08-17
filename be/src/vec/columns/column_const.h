@@ -21,6 +21,7 @@
 #pragma once
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/exception.h"
 #include "vec/common/typeid_cast.h"
@@ -51,6 +52,8 @@ public:
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     const char* get_family_name() const override { return "Const"; }
+
+    void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
         return ColumnConst::create(data, new_size);
@@ -112,6 +115,19 @@ public:
         return res;
     }
 
+    size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
+
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override {
+        data->serialize_vec(keys, num_rows, max_row_byte_size);
+    }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map,
+                                     size_t max_row_byte_size) const override {
+        data->serialize_vec_with_null_map(keys, num_rows, null_map, max_row_byte_size);
+    }
+
     void update_hash_with_value(size_t, SipHash& hash) const override {
         data->update_hash_with_value(0, hash);
     }
@@ -129,8 +145,22 @@ public:
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        return data->compare_at(0, 0, *assert_cast<const ColumnConst&>(rhs).data,
-                                nan_direction_hint);
+        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+
+        auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
+        auto* rhs_nullable = check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
+        if (this_nullable && rhs_nullable) {
+            return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
+        } else if (this_nullable) {
+            auto rhs_nullable_column = make_nullable(rhs_const_column.data, false);
+            return this_nullable->compare_at(0, 0, *rhs_nullable_column, nan_direction_hint);
+        } else if (rhs_nullable) {
+            auto this_nullable_column = make_nullable(data, false);
+            return this_nullable_column->compare_at(0, 0, *rhs_const_column.data,
+                                                    nan_direction_hint);
+        } else {
+            return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
+        }
     }
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;

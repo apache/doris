@@ -18,13 +18,16 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.statistics.StatsDeriveResult;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.BitSet;
@@ -36,31 +39,41 @@ import java.util.Objects;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
-    private Group parent;
+    private Group ownerGroup;
     private List<Group> children;
-    private final Operator op;
+    private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
+    // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
+    private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
-    public GroupExpression(Operator op) {
-        this(op, Lists.newArrayList());
+    public GroupExpression(Plan plan) {
+        this(plan, Lists.newArrayList());
     }
 
     /**
      * Constructor for GroupExpression.
      *
-     * @param op {@link Operator} to reference
+     * @param plan {@link Plan} to reference
      * @param children children groups in memo
      */
-    public GroupExpression(Operator op, List<Group> children) {
-        this.op = Objects.requireNonNull(op);
+    public GroupExpression(Plan plan, List<Group> children) {
+        this.plan = Objects.requireNonNull(plan, "plan can not be null");
         this.children = Objects.requireNonNull(children);
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
+        this.requestPropertiesMap = Maps.newHashMap();
+    }
+
+    // TODO: rename
+    public PhysicalProperties getPropertyFromMap(PhysicalProperties requiredPropertySet) {
+        PhysicalProperties outputProperty = requestPropertiesMap.get(requiredPropertySet);
+        Preconditions.checkState(outputProperty != null);
+        return outputProperty;
     }
 
     public int arity() {
@@ -71,16 +84,16 @@ public class GroupExpression {
         children.add(child);
     }
 
-    public Group getParent() {
-        return parent;
+    public Group getOwnerGroup() {
+        return ownerGroup;
     }
 
-    public void setParent(Group parent) {
-        this.parent = parent;
+    public void setOwnerGroup(Group ownerGroup) {
+        this.ownerGroup = ownerGroup;
     }
 
-    public Operator getOperator() {
-        return op;
+    public Plan getPlan() {
+        return plan;
     }
 
     public Group child(int i) {
@@ -124,6 +137,30 @@ public class GroupExpression {
         return lowestCostTable.get(require).second;
     }
 
+    /**
+     * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     */
+    public boolean updateLowestCostTable(
+            PhysicalProperties outputProperties,
+            List<PhysicalProperties> childrenInputProperties,
+            double cost) {
+        if (lowestCostTable.containsKey(outputProperties)) {
+            if (lowestCostTable.get(outputProperties).first > cost) {
+                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+                return true;
+            }
+        } else {
+            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            return true;
+        }
+        return false;
+    }
+
+    public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
+            PhysicalProperties requiredPropertySet) {
+        this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -133,11 +170,21 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        return children.equals(that.children) && op.equals(that.op);
+        // if the plan is LogicalRelation or PhysicalRelation, this == that should be true,
+        // when if one relation appear in plan more than once,
+        // we cannot distinguish them throw equals function, since equals function cannot use output info.
+        if (plan instanceof LogicalRelation || plan instanceof PhysicalRelation) {
+            return false;
+        }
+        return children.equals(that.children) && plan.equals(that.plan);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(children, op);
+        return Objects.hash(children, plan);
+    }
+
+    public StatsDeriveResult getCopyOfChildStats(int idx) {
+        return child(idx).getStatistics().copy();
     }
 }

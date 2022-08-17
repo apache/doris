@@ -28,7 +28,6 @@
 #include "olap/decimal12.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/uint24.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 namespace detail {
@@ -94,15 +93,9 @@ public:
 template <class BloomFilterAdaptor>
 class BloomFilterFuncBase : public IBloomFilterFuncBase {
 public:
-    BloomFilterFuncBase() : _inited(false) {
-        _tracker = MemTracker::create_virtual_tracker(-1, "BloomFilterFunc");
-    }
+    BloomFilterFuncBase() : _inited(false) {}
 
-    virtual ~BloomFilterFuncBase() {
-        if (_tracker != nullptr) {
-            _tracker->release(_bloom_filter_alloced);
-        }
-    }
+    virtual ~BloomFilterFuncBase() {}
 
     Status init(int64_t expect_num, double fpp) override {
         size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);
@@ -116,7 +109,6 @@ public:
         _bloom_filter_alloced = bloom_filter_length;
         _bloom_filter.reset(BloomFilterAdaptor::create());
         RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
-        _tracker->consume(_bloom_filter_alloced);
         _inited = true;
         return Status::OK();
     }
@@ -139,7 +131,6 @@ public:
         }
 
         _bloom_filter_alloced = len;
-        _tracker->consume(_bloom_filter_alloced);
         return _bloom_filter->init(data, len);
     }
 
@@ -151,14 +142,12 @@ public:
 
     void light_copy(IBloomFilterFuncBase* bloomfilter_func) override {
         auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        _tracker = nullptr; // Avoid repeated release when ~BloomFilterFuncBase
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
     }
 
 protected:
-    std::shared_ptr<MemTracker> _tracker;
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
@@ -249,11 +238,29 @@ struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
 };
 
 template <class BloomFilterAdaptor>
-struct DateV2FindOp : public CommonFindOp<doris::vectorized::DateV2Value, BloomFilterAdaptor> {
+struct DateV2FindOp
+        : public CommonFindOp<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>,
+                              BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        doris::vectorized::DateV2Value value;
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
         value.from_date(*reinterpret_cast<const uint32_t*>(data));
-        return bloom_filter.test(Slice((char*)&value, sizeof(doris::vectorized::DateV2Value)));
+        return bloom_filter.test(
+                Slice((char*)&value,
+                      sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>)));
+    }
+};
+
+template <class BloomFilterAdaptor>
+struct DateTimeV2FindOp
+        : public CommonFindOp<
+                  doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>,
+                  BloomFilterAdaptor> {
+    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> value;
+        value.from_datetime(*reinterpret_cast<const uint64_t*>(data));
+        return bloom_filter.test(Slice(
+                (char*)&value,
+                sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>)));
     }
 };
 
@@ -287,6 +294,11 @@ struct BloomFilterTypeTraits<TYPE_DATE, BloomFilterAdaptor> {
 template <class BloomFilterAdaptor>
 struct BloomFilterTypeTraits<TYPE_DATEV2, BloomFilterAdaptor> {
     using FindOp = DateV2FindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_DATETIMEV2, BloomFilterAdaptor> {
+    using FindOp = DateTimeV2FindOp<BloomFilterAdaptor>;
 };
 
 template <class BloomFilterAdaptor>
@@ -353,7 +365,7 @@ public:
         return pool->add(new BloomFilterPredicate(*this));
     }
     using Predicate::prepare;
-    Status prepare(RuntimeState* state, IBloomFilterFuncBase* bloomfilterfunc);
+    Status prepare(RuntimeState* state, std::shared_ptr<IBloomFilterFuncBase> bloomfilterfunc);
 
     std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() { return _filter; }
 

@@ -73,6 +73,8 @@ public:
 
     static void set_thread_name(const std::string& name, int64_t tid);
 
+    static void set_idle_sched(int64_t tid);
+
     // not the system TID, since pthread_t is less prone to being recycled.
     void add_thread(const pthread_t& pthread_id, const std::string& name,
                     const std::string& category, int64_t tid);
@@ -134,6 +136,17 @@ void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     int err = prctl(PR_SET_NAME, name.c_str());
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_name";
+    }
+}
+
+void ThreadMgr::set_idle_sched(int64_t tid) {
+    if (tid == getpid()) {
+        return;
+    }
+    struct sched_param sp = {.sched_priority = 0};
+    int err = sched_setscheduler(0, SCHED_IDLE, &sp);
+    if (err < 0 && errno != EPERM) {
+        LOG(ERROR) << "set_thread_idle_sched";
     }
 }
 
@@ -262,6 +275,10 @@ void Thread::set_self_name(const std::string& name) {
     ThreadMgr::set_thread_name(name, current_thread_id());
 }
 
+void Thread::set_idle_sched() {
+    ThreadMgr::set_idle_sched(current_thread_id());
+}
+
 void Thread::join() {
     ThreadJoiner(this).join();
 }
@@ -361,7 +378,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
 
     int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
     if (ret) {
-        return Status::RuntimeError("Could not create thread", ret, strerror(ret));
+        return Status::RuntimeError("Could not create thread. (error {}) {}", ret, strerror(ret));
     }
 
     // The thread has been created and is now joinable.
@@ -457,7 +474,8 @@ ThreadJoiner& ThreadJoiner::give_up_after_ms(int ms) {
 
 Status ThreadJoiner::join() {
     if (Thread::current_thread() && Thread::current_thread()->tid() == _thread->tid()) {
-        return Status::InvalidArgument("Can't join on own thread", -1, _thread->_name);
+        return Status::InvalidArgument("Can't join on own thread. (error {}) {}", -1,
+                                       _thread->_name);
     }
 
     // Early exit: double join is a no-op.
@@ -500,8 +518,7 @@ Status ThreadJoiner::join() {
         }
         waited_ms += wait_for;
     }
-    return Status::Aborted(
-            strings::Substitute("Timed out after $0ms joining on $1", waited_ms, _thread->_name));
+    return Status::Aborted("Timed out after {}ms joining on {}", waited_ms, _thread->_name);
 }
 
 void register_thread_display_page(WebPageHandler* web_page_handler) {

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -55,11 +56,11 @@ public class VirtualSlotRefTest {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
+        analyzer = new Analyzer(analyzerBase.getEnv(), analyzerBase.getContext());
         String[] cols = {"k1", "k2", "k3"};
         slots = new ArrayList<>();
         for (String col : cols) {
-            SlotRef expr = new SlotRef(new TableName("testdb", "t"), col);
+            SlotRef expr = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testdb", "t"), col);
             slots.add(expr);
         }
         try {
@@ -67,7 +68,9 @@ public class VirtualSlotRefTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
+            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testdb", "t");
+            tableName.analyze(analyzerBase);
+            td.setTable(analyzerBase.getTableOrAnalysisException(tableName));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
         } catch (NoSuchFieldException | IllegalAccessException e) {

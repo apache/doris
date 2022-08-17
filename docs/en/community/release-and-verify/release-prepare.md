@@ -62,20 +62,15 @@ The overall release process is as follows.
 	3. Prepare Release Notes
 4. prepare release materials
     1. Tagging
-    2. upload the content to be released to the [Apache Dev SVN repository](https://dist.apache.org/repos/dist/dev/incubator/doris)
+    2. upload the content to be released to the [Apache Dev SVN repository](https://dist.apache.org/repos/dist/dev/doris)
     3. preparation of other Convenience Binaries (e.g. upload to [Maven Staging repository](https://repository.apache.org/#stagingRepositories))
 4. Community Release Polling Process
 	2. Initiate a VOTE in the [Doris Community Dev Mail Group](dev@doris.apache.org).
 	3. After the vote is approved, send a Result email in the Doris community.
-	4. If it is an Incubator Project, you also need to
-	   1. initiate a VOTE in the [Incubator General Mailing Group](general@incubator.apache.org). 2.
-	   2. Send a Result email to general@incubator.apache.org.
 5. Complete the work
-	1. Upload the signed packages to the [Apache Release repository](https://dist.apache.org/repos/dist/release/incubator/doris) and generate the relevant links.
+	1. Upload the signed packages to the [Apache Release repository](https://dist.apache.org/repos/dist/release/doris) and generate the relevant links.
 	2. Post the download links on the Doris website and github, and clean up the old packages on svn.
 	3. Send an Announce email to dev@doris.apache.org
-	4. If it is an Incuator Project, you also need to
-	   1. Send an Announce email to general@incubator.apache.org
 
 ## Prepare signatures
 
@@ -88,7 +83,7 @@ If this is your first time as Release Manager, then you need to prepare the foll
 ### Prepare gpg key
 
 Release manager needs to create its own signature public key before release, and upload it to the public key server, then you can use this public key to sign the package to be released.
-If your KEY already exists in [KEYS](https://downloads.apache.org/incubator/doris/KEYS), then you can skip this step.
+If your KEY already exists in [KEYS](https://downloads.apache.org/doris/KEYS), then you can skip this step.
 
 #### Installation and configuration of the signature software GnuPG
 
@@ -196,6 +191,8 @@ Enter passphrase, twice, more than 8 characters.
 
 **The secret key here must be remembered, it will be used later when signing. It will also be used for publishing other components**
 
+**If the `gpg --gen-key` command gets stuck for a long time, try opening another terminal and execute the `find / | xargs file` command to generate enough random characters, usually after a few minutes, the gpg command will complete. **
+
 >**Notice:**
 >
 >If the generation is stuck when it can be generated and cannot be completed for a long time, the following solutions can be used to solve it:
@@ -280,7 +277,7 @@ https://id.apache.org
 **Be careful not to delete existing content in the KEYS file, it can only be added.**
 
 ```
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 # edit doris/KEYS file
 gpg --list-sigs [user-id] >> doris/KEYS
 gpg --armor --export [user ID] >> doris/KEYS
@@ -290,17 +287,17 @@ svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m "UPDATE KEYS"
 Note that the KEYS file should also be published to the following svn library.
 
 ```
-svn co https://dist.apache.org/repos/dist/release/incubator/doris
+svn co https://dist.apache.org/repos/dist/release/doris
 # edit doris/KEYS file
 svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m "UPDATE KEYS"
 ```
 
 After that it will automatically sync to.
 ```
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 ```
 
-In subsequent release poll emails, use the KEYS file here in ``https://downloads.apache.org/incubator/doris/KEYS``.
+In subsequent release poll emails, use the KEYS file here in ``https://downloads.apache.org/doris/KEYS``.
 
 ## Maven Release Preparation
 

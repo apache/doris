@@ -40,7 +40,6 @@ struct HashTableBuild {
 
         Defer defer {[&]() {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _operation_node->_hash_table_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
             _operation_node->_mem_used += bucket_bytes - old_bucket_bytes;
         }};
 
@@ -82,10 +81,10 @@ Status VSetOperationNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode::close");
     for (auto& exprs : _child_expr_lists) {
         VExpr::close(exprs, state);
     }
-    _hash_table_mem_tracker->release(_mem_used);
     return ExecNode::close(state);
 }
 
@@ -113,9 +112,10 @@ Status VSetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSetOperationNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     // open result expr lists.
     for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
@@ -127,15 +127,13 @@ Status VSetOperationNode::open(RuntimeState* state) {
 Status VSetOperationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    _hash_table_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSetOperationNode:HashTable");
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
 
     // Prepare result expr lists.
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc(),
-                                       expr_mem_tracker()));
+        RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
 
     for (auto ctx : _child_expr_lists[0]) {
@@ -161,16 +159,20 @@ void VSetOperationNode::hash_table_init() {
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
+        case TYPE_DECIMAL32:
             _hash_table_variants.emplace<I32HashTableContext>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATETIME:
         case TYPE_DATE:
+        case TYPE_DECIMAL64:
+        case TYPE_DATETIMEV2:
             _hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
+        case TYPE_DECIMAL128:
             _hash_table_variants.emplace<I128HashTableContext>();
             break;
         default:
@@ -231,8 +233,6 @@ void VSetOperationNode::hash_table_init() {
 //build a hash table from child(0)
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
-            "Vec Set Operation Node, while constructing the hash table");
     Block block;
     MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 
@@ -243,10 +243,10 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &block, &eos),
+                                       child(0)->get_next_span(), eos);
 
         size_t allocated_bytes = block.allocated_bytes();
-        _hash_table_mem_tracker->consume(allocated_bytes);
         _mem_used += allocated_bytes;
 
         if (block.rows() != 0) {
@@ -310,7 +310,8 @@ Status VSetOperationNode::process_probe_block(RuntimeState* state, int child_id,
     _probe_rows = 0;
 
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(child(child_id)->get_next(state, &_probe_block, eos));
+    RETURN_IF_ERROR_AND_CHECK_SPAN(child(child_id)->get_next(state, &_probe_block, eos),
+                                   child(child_id)->get_next_span(), *eos);
     _probe_rows = _probe_block.rows();
     RETURN_IF_ERROR(extract_probe_column(_probe_block, _probe_columns, child_id));
     return Status::OK();

@@ -18,18 +18,13 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,30 +32,38 @@ import java.util.Optional;
 /**
  * Abstract class for all concrete plan node.
  */
-public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
-        extends AbstractTreeNode<Plan> implements Plan {
+public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
-    public final OP_TYPE operator;
     protected StatsDeriveResult statsDeriveResult;
-    protected long limit;
-
+    protected final PlanType type;
+    protected final Optional<GroupExpression> groupExpression;
     protected final LogicalProperties logicalProperties;
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, LogicalProperties logicalProperties, Plan... children) {
-        this(type, operator, Optional.empty(), logicalProperties, children);
+    public AbstractPlan(PlanType type, Plan... children) {
+        this(type, Optional.empty(), Optional.empty(), children);
+    }
+
+    public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+        this(type, Optional.empty(), optLogicalProperties, children);
     }
 
     /** all parameter constructor. */
-    public AbstractPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
-                        LogicalProperties logicalProperties, Plan... children) {
-        super(type, groupExpression, children);
-        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                        Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+        super(groupExpression, children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
+        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties(children));
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
 
     @Override
-    public OP_TYPE getOperator() {
-        return operator;
+    public PlanType getType() {
+        return type;
+    }
+
+    public Optional<GroupExpression> getGroupExpression() {
+        return groupExpression;
     }
 
     /**
@@ -100,37 +103,20 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     }
 
     @Override
-    public List<StatsDeriveResult> getChildrenStats() {
-        return Collections.emptyList();
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AbstractPlan that = (AbstractPlan) o;
+        return Objects.equals(statsDeriveResult, that.statsDeriveResult)
+                && Objects.equals(logicalProperties, that.logicalProperties);
     }
 
     @Override
-    public StatsDeriveResult getStatsDeriveResult() {
-        return statsDeriveResult;
-    }
-
-    @Override
-    public StatisticalType getStatisticalType() {
-        return null;
-    }
-
-    @Override
-    public void setStatsDeriveResult(StatsDeriveResult result) {
-        this.statsDeriveResult = result;
-    }
-
-    @Override
-    public long getLimit() {
-        return limit;
-    }
-
-    @Override
-    public List<? extends ExprStats> getConjuncts() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public String toString() {
-        return operator.toString();
+    public int hashCode() {
+        return Objects.hash(statsDeriveResult, logicalProperties);
     }
 }

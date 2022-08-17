@@ -23,6 +23,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -71,6 +72,13 @@ public:
     // delete conditions used by column index to filter pages
     std::vector<const Conditions*> delete_conditions;
 
+    // For unique-key merge-on-write, the effect is similar to delete_conditions
+    // that filters out rows that are deleted in realtime.
+    // For a particular row, if delete_bitmap.contains(rowid) means that row is
+    // marked deleted and invisible to user anymore.
+    // segment_id -> roaring::Roaring*
+    std::unordered_map<uint32_t, std::shared_ptr<roaring::Roaring>> delete_bitmap;
+
     std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
             std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
@@ -83,6 +91,13 @@ public:
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
     int block_row_max = 4096;
+
+    TabletSchemaSPtr tablet_schema = nullptr;
+    bool record_rowids = false;
+    // used for special optimization for query : ORDER BY key DESC LIMIT n
+    bool read_orderby_key_reverse = false;
+    // columns for orderby keys
+    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one
@@ -107,6 +122,10 @@ public:
     }
 
     virtual Status next_batch(vectorized::Block* block) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
         return Status::NotSupported("to be implemented");
     }
 

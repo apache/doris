@@ -25,6 +25,7 @@ set(EXEC_FILES
     arrow/arrow_reader.cpp
     arrow/orc_reader.cpp
     arrow/parquet_reader.cpp
+    arrow/parquet_row_group_reader.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
@@ -86,6 +87,7 @@ set(EXEC_FILES
     schema_scanner/schema_user_privileges_scanner.cpp
     schema_scanner/schema_files_scanner.cpp
     schema_scanner/schema_partitions_scanner.cpp
+    schema_scanner/schema_rowsets_scanner.cpp
 
     partitioned_hash_table.cc
     partitioned_aggregation_node.cc

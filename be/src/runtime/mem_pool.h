@@ -32,7 +32,9 @@
 #include "common/status.h"
 #include "gutil/dynamic_annotations.h"
 #include "olap/olap_define.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/chunk.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -93,7 +95,6 @@ class MemPool {
 public:
     // 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
     MemPool(MemTracker* mem_tracker);
-    MemPool(const std::string& label);
     MemPool();
 
     /// Frees all chunks of memory and subtracts the total allocated bytes
@@ -103,37 +104,40 @@ public:
     /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
     /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
-    uint8_t* allocate(int64_t size, Status* rst = nullptr) {
-        return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
+    uint8_t* allocate(int64_t size) { return allocate<false>(size, DEFAULT_ALIGNMENT); }
+
+    uint8_t* allocate_aligned(int64_t size, int alignment) {
+        DCHECK_GE(alignment, 1);
+        DCHECK_LE(alignment, config::memory_max_alignment);
+        DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
+        return allocate<false>(size, alignment);
     }
 
     /// Same as Allocate() expect add a check when return a nullptr
-    Status allocate_safely(int64_t size, uint8_t*& ret, Status* rst = nullptr) {
-        return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret, rst);
+    Status allocate_safely(int64_t size, uint8_t*& ret) {
+        return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret);
     }
 
     /// Same as Allocate() except the mem limit is checked before the allocation and
     /// this call will fail (returns nullptr) if it does.
     /// The caller must handle the nullptr case. This should be used for allocations
     /// where the size can be very big to bound the amount by which we exceed mem limits.
-    uint8_t* try_allocate(int64_t size, Status* rst = nullptr) {
-        return allocate<true>(size, DEFAULT_ALIGNMENT, rst);
-    }
+    uint8_t* try_allocate(int64_t size) { return allocate<true>(size, DEFAULT_ALIGNMENT); }
 
     /// Same as TryAllocate() except a non-default alignment can be specified. It
     /// should be a power-of-two in [1, alignof(std::max_align_t)].
-    uint8_t* try_allocate_aligned(int64_t size, int alignment, Status* rst = nullptr) {
+    uint8_t* try_allocate_aligned(int64_t size, int alignment) {
         DCHECK_GE(alignment, 1);
         DCHECK_LE(alignment, config::memory_max_alignment);
         DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
-        return allocate<true>(size, alignment, rst);
+        return allocate<true>(size, alignment);
     }
 
     /// Same as TryAllocate() except returned memory is not aligned at all.
-    uint8_t* try_allocate_unaligned(int64_t size, Status* rst = nullptr) {
+    uint8_t* try_allocate_unaligned(int64_t size) {
         // Call templated implementation directly so that it is inlined here and the
         // alignment logic can be optimised out.
-        return allocate<true>(size, 1, rst);
+        return allocate<true>(size, 1);
     }
 
     /// Makes all allocated chunks available for re-use, but doesn't delete any chunks.
@@ -162,7 +166,10 @@ public:
 
     MemTracker* mem_tracker() { return _mem_tracker; }
 
-    static constexpr int DEFAULT_ALIGNMENT = 8;
+    // The memory for __int128 should be aligned to 16 bytes.
+    // By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+    // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+    static constexpr int DEFAULT_ALIGNMENT = 16;
 
 #if (defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)) && !defined(BE_TEST)
     static constexpr int DEFAULT_PADDING_SIZE = 0x10;
@@ -204,6 +211,14 @@ private:
     /// data. Otherwise the current chunk can be either empty or full.
     bool check_integrity(bool check_current_chunk_empty);
 
+    void reset_peak() {
+        if (total_allocated_bytes_ - peak_allocated_bytes_ > 1024) {
+            THREAD_MEM_TRACKER_TRANSFER_FROM(total_allocated_bytes_ - peak_allocated_bytes_,
+                                             ExecEnv::GetInstance()->process_mem_tracker().get());
+            peak_allocated_bytes_ = total_allocated_bytes_;
+        }
+    }
+
     /// Return offset to unoccupied space in current chunk.
     int64_t get_free_offset() const {
         if (current_chunk_idx_ == -1) return 0;
@@ -235,7 +250,7 @@ private:
             DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
             info.allocated_bytes += padding + size;
             total_allocated_bytes_ += padding + size;
-            peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
+            reset_peak();
             DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
             return result;
         }
@@ -243,7 +258,7 @@ private:
     }
 
     template <bool CHECK_LIMIT_FIRST>
-    uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment, Status* rst) {
+    uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment) {
         DCHECK_GE(size, 0);
         if (UNLIKELY(size == 0)) return reinterpret_cast<uint8_t*>(&k_zero_length_region_);
 
@@ -259,22 +274,15 @@ private:
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (rst == nullptr) {
-            if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST)))
-                return nullptr;
-        } else {
-            *rst = find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST);
-            if (UNLIKELY(!*rst)) return nullptr;
-        }
+        if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST))) return nullptr;
 
         uint8_t* result = allocate_from_current_chunk(size, alignment);
         return result;
     }
 
     template <bool CHECK_LIMIT_FIRST>
-    Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret,
-                                         Status* rst = nullptr) {
-        uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment, rst);
+    Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
+        uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment);
         if (result == nullptr) {
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
@@ -308,11 +316,9 @@ private:
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
     MemTracker* _mem_tracker;
-    // TODO(zxy) temp variable, In the future, mem trackers should all use raw pointers.
-    std::shared_ptr<MemTracker> _mem_tracker_own;
 };
 
 // Stamp out templated implementations here so they're included in IR module
-template uint8_t* MemPool::allocate<false>(int64_t size, int alignment, Status* rst);
-template uint8_t* MemPool::allocate<true>(int64_t size, int alignment, Status* rst);
+template uint8_t* MemPool::allocate<false>(int64_t size, int alignment);
+template uint8_t* MemPool::allocate<true>(int64_t size, int alignment);
 } // namespace doris

@@ -26,8 +26,8 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
+#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -70,7 +70,7 @@ public:
     // It must be okay to call this multiple times. Subsequent calls should
     // be ignored.
     virtual Status close(RuntimeState* state, Status exec_status) {
-        _expr_mem_tracker.reset();
+        profile()->add_to_span();
         _closed = true;
         return Status::OK();
     }
@@ -90,15 +90,22 @@ public:
         _query_statistics = statistics;
     }
 
+    void end_send_span() {
+        if (_send_span) {
+            _send_span->End();
+        }
+    }
+
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed;
-    std::shared_ptr<MemTracker> _expr_mem_tracker;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
+
+    OpentelemetrySpan _send_span {};
 };
 
 } // namespace doris

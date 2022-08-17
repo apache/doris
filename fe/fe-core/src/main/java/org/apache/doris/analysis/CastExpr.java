@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -29,6 +29,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -98,16 +99,15 @@ public class CastExpr extends Expr {
         isImplicit = true;
 
         children.add(e);
-        if (isImplicit) {
-            try {
-                analyze();
-            } catch (AnalysisException ex) {
-                LOG.warn("Implicit casts fail", ex);
-                Preconditions.checkState(false,
-                        "Implicit casts should never throw analysis exception.");
-            }
-            analysisDone();
+
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
         }
+        analysisDone();
     }
 
     /**
@@ -138,7 +138,8 @@ public class CastExpr extends Expr {
 
     private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
         // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDateType())) {
+        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDecimalV3()
+                || toType.isDateType())) {
             return true;
         }
 
@@ -159,16 +160,21 @@ public class CastExpr extends Expr {
                 if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimalV2()
-                        || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
+                String beClass = toType.isDecimalV2() || fromType.isDecimalV2()
+                        ? "DecimalV2Operators" : "CastFunctions";
                 if (fromType.isTime()) {
                     beClass = "TimeOperators";
                 }
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 // only refactor date/datetime for vectorized engine.
-                if (toType.getPrimitiveType() == PrimitiveType.DATE
-                        || toType.getPrimitiveType() == PrimitiveType.DATEV2) {
+                if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";
+                }
+                if (toType.getPrimitiveType() == PrimitiveType.DATEV2) {
+                    typeName = "datev2_val";
+                }
+                if (toType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                    typeName = "datetimev2_val";
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
@@ -264,8 +270,14 @@ public class CastExpr extends Expr {
 
         // this cast may result in loss of precision, but the user requested it
         if (childType.matchesType(type)) {
-            noOp = true;
-            return;
+            // For types which has precision and scale, we also need to check quality between precisions and scales
+            if (!PrimitiveType.typeWithPrecision.contains(
+                    type.getPrimitiveType()) || ((((ScalarType) type).decimalPrecision()
+                    == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
+                    == ((ScalarType) childType).decimalScale()))) {
+                noOp = true;
+                return;
+            }
         }
         // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
         // it is necessary to check if it is castable before creating fn.
@@ -282,17 +294,24 @@ public class CastExpr extends Expr {
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
         if (type.isScalarType()) {
             if (isImplicit) {
-                fn = Catalog.getCurrentCatalog().getFunction(
+                fn = Env.getCurrentEnv().getFunction(
                         searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             } else {
-                fn = Catalog.getCurrentCatalog().getFunction(
+                fn = Env.getCurrentEnv().getFunction(
                         searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
         } else if (type.isArrayType()) {
-            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+            if (VectorizedUtil.isVectorized()) {
+                // Vec engine don't need a scala cast function, but we still create one to pass the check.
+                fn = ScalarFunction.createBuiltin("CAST", type,  Lists.newArrayList(), false,
+                    "", null, null, true);
+            } else if (childType.isVarchar()) {
+                // only support varchar cast to array for origin exec engine.
+                fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
                     Lists.newArrayList(Type.VARCHAR), false,
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
+            }
         }
 
         if (fn == null) {
@@ -300,7 +319,12 @@ public class CastExpr extends Expr {
                     + " from " + childType + " to " + type);
         }
 
-        Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
+        if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+            Preconditions.checkState(type.getPrimitiveType() == fn.getReturnType().getPrimitiveType(),
+                    type + " != " + fn.getReturnType());
+        } else {
+            Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
+        }
     }
 
     @Override
@@ -387,7 +411,7 @@ public class CastExpr extends Expr {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
-        } else if (type.isDecimalV2()) {
+        } else if (type.isDecimalV2() || type.isDecimalV3()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
 
@@ -456,6 +480,9 @@ public class CastExpr extends Expr {
         ScalarType newTargetType = null;
         switch (primitiveType) {
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 // normal decimal
                 if (targetType.getPrecision() != 0) {
                     newTargetType = targetType;
@@ -465,7 +492,7 @@ public class CastExpr extends Expr {
                 int scale = getDigital(targetType.getScalarScaleStr(), parameters, inputParamsExprs);
                 if (precision != -1 && scale != -1) {
                     newTargetType = ScalarType.createType(primitiveType, 0, precision, scale);
-                } else if (precision != -1 && scale == -1) {
+                } else if (precision != -1) {
                     newTargetType = ScalarType.createType(primitiveType, 0, precision, ScalarType.DEFAULT_SCALE);
                 }
                 break;
@@ -514,5 +541,25 @@ public class CastExpr extends Expr {
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
                 || (!children.get(0).getType().isDateType() && getType().isDateType());
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        FunctionName fnName = new FunctionName(getFnName(type));
+        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+        if (type.isScalarType()) {
+            if (isImplicit) {
+                fn = Env.getCurrentEnv().getFunction(
+                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            } else {
+                fn = Env.getCurrentEnv().getFunction(
+                        searchDesc, Function.CompareMode.IS_IDENTICAL);
+            }
+        } else if (type.isArrayType()) {
+            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+                    type, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(Type.VARCHAR), false,
+                    "doris::CastFunctions::cast_to_array_val", null, null, true);
+        }
     }
 }

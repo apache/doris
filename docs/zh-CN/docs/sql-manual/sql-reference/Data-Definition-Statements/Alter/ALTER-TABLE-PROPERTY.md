@@ -78,7 +78,13 @@ ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
    (注:非分区表不支持添加动态分区属性)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "true", 
+  "dynamic_partition.time_unit" = "DAY", 
+  "dynamic_partition.end" = "3", 
+  "dynamic_partition.prefix" = "p", 
+  "dynamic_partition.buckets" = "32"
+);
 ```
 
 5. 修改表的 in_memory 属性
@@ -93,17 +99,34 @@ ALTER TABLE example_db.my_table set ("in_memory" = "true");
 ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE";
 ```
 
+注意：
+
+- 只能用在unique 表
+- 用于旧表支持批量删除功能，新表创建时已经支持
+
 7. 启用按照sequence column的值来保证导入顺序的功能
 
 ```sql
-ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date");
+ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES (
+  "function_column.sequence_type" = "Date"
+);
 ```
+
+注意：
+
+- 只能用在unique 表
+- sequence_type用来指定sequence列的类型，可以为整型和时间类型
+- 只支持新导入数据的有序性，历史数据无法更改
 
 8. 将表的默认分桶数改为50
 
 ```sql
 ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
 ```
+
+注意：
+
+- 只能用在分区类型为RANGE，采用哈希分桶的非colocate表
 
 9. 修改表注释
 
@@ -119,16 +142,34 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 
 11. 修改引擎类型
 
+    仅支持将 MySQL 类型修改为 ODBC 类型。driver 的值为 odbc.init 配置中的 driver 名称。
+
 ```sql
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
+
+12. 修改副本数
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("replication_num" = "2");
+ALTER TABLE example_db.mysql_table SET ("default.replication_num" = "2");
+ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.tag1: 1");
+ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.tag1: 1");
+```
+
+注：
+1. default 前缀的属性表示修改表的默认副本分布。这种修改不会修改表的当前实际副本分布，而只影响分区表上新建分区的副本分布。
+2. 对于非分区表，修改不带 default 前缀的副本分布属性，会同时修改表的默认副本分布和实际副本分布。即修改后，通过 `show create table` 和 `show partitions from tbl` 语句可以看到副本分布数据都被修改了。
+3. 对于分区表，表的实际副本分布是分区级别的，即每个分区有自己的副本分布，可以通过 `show partitions from tbl` 语句查看。如果想修改实际副本分布，请参阅 `ALTER TABLE PARTITION`。
 
 ### Example
 
 1. 修改表的 bloom filter 列
 
 ```sql
-ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
+ALTER TABLE example_db.my_table SET (
+  "bloom_filter_columns"="k1,k2,k3"
+);
 ```
 
 也可以合并到上面的 schema change 操作中（注意多子句的语法有少许区别）
@@ -136,7 +177,9 @@ ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
 ```sql
 ALTER TABLE example_db.my_table
 DROP COLUMN col2
-PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+PROPERTIES (
+  "bloom_filter_columns"="k1,k2,k3"
+);
 ```
 
 2. 修改表的Colocate 属性
@@ -148,20 +191,30 @@ ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 3. 将表的分桶方式由 Hash Distribution 改为 Random Distribution
 
 ```sql
-ALTER TABLE example_db.my_table set ("distribution_type" = "random");
+ALTER TABLE example_db.my_table set (
+  "distribution_type" = "random"
+);
 ```
 
 4. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "false"
+);
 ```
 
 如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
    (注:非分区表不支持添加动态分区属性)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "true", 
+  "dynamic_partition.time_unit" = "DAY", 
+  "dynamic_partition.end" = "3", 
+  "dynamic_partition.prefix" = "p", 
+  "dynamic_partition.buckets" = "32"
+);
 ```
 
 5. 修改表的 in_memory 属性
@@ -179,7 +232,9 @@ ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE";
 7. 启用按照sequence column的值来保证导入顺序的功能
 
 ```sql
-ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date");
+ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES (
+  "function_column.sequence_type" = "Date"
+);
 ```
 
 8. 将表的默认分桶数改为50

@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <limits>
+#include <variant>
+
 #include "http/http_status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
@@ -44,17 +47,21 @@
 #define TIME_TYPE_TO_COLUMN_TYPE(M) \
     M(Date, ColumnInt64)            \
     M(DateTime, ColumnInt64)        \
-    M(DateV2, ColumnUInt32)
+    M(DateV2, ColumnUInt32)         \
+    M(DateTimeV2, ColumnUInt64)
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 
-#define TYPE_TO_COLUMN_TYPE(M)     \
-    NUMERIC_TYPE_TO_COLUMN_TYPE(M) \
-    DECIMAL_TYPE_TO_COLUMN_TYPE(M) \
-    STRING_TYPE_TO_COLUMN_TYPE(M)  \
-    TIME_TYPE_TO_COLUMN_TYPE(M)    \
+#define TYPE_TO_BASIC_COLUMN_TYPE(M) \
+    NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \
+    DECIMAL_TYPE_TO_COLUMN_TYPE(M)   \
+    STRING_TYPE_TO_COLUMN_TYPE(M)    \
+    TIME_TYPE_TO_COLUMN_TYPE(M)
+
+#define TYPE_TO_COLUMN_TYPE(M)   \
+    TYPE_TO_BASIC_COLUMN_TYPE(M) \
     COMPLEX_TYPE_TO_COLUMN_TYPE(M)
 
 namespace doris::vectorized {
@@ -70,18 +77,89 @@ IAggregateFunction* create_class_with_type(const IDataType& argument_type, TArgs
     return nullptr;
 }
 
-// We can use template lambda function in C++20, but now just use static function
-#define CONSTEXPR_LOOP_MATCH_DECLARE(EXECUTE)                                               \
-    template <int start, int end, template <int> typename Object, typename... TArgs>        \
-    static void constexpr_loop_match(int target, TArgs&&... args) {                         \
-        if constexpr (start < end) {                                                        \
-            if (start == target) {                                                          \
-                EXECUTE<Object<start>>(std::forward<TArgs>(args)...);                       \
-            } else {                                                                        \
-                constexpr_loop_match<start + 1, end, Object>(target,                        \
-                                                             std::forward<TArgs>(args)...); \
-            }                                                                               \
-        }                                                                                   \
+template <typename LoopType, LoopType start, LoopType end, template <LoopType> typename Reducer>
+struct constexpr_loop_match {
+    template <typename... TArgs>
+    static void run(LoopType target, TArgs&&... args) {
+        if constexpr (start <= end) {
+            if (start == target) {
+                Reducer<start>::run(std::forward<TArgs>(args)...);
+            } else {
+                if constexpr (start < std::numeric_limits<LoopType>::max()) {
+                    constexpr_loop_match<LoopType, start + 1, end, Reducer>::run(
+                            target, std::forward<TArgs>(args)...);
+                }
+            }
+        }
     }
+};
+
+template <int start, int end, template <int> typename Reducer>
+using constexpr_int_match = constexpr_loop_match<int, start, end, Reducer>;
+
+template <template <bool> typename Reducer>
+using constexpr_bool_match = constexpr_loop_match<bool, false, true, Reducer>;
+
+// we can't use variadic-parameters, because it will reject alias-templates.
+// https://stackoverflow.com/questions/30707011/pack-expansion-for-alias-template
+template <typename LoopType, LoopType start, LoopType end,
+          template <LoopType, LoopType> typename Reducer,
+          template <template <LoopType> typename> typename InnerMatch>
+struct constexpr_2_loop_match {
+    template <LoopType matched>
+    using InnerReducer = Reducer<start, matched>;
+
+    template <typename... TArgs>
+    static void run(LoopType target, TArgs&&... args) {
+        if constexpr (start <= end) {
+            if (start == target) {
+                InnerMatch<InnerReducer>::run(std::forward<TArgs>(args)...);
+            } else {
+                if constexpr (start < std::numeric_limits<LoopType>::max()) {
+                    constexpr_2_loop_match<LoopType, start + 1, end, Reducer, InnerMatch>::run(
+                            target, std::forward<TArgs>(args)...);
+                }
+            }
+        }
+    }
+};
+
+template <template <bool, bool> typename Reducer>
+using constexpr_2_bool_match =
+        constexpr_2_loop_match<bool, false, true, Reducer, constexpr_bool_match>;
+
+template <typename LoopType, LoopType start, LoopType end,
+          template <LoopType, LoopType, LoopType> typename Reducer,
+          template <template <LoopType, LoopType> typename> typename InnerMatch>
+struct constexpr_3_loop_match {
+    template <LoopType matched, LoopType matched_next>
+    using InnerReducer = Reducer<start, matched, matched_next>;
+
+    template <typename... TArgs>
+    static void run(LoopType target, TArgs&&... args) {
+        if constexpr (start <= end) {
+            if (start == target) {
+                InnerMatch<InnerReducer>::run(std::forward<TArgs>(args)...);
+            } else {
+                if constexpr (start < std::numeric_limits<LoopType>::max()) {
+                    constexpr_3_loop_match<LoopType, start + 1, end, Reducer, InnerMatch>::run(
+                            target, std::forward<TArgs>(args)...);
+                }
+            }
+        }
+    }
+};
+
+template <template <bool, bool, bool> typename Reducer>
+using constexpr_3_bool_match =
+        constexpr_3_loop_match<bool, false, true, Reducer, constexpr_2_bool_match>;
+
+std::variant<std::false_type, std::true_type> static inline make_bool_variant(bool condition) {
+    if (condition) {
+        return std::true_type {};
+    } else {
+        return std::false_type {};
+    }
+}
 
 } // namespace  doris::vectorized

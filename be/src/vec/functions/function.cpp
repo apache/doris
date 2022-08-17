@@ -135,8 +135,8 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     for (auto arg_num : arguments_to_remain_constants) {
         if (arg_num < args.size() &&
             !is_column_const(*block.get_by_position(args[arg_num]).column)) {
-            return Status::RuntimeError(fmt::format(
-                    "Argument at index {} for function {}  must be constant", arg_num, get_name()));
+            return Status::RuntimeError("Argument at index {} for function {}  must be constant",
+                                        arg_num, get_name());
         }
     }
 
@@ -169,9 +169,9 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
       */
     if (!have_converted_columns) {
         return Status::RuntimeError(
-                fmt::format("Number of arguments for function {} doesn't match: the function "
-                            "requires more arguments",
-                            get_name()));
+                "Number of arguments for function {} doesn't match: the function "
+                "requires more arguments",
+                get_name());
     }
 
     temporary_block.insert(block.get_by_position(result));

@@ -40,6 +40,9 @@ under the License.
 
 **Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process.**
 
+
+**This tutorial is a mixed distribution tutorial of single node, 1FE and 1BE, only one node is needed, which is convenient for quickly experiencing Doris.**
+
 1. Set the maximum number of open file handles in the system
 
    ```shell
@@ -53,9 +56,9 @@ under the License.
 2. Download binary package / self-compile FE / BE files
 
    ```shell
-   wget https://dist.apache.org/repos/dist/release/incubator/doris/version to deploy
+   wget https://dist.apache.org/repos/dist/release/doris/version-to-deploy
    # For example the following link
-   wget https://dist.apache.org/repos/dist/release/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
+   wget https://dist.apache.org/repos/dist/release/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
    ```
    
 3. Extract the tar.gz file
@@ -82,7 +85,9 @@ under the License.
    # Configure FE-Config
    vi fe/conf/fe.conf
    # Uncomment priority_networks and modify parameters
-   priority_networks = 127.0.0.0/24
+   # For example, if the IP address of the current node is 10.10.2.21, you need to change it to 10.10.2.0/24 and fill in
+   # What needs to be filled in here is the IP subnet address, not the IP address
+   priority_networks = 10.10.2.0/24
    # save and exit
    ```
 
@@ -92,7 +97,9 @@ under the License.
    # Configure BE-Config
    vi be/conf/be.conf
    # Uncomment priority_networks and modify parameters
-   priority_networks = 127.0.0.0/24
+   # For example, if the IP address of the current node is 10.10.2.21, you need to change it to 10.10.2.0/24 and fill in
+   # What needs to be filled in here is the IP subnet address, not the IP address
+   priority_networks = 10.10.2.0/24
    # save and exit
    ```
 
@@ -137,10 +144,10 @@ under the License.
    Register BE to FE (using MySQL-Client, you need to install it yourself)
 
    ```shell
-   # login
-   mysql -h 127.0.0.1 -P 9030 -uroot
+   # login，Since it is a single node mixed distribution, FE_IP and BE_IP are the same IP address
+   mysql -h FE_IP -P 9030 -uroot
    # Register BE
-   ALTER SYSTEM ADD BACKEND "127.0.0.1:9050";
+   ALTER SYSTEM ADD BACKEND "BE_IP:9050";
    ```
 
 ## Apache Doris is easy to use
@@ -152,7 +159,7 @@ Doris uses the MySQL protocol for communication, and users can connect to the Do
 By default, Http protocol is used for WebUI access, and the following format address is entered in the browser to access
 
 ```
-http://FE_IP:FE_HTTP_PORT(默认8030)
+http://FE_IP:FE_HTTP_PORT(8030 by default)
 ```
 
 If the account password is changed during cluster installation, use the new account password to log in
@@ -214,7 +221,7 @@ FE splits the query plan into fragments and sends them to BE for task execution.
 
 - After executing the SQL statement, you can view the corresponding SQL statement execution report information on the FE's WEB-UI interface
 
-For a complete parameter comparison table, please go to [Profile parameter analysis](../admin-manual/query-profile.md) View Details
+For a complete parameter comparison table, please go to [Profile parameter analysis](../admin-manual/query-profile) View Details
 
 
 #### Library table operations
@@ -231,9 +238,9 @@ For a complete parameter comparison table, please go to [Profile parameter analy
    CREATE DATABASE database name;
    ````
 
-   > For more detailed syntax and best practices used by Create-DataBase, see [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE.md) command manual.
+   > For more detailed syntax and best practices used by Create-DataBase, see [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE) command manual.
    >
-   > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type 'HELP CREATE', you can match `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` and other commands.
+   > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` and other commands.
    
    After the database is created, you can view the database information through `SHOW DATABASES;`.
    
@@ -252,7 +259,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
    
 - Create data table
 
-  > For more detailed syntax and best practices used by Create-Table, see [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) command manual.
+  > For more detailed syntax and best practices used by Create-Table, see [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) command manual.
 
   Use the `CREATE TABLE` command to create a table (Table). More detailed parameters can be viewed:
 
@@ -266,7 +273,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
   USE example_db;
   ````
 
-  Doris supports two table creation methods, single partition and composite partition (for details, please refer to [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) command manual).
+  Doris supports two table creation methods, single partition and composite partition (for details, please refer to [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) command manual).
 
   The following takes the aggregation model as an example to demonstrate the table building statements for two partitions.
 
@@ -391,7 +398,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
 1. Insert Into
 
-   > For more detailed syntax and best practices for Insert usage, see [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md) Command Manual.
+   > For more detailed syntax and best practices for Insert usage, see [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT) Command Manual.
 
    The Insert Into statement is used in a similar way to the Insert Into statement in databases such as MySQL. But in Doris, all data writing is a separate import job. Therefore, Insert Into is also introduced as an import method here.
 
@@ -441,7 +448,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
         - If `status` is `visible`, the data import is successful.
       - If `warnings` is greater than 0, it means that data is filtered. You can get the url through the `show load` statement to view the filtered lines.
 
-   For more detailed instructions, see the [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md) command manual.
+   For more detailed instructions, see the [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT) command manual.
 
 2. Batch Import
 
@@ -461,6 +468,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
      > 1. FE_HOST is the IP of the node where any FE is located, and 8030 is the http_port in fe.conf.
      > 2. You can use the IP of any BE and the webserver_port in be.conf to import. For example: `BE_HOST:8040`
+     > 3. example_db is the database which you imported the tables
 
      The local file `table1_data` uses `,` as the separation between data, the details are as follows:
 
@@ -498,7 +506,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
      Broker import uses the deployed Broker process to read data on external storage for import.
 
-     > For more detailed syntax and best practices used by Broker Load, see [Broker Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
+     > For more detailed syntax and best practices used by Broker Load, see [Broker Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
 
      Example: With "table1_20170708" as the Label, import the files on HDFS into table1
 
@@ -590,7 +598,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
 #### Update Data
 
-> For more detailed syntax and best practices used by Update, see [Update](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.md) Command Manual.
+> For more detailed syntax and best practices used by Update, see [Update](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE) Command Manual.
 
 The current UPDATE statement **only supports** row updates on the Unique model, and there may be data conflicts caused by concurrent updates. At present, Doris does not deal with such problems, and users need to avoid such problems from the business side.
 
@@ -635,7 +643,7 @@ The current UPDATE statement **only supports** row updates on the Unique model, 
 
 #### Delete Data
 
-> For more detailed syntax and best practices for Delete use, see [Delete](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.md) Command Manual.
+> For more detailed syntax and best practices for Delete use, see [Delete](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE) Command Manual.
 
 1. Grammar rules
 

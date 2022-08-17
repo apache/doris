@@ -32,7 +32,7 @@ public class ShowCatalogStmtTest {
         ShowCatalogStmt stmt = new ShowCatalogStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getCatalogName());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW CATALOGS", stmt.toSql());
 
         stmt = new ShowCatalogStmt("testCatalog");

@@ -29,10 +29,13 @@
 #include <mutex>
 #include <thread>
 
-#include "common/logging.h"
 #include "gen_cpp/RuntimeProfile_types.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "util/binary_cast.hpp"
+#include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
+#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -309,6 +312,8 @@ public:
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "") const;
 
+    void add_to_span();
+
     // Serializes profile to thrift.
     // Does not hold locks when it makes any function calls.
     void to_thrift(TRuntimeProfileTree* tree);
@@ -440,6 +445,8 @@ private:
     // of the total time in the entire profile tree.
     double _local_time_percent;
 
+    bool _added_to_span {false};
+
     enum PeriodicCounterType {
         RATE_COUNTER = 0,
         SAMPLING_COUNTER,
@@ -477,6 +484,18 @@ private:
     static void print_child_counters(const std::string& prefix, const std::string& counter_name,
                                      const CounterMap& counter_map,
                                      const ChildCounterMap& child_counter_map, std::ostream* s);
+
+    static void add_child_counters_to_span(OpentelemetrySpan span, const std::string& profile_name,
+                                           const std::string& counter_name,
+                                           const CounterMap& counter_map,
+                                           const ChildCounterMap& child_counter_map);
+
+    static std::string print_json_counter(const std::string& profile_name, Counter* counter) {
+        return print_json_info(profile_name,
+                               PrettyPrinter::print(counter->value(), counter->type()));
+    }
+
+    static std::string print_json_info(const std::string& profile_name, std::string value);
 };
 
 // Utility class to update the counter at object construction and destruction.

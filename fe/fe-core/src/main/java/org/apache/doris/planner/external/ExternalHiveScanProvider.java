@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.HiveBucketUtil;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
@@ -27,18 +28,20 @@ import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -50,6 +53,8 @@ import java.util.stream.Collectors;
  * A HiveScanProvider to get information for scan node.
  */
 public class ExternalHiveScanProvider implements ExternalFileScanProvider {
+    private static final Logger LOG = LogManager.getLogger(ExternalHiveScanProvider.class);
+
     protected HMSExternalTable hmsTable;
 
     public ExternalHiveScanProvider(HMSExternalTable hmsTable) {
@@ -72,69 +77,94 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public TFileType getTableFileType() {
-        return TFileType.FILE_HDFS;
+    public TFileType getTableFileType() throws DdlException, MetaNotFoundException {
+        String location = hmsTable.getRemoteTable().getSd().getLocation();
+        if (location != null && !location.isEmpty()) {
+            if (location.startsWith("s3a") || location.startsWith("s3n")) {
+                return TFileType.FILE_S3;
+            } else if (location.startsWith("hdfs:")) {
+                return TFileType.FILE_HDFS;
+            }
+        }
+        throw new DdlException("Unknown file type for hms table.");
     }
 
     @Override
-    public String getMetaStoreUrl() throws MetaNotFoundException {
-        return getTableProperties().get(HiveConf.ConfVars.METASTOREURIS.name());
+    public String getMetaStoreUrl() {
+        return hmsTable.getMetastoreUri();
     }
 
     @Override
-    public InputSplit[] getSplits(List<Expr> exprs)
+    public List<InputSplit> getSplits(List<Expr> exprs)
             throws IOException, UserException {
         String splitsPath = getRemoteHiveTable().getSd().getLocation();
         List<String> partitionKeys = getRemoteHiveTable().getPartitionKeys()
                 .stream().map(FieldSchema::getName).collect(Collectors.toList());
+        List<Partition> hivePartitions = new ArrayList<>();
 
         if (partitionKeys.size() > 0) {
-            ExprNodeGenericFuncDesc hivePartitionPredicate = extractHivePartitionPredicate(exprs, partitionKeys);
+            ExprNodeGenericFuncDesc hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    exprs, partitionKeys, hmsTable.getName());
 
             String metaStoreUris = getMetaStoreUrl();
-            List<Partition> hivePartitions = HiveMetaStoreClientHelper.getHivePartitions(
-                    metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
-            if (!hivePartitions.isEmpty()) {
-                splitsPath = hivePartitions.stream().map(x -> x.getSd().getLocation())
-                        .collect(Collectors.joining(","));
-            }
+            hivePartitions.addAll(HiveMetaStoreClientHelper.getHivePartitions(
+                    metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate));
         }
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
 
-        Configuration configuration = new Configuration();
+        Configuration configuration = setConfiguration();
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
+        List<InputSplit> splits;
+        if (!hivePartitions.isEmpty()) {
+            try {
+                splits = hivePartitions.stream().flatMap(x -> {
+                    try {
+                        return getSplitsByPath(inputFormat, configuration, x.getSd().getLocation()).stream();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).collect(Collectors.toList());
+            } catch (RuntimeException e) {
+                throw new IOException(e);
+            }
+        } else {
+            splits = getSplitsByPath(inputFormat, configuration, splitsPath);
+        }
+        return HiveBucketUtil.getPrunedSplitsByBuckets(splits, hmsTable.getName(), exprs,
+                getRemoteHiveTable().getSd().getBucketCols(), getRemoteHiveTable().getSd().getNumBuckets(),
+                getRemoteHiveTable().getParameters());
+    }
+
+    private List<InputSplit> getSplitsByPath(InputFormat<?, ?> inputFormat, Configuration configuration,
+            String splitsPath) throws IOException {
         JobConf jobConf = new JobConf(configuration);
+        // For Tez engine, it may generate subdirectoies for "union" query.
+        // So there may be files and directories in the table directory at the same time. eg:
+        //      /user/hive/warehouse/region_tmp_union_all2/000000_0
+        //      /user/hive/warehouse/region_tmp_union_all2/1
+        //      /user/hive/warehouse/region_tmp_union_all2/2
+        // So we need to set this config to support visit dir recursively.
+        // Otherwise, getSplits() may throw exception: "Not a file xxx"
+        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
         FileInputFormat.setInputPaths(jobConf, splitsPath);
-        return inputFormat.getSplits(jobConf, 0);
+        InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
+        return Lists.newArrayList(splits);
     }
 
 
-    private ExprNodeGenericFuncDesc extractHivePartitionPredicate(List<Expr> conjuncts, List<String> partitionKeys)
-            throws DdlException {
-        ExprNodeGenericFuncDesc hivePartitionPredicate;
-        List<ExprNodeDesc> exprNodeDescs = new ArrayList<>();
-        for (Expr conjunct : conjuncts) {
-            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    conjunct, partitionKeys, hmsTable.getName());
-            if (hiveExpr != null) {
-                exprNodeDescs.add(hiveExpr);
-            }
+    protected Configuration setConfiguration() {
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> dfsProperties = hmsTable.getDfsProperties();
+        for (Map.Entry<String, String> entry : dfsProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
         }
-        int count = exprNodeDescs.size();
-
-        if (count >= 2) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.getCompoundExpr(exprNodeDescs, "and");
-        } else if (count == 1) {
-            hivePartitionPredicate = (ExprNodeGenericFuncDesc) exprNodeDescs.get(0);
-        } else {
-            HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(hmsTable.getName());
-            hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
-                    .val(TypeInfoFactory.intTypeInfo, 1)
-                    .pred("=", 2).build();
+        Map<String, String> s3Properties = hmsTable.getS3Properties();
+        for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
         }
-        return hivePartitionPredicate;
+        return conf;
     }
 
     @Override
@@ -144,6 +174,13 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
 
     @Override
     public Map<String, String> getTableProperties() throws MetaNotFoundException {
-        return hmsTable.getRemoteTable().getParameters();
+        Map<String, String> properteis = Maps.newHashMap(hmsTable.getRemoteTable().getParameters());
+        properteis.putAll(hmsTable.getDfsProperties());
+        return properteis;
+    }
+
+    @Override
+    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
+        return getRemoteHiveTable().getPartitionKeys().stream().map(FieldSchema::getName).collect(Collectors.toList());
     }
 }

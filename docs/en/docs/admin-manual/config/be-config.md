@@ -212,7 +212,7 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
-default: 20G
+default: 50%
 
 Clean up pages that may be saved by the buffer pool
 
@@ -220,7 +220,7 @@ Clean up pages that may be saved by the buffer pool
 
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
-* Default value: 80G
+* Default value: 20%
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
@@ -238,9 +238,9 @@ The number of worker threads to calculate the checksum of the tablet
 
 ### `chunk_reserved_bytes_limit`
 
-Default: 2147483648
+Default: 20%
 
-The reserved bytes limit of Chunk Allocator is 2GB by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
+The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit. defaults to bytes if no unit is given, the number of bytes must be a multiple of 2. must larger than 0. and if larger than physical memory size, it will be set to physical memory size. increase this variable can improve performance, but will acquire more free memory which can not be used by other modules.
 
 ### `clear_transaction_task_worker_count`
 
@@ -672,11 +672,17 @@ Default: 10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
+### `kafka_api_version_request`
+
+Default: true
+
+If the dependent Kafka version is lower than 0.10.0.0, this value should be set to false.
+
 ### `kafka_broker_version_fallback`
 
 Default: 0.10.0
 
-If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+If the dependent Kafka version is lower than 0.10.0.0, the value set by the fallback version kafka_broker_version_fallback will be used if the value of kafka_api_version_request is set to false, and the valid values are: 0.9.0.x, 0.8.x.y.
 
 ### `load_data_reserve_hours`
 
@@ -919,6 +925,12 @@ Default: 0
 
 The maximum number of threads per disk is also the maximum queue depth of each disk
 
+### `number_slave_replica_download_threads`
+
+Default: 64
+
+Number of threads for slave replica synchronize data, used for single replica load.
+
 ### `number_tablet_writer_threads`
 
 Default: 16
@@ -1094,6 +1106,36 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 * Type: int32
 * Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
 
+### `single_replica_load_brpc_port`
+
+* Type: int32
+* Description: The port of BRPC on BE, used for single replica load. There is a independent BRPC thread pool for the communication between the Master replica and Slave replica during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for data distribution and query tasks when the load concurrency is large.
+* Default value: 9070
+
+### `single_replica_load_brpc_num_threads`
+
+* Type: int32
+* Description: This configuration is mainly used to modify the number of bthreads for single replica load brpc. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
+* Default value: 64
+
+### `single_replica_load_download_port`
+
+* Type: int32
+* Description: The port of http for segment download on BE, used for single replica load. There is a independent HTTP thread pool for the Slave replica to download segments during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for other http tasks when the load concurrency is large.
+* Default value: 8050
+
+### `single_replica_load_download_num_workers`
+
+* Type: int32
+* Description: This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
+* Default value: 64
+
+### `slave_replica_writer_rpc_timeout_sec`
+
+* Type: int32
+* Description: This configuration is mainly used to modify timeout of brpc between master replica and slave replica, used for single replica load.
+* Default value: 60
+
 ### `sleep_one_second`
 
 + Type: int32
@@ -1159,16 +1201,16 @@ Shard size of StoragePageCache, the value must be power of two. It's recommended
 
 * Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, separate by ','
 
-    eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
-
-    * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
-    * 2./home/disk2/doris.SSD,1, indicates capacity limit is 1GB, SSD;
-    * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
+    eg.1: `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
+  
+    * 1./home/disk1/doris.HDD, indicates that the storage medium is HDD;
+    * 2./home/disk2/doris.SSD, indicates that the storage medium is SSD;
+    * 3./home/disk2/doris, indicates that the storage medium is HDD by default
     
-    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
     
-    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
-    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
+    * 1./home/disk1/doris,medium:hdd，indicates that the storage medium is HDD;
+    * 2./home/disk2/doris,medium:ssd，indicates that the storage medium is SSD;
 
 * Default: ${DORIS_HOME}
 
@@ -1437,35 +1479,17 @@ The size of the buffer before flashing
   
 * Default: 3
 
-### `track_new_delete`
+### `enable_tcmalloc_hook`
 
 * Type: bool
 * Description: Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 * Default: true
-
-### `mem_tracker_level`
-
-* Type: int16
-* Description: The level at which MemTracker is displayed on the Web page equal or lower than this level will be displayed on the Web page
-  ```
-    OVERVIEW = 0
-    TASK = 1
-    INSTANCE = 2
-    VERBOSE = 3
-  ```
-* Default: 0
 
 ### `mem_tracker_consume_min_size_bytes`
 
 * Type: int32
 * Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = ( mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
 * Default: 1048576
-
-### `memory_leak_detection`
-
-* Type: bool
-* Description: Whether to start memory leak detection, when MemTracker is a negative value, it is considered that a memory leak has occurred, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
-* Default: false
 
 ### `max_segment_num_per_rowset`
 
@@ -1531,3 +1555,24 @@ Translated with www.DeepL.com/Translator (free version)
 * Type: int32
 * Description: The maximum amount of data read by each OlapScanner.
 * Default: 1024
+
+### `enable_quick_compaction`
+* Type: bool
+* Description: enable quick compaction,It is mainly used in the scenario of frequent import of small amount of data. The problem of -235 can be effectively avoided by merging the imported versions in time through the mechanism of rapid compaction. The definition of small amount of data is currently defined according to the number of rows
+* Default: false
+
+### `quick_compaction_max_rows`
+* Type: int32
+* Description: When the number of imported rows is less than this value, it is considered that this import is an import of small amount of data, which will be selected during quick compaction
+* Default: 1000
+
+### `quick_compaction_batch_size`
+* Type: int32
+* Description: trigger time, when import times reach quick_compaction_batch_size will trigger immediately 
+* Default: 10
+
+### `quick_compaction_min_rowsets`
+* Type: int32
+* Description: at least the number of versions to be compaction, and the number of rowsets with a small amount of data in the selection. If it is greater than this value, the real compaction will be carried out
+* Default: 10
+

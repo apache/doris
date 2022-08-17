@@ -31,22 +31,27 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
@@ -68,11 +73,15 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Stack;
+import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Helper class for HiveMetaStoreClient
@@ -167,6 +176,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get data files of partitions in hive table, filter by partition predicate.
+     *
      * @param hiveTable
      * @param hivePartitionPredicate
      * @param fileStatuses
@@ -175,25 +185,119 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses,
-                                          Table remoteHiveTbl, StorageBackend.StorageType type) throws DdlException {
+            List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
+            throws DdlException {
+        boolean onS3 = type.equals(StorageBackend.StorageType.S3);
+        Map<String, String> properties = hiveTable.getHiveProperties();
+        Configuration configuration = getConfiguration(properties, onS3);
+        boolean isSecurityEnabled = isSecurityEnabled(properties);
+
         List<RemoteIterator<LocatedFileStatus>> remoteIterators;
-        Boolean onS3 = type.equals(StorageBackend.StorageType.S3);
         if (remoteHiveTbl.getPartitionKeys().size() > 0) {
             String metaStoreUris = hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS);
             // hive partitioned table, get file iterator from table partition sd info
             List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl, hivePartitionPredicate);
-            remoteIterators = getRemoteIterator(hivePartitions, hiveTable.getHiveProperties(), onS3);
+            remoteIterators = getRemoteIterator(hivePartitions, configuration, isSecurityEnabled, properties, onS3);
         } else {
             // hive non-partitioned table, get file iterator from table sd info
-            remoteIterators = getRemoteIterator(remoteHiveTbl, hiveTable.getHiveProperties(), onS3);
+            remoteIterators = getRemoteIterator(remoteHiveTbl, configuration, isSecurityEnabled, properties, onS3);
         }
+        return getAllFileStatus(fileStatuses, remoteIterators, configuration, isSecurityEnabled, properties, onS3);
+    }
 
+    // create Configuration for the given properties
+    private static Configuration getConfiguration(Map<String, String> properties, boolean onS3) {
+        Configuration configuration = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
+                configuration.set(entry.getKey(), entry.getValue());
+            }
+        }
+        if (onS3) {
+            setS3Configuration(configuration, properties);
+        }
+        return configuration;
+    }
+
+    // return true if it is kerberos
+    private static boolean isSecurityEnabled(Map<String, String> properties) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION) && entry.getValue()
+                    .equals(AuthType.KERBEROS.getDesc())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Get remote iterators for given partitions
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions,
+            Configuration configuration, boolean isSecurityEnabled, Map<String, String> properties, boolean onS3)
+            throws DdlException {
+        List<RemoteIterator<LocatedFileStatus>> allIterators = new ArrayList<>();
+        for (Partition p : partitions) {
+            String location = normalizeS3LikeSchema(p.getSd().getLocation());
+            Path path = new Path(location);
+            allIterators.addAll(getRemoteIterator(path, configuration, properties, isSecurityEnabled));
+        }
+        return allIterators;
+    }
+
+    // Get remote iterators for given table
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Configuration configuration,
+            boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
+        String location = normalizeS3LikeSchema(table.getSd().getLocation());
+        Path path = new Path(location);
+        return getRemoteIterator(path, configuration, properties, isSecurityEnabled);
+    }
+
+    // Get remote iterators for given Path
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(org.apache.hadoop.fs.Path path,
+            Configuration conf, Map<String, String> properties, boolean isSecurityEnabled) throws DdlException {
+        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
+        try {
+            if (isSecurityEnabled) {
+                UserGroupInformation.setConfiguration(conf);
+                // login user from keytab
+                UserGroupInformation.loginUserFromKeytab(properties.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
+                        properties.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+            }
+            FileSystem fileSystem = path.getFileSystem(conf);
+            iterators.add(fileSystem.listLocatedStatus(path));
+        } catch (IOException e) {
+            LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
+            throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
+        }
+        return iterators;
+    }
+
+    public static String normalizeS3LikeSchema(String location) {
+        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
+        for (String objectStorage : objectStorages) {
+            if (location.startsWith(objectStorage + "://")) {
+                location = location.replaceFirst(objectStorage, "s3");
+                break;
+            }
+        }
+        return location;
+    }
+
+    private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
+            List<RemoteIterator<LocatedFileStatus>> remoteIterators, Configuration configuration,
+            boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
         String hdfsUrl = "";
-        for (RemoteIterator<LocatedFileStatus> iterator : remoteIterators) {
+        Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
+        while (queue.peek() != null) {
+            RemoteIterator<LocatedFileStatus> iterator = queue.poll();
             try {
                 while (iterator.hasNext()) {
                     LocatedFileStatus fileStatus = iterator.next();
+                    if (fileStatus.isDirectory()) {
+                        // recursive visit the directory to get the file path.
+                        queue.addAll(
+                                getRemoteIterator(fileStatus.getPath(), configuration, properties, isSecurityEnabled));
+                        continue;
+                    }
                     TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
                     brokerFileStatus.setIsDir(fileStatus.isDirectory());
                     brokerFileStatus.setIsSplitable(true);
@@ -222,7 +326,6 @@ public class HiveMetaStoreClientHelper {
                 throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
             }
         }
-
         return hdfsUrl;
     }
 
@@ -245,7 +348,7 @@ public class HiveMetaStoreClientHelper {
                     null, (short) -1, hivePartitions);
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed: " + e.getMessage());
         } finally {
             client.close();
         }
@@ -265,69 +368,6 @@ public class HiveMetaStoreClientHelper {
         configuration.set("fs.s3.impl.disable.cache", "true");
         configuration.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         configuration.set("fs.s3a.attempts.maximum", "2");
-    }
-
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(
-            List<Partition> partitions, Map<String, String> properties, boolean onS3)
-            throws DdlException {
-        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
-        Configuration configuration = new Configuration(false);
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
-                configuration.set(entry.getKey(), entry.getValue());
-            }
-        }
-        if (onS3) {
-            setS3Configuration(configuration, properties);
-        }
-        for (Partition p : partitions) {
-            String location = p.getSd().getLocation();
-            org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
-            try {
-                FileSystem fileSystem = path.getFileSystem(configuration);
-                iterators.add(fileSystem.listLocatedStatus(path));
-            } catch (IOException e) {
-                LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
-                throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
-            }
-        }
-        return iterators;
-    }
-
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(
-            Table table, Map<String, String> properties, boolean onS3)
-            throws DdlException {
-        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
-        Configuration configuration = new Configuration(false);
-        boolean isSecurityEnabled = false;
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
-                configuration.set(entry.getKey(), entry.getValue());
-            }
-            if (entry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
-                    && entry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                isSecurityEnabled = true;
-            }
-        }
-        if (onS3) {
-            setS3Configuration(configuration, properties);
-        }
-        String location = table.getSd().getLocation();
-        org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
-        try {
-            if (isSecurityEnabled) {
-                UserGroupInformation.setConfiguration(configuration);
-                // login user from keytab
-                UserGroupInformation.loginUserFromKeytab(properties.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                        properties.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
-            }
-            FileSystem fileSystem = path.getFileSystem(configuration);
-            iterators.add(fileSystem.listLocatedStatus(path));
-        } catch (IOException e) {
-            LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
-            throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
-        }
-        return iterators;
     }
 
     public static List<String> getPartitionNames(HiveTable hiveTable) throws DdlException {
@@ -400,61 +440,120 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
-     * @param dorisExpr
-     * @param partitions
      * @param tblName
      * @return
      * @throws DdlException
      * @throws SemanticException
      */
-    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr,
-            List<String> partitions, String tblName) throws DdlException {
+    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(List<Expr> conjuncts,
+            List<String> partitionKeys, String tblName) throws DdlException {
+        List<ExprNodeDesc> hivePredicates = new ArrayList<>();
+
+        for (Expr conjunct : conjuncts) {
+            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    conjunct, partitionKeys, tblName).getFuncDesc();
+            if (hiveExpr != null) {
+                hivePredicates.add(hiveExpr);
+            }
+        }
+        int count = hivePredicates.size();
+        // combine all predicate by `and`
+        // compoundExprs must have at least 2 predicates
+        if (count >= 2) {
+            return HiveMetaStoreClientHelper.getCompoundExpr(hivePredicates, "and");
+        } else if (count == 1) {
+            // only one predicate
+            return (ExprNodeGenericFuncDesc) hivePredicates.get(0);
+        } else {
+            return genAlwaysTrueExpr(tblName);
+        }
+    }
+
+    private static ExprNodeGenericFuncDesc genAlwaysTrueExpr(String tblName) throws DdlException {
+        // have no predicate, make a dummy predicate "1=1" to get all partitions
+        HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
+                new HiveMetaStoreClientHelper.ExprBuilder(tblName);
+        return exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
+                .val(TypeInfoFactory.intTypeInfo, 1)
+                .pred("=", 2).build();
+    }
+
+    private static class ExprNodeGenericFuncDescContext {
+        private static final ExprNodeGenericFuncDescContext BAD_CONTEXT = new ExprNodeGenericFuncDescContext();
+
+        private ExprNodeGenericFuncDesc funcDesc = null;
+        private boolean eligible = false;
+
+        public ExprNodeGenericFuncDescContext(ExprNodeGenericFuncDesc funcDesc) {
+            this.funcDesc = funcDesc;
+            this.eligible = true;
+        }
+
+        private ExprNodeGenericFuncDescContext() {
+        }
+
+        /**
+         * Check eligible before use the expr in CompoundPredicate for `and` and `or` .
+         */
+        public boolean isEligible() {
+            return eligible;
+        }
+
+        public ExprNodeGenericFuncDesc getFuncDesc() {
+            return funcDesc;
+        }
+    }
+
+    private static ExprNodeGenericFuncDescContext convertToHivePartitionExpr(Expr dorisExpr,
+            List<String> partitionKeys, String tblName) throws DdlException {
         if (dorisExpr == null) {
-            return null;
+            return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
 
         if (dorisExpr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) dorisExpr;
+            ExprNodeGenericFuncDescContext left = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(0), partitionKeys, tblName);
+            ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(1), partitionKeys, tblName);
+
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    if (left != null && right != null) {
+                    if (left.isEligible() && right.isEligible()) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
-                        andArgs.add(left);
-                        andArgs.add(right);
-                        return getCompoundExpr(andArgs, "and");
-                    } else if (left != null && right == null) {
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "and"));
+                    } else if (left.isEligible()) {
                         return left;
-                    } else if (left == null && right != null) {
+                    } else if (right.isEligible()) {
                         return right;
+                    } else {
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
-                    return null;
                 }
                 case OR: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(
-                            compoundPredicate.getChild(0), partitions, tblName);
-                    if (left != null && right != null) {
-                        List<ExprNodeDesc> orArgs = new ArrayList<>();
-                        orArgs.add(left);
-                        orArgs.add(right);
-                        return getCompoundExpr(orArgs, "or");
-                    } else if (left != null && right == null) {
-                        return left;
-                    } else if (left == null && right != null) {
-                        return right;
+                    if (left.isEligible() && right.isEligible()) {
+                        List<ExprNodeDesc> andArgs = new ArrayList<>();
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "or"));
+                    } else {
+                        // If it is not a partition key, this is an always true expr.
+                        // Or if is a partition key and also is a not supportedOp, this is an always true expr.
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
-                    return null;
                 }
                 default:
-                    return null;
+                    // TODO: support NOT predicate for CompoundPredicate
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
             }
         }
+        return binaryExprDesc(dorisExpr, partitionKeys, tblName);
+    }
 
+    private static ExprNodeGenericFuncDescContext binaryExprDesc(Expr dorisExpr,
+            List<String> partitionKeys, String tblName) throws DdlException {
         TExprOpcode opcode = dorisExpr.getOpcode();
         switch (opcode) {
             case EQ:
@@ -465,68 +564,59 @@ public class HiveMetaStoreClientHelper {
             case LT:
             case EQ_FOR_NULL:
                 BinaryPredicate eq = (BinaryPredicate) dorisExpr;
+                // Make sure the col slot is always first
                 SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
-                LiteralExpr literalExpr = null;
-                if (slotRef == null && eq.getChild(0).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(0);
-                    slotRef = convertDorisExprToSlotRef(eq.getChild(1));
-                } else if (eq.getChild(1).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(1);
-                }
+                LiteralExpr literalExpr = convertDorisExprToLiteralExpr(eq.getChild(1));
                 if (slotRef == null || literalExpr == null) {
-                    return null;
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 String colName = slotRef.getColumnName();
                 // check whether colName is partition column or not
-                if (!partitions.contains(colName)) {
-                    return null;
+                if (!partitionKeys.contains(colName)) {
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
                 Object value = extractDorisLiteral(literalExpr);
-                ExprBuilder exprBuilder = new ExprBuilder(tblName);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, "NULL")
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
                     } else {
-                        return null;
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=");
                     case NE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("!=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=");
                     case GE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=");
                     case GT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">");
                     case LE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=");
                     case LT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
                     default:
-                        return null;
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
             default:
-                return null;
+                // TODO: support in predicate
+                return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
+    }
 
+    private static ExprNodeGenericFuncDescContext genExprDesc(
+            String tblName,
+            PrimitiveTypeInfo hivePrimitiveType,
+            String colName,
+            Object value,
+            String op) throws DdlException {
+        ExprBuilder exprBuilder = new ExprBuilder(tblName);
+        exprBuilder.col(hivePrimitiveType, colName).val(hivePrimitiveType, value);
+        return new ExprNodeGenericFuncDescContext(exprBuilder.pred(op, 2).build());
     }
 
     public static ExprNodeGenericFuncDesc getCompoundExpr(List<ExprNodeDesc> args, String op) throws DdlException {
@@ -541,7 +631,7 @@ public class HiveMetaStoreClientHelper {
         return compoundExpr;
     }
 
-    private static SlotRef convertDorisExprToSlotRef(Expr expr) {
+    public static SlotRef convertDorisExprToSlotRef(Expr expr) {
         SlotRef slotRef = null;
         if (expr instanceof SlotRef) {
             slotRef = (SlotRef) expr;
@@ -553,7 +643,19 @@ public class HiveMetaStoreClientHelper {
         return slotRef;
     }
 
-    private static Object extractDorisLiteral(Expr expr) {
+    public static LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {
+        LiteralExpr literalExpr = null;
+        if (expr instanceof LiteralExpr) {
+            literalExpr = (LiteralExpr) expr;
+        } else if (expr instanceof CastExpr) {
+            if (expr.getChild(0) instanceof LiteralExpr) {
+                literalExpr = (LiteralExpr) expr.getChild(0);
+            }
+        }
+        return literalExpr;
+    }
+
+    public static Object extractDorisLiteral(Expr expr) {
         if (!expr.isLiteral()) {
             return null;
         }
@@ -615,15 +717,21 @@ public class HiveMetaStoreClientHelper {
                 return TypeInfoFactory.floatTypeInfo;
             case DOUBLE:
                 return TypeInfoFactory.doubleTypeInfo;
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
             case DECIMALV2:
                 return TypeInfoFactory.decimalTypeInfo;
             case DATE:
+            case DATEV2:
                 return TypeInfoFactory.dateTypeInfo;
             case DATETIME:
+            case DATETIMEV2:
                 return TypeInfoFactory.timestampTypeInfo;
             case CHAR:
                 return TypeInfoFactory.charTypeInfo;
             case VARCHAR:
+            case STRING:
                 return TypeInfoFactory.varcharTypeInfo;
             default:
                 throw new DdlException("Unsupported column type: " + dorisType);
@@ -635,17 +743,17 @@ public class HiveMetaStoreClientHelper {
      */
     public static class ExprBuilder {
         private final String tblName;
-        private final Stack<ExprNodeDesc> stack = new Stack<>();
+        private final Deque<ExprNodeDesc> queue = new LinkedList<>();
 
         public ExprBuilder(String tblName) {
             this.tblName = tblName;
         }
 
         public ExprNodeGenericFuncDesc build() throws DdlException {
-            if (stack.size() != 1) {
-                throw new DdlException("Build Hive expression Failed: " + stack.size());
+            if (queue.size() != 1) {
+                throw new DdlException("Build Hive expression Failed: " + queue.size());
             }
-            return (ExprNodeGenericFuncDesc) stack.pop();
+            return (ExprNodeGenericFuncDesc) queue.pollFirst();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {
@@ -655,10 +763,10 @@ public class HiveMetaStoreClientHelper {
         private ExprBuilder fn(String name, TypeInfo ti, int args) throws DdlException {
             List<ExprNodeDesc> children = new ArrayList<>();
             for (int i = 0; i < args; ++i) {
-                children.add(stack.pop());
+                children.add(queue.pollFirst());
             }
             try {
-                stack.push(new ExprNodeGenericFuncDesc(ti,
+                queue.offerLast(new ExprNodeGenericFuncDesc(ti,
                         FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
             } catch (SemanticException e) {
                 LOG.warn("Build Hive expression failed: semantic analyze exception: {}", e.getMessage());
@@ -668,12 +776,12 @@ public class HiveMetaStoreClientHelper {
         }
 
         public ExprBuilder col(TypeInfo ti, String col) {
-            stack.push(new ExprNodeColumnDesc(ti, col, tblName, true));
+            queue.offerLast(new ExprNodeColumnDesc(ti, col, tblName, true));
             return this;
         }
 
         public ExprBuilder val(TypeInfo ti, Object val) {
-            stack.push(new ExprNodeConstantDesc(ti, val));
+            queue.offerLast(new ExprNodeConstantDesc(ti, val));
             return this;
         }
     }
@@ -695,9 +803,13 @@ public class HiveMetaStoreClientHelper {
             case "bigint":
                 return Type.BIGINT;
             case "date":
-                return Type.DATE;
+                return ScalarType.getDefaultDateType(Type.DATE);
             case "timestamp":
-                return Type.DATETIME;
+                return ScalarType.getDefaultDateType(Type.DATETIME);
+            case "float":
+                return Type.FLOAT;
+            case "double":
+                return Type.DOUBLE;
             default:
                 break;
         }
@@ -727,10 +839,81 @@ public class HiveMetaStoreClientHelper {
             if (match.find()) {
                 scale = Integer.parseInt(match.group(1));
             }
-            return ScalarType.createDecimalV2Type(precision, scale);
+            return ScalarType.createDecimalType(precision, scale);
         }
         // TODO: Handle unsupported types.
         LOG.warn("Hive type {} may not supported yet, will use STRING instead.", hiveType);
         return Type.STRING;
+    }
+
+    public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
+        StringBuilder output = new StringBuilder();
+        if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
+            output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));
+            if (remoteTable.getViewExpandedText() != null) {
+                output.append(remoteTable.getViewExpandedText());
+            } else {
+                output.append(remoteTable.getViewOriginalText());
+            }
+        } else {
+            output.append(String.format("CREATE TABLE `%s`(\n", remoteTable.getTableName()));
+            Iterator<FieldSchema> fields = remoteTable.getSd().getCols().iterator();
+            while (fields.hasNext()) {
+                FieldSchema field = fields.next();
+                output.append(String.format("  `%s` %s", field.getName(), field.getType()));
+                if (field.getComment() != null) {
+                    output.append(String.format(" COMMENT '%s'", field.getComment()));
+                }
+                if (fields.hasNext()) {
+                    output.append(",\n");
+                }
+            }
+            output.append(")\n");
+            if (remoteTable.getPartitionKeys().size() > 0) {
+                output.append("PARTITIONED BY (\n")
+                        .append(remoteTable.getPartitionKeys().stream().map(
+                                partition -> String.format("  `%s` `%s`", partition.getName(), partition.getType()))
+                                .collect(Collectors.joining(",\n")))
+                        .append(")\n");
+            }
+            StorageDescriptor descriptor = remoteTable.getSd();
+            List<String> bucketCols = descriptor.getBucketCols();
+            if (bucketCols != null && bucketCols.size() > 0) {
+                output.append("CLUSTERED BY (\n")
+                        .append(bucketCols.stream().map(
+                                bucketCol -> "  " + bucketCol).collect(Collectors.joining(",\n")))
+                        .append(")\n")
+                        .append(String.format("INTO %d BUCKETS\n", descriptor.getNumBuckets()));
+            }
+            if (descriptor.getSerdeInfo().isSetSerializationLib()) {
+                output.append("ROW FORMAT SERDE\n")
+                        .append(String.format("  '%s'\n", descriptor.getSerdeInfo().getSerializationLib()));
+            }
+            if (descriptor.isSetInputFormat()) {
+                output.append("STORED AS INPUTFORMAT\n")
+                        .append(String.format("  '%s'\n", descriptor.getInputFormat()));
+            }
+            if (descriptor.isSetOutputFormat()) {
+                output.append("OUTPUTFORMAT\n")
+                        .append(String.format("  '%s'\n", descriptor.getOutputFormat()));
+            }
+            if (descriptor.isSetLocation()) {
+                output.append("LOCATION\n")
+                        .append(String.format("  '%s'\n", descriptor.getLocation()));
+            }
+            if (remoteTable.isSetParameters()) {
+                output.append("TBLPROPERTIES (\n");
+                Iterator<Map.Entry<String, String>> params = remoteTable.getParameters().entrySet().iterator();
+                while (params.hasNext()) {
+                    Map.Entry<String, String> param = params.next();
+                    output.append(String.format("  '%s'='%s'", param.getKey(), param.getValue()));
+                    if (params.hasNext()) {
+                        output.append(",\n");
+                    }
+                }
+                output.append(")");
+            }
+        }
+        return output.toString();
     }
 }

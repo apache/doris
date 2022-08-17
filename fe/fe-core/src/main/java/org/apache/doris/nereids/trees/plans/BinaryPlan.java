@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.operators.plans.BinaryPlanOperator;
 import org.apache.doris.nereids.trees.BinaryNode;
 
 /**
@@ -25,7 +24,4 @@ import org.apache.doris.nereids.trees.BinaryNode;
  */
 public interface BinaryPlan<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends Plan, BinaryNode<Plan, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
-    @Override
-    BinaryPlanOperator getOperator();
 }

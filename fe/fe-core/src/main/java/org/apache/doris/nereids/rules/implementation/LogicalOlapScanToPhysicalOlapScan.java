@@ -17,22 +17,60 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecAny;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Implementation rule that convert logical OlapScan to physical OlapScan.
  */
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
-    public Rule<Plan> build() {
-        return logicalOlapScan().then(olapScan -> plan(
-                        // TODO: olapScan should get (OlapTable);
-                        new PhysicalOlapScan((OlapTable) olapScan.getOperator().getTable(),
-                                olapScan.getOperator().getQualifier()), olapScan.getLogicalProperties()))
-                .toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+    public Rule build() {
+        return logicalOlapScan().then(olapScan ->
+            new PhysicalOlapScan(
+                olapScan.getTable(),
+                olapScan.getQualifier(),
+                convertDistribution(olapScan),
+                Optional.empty(),
+                olapScan.getLogicalProperties())
+        ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+    }
+
+    private DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
+        DistributionInfo distributionInfo = olapScan.getTable().getDefaultDistributionInfo();
+        if (distributionInfo instanceof HashDistributionInfo) {
+            HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+
+            List<SlotReference> output = Utils.getOutputSlotReference(olapScan);
+            List<SlotReference> hashColumns = Lists.newArrayList();
+            List<Column> schemaColumns = olapScan.getTable().getFullSchema();
+            for (int i = 0; i < schemaColumns.size(); i++) {
+                for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                    if (schemaColumns.get(i).equals(column)) {
+                        hashColumns.add(output.get(i));
+                    }
+                }
+            }
+            return new DistributionSpecHash(hashColumns, ShuffleType.LOCAL);
+        } else {
+            // RandomDistributionInfo
+            return DistributionSpecAny.INSTANCE;
+        }
     }
 }

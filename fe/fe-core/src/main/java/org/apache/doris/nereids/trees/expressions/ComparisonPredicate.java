@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -28,17 +28,19 @@ import java.util.Objects;
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
+
+    protected final String symbol;
+
     /**
      * Constructor of ComparisonPredicate.
      *
-     * @param nodeType node type of expression
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(nodeType, left, right);
+    public ComparisonPredicate(Expression left, Expression right, String symbol) {
+        super(left, right);
+        this.symbol = symbol;
     }
 
     @Override
@@ -47,9 +49,13 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
     }
 
     @Override
-    public String sql() {
-        String nodeType = getType().toString();
-        return left().sql() + ' ' + nodeType + ' ' + right().sql();
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public String toSql() {
+        return "(" + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -58,7 +64,7 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, left(), right());
+        return Objects.hash(symbol, left(), right());
     }
 
     @Override
@@ -70,33 +76,12 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
             return false;
         }
         ComparisonPredicate other = (ComparisonPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
+        return Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
     }
 
     /**
-     * create new ComparisonPredicate with new children.
-     *
-     * @param left left child
-     * @param right right child
-     * @return Corresponding comparisonPredicate child class.
+     * Commute between left and right children.
      */
-    public ComparisonPredicate withChildren(Expression left, Expression right) {
-        switch (type) {
-            case EQUAL_TO:
-                return new EqualTo(left, right);
-            case GREATER_THAN:
-                return new GreaterThan(left, right);
-            case GREATER_THAN_EQUAL:
-                return new GreaterThanEqual(left, right);
-            case LESS_THAN:
-                return new LessThan(left, right);
-            case LESS_THAN_EQUAL:
-                return new LessThanEqual(left, right);
-            case NULL_SAFE_EQUAL:
-                return new NullSafeEqual(left, right);
-            default:
-                throw new IllegalStateException("Invalid type for ComparisonPredicate: " + type);
-        }
-    }
+    public abstract ComparisonPredicate commute();
 }

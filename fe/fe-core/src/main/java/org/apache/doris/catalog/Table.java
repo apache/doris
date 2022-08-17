@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
  */
-public class Table extends MetaObject implements Writable, TableIf {
+public abstract class Table extends MetaObject implements Writable, TableIf {
     private static final Logger LOG = LogManager.getLogger(Table.class);
 
     // empirical value.
@@ -81,7 +81,7 @@ public class Table extends MetaObject implements Writable, TableIf {
      * Schema change (c3 to bigint)
      * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
      * The fullSchema of OlapTable is mainly used by Scanner of Load job.
-     *
+     * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
     protected List<Column> fullSchema;
@@ -269,7 +269,7 @@ public class Table extends MetaObject implements Writable, TableIf {
         if (full) {
             return fullSchema;
         } else {
-            return fullSchema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+            return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
     }
 
@@ -433,6 +433,10 @@ public class Table extends MetaObject implements Writable, TableIf {
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    public void setId(long id) {
+        this.id = id;
+    }
+
     public CreateTableStmt toCreateTableStmt(String dbName) {
         throw new NotImplementedException();
     }
@@ -457,7 +461,7 @@ public class Table extends MetaObject implements Writable, TableIf {
 
         OlapTable olapTable = (OlapTable) this;
 
-        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+        if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;
         }

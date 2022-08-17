@@ -1,0 +1,972 @@
+{
+    "docs": [
+        {
+            "type": "category",
+            "label": "Getting Started",
+            "items": [
+                "get-starting/get-starting"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Doris Introduction",
+            "items": [
+                "summary/basic-summary"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Install And Deploy",
+            "items": [
+                "install/install-deploy",
+                {
+                    "type": "category",
+                    "label": "Compile",
+                    "items": [
+                        "install/source-install/compilation",
+                        "install/source-install/compilation-with-ldb-toolchain",
+                        "install/source-install/compilation-arm"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Table Design",
+            "items": [
+                "data-table/data-model",
+                "data-table/data-partition",
+                "data-table/basic-usage",
+                "data-table/advance-usage",
+                "data-table/hit-the-rollup",
+                "data-table/best-practice",
+                {
+                    "type": "category",
+                    "label": "Index",
+                    "items": [
+                        "data-table/index/bloomfilter",
+                        "data-table/index/prefix-index",
+                        "data-table/index/bitmap-index"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Data Operation",
+            "items": [
+                {
+                    "type": "category",
+                    "label": "Import",
+                    "items": [
+                        "data-operate/import/load-manual",
+                        {
+                            "type": "category",
+                            "label": "Import Scenes",
+                            "items": [
+                                "data-operate/import/import-scenes/local-file-load",
+                                "data-operate/import/import-scenes/external-storage-load",
+                                "data-operate/import/import-scenes/kafka-load",
+                                "data-operate/import/import-scenes/external-table-load",
+                                "data-operate/import/import-scenes/jdbc-load",
+                                "data-operate/import/import-scenes/load-atomicity",
+                                "data-operate/import/import-scenes/load-data-convert",
+                                "data-operate/import/import-scenes/load-strict-mode"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Import Way",
+                            "items": [
+                                "data-operate/import/import-way/binlog-load-manual",
+                                "data-operate/import/import-way/broker-load-manual",
+                                "data-operate/import/import-way/routine-load-manual",
+                                "data-operate/import/import-way/spark-load-manual",
+                                "data-operate/import/import-way/stream-load-manual",
+                                "data-operate/import/import-way/s3-load-manual",
+                                "data-operate/import/import-way/insert-into-manual",
+                                "data-operate/import/import-way/load-json-format"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Export",
+                    "items": [
+                        "data-operate/export/export-manual",
+                        "data-operate/export/outfile",
+                        "data-operate/export/export_with_mysql_dump"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Update and Delete",
+                    "items": [
+                        "data-operate/update-delete/batch-delete-manual",
+                        "data-operate/update-delete/update",
+                        "data-operate/update-delete/delete-manual",
+                        "data-operate/update-delete/sequence-column-manual"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Advanced Usage",
+            "items": [    
+                "advanced/materialized-view",
+                "advanced/vectorized-execution-engine",
+                "advanced/broker",
+                "advanced/resource",
+                "advanced/orthogonal-bitmap-manual",
+                "advanced/orthogonal-hll-manual",
+                "advanced/using-hll",
+                "advanced/variables",
+                "advanced/time-zone",
+                "advanced/small-file-mgr",
+                "advanced/sql-mode",
+                {
+                    "type": "category",
+                    "label": "Alter Table",
+                    "items": [
+                        "advanced/alter-table/schema-change",
+                        "advanced/alter-table/replace-table"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Doris Partition",
+                    "items": [
+                        "advanced/partition/table-temp-partition",
+                        "advanced/partition/dynamic-partition"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Join Optimization",
+                    "items": [
+                        "advanced/join-optimization/runtime-filter",
+                        "advanced/join-optimization/doris-join-optimization",
+                        "advanced/join-optimization/colocation-join",
+                        "advanced/join-optimization/bucket-shuffle-join"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Date Cache",
+                    "items": [
+                        "advanced/cache/partition-cache",
+                        "advanced/cache/query-cache"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Best Practice",
+                    "items": [
+                        "advanced/best-practice/query-analysis",
+                        "advanced/best-practice/debug-log",
+                        "advanced/best-practice/import-analysis"
+
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Ecosystem",
+            "items": [
+                {
+                    "type": "category",
+                    "label": "Expansion table",
+                    "items": [
+                        "ecosystem/external-table/doris-on-es",
+                        "ecosystem/external-table/hudi-external-table",
+                        "ecosystem/external-table/iceberg-of-doris",
+                        "ecosystem/external-table/odbc-of-doris",
+                        "ecosystem/external-table/hive-of-doris"
+                    ]
+                },
+                "ecosystem/spark-doris-connector",
+                "ecosystem/flink-doris-connector",
+                "ecosystem/datax",
+                "ecosystem/mysql-to-doris",
+                "ecosystem/logstash",
+                "ecosystem/plugin-development-manual",
+                "ecosystem/audit-plugin",
+                "ecosystem/cloudcanal",
+                {
+                    "type": "category",
+                    "label": "Doris Manager",
+                    "items": [
+                        "ecosystem/doris-manager/compiling-deploying",
+                        "ecosystem/doris-manager/initializing",
+                        "ecosystem/doris-manager/cluster-managenent",
+                        "ecosystem/doris-manager/space-list",
+                        "ecosystem/doris-manager/space-management",
+                        "ecosystem/doris-manager/system-settings"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "SeaTunnel",
+                    "items": [
+                        "ecosystem/seatunnel/flink-sink",
+                        "ecosystem/seatunnel/spark-sink"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "UDF",
+                    "items": [
+                        "ecosystem/udf/contribute-udf",
+                        "ecosystem/udf/remote-user-defined-function",
+                        "ecosystem/udf/native-user-defined-function",
+                        "ecosystem/udf/java-user-defined-function"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "UDFA",
+                    "items": [
+                        "ecosystem/udaf/remote-user-defined-aggregation-function"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "SQL Manual",
+            "items": [
+                {
+                    "type": "category",
+                    "label": "SQL Functions",
+                    "items": [
+                        {
+                            "type": "category",
+                            "label": "Array Functions",
+                            "items": [
+                                "sql-manual/sql-functions/array-functions/array_max",
+                                "sql-manual/sql-functions/array-functions/array_remove",
+                                "sql-manual/sql-functions/array-functions/array_slice",
+                                "sql-manual/sql-functions/array-functions/array_sort",
+                                "sql-manual/sql-functions/array-functions/array_position",
+                                "sql-manual/sql-functions/array-functions/array_contains",
+                                "sql-manual/sql-functions/array-functions/array_except",
+                                "sql-manual/sql-functions/array-functions/array_product",
+                                "sql-manual/sql-functions/array-functions/array_intersect",
+                                "sql-manual/sql-functions/array-functions/arrays_overlap",
+                                "sql-manual/sql-functions/array-functions/array_min",
+                                "sql-manual/sql-functions/array-functions/element_at",
+                                "sql-manual/sql-functions/array-functions/array_avg",
+                                "sql-manual/sql-functions/array-functions/size",
+                                "sql-manual/sql-functions/array-functions/array_distinct",
+                                "sql-manual/sql-functions/array-functions/array_union",
+                                "sql-manual/sql-functions/array-functions/array_sum"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Date Functions",
+                            "items": [
+                                "sql-manual/sql-functions/date-time-functions/dayname",
+                                "sql-manual/sql-functions/date-time-functions/minute",
+                                "sql-manual/sql-functions/date-time-functions/from_unixtime",
+                                "sql-manual/sql-functions/date-time-functions/hour",
+                                "sql-manual/sql-functions/date-time-functions/monthname",
+                                "sql-manual/sql-functions/date-time-functions/date_sub",
+                                "sql-manual/sql-functions/date-time-functions/yearweek",
+                                "sql-manual/sql-functions/date-time-functions/unix_timestamp",
+                                "sql-manual/sql-functions/date-time-functions/day",
+                                "sql-manual/sql-functions/date-time-functions/curtime",
+                                "sql-manual/sql-functions/date-time-functions/month",
+                                "sql-manual/sql-functions/date-time-functions/week",
+                                "sql-manual/sql-functions/date-time-functions/to_date",
+                                "sql-manual/sql-functions/date-time-functions/timediff",
+                                "sql-manual/sql-functions/date-time-functions/makedate",
+                                "sql-manual/sql-functions/date-time-functions/dayofweek",
+                                "sql-manual/sql-functions/date-time-functions/timestampadd",
+                                "sql-manual/sql-functions/date-time-functions/from_days",
+                                "sql-manual/sql-functions/date-time-functions/weekofyear",
+                                "sql-manual/sql-functions/date-time-functions/year",
+                                "sql-manual/sql-functions/date-time-functions/timestampdiff",
+                                "sql-manual/sql-functions/date-time-functions/dayofmonth",
+                                "sql-manual/sql-functions/date-time-functions/dayofyear",
+                                "sql-manual/sql-functions/date-time-functions/date_format",
+                                "sql-manual/sql-functions/date-time-functions/date_add",
+                                "sql-manual/sql-functions/date-time-functions/curdate",
+                                "sql-manual/sql-functions/date-time-functions/current_timestamp",
+                                "sql-manual/sql-functions/date-time-functions/str_to_date",
+                                "sql-manual/sql-functions/date-time-functions/weekday",
+                                "sql-manual/sql-functions/date-time-functions/to_days",
+                                "sql-manual/sql-functions/date-time-functions/datediff",
+                                "sql-manual/sql-functions/date-time-functions/now",
+                                "sql-manual/sql-functions/date-time-functions/time_round",
+                                "sql-manual/sql-functions/date-time-functions/utc_timestamp",
+                                "sql-manual/sql-functions/date-time-functions/convert_tz",
+                                "sql-manual/sql-functions/date-time-functions/second"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "GIS Functions",
+                            "items": [
+                                "sql-manual/sql-functions/spatial-functions/st_x",
+                                "sql-manual/sql-functions/spatial-functions/st_y",
+                                "sql-manual/sql-functions/spatial-functions/st_circle",
+                                "sql-manual/sql-functions/spatial-functions/st_distance_sphere",
+                                "sql-manual/sql-functions/spatial-functions/st_point",
+                                "sql-manual/sql-functions/spatial-functions/st_polygon",
+                                "sql-manual/sql-functions/spatial-functions/st_astext",
+                                "sql-manual/sql-functions/spatial-functions/st_contains",
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromtext",
+                                "sql-manual/sql-functions/spatial-functions/st_linefromtext"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "String Functions",
+                            "items": [
+                                "sql-manual/sql-functions/string-functions/concat_ws",
+                                "sql-manual/sql-functions/string-functions/hex",
+                                "sql-manual/sql-functions/string-functions/lower",
+                                "sql-manual/sql-functions/string-functions/lpad",
+                                "sql-manual/sql-functions/string-functions/substring",
+                                "sql-manual/sql-functions/string-functions/instr",
+                                "sql-manual/sql-functions/string-functions/repeat",
+                                "sql-manual/sql-functions/string-functions/lcase",
+                                "sql-manual/sql-functions/string-functions/replace",
+                                "sql-manual/sql-functions/string-functions/rpad",
+                                "sql-manual/sql-functions/string-functions/split_part",
+                                "sql-manual/sql-functions/string-functions/append_trailing_char_if_absent",
+                                "sql-manual/sql-functions/string-functions/ltrim",
+                                "sql-manual/sql-functions/string-functions/left",
+                                "sql-manual/sql-functions/string-functions/starts_with",
+                                "sql-manual/sql-functions/string-functions/concat",
+                                "sql-manual/sql-functions/string-functions/bit_length",
+                                "sql-manual/sql-functions/string-functions/strleft",
+                                "sql-manual/sql-functions/string-functions/strright",
+                                "sql-manual/sql-functions/string-functions/money_format",
+                                "sql-manual/sql-functions/string-functions/right",
+                                "sql-manual/sql-functions/string-functions/substr",
+                                "sql-manual/sql-functions/string-functions/find_in_set",
+                                "sql-manual/sql-functions/string-functions/ascii",
+                                "sql-manual/sql-functions/string-functions/reverse",
+                                "sql-manual/sql-functions/string-functions/length",
+                                "sql-manual/sql-functions/string-functions/unhex",
+                                "sql-manual/sql-functions/string-functions/ends_with",
+                                "sql-manual/sql-functions/string-functions/char_length",
+                                "sql-manual/sql-functions/string-functions/null_or_empty",
+                                "sql-manual/sql-functions/string-functions/locate",
+                                {
+                                    "type": "category",
+                                    "label": "Fuzzy Match",
+                                    "items": [
+                                        "sql-manual/sql-functions/string-functions/like/like",
+                                        "sql-manual/sql-functions/string-functions/like/not_like"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Regular Match",
+                                    "items": [
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp_extract",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp_replace",
+                                        "sql-manual/sql-functions/string-functions/regexp/not_regexp"
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Aggregate Functions",
+                            "items": [
+                                "sql-manual/sql-functions/aggregate-functions/collect_set",
+                                "sql-manual/sql-functions/aggregate-functions/min",
+                                "sql-manual/sql-functions/aggregate-functions/stddev_samp",
+                                "sql-manual/sql-functions/aggregate-functions/avg",
+                                "sql-manual/sql-functions/aggregate-functions/percentile",
+                                "sql-manual/sql-functions/aggregate-functions/hll_union_agg",
+                                "sql-manual/sql-functions/aggregate-functions/topn",
+                                "sql-manual/sql-functions/aggregate-functions/count",
+                                "sql-manual/sql-functions/aggregate-functions/sum",
+                                "sql-manual/sql-functions/aggregate-functions/max_by",
+                                "sql-manual/sql-functions/aggregate-functions/bitmap_union",
+                                "sql-manual/sql-functions/aggregate-functions/percentile_approx",
+                                "sql-manual/sql-functions/aggregate-functions/stddev",
+                                "sql-manual/sql-functions/aggregate-functions/group_concat",
+                                "sql-manual/sql-functions/aggregate-functions/collect_list",
+                                "sql-manual/sql-functions/aggregate-functions/min_by",
+                                "sql-manual/sql-functions/aggregate-functions/max",
+                                "sql-manual/sql-functions/aggregate-functions/var_samp",
+                                "sql-manual/sql-functions/aggregate-functions/approx_count_distinct",
+                                "sql-manual/sql-functions/aggregate-functions/variance"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Bitmap Functions",
+                            "items": [
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_and_not_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_subset_limit",
+                                "sql-manual/sql-functions/bitmap-functions/to_bitmap",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_from_string",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_or",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_and",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_union_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_has_all",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_not",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_min",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_contains",
+                                "sql-manual/sql-functions/bitmap-functions/sub_bitmap",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_union",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_xor_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_and_not",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_xor",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_or_count",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_has_any",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_to_string",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_hash",
+                                "sql-manual/sql-functions/bitmap-functions/intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_empty",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_max",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_and_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_subset_in_range"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Bitwise Functions",
+                            "items": [
+                                "sql-manual/sql-functions/bitwise-functions/bitand",
+                                "sql-manual/sql-functions/bitwise-functions/bitor",
+                                "sql-manual/sql-functions/bitwise-functions/bitxor",
+                                "sql-manual/sql-functions/bitwise-functions/bitnot"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Condition Functions",
+                            "items": [
+                                "sql-manual/sql-functions/conditional-functions/case",
+                                "sql-manual/sql-functions/conditional-functions/coalesce",
+                                "sql-manual/sql-functions/conditional-functions/if",
+                                "sql-manual/sql-functions/conditional-functions/ifnull",
+                                "sql-manual/sql-functions/conditional-functions/nvl",
+                                "sql-manual/sql-functions/conditional-functions/nullif"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "JSON Functions",
+                            "items": [
+                                "sql-manual/sql-functions/json-functions/get_json_double",
+                                "sql-manual/sql-functions/json-functions/get_json_int",
+                                "sql-manual/sql-functions/json-functions/get_json_string",
+                                "sql-manual/sql-functions/json-functions/json_array",
+                                "sql-manual/sql-functions/json-functions/json_object",
+                                "sql-manual/sql-functions/json-functions/json_quote"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Hash Functions",
+                            "items": [
+                                "sql-manual/sql-functions/hash-functions/murmur_hash3_32"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Math Functions",
+                            "items": [
+                                "sql-manual/sql-functions/math-functions/conv",
+                                "sql-manual/sql-functions/math-functions/pmod"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Encryption Functions",
+                            "items": [
+                                "sql-manual/sql-functions/encrypt-digest-functions/aes",
+                                "sql-manual/sql-functions/encrypt-digest-functions/md5",
+                                "sql-manual/sql-functions/encrypt-digest-functions/md5sum",
+                                "sql-manual/sql-functions/encrypt-digest-functions/sm4",
+                                "sql-manual/sql-functions/encrypt-digest-functions/sm3",
+                                "sql-manual/sql-functions/encrypt-digest-functions/sm3sum"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Table Functions",
+                            "items": [
+                                "sql-manual/sql-functions/table-functions/explode-json-array",
+                                "sql-manual/sql-functions/table-functions/explode",
+                                "sql-manual/sql-functions/table-functions/explode-split",
+                                "sql-manual/sql-functions/table-functions/explode-bitmap",
+                                "sql-manual/sql-functions/table-functions/outer-combinator",
+                                "sql-manual/sql-functions/table-functions/numbers",
+                                "sql-manual/sql-functions/table-functions/explode-numbers"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Analytic(Window) Functions",
+                            "items": [
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-LAG",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-SUM",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-LAST-VALUE",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-AVG",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-MIN",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-COUNT",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-RANK",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-DENSE-RANK",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-MAX",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-FIRST-VALUE",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-LEAD",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-ROW-NUMBER",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-NTILE"
+                            ]
+                        },
+                        "sql-manual/sql-functions/cast",
+                        "sql-manual/sql-functions/digital-masking"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "SQL Reference",
+                    "items": [
+                        {
+                            "type": "category",
+                            "label": "Account Management",
+                            "items": [
+                                "sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY",
+                                "sql-manual/sql-reference/Account-Management-Statements/REVOKE",
+                                "sql-manual/sql-reference/Account-Management-Statements/GRANT",
+                                "sql-manual/sql-reference/Account-Management-Statements/LDAP",
+                                "sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE",
+                                "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
+                                "sql-manual/sql-reference/Account-Management-Statements/CREATE-USER",
+                                "sql-manual/sql-reference/Account-Management-Statements/DROP-USER",
+                                "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Cluster management",
+                            "items": [
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-FOLLOWER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-OBSERVER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/CANCEL-ALTER-SYSTEM",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BROKER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-OBSERVER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BACKEND",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-FOLLOWER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BROKER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BROKER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BACKEND",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BACKEND"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "DDL",
+                            "items": [
+                                {
+                                    "type": "category",
+                                    "label": "Alter",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Backup and Restore",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/DROP-REPOSITORY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-RESTORE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/BACKUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-BACKUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Create",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ENCRYPT-KEY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Drop",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-POLICY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE"
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "DML",
+                            "items": [
+                                {
+                                    "type": "category",
+                                    "label": "Load",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MULTI-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-ROUTINE-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CLEAN-LABEL",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Manipulation",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/SELECT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT"
+                                    ]
+                                },
+                                "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Database Administration",
+                            "items": [
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-DIAGNOSE-TABLET",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG",
+                                "sql-manual/sql-reference/Database-Administration-Statements/KILL",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CHECK-TABLET",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CLEAN-TRASH",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ENABLE-FEATURE",
+                                "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
+                                "sql-manual/sql-reference/Database-Administration-Statements/UNINSTALL-PLUGIN",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-STATUS",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-DISTRIBUTION",
+                                "sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REPAIR-TABLE",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REPAIR",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SET-VARIABLE",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Show",
+                            "items": [
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DATABASES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-BACKUP",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-MIGRATIONS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PARTITION-ID",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-SNAPSHOT",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-FUNCTIONS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ROLLUP",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ENGINES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DELETE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-SQL-BLOCK-RULE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DATA-SKEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DATABASE-ID",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-EVENTS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-WARNINGS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-INDEX",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-EXPORT",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PROCEDURE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD-TASK",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-BACKENDS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PROC",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-COLLATION",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATUS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-REPOSITORIES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-PROFILE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-OPEN-TABLES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PARTITIONS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-RESTORE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-DATA",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PROPERTY",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-BROKER",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TRIGGERS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-PROCESSLIST",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ENCRYPT-KEY",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TRASH",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TRANSACTION",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-STREAM-LOAD",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-STATUS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Data Types",
+                            "items": [
+                                "sql-manual/sql-reference/Data-Types/VARCHAR",
+                                "sql-manual/sql-reference/Data-Types/INT",
+                                "sql-manual/sql-reference/Data-Types/DATE",
+                                "sql-manual/sql-reference/Data-Types/BITMAP",
+                                "sql-manual/sql-reference/Data-Types/DOUBLE",
+                                "sql-manual/sql-reference/Data-Types/STRING",
+                                "sql-manual/sql-reference/Data-Types/HLL",
+                                "sql-manual/sql-reference/Data-Types/ARRAY",
+                                "sql-manual/sql-reference/Data-Types/DATETIME",
+                                "sql-manual/sql-reference/Data-Types/LARGEINT",
+                                "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
+                                "sql-manual/sql-reference/Data-Types/SMALLINT",
+                                "sql-manual/sql-reference/Data-Types/TINYINT",
+                                "sql-manual/sql-reference/Data-Types/DECIMAL",
+                                "sql-manual/sql-reference/Data-Types/BIGINT",
+                                "sql-manual/sql-reference/Data-Types/BOOLEAN",
+                                "sql-manual/sql-reference/Data-Types/FLOAT",
+                                "sql-manual/sql-reference/Data-Types/CHAR"
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Utility",
+                            "items": [
+                                "sql-manual/sql-reference/Utility-Statements/HELP",
+                                "sql-manual/sql-reference/Utility-Statements/USE",
+                                "sql-manual/sql-reference/Utility-Statements/DESCRIBE"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Admin Manual",
+            "items": [
+                {
+                    "type": "category",
+                    "label": "cluster management",
+                    "items": [
+                        "admin-manual/cluster-management/upgrade",
+                        "admin-manual/cluster-management/elastic-expansion",
+                        "admin-manual/cluster-management/load-balancing"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Data Admin",
+                    "items": [
+                        "admin-manual/data-admin/backup",
+                        "admin-manual/data-admin/restore",
+                        "admin-manual/data-admin/delete-recover"
+                    ]
+                },
+                "admin-manual/sql-interception",
+                "admin-manual/query-profile",
+                "admin-manual/tracing",
+                "admin-manual/optimization",
+                {
+                    "type": "category",
+                    "label": "Maintenance and Monitor",
+                    "items": [
+                        {
+                            "type": "category",
+                            "label": "Monitor Metrics",
+                            "items": [
+                                "admin-manual/maint-monitor/monitor-metrics/metrics"
+                            ]
+                        },
+                       "admin-manual/maint-monitor/disk-capacity",
+                       "admin-manual/maint-monitor/tablet-repair-and-balance",
+                       "admin-manual/maint-monitor/be-olap-error-code",
+                       "admin-manual/maint-monitor/doris-error-code",
+                       "admin-manual/maint-monitor/tablet-meta-tool",
+                       "admin-manual/maint-monitor/monitor-alert",
+                       "admin-manual/maint-monitor/multi-tenant",
+                       "admin-manual/maint-monitor/tablet-local-debug",
+                       "admin-manual/maint-monitor/tablet-restore-tool",
+                       "admin-manual/maint-monitor/monitor-metrics/metrics",
+                       "admin-manual/maint-monitor/metadata-operation"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Config",
+                    "items": [
+                        "admin-manual/config/fe-config",
+                        "admin-manual/config/be-config",
+                        "admin-manual/config/user-property"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "User Privilege and Ldap",
+                    "items": [
+                        "admin-manual/privilege-ldap/user-privilege",
+                        "admin-manual/privilege-ldap/ldap"
+                    ]
+                },
+                "admin-manual/multi-tenant",
+                {
+                    "type": "category",
+                    "label": "HTTP API",
+                    "items": [
+                        {
+                            "type": "category",
+                            "label": "FE",
+                            "items": [
+                                {
+                                    "type": "category",
+                                    "label": "MANAGER",
+                                    "items": [
+                                        "admin-manual/http-actions/fe/manager/query-profile-action",
+                                        "admin-manual/http-actions/fe/manager/node-action",
+                                        "admin-manual/http-actions/fe/manager/cluster-action"
+                                    ]
+                                },
+                                "admin-manual/http-actions/fe/get-load-state",
+                                "admin-manual/http-actions/fe/bootstrap-action",
+                                "admin-manual/http-actions/fe/ha-action",
+                                "admin-manual/http-actions/fe/meta-replay-state-action",
+                                "admin-manual/http-actions/fe/statement-execution-action",
+                                "admin-manual/http-actions/fe/profile-action",
+                                "admin-manual/http-actions/fe/meta-info-action",
+                                "admin-manual/http-actions/fe/meta-action",
+                                "admin-manual/http-actions/fe/query-profile-action",
+                                "admin-manual/http-actions/fe/show-data-action",
+                                "admin-manual/http-actions/fe/config-action",
+                                "admin-manual/http-actions/fe/get-log-file-action",
+                                "admin-manual/http-actions/fe/connection-action",
+                                "admin-manual/http-actions/fe/system-action",
+                                "admin-manual/http-actions/fe/table-schema-action",
+                                "admin-manual/http-actions/fe/show-meta-info-action",
+                                "admin-manual/http-actions/fe/hardware-info-action",
+                                "admin-manual/http-actions/fe/log-action",
+                                "admin-manual/http-actions/fe/cancel-load-action",
+                                "admin-manual/http-actions/fe/logout-action",
+                                "admin-manual/http-actions/fe/backends-action",
+                                "admin-manual/http-actions/fe/get-load-info-action",
+                                "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/query-detail-action",
+                                "admin-manual/http-actions/fe/upload-action",
+                                "admin-manual/http-actions/fe/session-action",
+                                "admin-manual/http-actions/fe/table-row-count-action",
+                                "admin-manual/http-actions/fe/get-small-file",
+                                "admin-manual/http-actions/fe/table-query-plan-action",
+                                "admin-manual/http-actions/fe/set-config-action",
+                                "admin-manual/http-actions/fe/row-count-action",
+                                "admin-manual/http-actions/fe/get-ddl-stmt-action",
+                                "admin-manual/http-actions/fe/show-proc-action",
+                                "admin-manual/http-actions/fe/check-decommission-action",
+                                "admin-manual/http-actions/fe/health-action",
+                                "admin-manual/http-actions/fe/check-storage-type-action"
+                            ]
+                        },
+                        "admin-manual/http-actions/restore-tablet",
+                        "admin-manual/http-actions/get-load-state",
+                        "admin-manual/http-actions/tablet-migration-action",
+                        "admin-manual/http-actions/cancel-label",
+                        "admin-manual/http-actions/profile-action",
+                        "admin-manual/http-actions/show-data-action",
+                        "admin-manual/http-actions/tablets_distribution",
+                        "admin-manual/http-actions/connection-action",
+                        "admin-manual/http-actions/compaction-action",
+                        "admin-manual/http-actions/query-detail-action",
+                        "admin-manual/http-actions/get-tablets",
+                        "admin-manual/http-actions/fe-get-log-file",
+                        "admin-manual/http-actions/check-reset-rpc-cache",
+                        "admin-manual/http-actions/check-tablet-segment-action"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "category",
+            "label": "FAQ",
+            "items": [
+                "faq/install-faq",
+                "faq/data-faq",
+                "faq/sql-faq"
+            ]
+        }
+    ]
+}

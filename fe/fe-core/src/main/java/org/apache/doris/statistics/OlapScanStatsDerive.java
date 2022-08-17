@@ -18,7 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -76,15 +77,15 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
      * @param: node
      * @return: void
      */
-    public void buildStructure(OlapScanNode node) {
+    public void buildStructure(OlapScanNode node) throws AnalysisException {
         slotIdToDataSize = new HashMap<>();
         slotIdToNdv = new HashMap<>();
         slotIdToTableIdAndColumnName = new HashMap<>();
         if (node.getTupleDesc() != null
                 && node.getTupleDesc().getTable() != null) {
             long tableId = node.getTupleDesc().getTable().getId();
-            inputRowCount = Catalog.getCurrentCatalog().getStatisticsManager()
-                    .getStatistics().getTableStats(tableId).getRowCount();
+            inputRowCount = Env.getCurrentEnv().getStatisticsManager().getStatistics().getTableStats(tableId)
+                    .getRowCount();
         }
         for (SlotDescriptor slot : node.getTupleDesc().getSlots()) {
             if (!slot.isMaterialized()) {
@@ -109,15 +110,15 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
         long ndv = -1;
         float dataSize = -1;
         /*
-        if (Catalog.getCurrentCatalog()
+        if (Catalog.getCurrentEnv()
                     .getStatisticsManager()
                     .getStatistics()
                     .getColumnStats(pair.first) != null) {
-                ndv = Catalog.getCurrentCatalog()
+                ndv = Catalog.getCurrentEnv()
                         .getStatisticsManager()
                         .getStatistics()
                         .getColumnStats(pair.first).get(pair.second).getNdv();
-                dataSize = Catalog.getCurrentCatalog()
+                dataSize = Catalog.getCurrentEnv()
                         .getStatisticsManager()
                         .getStatistics()
                         .getColumnStats(pair.first).get(pair.second).getDataSize();

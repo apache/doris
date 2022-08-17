@@ -19,10 +19,10 @@ package org.apache.doris.http;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -42,7 +42,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
@@ -78,6 +79,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public abstract class DorisHttpTestCase {
 
@@ -134,18 +136,18 @@ public abstract class DorisHttpTestCase {
     private static EditLog editLog;
 
     public static OlapTable newTable(String name) {
-        Catalog.getCurrentInvertedIndex().clear();
+        Env.getCurrentInvertedIndex().clear();
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         Column k2 = new Column("k2", PrimitiveType.DOUBLE);
         List<Column> columns = new ArrayList<>();
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -203,9 +205,9 @@ public abstract class DorisHttpTestCase {
         return table;
     }
 
-    private static Catalog newDelegateCatalog() {
+    private static Env newDelegateCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
             PaloAuth paloAuth = new PaloAuth();
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "default_cluster:testDb");
@@ -216,72 +218,93 @@ public abstract class DorisHttpTestCase {
             EsTable esTable = newEsTable("es_table");
             db.createTable(esTable);
 
-            InternalDataSource internalDataSource = Deencapsulation.newInstance(InternalDataSource.class);
-            new Expectations(internalDataSource) {
+            InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
+            new Expectations(internalCatalog) {
                 {
-                    internalDataSource.getDbNullable(db.getId());
+                    internalCatalog.getDbNullable(db.getId());
                     minTimes = 0;
                     result = db;
 
-                    internalDataSource.getDbNullable("default_cluster:" + DB_NAME);
+                    internalCatalog.getDbNullable("default_cluster:" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    internalDataSource.getDbNullable("default_cluster:emptyDb");
+                    internalCatalog.getDbNullable("default_cluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    internalDataSource.getDbNullable(anyString);
+                    internalCatalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    internalDataSource.getDbNames();
+                    internalCatalog.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
 
-                    internalDataSource.getClusterDbNames("default_cluster");
+                    internalCatalog.getClusterDbNames("default_cluster");
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
                 }
             };
 
-            new Expectations(catalog) {
+            CatalogMgr dsMgr = new CatalogMgr();
+            new Expectations(dsMgr) {
                 {
-                    catalog.getAuth();
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = internalCatalog;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = internalCatalog;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    minTimes = 0;
+                    result = internalCatalog;
+                }
+            };
+
+            new Expectations(env) {
+                {
+                    env.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.isMaster();
+                    env.isMaster();
                     minTimes = 0;
                     result = true;
 
-                    catalog.getLoadInstance();
+                    env.getLoadInstance();
                     minTimes = 0;
                     result = new Load();
 
-                    catalog.getEditLog();
+                    env.getEditLog();
                     minTimes = 0;
                     result = editLog;
 
-                    catalog.getInternalDataSource();
+                    env.getInternalCatalog();
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentCatalog();
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
-                    catalog.changeDb((ConnectContext) any, "blockDb");
-                    minTimes = 0;
-
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
 
-                    catalog.initDefaultCluster();
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
+
+                    env.initDefaultCluster();
+                    minTimes = 0;
+
+                    env.getCatalogMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -299,9 +322,9 @@ public abstract class DorisHttpTestCase {
         Backend backend3 = new Backend(testBackendId3, "node-3", 9308);
         backend3.setBePort(9300);
         backend3.setAlive(true);
-        Catalog.getCurrentSystemInfo().addBackend(backend1);
-        Catalog.getCurrentSystemInfo().addBackend(backend2);
-        Catalog.getCurrentSystemInfo().addBackend(backend3);
+        Env.getCurrentSystemInfo().addBackend(backend1);
+        Env.getCurrentSystemInfo().addBackend(backend2);
+        Env.getCurrentSystemInfo().addBackend(backend3);
     }
 
     @BeforeClass
@@ -343,10 +366,10 @@ public abstract class DorisHttpTestCase {
 
     @Before
     public void setUp() {
-        Catalog catalog = newDelegateCatalog();
+        Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
         TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
             SchemaChangeHandler getSchemaChangeHandler() {
                 return new SchemaChangeHandler();
@@ -358,8 +381,8 @@ public abstract class DorisHttpTestCase {
             }
 
             @Mock
-            Catalog getCurrentCatalog() {
-                return catalog;
+            Env getCurrentEnv() {
+                return env;
             }
 
             @Mock

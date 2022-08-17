@@ -71,6 +71,16 @@ struct BitmapTypeCode {
         // added in 0.12
         BITMAP64 = 4
     };
+    Status static inline validate(int bitmap_type) {
+        if (UNLIKELY(bitmap_type < type::EMPTY || bitmap_type > type::BITMAP64)) {
+            std::string err_msg =
+                    fmt::format("BitmapTypeCode invalid, should between: {} and {} actrual is {}",
+                                BitmapTypeCode::EMPTY, BitmapTypeCode::BITMAP64, bitmap_type);
+            LOG(ERROR) << err_msg;
+            return Status::IOError(err_msg);
+        }
+        return Status::OK();
+    }
 };
 
 namespace detail {
@@ -1022,13 +1032,13 @@ public:
         return false;
     }
 
-    bool operator==(const Roaring64MapSetBitForwardIterator& o) {
+    bool operator==(const Roaring64MapSetBitForwardIterator& o) const {
         if (map_iter == map_end && o.map_iter == o.map_end) return true;
         if (o.map_iter == o.map_end) return false;
         return **this == *o;
     }
 
-    bool operator!=(const Roaring64MapSetBitForwardIterator& o) {
+    bool operator!=(const Roaring64MapSetBitForwardIterator& o) const {
         if (map_iter == map_end && o.map_iter == o.map_end) return false;
         if (o.map_iter == o.map_end) return true;
         return **this != *o;
@@ -1249,6 +1259,54 @@ public:
             }
             break;
         }
+        return *this;
+    }
+
+    BitmapValue& fastunion(const std::vector<const BitmapValue*>& values) {
+        std::vector<const detail::Roaring64Map*> bitmaps;
+        std::vector<uint64_t> single_values;
+        for (int i = 0; i < values.size(); ++i) {
+            auto* value = values[i];
+            switch (value->_type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                single_values.push_back(value->_sv);
+                break;
+            case BITMAP:
+                bitmaps.push_back(&value->_bitmap);
+                break;
+            }
+        }
+
+        if (!bitmaps.empty()) {
+            switch (_type) {
+            case EMPTY:
+                _bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                _type = BITMAP;
+                break;
+            case SINGLE:
+                _bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                _bitmap.add(_sv);
+                _type = BITMAP;
+                break;
+            case BITMAP:
+                _bitmap |= detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                break;
+            }
+        }
+
+        if (_type == EMPTY && single_values.size() == 1) {
+            _sv = single_values[0];
+            _type = SINGLE;
+        } else if (!single_values.empty()) {
+            _bitmap.addMany(single_values.size(), single_values.data());
+            if (_type == SINGLE) {
+                _bitmap.add(_sv);
+            }
+            _type = BITMAP;
+        }
+
         return *this;
     }
 
@@ -1536,7 +1594,6 @@ public:
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
     bool deserialize(const char* src) {
-        DCHECK(*src >= BitmapTypeCode::EMPTY && *src <= BitmapTypeCode::BITMAP64);
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
@@ -1555,6 +1612,9 @@ public:
             _bitmap = detail::Roaring64Map::read(src);
             break;
         default:
+            LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
+                       << " and " << BitmapTypeCode::BITMAP64 << " actrual is "
+                       << static_cast<int>(*src);
             return false;
         }
         return true;

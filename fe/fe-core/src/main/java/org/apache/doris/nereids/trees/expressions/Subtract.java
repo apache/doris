@@ -17,18 +17,34 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Subtract Expression. BinaryExpression.
  */
-public class Subtract<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Subtract(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Subtract extends Arithmetic implements BinaryExpression {
+    public Subtract(Expression left, Expression right) {
         super(ArithmeticOperator.SUBTRACT, left, right);
     }
 
     @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithOperator().toString()
-                + ' ' + right().sql();
+    public String toSql() {
+        return left().toSql() + ' ' + getArithmeticOperator().toString()
+                + ' ' + right().toSql();
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new Subtract(children.get(0), children.get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitSubtract(this, context);
     }
 }

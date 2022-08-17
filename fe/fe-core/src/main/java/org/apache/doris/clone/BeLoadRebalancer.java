@@ -17,8 +17,8 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -106,7 +106,7 @@ public class BeLoadRebalancer extends Rebalancer {
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         int clusterAvailableBEnum = infoService.getClusterBackendIds(clusterName, true).size();
-        ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first

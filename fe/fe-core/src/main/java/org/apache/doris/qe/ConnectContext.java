@@ -18,12 +18,14 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
@@ -39,6 +41,7 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -107,10 +110,12 @@ public class ConnectContext {
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
+    protected volatile Tracer tracer = Telemetry.getNoopTracer();
+
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
-    protected Catalog catalog;
-    protected String defaultCatalog = InternalDataSource.INTERNAL_DS_NAME;
+    protected Env env;
+    protected String defaultCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
     protected boolean isSend;
 
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
@@ -224,7 +229,7 @@ public class ConnectContext {
         if (isTxnModel()) {
             if (isTxnBegin()) {
                 try {
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
                             currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
                 } catch (UserException e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
@@ -291,13 +296,13 @@ public class ConnectContext {
         return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
     }
 
-    public void setCatalog(Catalog catalog) {
-        this.catalog = catalog;
-        defaultCatalog = catalog.getInternalDataSource().getName();
+    public void setEnv(Env env) {
+        this.env = env;
+        defaultCatalog = env.getInternalCatalog().getName();
     }
 
-    public Catalog getCatalog() {
-        return catalog;
+    public Env getEnv() {
+        return env;
     }
 
     public String getQualifiedUser() {
@@ -418,8 +423,26 @@ public class ConnectContext {
         return defaultCatalog;
     }
 
+    public CatalogIf getCurrentCatalog() {
+        // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
+        return getCatalog(defaultCatalog);
+    }
+
+    /**
+     * Maybe return when catalogName is not exist. So need to check nullable.
+     */
+    public CatalogIf getCatalog(String catalogName) {
+        String realCatalogName = catalogName == null ? defaultCatalog : catalogName;
+        if (env == null) {
+            return Env.getCurrentEnv().getCatalogMgr().getCatalog(realCatalogName);
+        }
+        return env.getCatalogMgr().getCatalog(realCatalogName);
+    }
+
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
+        currentDb = "";
+        currentDbId = -1;
     }
 
     public String getDatabase() {
@@ -428,8 +451,8 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
-        Optional<DatabaseIf> dbInstance = Catalog.getCurrentCatalog().getCurrentDataSource().getDb(db);
-        currentDbId = dbInstance.isPresent() ? dbInstance.get().getId() : -1;
+        Optional<DatabaseIf> dbInstance = getCurrentCatalog().getDb(db);
+        currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
     }
 
     public void setExecutor(StmtExecutor executor) {
@@ -479,17 +502,29 @@ public class ConnectContext {
         this.sqlHash = sqlHash;
     }
 
+    public Tracer getTracer() {
+        return tracer;
+    }
+
+    public void initTracer(String name) {
+        this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
+    }
+
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill timeout query, {}, kill connection: {}",
-                getMysqlChannel().getRemoteHostPortString(), killConnection);
+        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
+                killConnection);
 
         if (killConnection) {
             isKilled = true;
             // Close channel to break connection with client
             getMysqlChannel().close();
         }
-        // Now, cancel running process.
+        // Now, cancel running query.
+        cancelQuery();
+    }
+
+    public void cancelQuery() {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
             executorRef.cancel();
@@ -528,10 +563,11 @@ public class ConnectContext {
     }
 
     // Helper to dump connection information.
-    public ThreadInfo toThreadInfo() {
+    public ThreadInfo toThreadInfo(boolean isFull) {
         if (threadInfo == null) {
             threadInfo = new ThreadInfo();
         }
+        threadInfo.isFull = isFull;
         return threadInfo;
     }
 
@@ -561,6 +597,8 @@ public class ConnectContext {
     }
 
     public class ThreadInfo {
+        public boolean isFull;
+
         public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
@@ -571,7 +609,15 @@ public class ConnectContext {
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add("");
-            row.add("");
+            if (queryId != null) {
+                String sql = QeProcessorImpl.INSTANCE.getCurrentQueryByQueryId(queryId);
+                if (!isFull) {
+                    sql = sql.substring(0, Math.min(sql.length(), 100));
+                }
+                row.add(sql);
+            } else {
+                row.add("");
+            }
             return row;
         }
     }
@@ -581,3 +627,4 @@ public class ConnectContext {
     }
 
 }
+

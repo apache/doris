@@ -18,8 +18,8 @@
 package org.apache.doris.external.elasticsearch;
 
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -53,7 +53,7 @@ public class EsRepository extends MasterDaemon {
     }
 
     public void registerTable(EsTable esTable) {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
         esTables.put(esTable.getId(), esTable);
@@ -73,7 +73,7 @@ public class EsRepository extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                esTable.syncTableMetaData(esClients.get(esTable.getId()));
+                esTable.syncTableMetaData();
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
                         esTable.getName(), e);
@@ -87,12 +87,12 @@ public class EsRepository extends MasterDaemon {
     // the rest of tables will be added or removed by replaying edit log
     // when fe is start to load image, should call this method to init the state store
     public void loadTableFromCatalog() {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
-        List<Long> dbIds = Catalog.getCurrentCatalog().getInternalDataSource().getDbIds();
+        List<Long> dbIds = Env.getCurrentEnv().getInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database database = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }

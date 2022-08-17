@@ -17,9 +17,9 @@
 
 package org.apache.doris.httpv2.restv2;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -48,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -92,14 +93,14 @@ public class MetaInfoActionV2 extends RestBaseController {
         // 1. get all database with privilege
         List<String> dbNames = null;
         try {
-            dbNames = Catalog.getCurrentInternalCatalog().getClusterDbNames(ns);
+            dbNames = Env.getCurrentInternalCatalog().getClusterDbNames(ns);
         } catch (AnalysisException e) {
             return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
         }
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName,
                     PrivPredicate.SHOW)) {
                 continue;
             }
@@ -139,7 +140,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -148,7 +149,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         db.readLock();
         try {
             for (Table tbl : db.getTables()) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
+                if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
                         PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -174,7 +175,7 @@ public class MetaInfoActionV2 extends RestBaseController {
      *         "schemaInfo": {
      *             "schemaMap": {
      *                 "tbl1": {
-     *                     "schema": {
+     *                     "schema": [{
      *                         "field": "k2",
      *                         "type": "INT",
      *                         "isNull": "true",
@@ -182,7 +183,7 @@ public class MetaInfoActionV2 extends RestBaseController {
      *                         "key": "true",
      *                         "aggrType": "None",
      *                         "comment": ""
-     *                     },
+     *                     }],
      *                     "keyType": "DUP_KEYS",
      *                     "baseIndex": true
      *                 }
@@ -211,7 +212,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
         try {
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             db.readLock();
             try {
                 Table tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
@@ -238,7 +239,7 @@ public class MetaInfoActionV2 extends RestBaseController {
             TableSchema baseTableSchema = new TableSchema();
             baseTableSchema.setBaseIndex(true);
             baseTableSchema.setKeyType(olapTable.getKeysTypeByIndexId(baseIndexId).name());
-            Schema baseSchema = generateSchame(olapTable.getSchemaByIndexId(baseIndexId));
+            List<Schema> baseSchema = generateSchame(olapTable.getSchemaByIndexId(baseIndexId));
             baseTableSchema.setSchema(baseSchema);
             schemaMap.put(olapTable.getIndexNameById(baseIndexId), baseTableSchema);
 
@@ -247,7 +248,7 @@ public class MetaInfoActionV2 extends RestBaseController {
                     TableSchema tableSchema = new TableSchema();
                     tableSchema.setBaseIndex(false);
                     tableSchema.setKeyType(olapTable.getKeysTypeByIndexId(indexId).name());
-                    Schema schema = generateSchame(olapTable.getSchemaByIndexId(indexId));
+                    List<Schema> schema = generateSchame(olapTable.getSchemaByIndexId(indexId));
                     tableSchema.setSchema(schema);
                     schemaMap.put(olapTable.getIndexNameById(indexId), tableSchema);
                 }
@@ -256,7 +257,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         } else {
             TableSchema tableSchema = new TableSchema();
             tableSchema.setBaseIndex(false);
-            Schema schema = generateSchame(tbl.getBaseSchema());
+            List<Schema> schema = generateSchame(tbl.getBaseSchema());
             tableSchema.setSchema(schema);
             schemaMap.put(tbl.getName(), tableSchema);
             schemaInfo.setSchemaMap(schemaMap);
@@ -265,9 +266,9 @@ public class MetaInfoActionV2 extends RestBaseController {
         return schemaInfo;
     }
 
-    private Schema generateSchame(List<Column> columns) {
-        Schema schema = new Schema();
-        for (Column column : columns) {
+    private List<Schema> generateSchame(List<Column> columns) {
+        return columns.stream().map(column -> {
+            Schema schema = new Schema();
             schema.setField(column.getName());
             schema.setType(column.getType().toString());
             schema.setIsNull(String.valueOf(column.isAllowNull()));
@@ -276,8 +277,8 @@ public class MetaInfoActionV2 extends RestBaseController {
             schema.setAggrType(column.getAggregationType() == null
                     ? "None" : column.getAggregationType().toString());
             schema.setComment(column.getComment());
-        }
-        return schema;
+            return schema;
+        }).collect(Collectors.toList());
     }
 
     private void generateResult(Table tbl, boolean isBaseIndex,
@@ -368,7 +369,7 @@ public class MetaInfoActionV2 extends RestBaseController {
     @Getter
     @Setter
     public static class TableSchema {
-        private Schema schema;
+        private List<Schema> schema;
         private boolean isBaseIndex;
         private String keyType;
     }

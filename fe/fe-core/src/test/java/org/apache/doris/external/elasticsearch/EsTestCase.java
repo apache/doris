@@ -17,12 +17,12 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
@@ -41,26 +41,31 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+/**
+ * Test case for es.
+ **/
 public class EsTestCase {
 
     protected static FakeEditLog fakeEditLog;
-    protected static FakeCatalog fakeCatalog;
-    protected static Catalog masterCatalog;
-    protected static String mappingsStr = "";
+    protected static FakeEnv fakeEnv;
+    protected static Env masterEnv;
 
+    /**
+     * Init
+     **/
     @BeforeClass
     public static void init() throws Exception {
         fakeEditLog = new FakeEditLog();
-        fakeCatalog = new FakeCatalog();
-        masterCatalog = CatalogTestUtil.createTestCatalog();
+        fakeEnv = new FakeEnv();
+        masterEnv = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        FakeCatalog.setCatalog(masterCatalog);
+        FakeEnv.setEnv(masterEnv);
     }
 
     protected String loadJsonFromFile(String fileName) throws IOException, URISyntaxException {
-        File file = new File(MappingPhaseTest.class.getClassLoader().getResource(fileName).toURI());
+        File file = new File(EsUtil.class.getClassLoader().getResource(fileName).toURI());
         InputStream is = new FileInputStream(file);
         BufferedReader br = new BufferedReader(new InputStreamReader(is));
         StringBuilder jsonStr = new StringBuilder();
@@ -73,7 +78,7 @@ public class EsTestCase {
         return jsonStr.toString();
     }
 
-    public EsTable fakeEsTable(String table, String index, String type, List<Column> columns) throws DdlException {
+    protected EsTable fakeEsTable(String table, String index, String type, List<Column> columns) throws DdlException {
         Map<String, String> props = new HashMap<>();
         props.put(EsTable.HOSTS, "127.0.0.1:8200");
         props.put(EsTable.INDEX, index);

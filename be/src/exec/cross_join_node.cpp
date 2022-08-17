@@ -33,7 +33,7 @@ CrossJoinNode::CrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 Status CrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(BlockingJoinNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _build_batch_pool.reset(new ObjectPool());
     return Status::OK();
 }
@@ -52,7 +52,6 @@ Status CrossJoinNode::close(RuntimeState* state) {
 Status CrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Cross join, while getting next from child 1");
 
     while (true) {
         RowBatch* batch =
@@ -82,13 +81,12 @@ void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
 }
 
 Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
-    // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_CANCELLED(state);
     *eos = false;
     // TOOD(zhaochun)
     // RETURN_IF_ERROR(state->check_query_state());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (reached_limit() || _eos) {
         *eos = true;

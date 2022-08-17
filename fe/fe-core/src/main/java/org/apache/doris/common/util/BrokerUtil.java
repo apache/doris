@@ -23,7 +23,7 @@ import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -49,7 +49,6 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPReadRequest;
 import org.apache.doris.thrift.TBrokerPWriteRequest;
-import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
@@ -64,6 +63,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -90,26 +90,34 @@ public class BrokerUtil {
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
+    public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
+    public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
 
-    public static void generateHdfsParam(Map<String, String> properties, TBrokerRangeDesc rangeDesc) {
-        rangeDesc.setHdfsParams(new THdfsParams());
-        rangeDesc.hdfs_params.setHdfsConf(new ArrayList<>());
+    public static THdfsParams generateHdfsParam(Map<String, String> properties) {
+        THdfsParams tHdfsParams = new THdfsParams();
+        tHdfsParams.setHdfsConf(new ArrayList<>());
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                rangeDesc.hdfs_params.setFsName(property.getValue());
+                tHdfsParams.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
-                rangeDesc.hdfs_params.setUser(property.getValue());
+                tHdfsParams.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
-                rangeDesc.hdfs_params.setHdfsKerberosPrincipal(property.getValue());
+                tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
-                rangeDesc.hdfs_params.setHdfsKerberosKeytab(property.getValue());
+                tHdfsParams.setHdfsKerberosKeytab(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();
                 hdfsConf.setKey(property.getKey());
                 hdfsConf.setValue(property.getValue());
-                rangeDesc.hdfs_params.hdfs_conf.add(hdfsConf);
+                tHdfsParams.hdfs_conf.add(hdfsConf);
             }
         }
+        // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
+        // We should disable short circuit read if they are not both set because it will cause performance down.
+        if (!properties.containsKey(HADOOP_SHORT_CIRCUIT) || !properties.containsKey(HADOOP_SOCKET_PATH)) {
+            tHdfsParams.addToHdfsConf(new THdfsConf(HADOOP_SHORT_CIRCUIT, "false"));
+        }
+        return tHdfsParams;
     }
 
     /**
@@ -178,7 +186,7 @@ public class BrokerUtil {
             }
             String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
             String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
-            Configuration conf = new Configuration();
+            Configuration conf = new HdfsConfiguration();
             boolean isSecurityEnabled = false;
             for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
                 conf.set(propEntry.getKey(), propEntry.getValue());
@@ -215,6 +223,14 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
+        return parseColumnsFromPath(filePath, columnsFromPath, true);
+    }
+
+    public static List<String> parseColumnsFromPath(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive)
+            throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
@@ -239,7 +255,8 @@ public class BrokerUtil {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
                         + columnsFromPath + ", filePath: " + filePath);
             }
-            int index = columnsFromPath.indexOf(pair[0]);
+            String parsedColumnName = caseSensitive ? pair[0] : pair[0].toLowerCase();
+            int index = columnsFromPath.indexOf(parsedColumnName);
             if (index == -1) {
                 continue;
             }
@@ -522,7 +539,7 @@ public class BrokerUtil {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
+            broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }

@@ -17,11 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -42,6 +43,8 @@ public class TruncateTableStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         tblRef.getName().analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
 
         if (tblRef.hasExplicitAlias()) {
             throw new AnalysisException("Not support truncate table with alias");
@@ -50,7 +53,7 @@ public class TruncateTableStmt extends DdlStmt {
         // check access
         // it requires LOAD privilege, because we consider this operation as 'delete data', which is also a
         // 'load' operation.
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
                 tblRef.getName().getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }

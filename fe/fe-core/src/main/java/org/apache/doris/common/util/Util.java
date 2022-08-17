@@ -22,7 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -76,6 +76,9 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL64, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL128, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
@@ -483,8 +486,23 @@ public class Util {
             throw new AnalysisException("Catalog name is empty.");
         }
 
-        if (!catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (!catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             FeNameFormat.checkCommonName("catalog", catalog);
         }
+    }
+
+    public static void prohibitExternalCatalog(String catalog, String msg) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
+        }
+    }
+
+    public static boolean isS3CompatibleStorageSchema(String schema) {
+        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
+            if (objectStorage.equalsIgnoreCase(schema)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

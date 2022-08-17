@@ -22,6 +22,7 @@
 
 #include "common/config.h"
 #include "olap/olap_define.h"
+#include "util/bit_util.h"
 
 namespace doris {
 
@@ -48,17 +49,21 @@ BufferedReader::~BufferedReader() {
 
 Status BufferedReader::open() {
     if (!_reader) {
-        std::stringstream ss;
-        ss << "Open buffered reader failed, reader is null";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Open buffered reader failed, reader is null");
     }
 
     // the macro ADD_XXX is idempotent.
     // So although each scanner calls the ADD_XXX method, they all use the same counters.
     _read_timer = ADD_TIMER(_profile, "FileReadTime");
-    _remote_read_timer = ADD_CHILD_TIMER(_profile, "FileRemoteReadTime", "FileReadTime");
+    _remote_read_timer = ADD_TIMER(_profile, "FileRemoteReadTime");
     _read_counter = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
     _remote_read_counter = ADD_COUNTER(_profile, "FileRemoteReadCalls", TUnit::UNIT);
+    _remote_read_bytes = ADD_COUNTER(_profile, "FileRemoteReadBytes", TUnit::BYTES);
+    _remote_read_rate = _profile->add_derived_counter(
+            "FileRemoteReadRate", TUnit::BYTES_PER_SECOND,
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _remote_read_bytes,
+                               _remote_read_timer),
+            "");
 
     RETURN_IF_ERROR(_reader->open());
     return Status::OK();
@@ -106,7 +111,7 @@ Status BufferedReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
 
 Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* bytes_read,
                                   void* out) {
-    _read_count++;
+    ++_read_count;
     // requested bytes missed the local buffer
     if (position >= _buffer_limit || position < _buffer_offset) {
         // if requested length is larger than the capacity of buffer, do not
@@ -115,6 +120,8 @@ Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* byt
             auto st = _reader->readat(position, nbytes, bytes_read, out);
             if (st.ok()) {
                 _cur_offset = position + *bytes_read;
+                ++_remote_read_count;
+                _remote_bytes += *bytes_read;
             }
             return st;
         }
@@ -139,6 +146,8 @@ Status BufferedReader::_fill() {
         SCOPED_TIMER(_remote_read_timer);
         RETURN_IF_ERROR(_reader->readat(_buffer_offset, _buffer_size, &bytes_read, _buffer));
         _buffer_limit = _buffer_offset + bytes_read;
+        ++_remote_read_count;
+        _remote_bytes += bytes_read;
     }
     return Status::OK();
 }
@@ -167,10 +176,70 @@ void BufferedReader::close() {
     if (_remote_read_counter != nullptr) {
         COUNTER_UPDATE(_remote_read_counter, _remote_read_count);
     }
+    if (_remote_read_bytes != nullptr) {
+        COUNTER_UPDATE(_remote_read_bytes, _remote_bytes);
+    }
 }
 
 bool BufferedReader::closed() {
     return _reader->closed();
+}
+
+BufferedFileStreamReader::BufferedFileStreamReader(FileReader* file, uint64_t offset,
+                                                   uint64_t length)
+        : _file(file), _file_start_offset(offset), _file_end_offset(offset + length) {}
+
+Status BufferedFileStreamReader::seek(uint64_t position) {
+    if (_file_position != position) {
+        RETURN_IF_ERROR(_file->seek(position));
+        _file_position = position;
+    }
+    return Status::OK();
+}
+
+Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset,
+                                            size_t* bytes_to_read) {
+    if (offset < _file_start_offset) {
+        return Status::IOError("Out-of-bounds Access");
+    }
+    if (offset >= _file_end_offset) {
+        *bytes_to_read = 0;
+        return Status::OK();
+    }
+    int64_t end_offset = offset + *bytes_to_read;
+    if (_buf_start_offset <= offset && _buf_end_offset >= end_offset) {
+        *buf = _buf.get() + offset - _buf_start_offset;
+        return Status::OK();
+    }
+    if (_buf_size < *bytes_to_read) {
+        size_t new_size = BitUtil::next_power_of_two(*bytes_to_read);
+        std::unique_ptr<uint8_t[]> new_buf(new uint8_t[new_size]);
+        if (offset >= _buf_start_offset && offset < _buf_end_offset) {
+            memcpy(new_buf.get(), _buf.get() + offset - _buf_start_offset,
+                   _buf_end_offset - offset);
+        }
+        _buf = std::move(new_buf);
+        _buf_size = new_size;
+    } else if (offset > _buf_start_offset && offset < _buf_end_offset) {
+        memmove(_buf.get(), _buf.get() + offset - _buf_start_offset, _buf_end_offset - offset);
+    }
+    if (offset < _buf_start_offset || offset >= _buf_end_offset) {
+        _buf_end_offset = offset;
+    }
+    _buf_start_offset = offset;
+    int64_t to_read = end_offset - _buf_end_offset;
+    RETURN_IF_ERROR(seek(_buf_end_offset));
+    bool eof = false;
+    int64_t buf_remaining = _buf_end_offset - _buf_start_offset;
+    RETURN_IF_ERROR(_file->read(_buf.get() + buf_remaining, to_read, &to_read, &eof));
+    *bytes_to_read = buf_remaining + to_read;
+    _buf_end_offset += to_read;
+    *buf = _buf.get();
+    return Status::OK();
+}
+
+Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset) {
+    return read_bytes((const uint8_t**)&slice.data, offset, &slice.size);
 }
 
 } // namespace doris

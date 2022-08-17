@@ -17,7 +17,7 @@
 
 suite("test_array_functions_by_literal", "all") {
     sql "set enable_vectorized_engine = true"
-    sql "set enable_array_type = true"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
@@ -59,4 +59,57 @@ suite("test_array_functions_by_literal", "all") {
     qt_sql "select [1,2,NULL][3]"
     qt_sql "select [1,2,NULL][2]"
     qt_sql "select [][-1]"
+
+    // array_aggregation function
+    qt_sql "select array_avg([1,2,3])"
+    qt_sql "select array_sum([1,2,3])"
+    qt_sql "select array_min([1,2,3])"
+    qt_sql "select array_max([1,2,3])"
+    qt_sql "select array_avg([1,2,3,null])"
+    qt_sql "select array_sum([1,2,3,null])"
+    qt_sql "select array_min([1,2,3,null])"
+    qt_sql "select array_max([1,2,3,null])"
+
+    // array_distinct function
+    qt_sql "select array_distinct([1,1,2,2,3,3])"
+    qt_sql "select array_distinct([1,1,2,2,3,3,null])"
+    qt_sql "select array_distinct(['a','a','a'])"
+    qt_sql "select array_distinct(['a','a','a',null])"
+
+    // array_remove function
+    qt_sql "select array_remove([1,2,3], 1)"
+    qt_sql "select array_remove([1,2,3,null], 1)"
+    qt_sql "select array_remove(['a','b','c'], 'a')"
+    qt_sql "select array_remove(['a','b','c',null], 'a')"
+ 
+    // array_sort function
+    qt_sql "select array_sort([1,2,3])"
+    qt_sql "select array_sort([3,2,1])"
+    qt_sql "select array_sort([1,2,3,null])"
+    qt_sql "select array_sort([null,1,2,3])"
+    qt_sql "select array_sort(['a','b','c'])"
+    qt_sql "select array_sort(['c','b','a'])"
+
+    // array_overlap function
+    qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
+    qt_sql "select arrays_overlap([1,2,3], [3,4,5])"
+    qt_sql "select arrays_overlap([1,2,3,null], [3,4,5])"
+
+    // array_binary function
+    qt_sql "select array_union([1,2,3], [2,3,4])"
+    qt_sql "select array_except([1,2,3], [2,3,4])"
+    qt_sql "select array_intersect([1,2,3], [2,3,4])"
+    qt_sql "select array_union([1,2,3], [2,3,4,null])"
+    qt_sql "select array_except([1,2,3], [2,3,4,null])"
+    qt_sql "select array_intersect([1,2,3], [2,3,4,null])"
+
+    // arrat_slice function
+    qt_sql "select [1,2,3][1:1]"
+    qt_sql "select [1,2,3][1:3]"
+    qt_sql "select [1,2,3][1:5]"
+    qt_sql "select [1,2,3][2:]"
+    qt_sql "select [1,2,3][-2:]"
+    qt_sql "select [1,2,3][2:-1]"
+    qt_sql "select [1,2,3][0:]"
+    qt_sql "select [1,2,3][-5:]"
 }

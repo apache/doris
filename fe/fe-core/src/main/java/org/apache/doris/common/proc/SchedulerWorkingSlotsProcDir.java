@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.Backend;
 
@@ -35,7 +35,7 @@ public class SchedulerWorkingSlotsProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        List<List<String>> infos = Catalog.getCurrentCatalog().getTabletScheduler().getSlotsInfo();
+        List<List<String>> infos = Env.getCurrentEnv().getTabletScheduler().getSlotsInfo();
         result.setRows(infos);
         return result;
     }
@@ -58,7 +58,7 @@ public class SchedulerWorkingSlotsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid backend id format: " + beIdStr);
         }
 
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
             throw new AnalysisException("Backend[" + backendId + "] does not exist.");
         }

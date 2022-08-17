@@ -26,17 +26,7 @@
 #include "vec/core/field.h"
 #include "vector"
 
-class Collator;
-
 namespace doris::vectorized {
-
-struct FillColumnDescription {
-    /// All missed values in range [FROM, TO) will be filled
-    /// Range [FROM, TO) respects sorting direction
-    Field fill_from; /// Fill value >= FILL_FROM
-    Field fill_to;   /// Fill value + STEP < FILL_TO
-    Field fill_step; /// Default = 1 or -1 according to direction
-};
 
 /// Description of the sorting rule by one column.
 struct SortColumnDescription {
@@ -44,24 +34,13 @@ struct SortColumnDescription {
     int column_number;       /// Column number (used if no name is given).
     int direction;           /// 1 - ascending, -1 - descending.
     int nulls_direction;     /// 1 - NULLs and NaNs are greater, -1 - less.
-            /// To achieve NULLS LAST, set it equal to direction, to achieve NULLS FIRST, set it opposite.
-    std::shared_ptr<Collator> collator =
-            nullptr; /// Collator for locale-specific comparison of strings
-    bool with_fill = false;
-    FillColumnDescription fill_description = {};
 
-    SortColumnDescription(int column_number_, int direction_, int nulls_direction_,
-                          const std::shared_ptr<Collator>& collator_ = nullptr,
-                          bool with_fill_ = false,
-                          const FillColumnDescription& fill_description_ = {})
+    SortColumnDescription(int column_number_, int direction_, int nulls_direction_)
             : column_number(column_number_),
               direction(direction_),
-              nulls_direction(nulls_direction_),
-              collator(collator_),
-              with_fill(with_fill_),
-              fill_description(fill_description_) {}
+              nulls_direction(nulls_direction_) {}
 
-    SortColumnDescription() {}
+    SortColumnDescription() = default;
 
     bool operator==(const SortColumnDescription& other) const {
         return column_name == other.column_name && column_number == other.column_number &&

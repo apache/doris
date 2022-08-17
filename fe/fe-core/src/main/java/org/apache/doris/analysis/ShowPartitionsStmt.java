@@ -17,13 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -33,6 +32,7 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class ShowPartitionsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
@@ -56,8 +57,7 @@ public class ShowPartitionsStmt extends ShowStmt {
     private static final String FILTER_REPLICATION_NUM = "ReplicationNum";
     private static final String FILTER_LAST_CONSISTENCY_CHECK_TIME = "LastConsistencyCheckTime";
 
-    private String dbName;
-    private String tableName;
+    private TableName tableName;
     private Expr whereClause;
     private List<OrderByElement> orderByElements;
     private LimitElement limitElement;
@@ -70,8 +70,7 @@ public class ShowPartitionsStmt extends ShowStmt {
 
     public ShowPartitionsStmt(TableName tableName, Expr whereClause, List<OrderByElement> orderByElements,
             LimitElement limitElement, boolean isTempPartition) {
-        this.dbName = tableName.getDb();
-        this.tableName = tableName.getTbl();
+        this.tableName = tableName;
         this.whereClause = whereClause;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
@@ -101,15 +100,17 @@ public class ShowPartitionsStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         analyzeImpl(analyzer);
         // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
+        String dbName = tableName.getDb();
+        String tblName = tableName.getTbl();
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
                                                                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                dbName + ": " + tableName);
+                                                dbName + ": " + tblName);
         }
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        Table table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         table.readLock();
         try {
             // build proc path
@@ -135,14 +136,9 @@ public class ShowPartitionsStmt extends ShowStmt {
 
     public void analyzeImpl(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
+        tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         // analyze where clause if not null
         if (whereClause != null) {
@@ -198,7 +194,8 @@ public class ShowPartitionsStmt extends ShowStmt {
                     throw new AnalysisException("Where clause : LastConsistencyCheckTime =|>=|<=|>|<|!= "
                         + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
-                subExpr.setChild(1, (subExpr.getChild(1)).castTo(Type.DATETIME));
+                subExpr.setChild(1, (subExpr.getChild(1)).castTo(
+                        Objects.requireNonNull(ScalarType.getDefaultDateType(Type.DATETIME))));
             } else if (!leftKey.equalsIgnoreCase(FILTER_PARTITION_ID) && !leftKey.equalsIgnoreCase(FILTER_BUCKETS)
                     && !leftKey.equalsIgnoreCase(FILTER_REPLICATION_NUM)) {
                 throw new AnalysisException("Only the columns of PartitionId/PartitionName/"
@@ -245,11 +242,11 @@ public class ShowPartitionsStmt extends ShowStmt {
             sb.append("TEMPORARY ");
         }
         sb.append("PARTITIONS FROM ");
-        if (!Strings.isNullOrEmpty(dbName)) {
-            sb.append("`").append(dbName).append("`");
+        if (!Strings.isNullOrEmpty(tableName.getDb())) {
+            sb.append("`").append(tableName.getDb()).append("`");
         }
-        if (!Strings.isNullOrEmpty(tableName)) {
-            sb.append(".`").append(tableName).append("`");
+        if (!Strings.isNullOrEmpty(tableName.getTbl())) {
+            sb.append(".`").append(tableName.getTbl()).append("`");
         }
         if (whereClause != null) {
             sb.append(" WHERE ").append(whereClause.toSql());

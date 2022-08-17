@@ -42,9 +42,10 @@ Status VIntersectNode::prepare(RuntimeState* state) {
 }
 
 Status VIntersectNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VIntersectNode::open");
     RETURN_IF_ERROR(VSetOperationNode::open(state));
     bool eos = false;
-    Status st;
+    Status st = Status::OK();
 
     for (int i = 1; i < _children.size(); ++i) {
         if (i > 1) {
@@ -79,6 +80,7 @@ Status VIntersectNode::open(RuntimeState* state) {
 }
 
 Status VIntersectNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VIntersectNode::get_next");
     SCOPED_TIMER(_probe_timer);
     create_mutable_cols(output_block);
     Status st;
@@ -106,6 +108,7 @@ Status VIntersectNode::get_next(RuntimeState* state, Block* output_block, bool* 
 }
 
 Status VIntersectNode::close(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VIntersectNode::close");
     return VSetOperationNode::close(state);
 }
 } // namespace vectorized

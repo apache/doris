@@ -293,7 +293,7 @@ EXPLAIN SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id;
 
 假设用户的原始广告点击数据存储在 Doris，那么针对广告 PV, UV 查询就可以通过创建 `bitmap_union` 的物化视图来提升查询速度。
 
-通过下面语句首先创建一个存储广告点击数据明细的表，包含每条点击的点击事件，点击的是什么广告，通过什么渠道点击，以及点击的用户是谁。
+通过下面语句首先创建一个存储广告点击数据明细的表，包含每条点击的点击时间，点击的是什么广告，通过什么渠道点击，以及点击的用户是谁。
 
 ```sql
 MySQL [test]> create table advertiser_view_record(time date, advertiser varchar(10), channel varchar(10), user_id int) distributed by hash(time) properties("replication_num" = "1");
@@ -481,7 +481,7 @@ MySQL [test]> desc advertiser_view_record;
 
    ## 异常错误
 
-   1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data" 由于数据质量问题导致物化视图创建失败。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
+   1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
 
 
 

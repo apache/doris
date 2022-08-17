@@ -22,7 +22,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -50,13 +49,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /**
  * Internal representation of db-related metadata. Owned by Catalog instance.
@@ -252,11 +249,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-
-    public long getReplicaQuotaLeftWithLock() {
-        long usedReplicaQuota = 0;
+    public long getReplicaCountWithLock() {
         readLock();
         try {
+            long usedReplicaCount = 0;
             for (Table table : this.idToTable.values()) {
                 if (table.getType() != TableType.OLAP) {
                     continue;
@@ -265,17 +261,20 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 OlapTable olapTable = (OlapTable) table;
                 olapTable.readLock();
                 try {
-                    usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+                    usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
                 } finally {
                     olapTable.readUnlock();
                 }
             }
-
-            long leftReplicaQuota = replicaQuotaSize - usedReplicaQuota;
-            return Math.max(leftReplicaQuota, 0L);
+            return usedReplicaCount;
         } finally {
             readUnlock();
         }
+    }
+
+    public long getReplicaQuotaLeftWithLock() {
+        long leftReplicaQuota = replicaQuotaSize - getReplicaCountWithLock();
+        return Math.max(leftReplicaQuota, 0L);
     }
 
     public void checkDataSizeQuota() throws DdlException {
@@ -315,7 +314,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public boolean isTableExist(String tableName) {
-        if (Catalog.isTableNamesCaseInsensitive()) {
+        if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return false;
@@ -334,7 +333,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         writeLockOrDdlException();
         try {
             String tableName = table.getName();
-            if (Catalog.isStoredTableNamesLowerCase()) {
+            if (Env.isStoredTableNamesLowerCase()) {
                 tableName = tableName.toLowerCase();
             }
             if (isTableExist(tableName)) {
@@ -348,10 +347,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Catalog.getCurrentCatalog().getEditLog().logCreateTable(info);
+                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
-                    Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable) table);
+                    Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
                 }
             }
             return Pair.create(result, isTableExist);
@@ -363,7 +362,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();
-        if (Catalog.isStoredTableNamesLowerCase()) {
+        if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
@@ -378,7 +377,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public void dropTable(String tableName) {
-        if (Catalog.isStoredTableNamesLowerCase()) {
+        if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
@@ -455,12 +454,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
      */
-    @Nullable
+    @Override
     public Table getTableNullable(String tableName) {
-        if (Catalog.isStoredTableNamesLowerCase()) {
+        if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        if (Catalog.isTableNamesCaseInsensitive()) {
+        if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return null;
@@ -472,97 +471,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     /**
      * This is a thread-safe method when idToTable is a concurrent hash map
      */
-    @Nullable
+    @Override
     public Table getTableNullable(long tableId) {
         return idToTable.get(tableId);
-    }
-
-    public Optional<Table> getTable(String tableName) {
-        return Optional.ofNullable(getTableNullable(tableName));
-    }
-
-    public Optional<Table> getTable(long tableId) {
-        return Optional.ofNullable(getTableNullable(tableId));
-    }
-
-    public <E extends Exception> Table getTableOrException(
-            String tableName, java.util.function.Function<String, E> e) throws E {
-        Table table = getTableNullable(tableName);
-        if (table == null) {
-            throw e.apply(tableName);
-        }
-        return table;
-    }
-
-    public <E extends Exception> Table getTableOrException(
-            long tableId, java.util.function.Function<Long, E> e) throws E {
-        Table table = getTableNullable(tableId);
-        if (table == null) {
-            throw e.apply(tableId);
-        }
-        return table;
-    }
-
-    public Table getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t));
-    }
-
-    public Table getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
-    }
-
-    @SuppressWarnings("unchecked")
-    public Table getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
-        Table table = getTableOrMetaException(tableName);
-        if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not "
-                    + tableType + ", tableName=" + tableName + ", type=" + table.getType());
-        }
-        return table;
-    }
-
-    @SuppressWarnings("unchecked")
-    public Table getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
-        Table table = getTableOrMetaException(tableId);
-        if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not " + tableType
-                    + ", tableId=" + tableId + ", type=" + table.getType());
-        }
-        return table;
-    }
-
-    public Table getTableOrDdlException(String tableName) throws DdlException {
-        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
-    }
-
-    public OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
-        Table table = getTableOrDdlException(tableName);
-        if (!(table instanceof OlapTable)) {
-            throw new DdlException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
-        }
-        return (OlapTable) table;
-    }
-
-    public Table getTableOrDdlException(long tableId) throws DdlException {
-        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
-    }
-
-    public Table getTableOrAnalysisException(String tableName) throws AnalysisException {
-        return getTableOrException(tableName,
-                t -> new AnalysisException(ErrorCode.ERR_UNKNOWN_TABLE.formatErrorMsg(t, fullQualifiedName)));
-    }
-
-    public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
-        Table table = getTableOrAnalysisException(tableName);
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
-        }
-        return (OlapTable) table;
-    }
-
-    public Table getTableOrAnalysisException(long tableId) throws AnalysisException {
-        return getTableOrException(tableId,
-                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
 
     public int getMaxReplicationNum() {
@@ -678,13 +589,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         // read encryptKeys
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_102) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
             dbEncryptKey = DatabaseEncryptKey.read(in);
         }
 
         replicaQuotaSize = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
         }
     }
@@ -757,7 +668,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addFunction(Function function) throws UserException {
         addFunctionImpl(function, false);
-        Catalog.getCurrentCatalog().getEditLog().logAddFunction(function);
+        Env.getCurrentEnv().getEditLog().logAddFunction(function);
     }
 
     public synchronized void replayAddFunction(Function function) {
@@ -782,7 +693,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             }
             // Get function id for this UDF, use CatalogIdGenerator. Only get function id
             // when isReplay is false
-            long functionId = Catalog.getCurrentCatalog().getNextId();
+            long functionId = Env.getCurrentEnv().getNextId();
             function.setId(functionId);
         }
 
@@ -796,7 +707,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
         dropFunctionImpl(function);
-        Catalog.getCurrentCatalog().getEditLog().logDropFunction(function);
+        Env.getCurrentEnv().getEditLog().logDropFunction(function);
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
@@ -870,7 +781,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addEncryptKey(EncryptKey encryptKey) throws UserException {
         addEncryptKeyImpl(encryptKey, false);
-        Catalog.getCurrentCatalog().getEditLog().logAddEncryptKey(encryptKey);
+        Env.getCurrentEnv().getEditLog().logAddEncryptKey(encryptKey);
     }
 
     public synchronized void replayAddEncryptKey(EncryptKey encryptKey) {
@@ -898,7 +809,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void dropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
         dropEncryptKeyImpl(encryptKeySearchDesc);
-        Catalog.getCurrentCatalog().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
+        Env.getCurrentEnv().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
     }
 
     public synchronized void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {

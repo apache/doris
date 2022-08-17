@@ -47,7 +47,8 @@ public:
               _key_coder(get_key_coder(column.type())),
               _name(column.name()),
               _index_size(column.index_length()),
-              _is_nullable(column.is_nullable()) {
+              _is_nullable(column.is_nullable()),
+              _unique_id(column.unique_id()) {
         if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
             _agg_info = get_aggregate_info(column.aggregation(), column.type(),
                                            column.get_sub_column(0).type());
@@ -62,6 +63,7 @@ public:
     int32_t length() const { return _length; }
     size_t field_size() const { return size() + 1; }
     size_t index_size() const { return _index_size; }
+    int32_t unique_id() const { return _unique_id; }
     const std::string& name() const { return _name; }
 
     virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
@@ -243,7 +245,8 @@ public:
 
     // used by init scan key stored in string format
     // value_string should end with '\0'
-    Status from_string(char* buf, const std::string& value_string) const {
+    Status from_string(char* buf, const std::string& value_string, const int precision = 0,
+                       const int scale = 0) const {
         if (type() == OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
             auto slice = reinterpret_cast<Slice*>(buf);
             if (slice->size < value_string.size()) {
@@ -252,7 +255,7 @@ public:
                 slice->size = value_string.size();
             }
         }
-        return _type_info->from_string(buf, value_string);
+        return _type_info->from_string(buf, value_string, precision, scale);
     }
 
     //  convert inner value to string
@@ -298,6 +301,11 @@ public:
     Field* get_sub_field(int i) const { return _sub_fields[i].get(); }
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
+    void set_precision(int32_t precision) { _precision = precision; }
+    void set_scale(int32_t scale) { _scale = scale; }
+    int32_t get_precision() const { return _precision; }
+    int32_t get_scale() const { return _scale; }
+
 protected:
     TypeInfoPtr _type_info;
     const AggregateInfo* _agg_info;
@@ -326,6 +334,9 @@ protected:
         other->_index_size = this->_index_size;
         other->_is_nullable = this->_is_nullable;
         other->_sub_fields.clear();
+        other->_precision = this->_precision;
+        other->_scale = this->_scale;
+        other->_unique_id = this->_unique_id;
         for (const auto& f : _sub_fields) {
             Field* item = f->clone();
             other->add_sub_field(std::unique_ptr<Field>(item));
@@ -340,6 +351,9 @@ private:
     uint16_t _index_size;
     bool _is_nullable;
     std::vector<std::unique_ptr<Field>> _sub_fields;
+    int32_t _precision;
+    int32_t _scale;
+    int32_t _unique_id;
 };
 
 template <typename LhsCellType, typename RhsCellType>
@@ -738,6 +752,20 @@ public:
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
+            case OLAP_FIELD_TYPE_DECIMAL:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL32:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL64:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL128:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DATETIMEV2: {
+                Field* field = new Field(column);
+                field->set_precision(column.precision());
+                field->set_scale(column.frac());
+                return field;
+            }
             default:
                 return new Field(column);
             }
@@ -763,6 +791,18 @@ public:
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
+            }
+            case OLAP_FIELD_TYPE_DECIMAL:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL32:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL64:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL128: {
+                Field* field = new Field(column);
+                field->set_precision(column.precision());
+                field->set_scale(column.frac());
+                return field;
             }
             default:
                 return new Field(column);

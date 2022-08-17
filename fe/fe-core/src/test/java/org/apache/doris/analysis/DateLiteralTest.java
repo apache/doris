@@ -108,6 +108,24 @@ public class DateLiteralTest {
     }
 
     @Test
+    public void testParseDateTimeV2ToHourORMinute() throws Exception {
+        String s = "2020-12-13 12:13:14.123";
+        Type type = ScalarType.createDatetimeV2Type(6);
+        DateLiteral literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:14.123"));
+        s = "2020-12-13 12:13";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:00"));
+        s = "2020-12-13 12";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:00:00"));
+
+        String s2 = "2020-12-13 12:13:14.123456";
+        DateLiteral literal2 = new DateLiteral(s2, type);
+        Assert.assertTrue(literal2.toSql().contains("2020-12-13 12:13:14.123456"));
+    }
+
+    @Test
     public void uncheckedCastTo() {
         boolean hasException = false;
         try {
@@ -223,6 +241,43 @@ public class DateLiteralTest {
             Assert.assertEquals(2023, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2020-02-29", Type.DATEV2);
+            Assert.assertEquals(2020, literal.getYear());
+            Assert.assertEquals(2, literal.getMonth());
+            Assert.assertEquals(29, literal.getDay());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+
+        try {
+            new DateLiteral("2022-02-29", Type.DATEV2);
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+    }
+
+    @Test
+    public void testDateFormatForDatetimeV2() {
+        boolean hasException = false;
+        try {
+            DateLiteral literal = new DateLiteral("1997-10-7 00:00:00.123456", ScalarType.createDatetimeV2Type(6));
+            Assert.assertEquals(1997, literal.getYear());
+            Assert.assertEquals(123456, literal.getMicrosecond());
+
+            literal = new DateLiteral("2021-06-1 00:00:00.123456", ScalarType.createDatetimeV2Type(6));
+            Assert.assertEquals(2021, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2022-6-01 00:00:00.123456", ScalarType.createDatetimeV2Type(6));
+            Assert.assertEquals(2022, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
         } catch (AnalysisException e) {
             e.printStackTrace();
             hasException = true;
@@ -307,7 +362,7 @@ public class DateLiteralTest {
     }
 
     @Test
-    public void testCheckDateForDateV2() throws AnalysisException {
+    public void testCheckDateForDateV2() {
         boolean hasException = false;
         try {
             DateLiteral dateLiteral = new DateLiteral();

@@ -84,11 +84,10 @@ struct ConvertImpl {
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType> ||
-                            IsDateV2Type<FromDataType>) ||
+                            IsTimeV2Type<FromDataType>) ||
                           !IsDataTypeDecimalOrNumber<ToDataType>)
-                return Status::RuntimeError(
-                        fmt::format("Illegal column {} of first argument of function {}",
-                                    named_from.column->get_name(), Name::name));
+                return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                            named_from.column->get_name(), Name::name);
         }
 
         if (const ColVecFrom* col_from =
@@ -125,7 +124,16 @@ struct ConvertImpl {
                     } else if constexpr (IsDateV2Type<FromDataType> &&
                                          IsDataTypeDecimal<ToDataType>) {
                         vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
-                                reinterpret_cast<const DateV2Value&>(vec_from[i]).to_date_uint32(),
+                                reinterpret_cast<const DateV2Value<DateV2ValueType>&>(vec_from[i])
+                                        .to_date_int_val(),
+                                vec_to.get_scale());
+                    } else if constexpr (IsDateTimeV2Type<FromDataType> &&
+                                         IsDataTypeDecimal<ToDataType>) {
+                        // TODO: should we consider the scale of datetimev2?
+                        vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType>(
+                                reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                        vec_from[i])
+                                        .to_date_int_val(),
                                 vec_to.get_scale());
                     }
                 } else if constexpr (IsTimeType<FromDataType>) {
@@ -137,22 +145,47 @@ struct ConvertImpl {
                             DataTypeDate::cast_to_date(vec_to[i]);
                         }
                     } else if constexpr (IsDateV2Type<ToDataType>) {
-                        auto date_v2 = binary_cast<UInt32, DateV2Value>(vec_to[i]);
-                        date_v2.from_date_int64(vec_from[i]);
+                        DataTypeDateV2::cast_from_date(vec_from[i], vec_to[i]);
+                    } else if constexpr (IsDateTimeV2Type<ToDataType>) {
+                        DataTypeDateTimeV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
                     }
-                } else if constexpr (IsDateV2Type<FromDataType>) {
-                    if constexpr (IsTimeType<ToDataType> || IsDateTimeV2Type<ToDataType>) {
-                        if constexpr (IsDateTimeType<ToDataType> || IsDateTimeV2Type<ToDataType>) {
-                            DataTypeDateV2::cast_to_date_time(vec_from[i], vec_to[i]);
+                } else if constexpr (IsTimeV2Type<FromDataType>) {
+                    if constexpr (IsTimeV2Type<ToDataType>) {
+                        if constexpr (IsDateTimeV2Type<ToDataType> && IsDateV2Type<FromDataType>) {
+                            DataTypeDateV2::cast_to_date_time_v2(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateTimeV2Type<FromDataType> &&
+                                             IsDateV2Type<ToDataType>) {
+                            DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
+                            UInt32 scale = additions;
+                            vec_to[i] = vec_from[i] / std::pow(10, 6 - scale);
+                        }
+                    } else if constexpr (IsTimeType<ToDataType>) {
+                        if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
+                            DataTypeDateV2::cast_to_date_time(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateTimeV2Type<ToDataType> &&
+                                             IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateTimeType<ToDataType> &&
+                                             IsDateTimeV2Type<FromDataType>) {
+                            DataTypeDateTimeV2::cast_to_date_time(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateTimeV2Type<ToDataType> &&
+                                             IsDateTimeV2Type<FromDataType>) {
+                            DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
                         }
                     } else {
-                        vec_to[i] =
-                                reinterpret_cast<const DateV2Value&>(vec_from[i]).to_date_uint32();
+                        if constexpr (IsDateTimeV2Type<FromDataType>) {
+                            vec_to[i] = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                                vec_from[i])
+                                                .to_int64();
+                        } else {
+                            vec_to[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
+                                                vec_from[i])
+                                                .to_int64();
+                        }
                     }
                 } else {
                     vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -168,9 +201,8 @@ struct ConvertImpl {
 
             block.replace_by_position(result, std::move(col_to));
         } else {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of function {}",
-                                named_from.column->get_name(), Name::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        named_from.column->get_name(), Name::name);
         }
         return Status::OK();
     }
@@ -202,8 +234,11 @@ struct ConvertImplToTimeType {
                 std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
                                    ColumnVector<FromFieldType>>;
 
-        using DateValueType =
-                std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value, VecDateTimeValue>;
+        using DateValueType = std::conditional_t<
+                IsTimeV2Type<ToDataType>,
+                std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value<DateV2ValueType>,
+                                   DateV2Value<DateTimeV2ValueType>>,
+                VecDateTimeValue>;
         using ColVecTo = ColumnVector<ToFieldType>;
 
         if (const ColVecFrom* col_from =
@@ -223,11 +258,10 @@ struct ConvertImplToTimeType {
             for (size_t i = 0; i < size; ++i) {
                 auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
                 if constexpr (IsDecimalNumber<FromFieldType>) {
+                    // TODO: should we consider the scale of datetimev2?
                     vec_null_map_to[i] = !date_value.from_date_int64(
                             convert_from_decimal<FromDataType, DataTypeInt64>(
                                     vec_from[i], vec_from.get_scale()));
-                } else if constexpr (IsDateV2Type<FromFieldType>) {
-                    DataTypeDateV2::cast_to_date_time(vec_from[i], vec_to[i]);
                 } else {
                     vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
                 }
@@ -241,9 +275,8 @@ struct ConvertImplToTimeType {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of function {}",
-                                named_from.column->get_name(), Name::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        named_from.column->get_name(), Name::name);
         }
 
         return Status::OK();
@@ -297,9 +330,9 @@ struct ConvertImplGenericFromString {
             }
             block.replace_by_position(result, std::move(col_to));
         } else {
-            return Status::RuntimeError(fmt::format(
+            return Status::RuntimeError(
                     "Illegal column {} of first argument of conversion function from string",
-                    col_from.get_name()));
+                    col_from.get_name());
         }
         return Status::OK();
     }
@@ -368,8 +401,9 @@ struct NameToDateTime {
     static constexpr auto name = "toDateTime";
 };
 
-template <typename DataType>
-bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateLUTImpl*) {
+template <typename DataType, typename Additions = void*>
+bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateLUTImpl*,
+                    Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
         return try_read_datetime_text(x, rb);
     }
@@ -380,6 +414,11 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
 
     if constexpr (IsDateV2Type<DataType>) {
         return try_read_date_v2_text(x, rb);
+    }
+
+    if constexpr (IsDateTimeV2Type<DataType>) {
+        UInt32 scale = additions;
+        return try_read_datetime_v2_text(x, rb, scale);
     }
 
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -396,7 +435,8 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
     }
 
     if constexpr (IsDataTypeDecimal<DataType>) {
-        return try_read_decimal_text(x, rb);
+        UInt32 scale = additions;
+        return try_read_decimal_text(x, rb, DataType::max_precision(), scale);
     }
 }
 
@@ -599,8 +639,7 @@ private:
     Status executeInternal(Block& block, const ColumnNumbers& arguments, size_t result,
                            size_t input_rows_count) {
         if (!arguments.size()) {
-            return Status::RuntimeError(
-                    fmt::format("Function {} expects at least 1 arguments", get_name()));
+            return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
 
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
@@ -618,8 +657,8 @@ private:
                 // now, cast to decimal do not execute the code
                 if constexpr (IsDataTypeDecimal<RightDataType>) {
                     if (arguments.size() != 2) {
-                        ret_status = Status::RuntimeError(fmt::format(
-                                "Function {} expects 2 arguments for Decimal.", get_name()));
+                        ret_status = Status::RuntimeError(
+                                "Function {} expects 2 arguments for Decimal.", get_name());
                         return true;
                     }
 
@@ -628,17 +667,24 @@ private:
 
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count, scale);
-                } else
+                } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
+                    const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
+                    auto type =
+                            check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
+                    ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
+                            block, arguments, result, input_rows_count, type->get_scale());
+                } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count);
+                }
                 return true;
             };
 
             bool done = call_on_index_and_data_type<ToDataType>(from_type->get_type_id(), call);
             if (!done) {
-                ret_status = Status::RuntimeError(fmt::format(
+                ret_status = Status::RuntimeError(
                         "Illegal type {} of argument of function {}",
-                        block.get_by_position(arguments[0]).type->get_name(), get_name()));
+                        block.get_by_position(arguments[0]).type->get_name(), get_name());
             }
             return ret_status;
         }
@@ -670,8 +716,10 @@ using FunctionToDecimal64 =
 using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
-using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
+using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
+using FunctionToDateTimeV2 =
+        FunctionConvert<DataTypeDateTimeV2, NameToDateTime, UnknownMonotonicity>;
 
 template <typename DataType>
 struct FunctionTo;
@@ -736,12 +784,16 @@ struct FunctionTo<DataTypeDate> {
     using Type = FunctionToDate;
 };
 template <>
+struct FunctionTo<DataTypeDateTime> {
+    using Type = FunctionToDateTime;
+};
+template <>
 struct FunctionTo<DataTypeDateV2> {
     using Type = FunctionToDateV2;
 };
 template <>
-struct FunctionTo<DataTypeDateTime> {
-    using Type = FunctionToDateTime;
+struct FunctionTo<DataTypeDateTimeV2> {
+    using Type = FunctionToDateTimeV2;
 };
 
 class PreparedFunctionCast : public PreparedFunctionImpl {
@@ -802,16 +854,16 @@ struct ConvertThroughParsing {
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
 
         if (std::is_same_v<FromDataType, DataTypeString> && !col_from_string) {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of function {}",
-                                col_from->get_name(), Name::name));
+            return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                        col_from->get_name(), Name::name);
         }
 
         size_t size = input_rows_count;
         typename ColVecTo::MutablePtr col_to = nullptr;
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            col_to = ColVecTo::create(size, 9);
+            UInt32 scale = additions;
+            col_to = ColVecTo::create(size, scale);
         } else
             col_to = ColVecTo::create(size);
 
@@ -843,9 +895,19 @@ struct ConvertThroughParsing {
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            (*vec_null_map_to)[i] =
-                    !try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone) ||
-                    !is_all_read(read_buffer);
+            bool parsed;
+            if constexpr (IsDataTypeDecimal<ToDataType>) {
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
+                                                    vec_to.get_scale());
+            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                auto type = check_and_get_data_type<DataTypeDateTimeV2>(
+                        block.get_by_position(result).type.get());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
+                                                    type->get_scale());
+            } else {
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
+            }
+            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
 
             current_offset = next_offset;
         }
@@ -855,6 +917,16 @@ struct ConvertThroughParsing {
         return Status::OK();
     }
 };
+
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal32>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal64>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128>, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -874,11 +946,7 @@ public:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            res = create_decimal(27, 9);
-
-            if (!res) {
-                LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
-            }
+            LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
 
         } else
             res = std::make_shared<ToDataType>();
@@ -895,11 +963,11 @@ public:
                     block, arguments, result, input_rows_count);
         }
 
-        return Status::RuntimeError(fmt::format(
+        return Status::RuntimeError(
                 "Illegal type {} of argument of function {} . Only String or FixedString "
                 "argument is accepted for try-conversion function. For other arguments, use "
                 "function without 'orZero' or 'orNull'.",
-                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+                block.get_by_position(arguments[0]).type->get_name(), get_name());
     }
 };
 
@@ -939,9 +1007,9 @@ public:
 
         bool done = call_on_index_and_number_data_type<ToDataType>(from_type->get_type_id(), call);
         if (!done) {
-            return Status::RuntimeError(
-                    fmt::format("Illegal type {} of argument of function {}",
-                                block.get_by_position(arguments[0]).type->get_name(), get_name()));
+            return Status::RuntimeError("Illegal type {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).type->get_name(),
+                                        get_name());
         }
 
         return ret_status;
@@ -1004,10 +1072,11 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsDateV2Type<DataType>)&&!(
+                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
                            check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateV2>(from_type.get()))) {
+                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
@@ -1045,26 +1114,12 @@ private:
 
         WhichDataType which(type_index);
         bool ok = which.is_int() || which.is_native_uint() || which.is_decimal() ||
-                  which.is_float() || which.is_date_or_datetime() || which.is_date_v2() ||
-                  which.is_string_or_fixed_string();
+                  which.is_float() || which.is_date_or_datetime() ||
+                  which.is_date_v2_or_datetime_v2() || which.is_string_or_fixed_string();
         if (!ok) {
             LOG(FATAL) << fmt::format(
                     "Conversion from {} to {} to_type->get_name() is not supported",
                     from_type->get_name(), to_type->get_name());
-        }
-
-        if (which.is_string_or_fixed_string()) {
-            auto function =
-                    FunctionConvertFromString<DataTypeDecimal<FieldType>, NameCast>::create();
-
-            /// Check conversion using underlying function
-            { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
-
-            return [function](FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
-                              size_t input_rows_count) {
-                return function->execute(context, block, arguments, result, input_rows_count);
-            };
         }
 
         return [type_index, precision, scale](FunctionContext* context, Block& block,
@@ -1084,8 +1139,8 @@ private:
             /// Additionally check if call_on_index_and_data_type wasn't called at all.
             if (!res) {
                 auto to = DataTypeDecimal<FieldType>(precision, scale);
-                return Status::RuntimeError(fmt::format("Conversion from {} to {} is not supported",
-                                                        getTypeName(type_index), to.get_name()));
+                return Status::RuntimeError("Conversion from {} to {} is not supported",
+                                            getTypeName(type_index), to.get_name());
             }
             return Status::OK();
         };
@@ -1167,8 +1222,8 @@ private:
                 block.get_by_position(result).column = ColumnArray::create(
                         nested_result_column, from_col_array->get_offsets_ptr());
             } else {
-                return Status::RuntimeError(fmt::format(
-                        "Illegal column {} for function CAST AS Array", from_column->get_name()));
+                return Status::RuntimeError("Illegal column {} for function CAST AS Array",
+                                            from_column->get_name());
             }
             return Status::OK();
         };
@@ -1236,10 +1291,10 @@ private:
 
                 /// May happen in fuzzy tests. For debug purpose.
                 if (!tmp_res.column.get()) {
-                    return Status::RuntimeError(fmt::format(
+                    return Status::RuntimeError(
                             "Couldn't convert {} to {} in prepare_remove_nullable wrapper.",
                             block.get_by_position(arguments[0]).type->get_name(),
-                            nested_type->get_name()));
+                            nested_type->get_name());
                 }
 
                 res.column = wrap_in_nullable(tmp_res.column,
@@ -1265,7 +1320,7 @@ private:
 
                     if (!memory_is_zero(null_map.data(), null_map.size())) {
                         return Status::RuntimeError(
-                                fmt::format("Cannot convert NULL value to non-Nullable type"));
+                                "Cannot convert NULL value to non-Nullable type");
                     }
                 }
 
@@ -1306,7 +1361,8 @@ private:
                           std::is_same_v<ToDataType, DataTypeFloat64> ||
                           std::is_same_v<ToDataType, DataTypeDate> ||
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
-                          std::is_same_v<ToDataType, DataTypeDateV2>) {
+                          std::is_same_v<ToDataType, DataTypeDateV2> ||
+                          std::is_same_v<ToDataType, DataTypeDateTimeV2>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;

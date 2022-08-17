@@ -233,14 +233,16 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
+                case DATEV2:
                     if (!type.equals("int32")) {
-                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
-                                + "but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT/DATEV2,"
+                                + "should use int32, " + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
+                case DATETIMEV2:
                     if (!type.equals("int64")) {
                         throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, "
                                 + "but the definition type of column " + i + " is " + type);
@@ -261,6 +263,9 @@ public class OutFileClause {
                 case CHAR:
                 case VARCHAR:
                 case STRING:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
                         throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL,"
@@ -300,11 +305,13 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
+                case DATEV2:
                     column.add("int32");
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
+                case DATETIMEV2:
                     column.add("int64");
                     break;
                 case FLOAT:
@@ -317,6 +324,9 @@ public class OutFileClause {
                 case VARCHAR:
                 case STRING:
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     column.add("byte_array");
                     break;
                 case HLL:
@@ -369,7 +379,7 @@ public class OutFileClause {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
             }
-            columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
+            columnSeparator = Separator.convertSeparator(properties.get(PROP_COLUMN_SEPARATOR));
             processedPropKeys.add(PROP_COLUMN_SEPARATOR);
         }
 
@@ -377,7 +387,7 @@ public class OutFileClause {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
-            lineDelimiter = properties.get(PROP_LINE_DELIMITER);
+            lineDelimiter = Separator.convertSeparator(properties.get(PROP_LINE_DELIMITER));
             processedPropKeys.add(PROP_LINE_DELIMITER);
         }
 
@@ -573,3 +583,5 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+
+

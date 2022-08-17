@@ -64,7 +64,6 @@
 namespace doris {
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
@@ -127,7 +126,6 @@ StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
     INT_GAUGE_METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
 }
@@ -175,7 +173,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statstics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    streaming_load_bytes->increment(ctx->receive_bytes);
     streaming_load_current_processing->increment(-1);
 }
 
@@ -280,9 +277,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
     ctx->format = parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE));
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-        std::stringstream ss;
-        ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown data format, format={}",
+                                     http_req->header(HTTP_FORMAT_KEY));
     }
 
     if (ctx->two_phase_commit && config::disable_stream_load_2pc) {
@@ -304,18 +300,16 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
-            std::stringstream ss;
-            ss << "The size of this batch exceed the max size [" << json_max_body_bytes
-               << "]  of json type data "
-               << " data [ " << ctx->body_bytes << " ]. Split the file, or use 'read_json_by_line'";
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "The size of this batch exceed the max size [{}]  of json type data "
+                    " data [ {} ]. Split the file, or use 'read_json_by_line'",
+                    json_max_body_bytes, ctx->body_bytes);
         }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            std::stringstream ss;
-            ss << "body exceed max size: " << csv_max_body_bytes << ", data: " << ctx->body_bytes;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
+                                         ctx->body_bytes);
         }
     } else {
 #ifndef BE_TEST
@@ -541,7 +535,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         if (merge_type_map.find(merge_type_str) != merge_type_map.end()) {
             merge_type = merge_type_map.find(merge_type_str)->second;
         } else {
-            return Status::InvalidArgument("Invalid merge type " + merge_type_str);
+            return Status::InvalidArgument("Invalid merge type {}", merge_type_str);
         }
         if (merge_type == TMergeType::MERGE && http_req->header(HTTP_DELETE_CONDITION).empty()) {
             return Status::InvalidArgument("Excepted DELETE ON clause when merge type is MERGE.");

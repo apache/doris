@@ -17,23 +17,17 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeExpressionRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Expression rewrite entry, which contains all rewrite rules.
  */
 public class ExpressionRuleExecutor {
-
-    public static final List<ExpressionRewriteRule> REWRITE_RULES = Lists.newArrayList(
-        new SimplifyNotExprRule(),
-        new NormalizeExpressionRule()
-    );
 
     private final ExpressionRewriteContext ctx;
     private final List<ExpressionRewriteRule> rules;
@@ -46,6 +40,10 @@ public class ExpressionRuleExecutor {
     public ExpressionRuleExecutor(ExpressionRewriteRule rule) {
         this.rules = Lists.newArrayList(rule);
         this.ctx = new ExpressionRewriteContext();
+    }
+
+    public List<Expression> rewrite(List<Expression> exprs) {
+        return exprs.stream().map(this::rewrite).collect(Collectors.toList());
     }
 
     /**

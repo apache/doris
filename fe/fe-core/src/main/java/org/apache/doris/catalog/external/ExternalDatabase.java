@@ -19,12 +19,9 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.datasource.ExternalDataSource;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -32,11 +29,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
 
 /**
  * Base class of external database.
@@ -51,18 +46,18 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     protected long id;
     protected String name;
-    protected ExternalDataSource extDataSource;
+    protected ExternalCatalog extCatalog;
     protected DatabaseProperty dbProperties;
 
     /**
      * Create external database.
      *
-     * @param extDataSource The data source this database belongs to.
+     * @param extCatalog The catalog this database belongs to.
      * @param id Database id.
      * @param name Database name.
      */
-    public ExternalDatabase(ExternalDataSource extDataSource, long id, String name) {
-        this.extDataSource = extDataSource;
+    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+        this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
     }
@@ -135,7 +130,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     @Override
     public boolean isTableExist(String tableName) {
-        return extDataSource.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
+        return extCatalog.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
     }
 
     @Override
@@ -175,73 +170,6 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     @Override
     public T getTableNullable(long tableId) {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public Optional<T> getTable(String tableName) {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public Optional<T> getTable(long tableId) {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public <E extends Exception> T getTableOrException(String tableName, Function<String, E> e) throws E {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public <E extends Exception> T getTableOrException(long tableId, Function<Long, E> e) throws E {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrMetaException(String tableName, Table.TableType tableType)
-            throws MetaNotFoundException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrMetaException(long tableId, Table.TableType tableType)
-            throws MetaNotFoundException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrDdlException(String tableName) throws DdlException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrDdlException(long tableId) throws DdlException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrAnalysisException(String tableName) throws AnalysisException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public T getTableOrAnalysisException(long tableId) throws AnalysisException {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
         throw new NotImplementedException();
     }
 }

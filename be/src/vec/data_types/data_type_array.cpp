@@ -96,8 +96,8 @@ void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto& data_column =
-            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto ptr = column.convert_to_full_column_if_const();
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     auto& offsets = data_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
@@ -115,8 +115,8 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
 }
 
 std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const {
-    auto& data_column =
-            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto ptr = column.convert_to_full_column_if_const();
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     auto& offsets = data_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
@@ -152,9 +152,9 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             if (*rb.position() == ',') {
                 ++rb.position();
             } else {
-                return Status::InvalidArgument(fmt::format(
+                return Status::InvalidArgument(
                         "Cannot read array from text, expected comma or end of array, found '{}'",
-                        *rb.position()));
+                        *rb.position());
             }
         }
         first = false;
@@ -168,7 +168,14 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             temp_char = rb.position() + nested_str_len;
         }
 
+        // dispose the case of ["123"] or ['123']
         ReadBuffer read_buffer(rb.position(), nested_str_len);
+        auto begin_char = *rb.position();
+        auto end_char = *(rb.position() + nested_str_len - 1);
+        if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
+            read_buffer = ReadBuffer(rb.position() + 1, nested_str_len - 2);
+        }
+
         auto st = nested->from_string(read_buffer, &nested_column);
         if (!st.ok()) {
             // we should do revert if error

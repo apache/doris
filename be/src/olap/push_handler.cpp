@@ -31,6 +31,7 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -59,13 +60,15 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
 
     DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl);
 
-    std::vector<TabletVars> tablet_vars(1);
-    tablet_vars[0].tablet = tablet;
-    res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
+    res = _do_streaming_ingestion(tablet, request, push_type, tablet_info_vec);
 
     if (res.ok()) {
         if (tablet_info_vec != nullptr) {
-            _get_tablet_infos(tablet_vars, tablet_info_vec);
+            TTabletInfo tablet_info;
+            tablet_info.tablet_id = tablet->tablet_id();
+            tablet_info.schema_hash = tablet->schema_hash();
+            StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
+            tablet_info_vec->push_back(tablet_info);
         }
         LOG(INFO) << "process realtime push successfully. "
                   << "tablet=" << tablet->full_name() << ", partition_id=" << request.partition_id
@@ -77,7 +80,6 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
 
 Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                             PushType push_type,
-                                            std::vector<TabletVars>* tablet_vars,
                                             std::vector<TTabletInfo>* tablet_info_vec) {
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
@@ -98,10 +100,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 request.partition_id, tablet, request.transaction_id, load_id));
     }
 
-    if (tablet_vars->size() == 1) {
-        tablet_vars->resize(2);
-    }
-
     // not call validate request here, because realtime load does not
     // contain version info
 
@@ -109,104 +107,80 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // check delete condition if push for delete
     std::queue<DeletePredicatePB> del_preds;
     if (push_type == PUSH_FOR_DELETE) {
-        for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet == nullptr) {
-                continue;
+        DeletePredicatePB del_pred;
+        TabletSchema tablet_schema;
+        tablet_schema.copy_from(*tablet->tablet_schema());
+        if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
+            tablet_schema.clear_columns();
+            for (const auto& column_desc : request.columns_desc) {
+                tablet_schema.append_column(TabletColumn(column_desc));
             }
-
-            DeletePredicatePB del_pred;
-            DeleteConditionHandler del_cond_handler;
-            {
-                std::shared_lock rdlock(tablet_var.tablet->get_header_lock());
-                res = del_cond_handler.generate_delete_predicate(
-                        tablet_var.tablet->tablet_schema(), request.delete_conditions, &del_pred);
-                del_preds.push(del_pred);
-            }
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to generate delete condition. res=" << res
-                             << ", tablet=" << tablet_var.tablet->full_name();
-                return res;
-            }
+        }
+        res = DeleteHandler::generate_delete_predicate(tablet_schema, request.delete_conditions,
+                                                       &del_pred);
+        del_preds.push(del_pred);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to generate delete condition. res=" << res
+                         << ", tablet=" << tablet->full_name();
+            return res;
         }
     }
 
     // check if version number exceed limit
-    if (tablet_vars->at(0).tablet->version_count() > config::max_tablet_version_num) {
-        LOG(WARNING) << "failed to push data. version count: "
-                     << tablet_vars->at(0).tablet->version_count()
+    if (tablet->version_count() > config::max_tablet_version_num) {
+        LOG(WARNING) << "failed to push data. version count: " << tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
-                     << ". tablet: " << tablet_vars->at(0).tablet->full_name();
+                     << ". tablet: " << tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
     }
-
-    // write
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->copy_from(*tablet->tablet_schema());
+    if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
+        tablet_schema->clear_columns();
+        for (const auto& column_desc : request.columns_desc) {
+            tablet_schema->append_column(TabletColumn(column_desc));
+        }
+    }
+    RowsetSharedPtr rowset_to_add;
+    // writes
     if (push_type == PUSH_NORMAL_V2) {
-        res = _convert_v2(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                          &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add));
+        res = _convert_v2(tablet, &rowset_to_add, tablet_schema);
 
     } else {
-        res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                       &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add));
+        res = _convert(tablet, &rowset_to_add, tablet_schema);
     }
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
                      << ", tablet=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
-        for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet == nullptr) {
-                continue;
-            }
 
-            Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
-                    request.partition_id, tablet_var.tablet, request.transaction_id);
-            // has to check rollback status to ensure not delete a committed rowset
-            if (rollback_status.ok()) {
-                // actually, olap_index may has been deleted in delete_transaction()
-                StorageEngine::instance()->add_unused_rowset(tablet_var.rowset_to_add);
-            }
+        Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
+                request.partition_id, tablet, request.transaction_id);
+        // has to check rollback status to ensure not delete a committed rowset
+        if (rollback_status.ok()) {
+            StorageEngine::instance()->add_unused_rowset(rowset_to_add);
         }
         return res;
     }
 
     // add pending data to tablet
-    for (TabletVars& tablet_var : *tablet_vars) {
-        if (tablet_var.tablet == nullptr) {
-            continue;
-        }
 
-        if (push_type == PUSH_FOR_DELETE) {
-            tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
-            del_preds.pop();
-        }
-        Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
-                request.partition_id, tablet_var.tablet, request.transaction_id, load_id,
-                tablet_var.rowset_to_add, false);
-        if (commit_status != Status::OK() &&
-            commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            res = commit_status;
-        }
+    if (push_type == PUSH_FOR_DELETE) {
+        rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+        del_preds.pop();
+    }
+    Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
+            request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
+    if (commit_status != Status::OK() &&
+        commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        res = commit_status;
     }
     return res;
 }
 
-void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
-                                    std::vector<TTabletInfo>* tablet_info_vec) {
-    for (const TabletVars& tablet_var : tablet_vars) {
-        if (tablet_var.tablet.get() == nullptr) {
-            continue;
-        }
-
-        TTabletInfo tablet_info;
-        tablet_info.tablet_id = tablet_var.tablet->tablet_id();
-        tablet_info.schema_hash = tablet_var.tablet->schema_hash();
-        StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
-        tablet_info_vec->push_back(tablet_info);
-    }
-}
-
-Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                                RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
+Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
+                                TabletSchemaSPtr tablet_schema) {
     Status res = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
@@ -218,13 +192,13 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
 
         // 1. init RowsetBuilder of cur_tablet for current push
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
-                    << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
+                    << ", block_row_size=" << tablet_schema->num_rows_per_row_block();
         // although the spark load output files are fully sorted,
         // but it depends on thirparty implementation, so we conservatively
         // set this value to OVERLAP_UNKNOWN
         std::unique_ptr<RowsetWriter> rowset_writer;
         res = cur_tablet->create_rowset_writer(_request.transaction_id, load_id, PREPARED,
-                                               OVERLAP_UNKNOWN, &rowset_writer);
+                                               OVERLAP_UNKNOWN, tablet_schema, &rowset_writer);
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
@@ -246,7 +220,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
             }
 
             // init schema
-            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(cur_tablet->tablet_schema()));
+            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
                 LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
                 res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
@@ -310,18 +284,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
 
         _write_bytes += (*cur_rowset)->data_disk_size();
         _write_rows += (*cur_rowset)->num_rows();
-
-        // 5. Convert data for schema change tables
-        VLOG_TRACE << "load to related tables of schema_change if possible.";
-        if (new_tablet != nullptr) {
-            res = SchemaChangeHandler::schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                              new_rowset, *_desc_tbl);
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to change schema version for delta."
-                             << "[res=" << res << " new_tablet='" << new_tablet->full_name()
-                             << "']";
-            }
-        }
     } while (false);
 
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
@@ -329,8 +291,8 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
     return res;
 }
 
-Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                             RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
+Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
+                             TabletSchemaSPtr tablet_schema) {
     Status res = Status::OK();
     RowCursor row;
     BinaryFile raw_file;
@@ -377,7 +339,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
             }
 
             // init BinaryReader
-            if (!(res = reader->init(cur_tablet, &raw_file))) {
+            if (!(res = reader->init(tablet_schema, &raw_file))) {
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
@@ -389,7 +351,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
         // 2. init RowsetBuilder of cur_tablet for current push
         std::unique_ptr<RowsetWriter> rowset_writer;
         res = cur_tablet->create_rowset_writer(_request.transaction_id, load_id, PREPARED,
-                                               OVERLAP_UNKNOWN, &rowset_writer);
+                                               OVERLAP_UNKNOWN, tablet_schema, &rowset_writer);
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
@@ -401,7 +363,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
                     << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
 
         // 4. Init RowCursor
-        if (!(res = row.init(cur_tablet->tablet_schema()))) {
+        if (!(res = row.init(tablet_schema))) {
             LOG(WARNING) << "fail to init rowcursor. res=" << res;
             break;
         }
@@ -450,18 +412,6 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
 
         _write_bytes += (*cur_rowset)->data_disk_size();
         _write_rows += (*cur_rowset)->num_rows();
-
-        // 7. Convert data for schema change tables
-        VLOG_TRACE << "load to related tables of schema_change if possible.";
-        if (new_tablet != nullptr) {
-            res = SchemaChangeHandler::schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                              new_rowset, *_desc_tbl);
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to change schema version for delta."
-                             << "[res=" << res << " new_tablet='" << new_tablet->full_name()
-                             << "']";
-            }
-        }
     } while (false);
 
     SAFE_DELETE(reader);
@@ -501,13 +451,13 @@ IBinaryReader* IBinaryReader::create(bool need_decompress) {
 
 BinaryReader::BinaryReader() : _row_buf(nullptr), _row_buf_size(0) {}
 
-Status BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
+Status BinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
     Status res = Status::OK();
 
     do {
         _file = file;
         _content_len = _file->file_length() - _file->header_size();
-        _row_buf_size = tablet->row_size();
+        _row_buf_size = _tablet_schema->row_size();
 
         _row_buf = new (std::nothrow) char[_row_buf_size];
         if (_row_buf == nullptr) {
@@ -522,7 +472,7 @@ Status BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
             break;
         }
 
-        _tablet = tablet;
+        _tablet_schema = tablet_schema;
         _ready = true;
     } while (false);
 
@@ -546,10 +496,10 @@ Status BinaryReader::next(RowCursor* row) {
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
-    const TabletSchema& schema = _tablet->tablet_schema();
+    const TabletSchema& schema = *_tablet_schema;
     size_t offset = 0;
     size_t field_size = 0;
-    size_t num_null_bytes = (_tablet->num_null_columns() + 7) / 8;
+    size_t num_null_bytes = (schema.num_null_columns() + 7) / 8;
 
     if (!(res = _file->read(_row_buf + offset, num_null_bytes))) {
         LOG(WARNING) << "read file for one row fail. res=" << res;
@@ -643,7 +593,7 @@ LzoBinaryReader::LzoBinaryReader()
           _row_num(0),
           _next_row_start(0) {}
 
-Status LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
+Status LzoBinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
     Status res = Status::OK();
 
     do {
@@ -664,7 +614,7 @@ Status LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
             break;
         }
 
-        _tablet = tablet;
+        _tablet_schema = tablet_schema;
         _ready = true;
     } while (false);
 
@@ -697,10 +647,10 @@ Status LzoBinaryReader::next(RowCursor* row) {
         }
     }
 
-    const TabletSchema& schema = _tablet->tablet_schema();
+    const TabletSchema& schema = *_tablet_schema;
     size_t offset = 0;
     size_t field_size = 0;
-    size_t num_null_bytes = (_tablet->num_null_columns() + 7) / 8;
+    size_t num_null_bytes = (schema.num_null_columns() + 7) / 8;
 
     size_t p = 0;
     for (size_t i = 0; i < schema.num_columns(); ++i) {
@@ -788,7 +738,7 @@ Status LzoBinaryReader::_next_block() {
         SAFE_DELETE_ARRAY(_row_buf);
 
         _max_row_num = _row_num;
-        _max_row_buf_size = _max_row_num * _tablet->row_size();
+        _max_row_buf_size = _max_row_num * _tablet_schema->row_size();
         _row_buf = new (std::nothrow) char[_max_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows buf. size=" << _max_row_buf_size;
@@ -864,7 +814,7 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_pool.reset(new MemPool("PushBrokerReader"));
+    _mem_pool.reset(new MemPool());
     _counter.reset(new ScannerCounter());
 
     // init scanner

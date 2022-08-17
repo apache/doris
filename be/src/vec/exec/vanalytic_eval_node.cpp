@@ -127,7 +127,7 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
         AggFnEvaluator* evaluator = nullptr;
         RETURN_IF_ERROR(
-                AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], &evaluator));
+                AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], {}, &evaluator));
         _agg_functions.emplace_back(evaluator);
         for (size_t j = 0; j < _agg_expr_ctxs[i].size(); ++j) {
             _agg_intput_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
@@ -147,9 +147,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
-    _mem_pool.reset(new MemPool(mem_tracker().get()));
+    _mem_pool.reset(new MemPool(mem_tracker()));
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     SCOPED_TIMER(_evaluation_timer);
 
@@ -159,8 +159,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
-                                                   intermediate_slot_desc, output_slot_desc,
-                                                   mem_tracker()));
+                                                   intermediate_slot_desc, output_slot_desc));
     }
 
     _offsets_of_aggregate_states.resize(_agg_functions_size);
@@ -174,7 +173,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
         if (i + 1 < _agg_functions_size) {
             size_t alignment_of_next_state = _agg_functions[i + 1]->function()->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
-                return Status::RuntimeError(fmt::format("Logical error: align_of_data is not 2^N"));
+                return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }
             /// Extend total_size to next alignment requirement
             /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
@@ -193,7 +192,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
     for (const auto& ctx : _agg_expr_ctxs) {
-        VExpr::prepare(ctx, state, child(0)->row_desc(), expr_mem_tracker());
+        VExpr::prepare(ctx, state, child(0)->row_desc());
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -201,21 +200,20 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
         if (!_partition_by_eq_expr_ctxs.empty()) {
-            RETURN_IF_ERROR(VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc,
-                                           expr_mem_tracker()));
+            RETURN_IF_ERROR(VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
         }
         if (!_order_by_eq_expr_ctxs.empty()) {
-            RETURN_IF_ERROR(VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc,
-                                           expr_mem_tracker()));
+            RETURN_IF_ERROR(VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
     return Status::OK();
 }
 
 Status VAnalyticEvalNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(child(0)->open(state));
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
@@ -233,6 +231,7 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::close");
 
     VExpr::close(_partition_by_eq_expr_ctxs, state);
     VExpr::close(_order_by_eq_expr_ctxs, state);
@@ -248,9 +247,10 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
+                                 "VAnalyticEvalNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     if (_input_eos && _output_block_index == _input_blocks.size()) {
@@ -467,7 +467,8 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     Block block;
     RETURN_IF_CANCELLED(state);
     do {
-        RETURN_IF_ERROR(_children[0]->get_next(state, &block, &_input_eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next(state, &block, &_input_eos),
+                                       _children[0]->get_next_span(), _input_eos);
     } while (!_input_eos && block.rows() == 0);
 
     if (_input_eos && block.rows() == 0) {

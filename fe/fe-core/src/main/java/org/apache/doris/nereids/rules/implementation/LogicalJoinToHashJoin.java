@@ -17,21 +17,25 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 /**
  * Implementation rule that convert logical join to physical hash join.
  */
 public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
     @Override
-    public Rule<Plan> build() {
-        return logicalJoin().then(join -> plan(
-            new PhysicalHashJoin(join.operator.getJoinType(), join.operator.getCondition().get()),
+    public Rule build() {
+        return logicalJoin()
+                .whenNot(JoinUtils::shouldNestedLoopJoin)
+                .then(join -> new PhysicalHashJoin<>(
+            join.getJoinType(),
+            join.getCondition(),
             join.getLogicalProperties(),
-            join.left(), join.right()
-        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+            join.left(),
+            join.right())
+        ).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
     }
 }

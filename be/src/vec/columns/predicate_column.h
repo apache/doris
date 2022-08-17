@@ -34,12 +34,13 @@ namespace doris::vectorized {
  *
  *  T = predicate column type
  */
-template <typename T>
-class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<T>> {
+template <PrimitiveType Type>
+class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<Type>> {
 private:
     PredicateColumnType() {}
     PredicateColumnType(const size_t n) : data(n) {}
-    friend class COWHelper<IColumn, PredicateColumnType<T>>;
+    friend class COWHelper<IColumn, PredicateColumnType<Type>>;
+    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
 
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
 
@@ -241,9 +242,7 @@ public:
             insert_many_in_copy_way(data_ptr, num);
         } else if constexpr (std::is_same_v<T, StringValue>) {
             // here is unreachable, just for compilation to be able to pass
-        } else if constexpr (std::is_same_v<
-                                     T,
-                                     uint32_t>) { // todo(wb) a trick type judge here,need refactor
+        } else if constexpr (Type == TYPE_DATE) {
             insert_many_date(data_ptr, num);
         } else {
             insert_many_default_type(data_ptr, num);
@@ -264,7 +263,7 @@ public:
                                  uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             if (_pool == nullptr) {
-                _pool.reset(new MemPool("PredicateStringColumn"));
+                _pool.reset(new MemPool());
             }
 
             size_t total_mem_size = 0;
@@ -433,8 +432,15 @@ public:
                     reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float64>*>(
                             col_ptr));
         } else if constexpr (std::is_same_v<T, uint64_t>) {
-            insert_datetime_to_res_column(
-                    sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            if (const vectorized::ColumnVector<UInt64>* date_col =
+                        check_and_get_column<vectorized::ColumnVector<UInt64>>(
+                                const_cast<const IColumn*>(col_ptr))) {
+                insert_default_value_res_column(
+                        sel, sel_size, const_cast<vectorized::ColumnVector<UInt64>*>(date_col));
+            } else {
+                insert_datetime_to_res_column(
+                        sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            }
         } else if constexpr (std::is_same_v<T, uint24_t>) {
             insert_date_to_res_column(sel, sel_size,
                                       reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
@@ -477,6 +483,5 @@ private:
     // manages the memory for slice's data(For string type)
     std::unique_ptr<MemPool> _pool;
 };
-using ColumnStringValue = PredicateColumnType<StringValue>;
 
 } // namespace doris::vectorized

@@ -19,11 +19,12 @@ package org.apache.doris.service;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -41,18 +42,14 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.datasource.DataSourceIf;
-import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.LoadJob;
-import org.apache.doris.load.MiniEtlTaskInfo;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.plugin.AuditEvent.EventType;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -75,12 +72,12 @@ import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetStoragePolicy;
+import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
-import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -92,15 +89,12 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
-import org.apache.doris.thrift.TMiniLoadBeginRequest;
-import org.apache.doris.thrift.TMiniLoadBeginResult;
-import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
-import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
+import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -109,9 +103,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
-import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
@@ -121,7 +113,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -130,10 +121,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -166,11 +157,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        List<DataSourceIf> dataSourceIfs = catalog.getDataSourceMgr().listCatalogs();
-        for (DataSourceIf ds : dataSourceIfs) {
-            List<String> dbNames = ds.getDbNames();
-            LOG.debug("get db names: {}, in data source: {}", dbNames, ds.getName());
+        Env env = Env.getCurrentEnv();
+        List<CatalogIf> catalogIfs = env.getCatalogMgr().listCatalogs();
+        for (CatalogIf catalog : catalogIfs) {
+            List<String> dbNames = catalog.getDbNames();
+            LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
 
             UserIdentity currentUser = null;
             if (params.isSetCurrentUserIdent()) {
@@ -179,7 +170,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
             for (String fullName : dbNames) {
-                if (!catalog.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
+                if (!env.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -188,7 +179,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     continue;
                 }
 
-                catalogs.add(ds.getName());
+                catalogs.add(catalog.getName());
                 dbs.add(fullName);
             }
         }
@@ -221,12 +212,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        DatabaseIf<TableIf> db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNullable(params.db);
+        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                : params.catalog;
+        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
+                .getDbNullable(params.db);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                        tableName, PrivPredicate.SHOW)) {
+                if (!Env.getCurrentEnv().getAuth()
+                        .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -263,13 +258,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
 
-        String catalogName = InternalDataSource.INTERNAL_DS_NAME;
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
         }
-        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(catalogName);
-        if (ds != null) {
-            DatabaseIf db = ds.getDbNullable(params.db);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog != null) {
+            DatabaseIf db = catalog.getDbNullable(params.db);
             if (db != null) {
                 List<TableIf> tables = null;
                 if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
@@ -284,13 +279,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
                 for (TableIf table : tables) {
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, params.db,
                             table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                     table.readLock();
                     try {
-                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, params.db,
                                 table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -340,7 +335,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        Catalog.getCurrentCatalog().getAuth().getTablePrivStatus(tblPrivResult, currentUser);
+        Env.getCurrentEnv().getAuth().getTablePrivStatus(tblPrivResult, currentUser);
         return result;
     }
 
@@ -357,7 +352,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        Catalog.getCurrentCatalog().getAuth().getSchemaPrivStatus(tblPrivResult, currentUser);
+        Env.getCurrentEnv().getAuth().getSchemaPrivStatus(tblPrivResult, currentUser);
         return result;
     }
 
@@ -374,7 +369,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        Catalog.getCurrentCatalog().getAuth().getGlobalPrivStatus(userPrivResult, currentUser);
+        Env.getCurrentEnv().getAuth().getGlobalPrivStatus(userPrivResult, currentUser);
         return result;
     }
 
@@ -400,12 +395,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                params.getTableName(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAuth()
+                .checkTblPriv(currentUser, params.db, params.getTableName(), PrivPredicate.SHOW)) {
             return result;
         }
 
-        DatabaseIf<TableIf> db = Catalog.getCurrentCatalog().getCurrentDataSource().getDbNullable(params.db);
+        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                : params.catalog;
+        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
+                .getDbNullable(params.db);
         if (db != null) {
             TableIf table = db.getTableNullable(params.getTableName());
             if (table != null) {
@@ -430,6 +429,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         final String comment = column.getComment();
                         if (comment != null) {
                             colDef.setComment(comment);
+                        }
+                        if (column.isKey()) {
+                            if (table instanceof OlapTable) {
+                                desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
+                            }
                         }
                         columns.add(colDef);
                     }
@@ -479,202 +483,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return masterImpl.fetchResource();
     }
 
-    @Deprecated
-    @Override
-    public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
-        LOG.debug("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
-                request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
-
-        ConnectContext context = new ConnectContext(null);
-        String cluster = SystemInfoService.DEFAULT_CLUSTER;
-        if (request.isSetCluster()) {
-            cluster = request.cluster;
-        }
-
-        final String fullDbName = ClusterNamespace.getFullName(cluster, request.db);
-        request.setDb(fullDbName);
-        context.setCluster(cluster);
-        context.setDatabase(ClusterNamespace.getFullName(cluster, request.db));
-        context.setQualifiedUser(ClusterNamespace.getFullName(cluster, request.user));
-        context.setCatalog(Catalog.getCurrentCatalog());
-        context.getState().reset();
-        context.setThreadLocalInfo();
-
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        try {
-            if (request.isSetSubLabel()) {
-                ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
-            } else {
-                // try to add load job, label will be checked here.
-                if (Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromRequest(request)) {
-                    try {
-                        // generate mini load audit log
-                        logMiniLoadStmt(request);
-                    } catch (Exception e) {
-                        LOG.warn("failed log mini load stmt", e);
-                    }
-                }
-            }
-        } catch (UserException e) {
-            LOG.warn("add mini load error: {}", e.getMessage());
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
-        } catch (Throwable e) {
-            LOG.warn("unexpected exception when adding mini load", e);
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-        } finally {
-            ConnectContext.remove();
-        }
-
-        LOG.debug("mini load result: {}", result);
-        return result;
-    }
-
-    private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
-        String stmt = getMiniLoadStmt(request);
-        AuditEvent auditEvent = new AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setClientIp(request.user_ip + ":0")
-                .setUser(request.user)
-                .setDb(request.db)
-                .setState(TStatusCode.OK.name())
-                .setQueryTime(0)
-                .setStmt(stmt).build();
-
-        Catalog.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
-    }
-
-    private String getMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("curl --location-trusted -u user:passwd -T ");
-
-        if (request.files.size() == 1) {
-            stringBuilder.append(request.files.get(0));
-        } else if (request.files.size() > 1) {
-            stringBuilder.append("\"{").append(Joiner.on(",").join(request.files)).append("}\"");
-        }
-
-        InetAddress masterAddress = FrontendOptions.getLocalHost();
-        stringBuilder.append(" http://").append(masterAddress.getHostAddress()).append(":");
-        stringBuilder.append(Config.http_port).append("/api/").append(request.db).append("/");
-        stringBuilder.append(request.tbl).append("/_load?label=").append(request.label);
-
-        if (!request.properties.isEmpty()) {
-            stringBuilder.append("&");
-            List<String> props = Lists.newArrayList();
-            for (Map.Entry<String, String> entry : request.properties.entrySet()) {
-                String prop = entry.getKey() + "=" + entry.getValue();
-                props.add(prop);
-            }
-            stringBuilder.append(Joiner.on("&").join(props));
-        }
-
-        return stringBuilder.toString();
-    }
-
-    @Override
-    public TFeResult updateMiniEtlTaskStatus(TUpdateMiniEtlTaskStatusRequest request) throws TException {
-        TFeResult result = new TFeResult();
-        result.setProtocolVersion(FrontendServiceVersion.V1);
-        TStatus status = new TStatus(TStatusCode.OK);
-        result.setStatus(status);
-
-        // get job task info
-        TUniqueId etlTaskId = request.getEtlTaskId();
-        long jobId = etlTaskId.getHi();
-        long taskId = etlTaskId.getLo();
-        LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(jobId);
-        if (job == null) {
-            String failMsg = "job does not exist. id: " + jobId;
-            LOG.warn(failMsg);
-            status.setStatusCode(TStatusCode.CANCELLED);
-            status.addToErrorMsgs(failMsg);
-            return result;
-        }
-
-        MiniEtlTaskInfo taskInfo = job.getMiniEtlTask(taskId);
-        if (taskInfo == null) {
-            String failMsg = "task info does not exist. task id: " + taskId + ", job id: " + jobId;
-            LOG.warn(failMsg);
-            status.setStatusCode(TStatusCode.CANCELLED);
-            status.addToErrorMsgs(failMsg);
-            return result;
-        }
-
-        // update etl task status
-        TMiniLoadEtlStatusResult statusResult = request.getEtlTaskStatus();
-        LOG.debug("load job id: {}, etl task id: {}, status: {}", jobId, taskId, statusResult);
-        EtlStatus taskStatus = taskInfo.getTaskStatus();
-        if (taskStatus.setState(statusResult.getEtlState())) {
-            if (statusResult.isSetCounters()) {
-                taskStatus.setCounters(statusResult.getCounters());
-            }
-            if (statusResult.isSetTrackingUrl()) {
-                taskStatus.setTrackingUrl(statusResult.getTrackingUrl());
-            }
-            if (statusResult.isSetFileMap()) {
-                taskStatus.setFileMap(statusResult.getFileMap());
-            }
-        }
-        return result;
-    }
-
-    @Override
-    public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
-        LOG.debug("receive mini load begin request. label: {}, user: {}, ip: {}",
-                request.getLabel(), request.getUser(), request.getUserIp());
-
-        TMiniLoadBeginResult result = new TMiniLoadBeginResult();
-        TStatus status = new TStatus(TStatusCode.OK);
-        result.setStatus(status);
-        try {
-            String cluster = SystemInfoService.DEFAULT_CLUSTER;
-            if (request.isSetCluster()) {
-                cluster = request.cluster;
-            }
-            // step1: check password and privs
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
-            // step2: check label and record metadata in load manager
-            if (request.isSetSubLabel()) {
-                // TODO(ml): multi mini load
-            } else {
-                // add load metadata in loadManager
-                result.setTxnId(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromMiniLoad(request));
-            }
-            return result;
-        } catch (UserException e) {
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
-            return result;
-        } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        }
-    }
-
-    @Override
-    public TFeResult isMethodSupported(TIsMethodSupportedRequest request) throws TException {
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        switch (request.getFunctionName()) {
-            case "STREAMING_MINI_LOAD":
-                break;
-            default:
-                status.setStatusCode(TStatusCode.NOT_IMPLEMENTED_ERROR);
-                break;
-        }
-        return result;
-    }
-
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
         if (clientAddr != null) {
-            Frontend fe = Catalog.getCurrentCatalog().getFeByHost(clientAddr.getHostname());
+            Frontend fe = Env.getCurrentEnv().getFeByHost(clientAddr.getHostname());
             if (fe == null) {
                 LOG.warn("reject request from invalid host. client: {}", clientAddr);
                 throw new TException("request from invalid host was rejected.");
@@ -693,9 +506,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkAuthCodeUuid(String dbName, long txnId, String authCodeUuid) throws AuthenticationException {
-        DatabaseIf db = Catalog.getCurrentInternalCatalog()
+        DatabaseIf db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
-        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr()
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionState(db.getId(), txnId);
         if (transactionState == null) {
             throw new AuthenticationException("invalid transactionState: " + txnId);
@@ -707,49 +520,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
         List<UserIdentity> currentUser = Lists.newArrayList();
-        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser)) {
+        if (!Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser)) {
             throw new AuthenticationException("Access denied for " + fullUserName + "@" + clientIp);
         }
 
         Preconditions.checkState(currentUser.size() == 1);
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
-    }
-
-    @Override
-    public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.debug("receive load check request. label: {}, user: {}, ip: {}",
-                request.getLabel(), request.getUser(), request.getUserIp());
-
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        try {
-            String cluster = SystemInfoService.DEFAULT_CLUSTER;
-            if (request.isSetCluster()) {
-                cluster = request.cluster;
-            }
-
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
-        } catch (UserException e) {
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
-            return result;
-        } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        }
-
-        return result;
     }
 
     @Override
@@ -765,8 +549,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.warn("duplicate request for stream load. request id: {}, txn: {}",
-                    e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
+                    e.getTxnId());
             result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
@@ -792,8 +576,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // check label
@@ -801,9 +585,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("empty label in begin request");
         }
         // check database
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = catalog.getInternalDataSource().getDbNullable(fullDbName);
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -815,13 +599,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
-        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-        long txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
+        long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         if (!Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
-            Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
+            Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
                     .setAuthCode(request.getAuthCodeUuid());
         }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
@@ -863,18 +646,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // get database
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = catalog.getInternalDataSource().getDbNullable(request.getDbId());
+            db = env.getInternalCatalog().getDbNullable(request.getDbId());
         } else {
-            db = catalog.getInternalDataSource().getDbNullable(fullDbName);
+            db = env.getInternalCatalog().getDbNullable(fullDbName);
         }
         if (db == null) {
             String dbName = fullDbName;
@@ -886,7 +669,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        Catalog.getCurrentGlobalTransactionMgr()
+        Env.getCurrentGlobalTransactionMgr()
                 .preCommitTransaction2PC(db, Lists.newArrayList(table), request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                         TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
@@ -929,13 +712,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String fullDbName = ClusterNamespace.getFullName(cluster, dbName);
 
         // get database
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database database = catalog.getInternalDataSource().getDbNullable(fullDbName);
+        Env env = Env.getCurrentEnv();
+        Database database = env.getInternalCatalog().getDbNullable(fullDbName);
         if (database == null) {
             throw new UserException("unknown database, database=" + fullDbName);
         }
 
-        DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr()
+        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         if (transactionState == null) {
@@ -945,16 +728,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Table> tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
         for (Table table : tableList) {
             // check auth
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    table.getName(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), table.getName(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         String txnOperation = request.getOperation().trim();
         if (txnOperation.equalsIgnoreCase("commit")) {
-            Catalog.getCurrentGlobalTransactionMgr()
+            Env.getCurrentGlobalTransactionMgr()
                     .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
-            Catalog.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
         }
@@ -999,18 +782,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // get database
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = catalog.getInternalDataSource().getDbNullable(request.getDbId());
+            db = env.getInternalCatalog().getDbNullable(request.getDbId());
         } else {
-            db = catalog.getInternalDataSource().getDbNullable(fullDbName);
+            db = env.getInternalCatalog().getDbNullable(fullDbName);
         }
         if (db == null) {
             String dbName = fullDbName;
@@ -1022,15 +805,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        boolean ret = Catalog.getCurrentGlobalTransactionMgr()
-                .commitAndPublishTransaction((Database) db, Lists.newArrayList(table), request.getTxnId(),
+        return Env.getCurrentGlobalTransactionMgr()
+                .commitAndPublishTransaction(db, Lists.newArrayList(table), request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                         TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
-        if (ret) {
-            // if commit and publish is success, load can be regarded as success
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-        }
-        return ret;
     }
 
     @Override
@@ -1067,21 +845,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
         String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = Catalog.getCurrentInternalCatalog().getDbNullable(request.getDbId());
+            db = Env.getCurrentInternalCatalog().getDbNullable(request.getDbId());
         } else {
-            db = Catalog.getCurrentInternalCatalog().getDbNullable(dbName);
+            db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         }
         if (db == null) {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
-        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
+        Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
                 request.isSetReason() ? request.getReason() : "system cancel",
                 TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
     }
@@ -1115,9 +893,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = catalog.getInternalDataSource().getDbNullable(fullDbName);
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -1128,15 +906,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException("get table read lock timeout, database="
-                    + fullDbName + ",table=" + table.getName());
+            throw new UserException(
+                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + request.getTxnId());
@@ -1150,7 +928,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStatus snapshotLoaderReport(TSnapshotLoaderReportRequest request) throws TException {
-        if (Catalog.getCurrentCatalog().getBackupHandler().report(request.getTaskType(), request.getJobId(),
+        if (Env.getCurrentEnv().getBackupHandler().report(request.getTaskType(), request.getJobId(),
                 request.getTaskId(), request.getFinishedNum(), request.getTotalNum())) {
             return new TStatus(TStatusCode.OK);
         }
@@ -1159,25 +937,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
-        boolean isReady = Catalog.getCurrentCatalog().isReady();
+        boolean isReady = Env.getCurrentEnv().isReady();
         TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
         if (isReady) {
-            if (request.getClusterId() != Catalog.getCurrentCatalog().getClusterId()) {
+            if (request.getClusterId() != Env.getCurrentEnv().getClusterId()) {
                 result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
-                result.setMsg("invalid cluster id: " + Catalog.getCurrentCatalog().getClusterId());
+                result.setMsg("invalid cluster id: " + Env.getCurrentEnv().getClusterId());
             }
 
             if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
-                if (!request.getToken().equals(Catalog.getCurrentCatalog().getToken())) {
+                if (!request.getToken().equals(Env.getCurrentEnv().getToken())) {
                     result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
-                    result.setMsg("invalid token: " + Catalog.getCurrentCatalog().getToken());
+                    result.setMsg("invalid token: " + Env.getCurrentEnv().getToken());
                 }
             }
 
             if (result.status == TFrontendPingFrontendStatusCode.OK) {
                 // cluster id and token are valid, return replayed journal id
-                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                long replayedJournalId = Env.getCurrentEnv().getReplayedJournalId();
                 result.setMsg("success");
                 result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
@@ -1210,7 +988,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TWaitingTxnStatusResult result = new TWaitingTxnStatusResult();
         result.setStatus(new TStatus());
         try {
-            result = Catalog.getCurrentGlobalTransactionMgr().getWaitingTxnStatus(request);
+            result = Env.getCurrentGlobalTransactionMgr().getWaitingTxnStatus(request);
             result.status.setStatusCode(TStatusCode.OK);
         } catch (TimeoutException e) {
             result.status.setStatusCode(TStatusCode.INCOMPLETE);
@@ -1222,4 +1000,61 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @Override
+    public TGetStoragePolicyResult refreshStoragePolicy() throws TException {
+        TGetStoragePolicyResult result = new TGetStoragePolicyResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(
+                iter -> {
+                    // default policy not init.
+                    if (iter.getStorageResource() == null) {
+                        return;
+                    }
+                    TGetStoragePolicy rEntry = new TGetStoragePolicy();
+                    rEntry.setPolicyName(iter.getPolicyName());
+                    //java 8 not support ifPresentOrElse
+                    final long[] ttlCoolDown = {-1};
+                    Optional.ofNullable(iter.getCooldownTtl())
+                        .ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
+                    rEntry.setCooldownTtl(ttlCoolDown[0]);
+
+                    final long[] secondTimestamp = {-1};
+                    Optional.ofNullable(iter.getCooldownDatetime())
+                        .ifPresent(date -> secondTimestamp[0] = date.getTime() / 1000);
+                    rEntry.setCooldownDatetime(secondTimestamp[0]);
+
+                    Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
+
+                    TS3StorageParam s3Info = new TS3StorageParam();
+                    Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
+                        Map<String, String> storagePolicyProperties = Env.getCurrentEnv().getResourceMgr()
+                                .getResource(resource).getCopiedProperties();
+                        s3Info.setS3Endpoint(storagePolicyProperties.get(S3Resource.S3_ENDPOINT));
+                        s3Info.setS3Region(storagePolicyProperties.get(S3Resource.S3_REGION));
+                        s3Info.setRootPath(storagePolicyProperties.get(S3Resource.S3_ROOT_PATH));
+                        s3Info.setS3Ak(storagePolicyProperties.get(S3Resource.S3_ACCESS_KEY));
+                        s3Info.setS3Sk(storagePolicyProperties.get(S3Resource.S3_SECRET_KEY));
+                        s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
+                        s3Info.setS3MaxConn(
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
+                        s3Info.setS3RequestTimeoutMs(
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                        s3Info.setS3ConnTimeoutMs(
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+                    });
+
+                    rEntry.setS3StorageParam(s3Info);
+                    result.addToResultEntrys(rEntry);
+                }
+        );
+        if (!result.isSetResultEntrys()) {
+            result.setResultEntrys(new ArrayList<>());
+        }
+
+        LOG.debug("refresh storage policy request: {}", result);
+        return result;
+    }
 }

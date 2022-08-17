@@ -19,7 +19,7 @@
 
 #include "gutil/strings/substitute.h"
 #include "runtime/load_channel.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -67,7 +67,7 @@ static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
 
 LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     REGISTER_HOOK_METRIC(load_channel_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
 }
@@ -84,9 +84,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mgr_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker = MemTracker::create_virtual_tracker(load_mgr_mem_limit, "LoadChannelMgr",
-                                                      MemTracker::get_process_tracker(),
-                                                      MemTrackerLevel::OVERVIEW);
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(load_mgr_mem_limit, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -112,20 +110,11 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t load_mem_limit = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
             int64_t channel_mem_limit =
                     calc_channel_max_load_memory(load_mem_limit, _mem_tracker->limit());
-            auto channel_mem_tracker =
-                    MemTracker::create_tracker(channel_mem_limit,
-                                               fmt::format("LoadChannel#senderIp={}#loadID={}",
-                                                           params.sender_ip(), load_id.to_string()),
-                                               _mem_tracker);
-            // TODO
-            // auto channel_mem_tracker_job = std::make_shared<MemTracker>(
-            //         -1,
-            //         fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
-            //                     load_id.to_string()),
-            //         ExecEnv::GetInstance()
-            //                 ->task_pool_mem_tracker_registry()
-            //                 ->register_load_mem_tracker(load_id.to_string(), load_mem_limit),
-            //         MemTrackerLevel::TASK);
+            auto channel_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    channel_mem_limit,
+                    fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
+                                load_id.to_string()),
+                    _mem_tracker);
             channel.reset(new LoadChannel(load_id, channel_mem_tracker, channel_timeout_s,
                                           is_high_priority, params.sender_ip(),
                                           params.is_vectorized()));

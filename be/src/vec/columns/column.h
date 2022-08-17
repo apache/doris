@@ -34,8 +34,6 @@ namespace doris::vectorized {
 
 class Arena;
 class Field;
-// TODO: Remove the trickly hint, after FE support better way to remove function tuple_is_null
-constexpr uint8_t JOIN_NULL_HINT = 2;
 
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
@@ -70,6 +68,9 @@ public:
 
     /// If column is ColumnDictionary, and is a range comparison predicate, convert dict encoding
     virtual void convert_dict_codes_if_necessary() {}
+
+    /// If column is ColumnDictionary, and is a bloom filter predicate, generate_hash_values
+    virtual void generate_hash_values_for_runtime_filter() {}
 
     /// Creates empty column with the same type.
     virtual MutablePtr clone_empty() const { return clone_resized(0); }
@@ -175,7 +176,6 @@ public:
     /// indices_begin + indices_end represent the row indices of column src
     /// Warning:
     ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
-    ///       insert JOIN_NULL_HINT in null map to hint the null is produced by outer join
     virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
                                      const int* indices_end) = 0;
 
@@ -199,6 +199,16 @@ public:
     virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                          uint32_t* start_offset_array, size_t num) {
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+    }
+
+    virtual void insert_many_strings(const StringRef* strings, size_t num) {
+        LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+    }
+
+    // Here `pos` points to the memory data type is the same as the data type of the column.
+    // This function is used by `insert_keys_into_columns` in AggregationNode.
+    virtual void insert_many_raw_data(const char* pos, size_t num) {
+        LOG(FATAL) << "Method insert_many_raw_data is not supported for " << get_name();
     }
 
     void insert_many_data(const char* pos, size_t length, size_t data_num) {
@@ -242,6 +252,34 @@ public:
     /// Deserializes a value that was serialized using IColumn::serialize_value_into_arena method.
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
+
+    /// Return the size of largest row.
+    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
+    virtual size_t get_max_row_byte_size() const {
+        LOG(FATAL) << "get_max_row_byte_size not supported";
+    }
+
+    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                               size_t max_row_byte_size) const {
+        LOG(FATAL) << "serialize_vec not supported";
+    }
+
+    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                             const uint8_t* null_map,
+                                             size_t max_row_byte_size) const {
+        LOG(FATAL) << "serialize_vec_with_null_map not supported";
+    }
+
+    // This function deserializes group-by keys into column in the vectorized way.
+    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+        LOG(FATAL) << "deserialize_vec not supported";
+    }
+
+    // Used in ColumnNullable::deserialize_vec
+    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                               const uint8_t* null_map) {
+        LOG(FATAL) << "deserialize_vec_with_null_map not supported";
+    }
 
     /// Update state of hash function with value of n-th element.
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
@@ -475,17 +513,17 @@ public:
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
     virtual bool is_date_type() const { return is_date; }
-    virtual bool is_date_v2_type() const { return is_date_v2; }
     virtual bool is_datetime_type() const { return is_date_time; }
+    virtual bool is_decimalv2_type() const { return is_decimalv2; }
 
     virtual void set_date_type() { is_date = true; }
-    virtual void set_date_v2_type() { is_date_v2 = true; }
     virtual void set_datetime_type() { is_date_time = true; }
+    virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
-    bool is_date_v2 = false;
+    bool is_decimalv2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

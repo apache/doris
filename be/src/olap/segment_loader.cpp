@@ -18,6 +18,7 @@
 #include "olap/segment_loader.h"
 
 #include "olap/rowset/rowset.h"
+#include "olap/tablet_schema.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -31,8 +32,7 @@ void SegmentLoader::create_global_instance(size_t capacity) {
 }
 
 SegmentLoader::SegmentLoader(size_t capacity) {
-    _cache = std::unique_ptr<Cache>(
-            new_lru_cache("SegmentLoader:SegmentCache", capacity, LRUCacheType::NUMBER));
+    _cache = std::unique_ptr<Cache>(new_lru_cache("SegmentCache", capacity, LRUCacheType::NUMBER));
 }
 
 bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle) {

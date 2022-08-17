@@ -56,5 +56,5 @@ mysql> select k2, array_min(k2) from array_type_table;
 
 ### keywords
 
-ARRAY_MIN
+ARRAY,MIN,ARRAY_MIN
 

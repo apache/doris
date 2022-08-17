@@ -18,12 +18,12 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.ldap.LdapClient;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -52,9 +52,9 @@ public class MysqlProtoTest {
     @Mocked
     private MysqlPassword password;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private PaloAuth auth;
     @Mocked
@@ -85,32 +85,32 @@ public class MysqlProtoTest {
                     }
                 };
 
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = new Database();
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.changeDb((ConnectContext) any, anyString);
+                env.changeDb((ConnectContext) any, anyString);
                 minTimes = 0;
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -232,7 +232,7 @@ public class MysqlProtoTest {
         mockPassword(true);
         mockAccess();
         ConnectContext context = new ConnectContext(null);
-        context.setCatalog(catalog);
+        context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
     }
@@ -273,7 +273,7 @@ public class MysqlProtoTest {
         mockMysqlClearTextPacket(PASSWORD_CLEAR_TEXT);
         mockLdap("user", true);
         ConnectContext context = new ConnectContext(null);
-        context.setCatalog(catalog);
+        context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
     }
@@ -286,7 +286,7 @@ public class MysqlProtoTest {
         mockMysqlClearTextPacket("654321");
         mockLdap("user", true);
         ConnectContext context = new ConnectContext(null);
-        context.setCatalog(catalog);
+        context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertFalse(MysqlProto.negotiate(context));
     }
@@ -299,7 +299,7 @@ public class MysqlProtoTest {
         mockLdap("root", false);
         mockMysqlClearTextPacket("654321");
         ConnectContext context = new ConnectContext(null);
-        context.setCatalog(catalog);
+        context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
     }

@@ -28,8 +28,7 @@ class VExprContext {
 public:
     VExprContext(VExpr* expr);
     ~VExprContext();
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& tracker = nullptr);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     Status open(RuntimeState* state);
     void close(RuntimeState* state);
     Status clone(RuntimeState* state, VExprContext** new_ctx);
@@ -70,6 +69,13 @@ public:
         return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     }
 
+    void clone_fn_contexts(VExprContext* other);
+
+    void mark_as_stale() {
+        DCHECK(!_stale);
+        _stale = true;
+    }
+
 private:
     friend class VExpr;
 
@@ -88,11 +94,11 @@ private:
     /// and owned by this VExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
-
-    /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
+    /// Pool backing fn_contexts_.
     std::unique_ptr<MemPool> _pool;
 
     int _last_result_column_id;
+
+    bool _stale;
 };
 } // namespace doris::vectorized

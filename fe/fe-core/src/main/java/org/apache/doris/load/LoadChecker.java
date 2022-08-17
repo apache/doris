@@ -17,8 +17,9 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -41,6 +42,7 @@ import org.apache.doris.task.HadoopLoadPendingTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PushTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
@@ -90,18 +92,18 @@ public class LoadChecker extends MasterDaemon {
 
         Map<TPriority, MasterTaskExecutor> pendingPriorityMap = Maps.newHashMap();
         pendingPriorityMap.put(TPriority.NORMAL,
-                new MasterTaskExecutor("load_pending_thread_num_normal_priority",
+                new MasterTaskExecutor("load-pending-thread-num-normal-priority",
                         Config.load_pending_thread_num_normal_priority, true));
-        pendingPriorityMap.put(TPriority.HIGH,
-                new MasterTaskExecutor("load_pending_thread_num_high_priority",
-                        Config.load_pending_thread_num_high_priority, true));
+        pendingPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load-pending-thread-num-high-priority",
+                Config.load_pending_thread_num_high_priority, true));
         executors.put(JobState.PENDING, pendingPriorityMap);
 
         Map<TPriority, MasterTaskExecutor> etlPriorityMap = Maps.newHashMap();
-        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load_etl_thread_num_normal_priority",
+        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load-etl-thread-num-normal-priority",
                 Config.load_etl_thread_num_normal_priority, true));
-        etlPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load_etl_thread_num_high_priority",
-                Config.load_etl_thread_num_high_priority, true));
+        etlPriorityMap.put(TPriority.HIGH,
+                new MasterTaskExecutor("load-etl-thread-num-high-priority", Config.load_etl_thread_num_high_priority,
+                        true));
         executors.put(JobState.ETL, etlPriorityMap);
     }
 
@@ -142,7 +144,7 @@ public class LoadChecker extends MasterDaemon {
     }
 
     private void runPendingJobs() {
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
+        Load load = Env.getCurrentEnv().getLoadInstance();
         List<LoadJob> pendingJobs = load.getLoadJobs(JobState.PENDING);
 
         // check to limit running etl job num
@@ -188,7 +190,7 @@ public class LoadChecker extends MasterDaemon {
     }
 
     private void runEtlJobs() {
-        List<LoadJob> etlJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.ETL);
+        List<LoadJob> etlJobs = Env.getCurrentEnv().getLoadInstance().getLoadJobs(JobState.ETL);
         for (LoadJob job : etlJobs) {
             try {
                 MasterTask task = null;
@@ -213,7 +215,7 @@ public class LoadChecker extends MasterDaemon {
     }
 
     private void runLoadingJobs() {
-        List<LoadJob> loadingJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.LOADING);
+        List<LoadJob> loadingJobs = Env.getCurrentEnv().getLoadInstance().getLoadJobs(JobState.LOADING);
         for (LoadJob job : loadingJobs) {
             try {
                 LOG.info("run loading job. job: {}", job);
@@ -226,10 +228,10 @@ public class LoadChecker extends MasterDaemon {
 
     private void runOneLoadingJob(LoadJob job) {
         // check timeout
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
+        Load load = Env.getCurrentEnv().getLoadInstance();
         // get db
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -262,7 +264,7 @@ public class LoadChecker extends MasterDaemon {
             return;
         }
         // check if the job is aborted in transaction manager
-        TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
+        TransactionState state = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionState(job.getDbId(), job.getTransactionId());
         if (state == null) {
             LOG.warn("cancel load job {}  because could not find transaction state", job);
@@ -327,8 +329,8 @@ public class LoadChecker extends MasterDaemon {
 
     private void tryCommitJob(LoadJob job, List<Table> tables) {
         // check transaction state
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
-        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        Load load = Env.getCurrentEnv().getLoadInstance();
+        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         TransactionState transactionState = globalTransactionMgr.getTransactionState(
                 job.getDbId(), job.getTransactionId());
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
@@ -344,7 +346,7 @@ public class LoadChecker extends MasterDaemon {
             return;
         }
         try {
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             for (Replica replica : job.getFinishedReplicas()) {
                 // the inverted index contains rolling up replica
                 Long tabletId = invertedIndex.getTabletIdByReplica(replica.getId());
@@ -434,6 +436,10 @@ public class LoadChecker extends MasterDaemon {
                         }
 
                         int schemaHash = tableLoadInfo.getIndexSchemaHash(indexId);
+                        List<TColumn> columnsDesc = new ArrayList<TColumn>();
+                        for (Column column : table.getSchemaByIndexId(indexId)) {
+                            columnsDesc.add(column.toThrift());
+                        }
                         short quorumNum = (short) (replicationNum / 2 + 1);
                         for (Tablet tablet : index.getTablets()) {
                             long tabletId = tablet.getId();
@@ -470,8 +476,8 @@ public class LoadChecker extends MasterDaemon {
                                             tabletId, replicaId, schemaHash, -1, filePath, fileSize, 0,
                                             job.getId(), type, job.getConditions(), needDecompress, job.getPriority(),
                                             TTaskType.REALTIME_PUSH, job.getTransactionId(),
-                                            Catalog.getCurrentGlobalTransactionMgr()
-                                                    .getTransactionIDGenerator().getNextTransactionId());
+                                            Env.getCurrentGlobalTransactionMgr()
+                                                    .getTransactionIDGenerator().getNextTransactionId(), columnsDesc);
                                     pushTask.setIsSchemaChanging(autoLoadToTwoTablet);
                                     if (AgentTaskQueue.addTask(pushTask)) {
                                         batchTask.addTask(pushTask);
@@ -516,7 +522,7 @@ public class LoadChecker extends MasterDaemon {
     }
 
     private void runQuorumFinishedJobs() {
-        List<LoadJob> quorumFinishedJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(
+        List<LoadJob> quorumFinishedJobs = Env.getCurrentEnv().getLoadInstance().getLoadJobs(
                 JobState.QUORUM_FINISHED);
         for (LoadJob job : quorumFinishedJobs) {
             try {
@@ -530,9 +536,9 @@ public class LoadChecker extends MasterDaemon {
 
     private void runOneQuorumFinishedJob(LoadJob job) {
         // if db is null, cancel load job
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
+        Load load = Env.getCurrentEnv().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;

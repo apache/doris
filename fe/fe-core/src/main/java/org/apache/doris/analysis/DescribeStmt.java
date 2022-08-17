@@ -17,15 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -36,6 +36,8 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -97,26 +99,25 @@ public class DescribeStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         dbTableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
-                                                                dbTableName.getTbl(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    dbTableName.toString());
         }
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbTableName.getDb());
-        Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(dbTableName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
+        TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {
             if (!isAllTables) {
                 // show base table schema only
-                String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/";
+                String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId() + "/"
+                        + TableProcDir.INDEX_SCHEMA + "/";
                 if (table.getType() == TableType.OLAP) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
@@ -128,6 +129,7 @@ public class DescribeStmt extends ShowStmt {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
             } else {
+                Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
                 if (table.getType() == TableType.OLAP) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;

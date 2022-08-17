@@ -108,6 +108,16 @@ POST /_bulk
 具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
 ```
+CREATE EXTERNAL TABLE `test` // 不指定schema，自动拉取es mapping进行建表 
+ENGINE=ELASTICSEARCH 
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test",
+"type" = "doc",
+"user" = "root",
+"password" = "root"
+);
+
 CREATE EXTERNAL TABLE `test` (
   `k1` bigint(20) COMMENT "",
   `k2` datetime COMMENT "",
@@ -322,7 +332,7 @@ POST /_analyze
 
 `k4.keyword` 的类型是`keyword`，数据写入ES中是一个完整的term，所以可以匹配
 
-### 开启节点自动发现, 默认为true(es\_nodes\_discovery=true)
+### 开启节点自动发现, 默认为true(nodes\_discovery=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
@@ -345,7 +355,7 @@ PROPERTIES (
 
 参数 | 说明
 ---|---
-**es\_nodes\_discovery** | 是否开启es节点发现，默认为true
+**nodes\_discovery** | 是否开启es节点发现，默认为true
 
 当配置为true时，Doris将从ES找到所有可用的相关数据节点(在上面分配的分片)。如果ES数据节点的地址没有被Doris BE访问，则设置为false。ES集群部署在与公共Internet隔离的内网，用户通过代理访问
 

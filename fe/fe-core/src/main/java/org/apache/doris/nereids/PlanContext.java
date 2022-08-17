@@ -19,6 +19,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.common.Id;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -52,6 +53,10 @@ public class PlanContext {
 
     public PlanContext(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
+
+        for (Group group : groupExpression.children()) {
+            childrenStats.add(group.getStatistics());
+        }
     }
 
     public Plan getPlan() {
@@ -90,7 +95,7 @@ public class PlanContext {
     public List<Id> getChildOutputIds(int index) {
         List<Id> ids = Lists.newArrayList();
         childLogicalPropertyAt(index).getOutput().forEach(slot -> {
-            ids.add(slot.getId());
+            ids.add(slot.getExprId());
         });
         return ids;
     }

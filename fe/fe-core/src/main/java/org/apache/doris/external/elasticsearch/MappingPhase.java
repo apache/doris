@@ -22,9 +22,6 @@ import org.apache.doris.catalog.EsTable;
 
 import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
-
-import java.util.Iterator;
 
 /**
  * Get index mapping from remote ES Cluster, and resolved `keyword` and `doc_values` field
@@ -51,41 +48,21 @@ public class MappingPhase implements SearchPhase {
         resolveFields(context, jsonMapping);
     }
 
-
     /**
-     * Parse the required field information from the json
+     * Parse the required field information from the json.
      *
      * @param searchContext the current associated column searchContext
-     * @param indexMapping  the return value of _mapping
-     * @return fetchFieldsContext and docValueFieldsContext
-     * @throws Exception
+     * @param indexMapping the return value of _mapping
      */
-    public void resolveFields(SearchContext searchContext, String indexMapping) throws DorisEsException {
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
-        // the indexName use alias takes the first mapping
-        Iterator<String> keys = jsonObject.keySet().iterator();
-        String docKey = keys.next();
-        JSONObject docData = (JSONObject) jsonObject.get(docKey);
-        JSONObject mappings = (JSONObject) docData.get("mappings");
-        JSONObject rootSchema = (JSONObject) mappings.get(searchContext.type());
-        JSONObject properties;
-        // Elasticsearch 7.x, type was removed from ES mapping, default type is `_doc`
-        // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/removal-of-types.html
-        // Elasticsearch 8.x, include_type_name parameter is removed
-        if (rootSchema == null) {
-            properties = (JSONObject) mappings.get("properties");
-        } else {
-            properties = (JSONObject) rootSchema.get("properties");
-        }
-        if (properties == null) {
-            throw new DorisEsException("index[" + searchContext.sourceIndex() + "] type[" + searchContext.type()
-                    + "] mapping not found for the ES Cluster");
-        }
+    public static void resolveFields(SearchContext searchContext, String indexMapping) throws DorisEsException {
+        JSONObject properties = EsUtil.getMappingProps(searchContext.sourceIndex(), indexMapping, searchContext.type());
         for (Column col : searchContext.columns()) {
             String colName = col.getName();
             // if column exists in Doris Table but no found in ES's mapping, we choose to ignore this situation?
             if (!properties.containsKey(colName)) {
-                continue;
+                throw new DorisEsException(
+                        "index[" + searchContext.sourceIndex() + "] type[" + indexMapping + "] mapping not found column"
+                                + colName + " for the ES Cluster");
             }
             JSONObject fieldObject = (JSONObject) properties.get(colName);
             resolveKeywordFields(searchContext, fieldObject, colName);
@@ -93,8 +70,9 @@ public class MappingPhase implements SearchPhase {
         }
     }
 
+
     // get a field of keyword type in the fields
-    private void resolveKeywordFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
+    private static void resolveKeywordFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
         String fieldType = (String) fieldObject.get("type");
         // string-type field used keyword type to generate predicate
         // if text field type seen, we should use the `field` keyword type?
@@ -112,7 +90,7 @@ public class MappingPhase implements SearchPhase {
         }
     }
 
-    private void resolveDocValuesFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
+    private static void resolveDocValuesFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
         String fieldType = (String) fieldObject.get("type");
         String docValueField = null;
         if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
@@ -149,4 +127,5 @@ public class MappingPhase implements SearchPhase {
             searchContext.docValueFieldsContext().put(colName, docValueField);
         }
     }
+
 }

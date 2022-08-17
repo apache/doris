@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
@@ -51,6 +52,8 @@ import java.util.Set;
 
 /**
  * Sorting.
+ * Attention, in some corner case, we need enable projection planner to promise the correctness of the Plan.
+ * Please refer to this regression test:regression-test/suites/query/aggregate/aggregate_count1.groovy.
  */
 public class SortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SortNode.class);
@@ -58,7 +61,8 @@ public class SortNode extends PlanNode {
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
-    private final boolean  isDefaultLimit;
+
+    private boolean  isDefaultLimit;
     private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
@@ -68,7 +72,7 @@ public class SortNode extends PlanNode {
      * Constructor.
      */
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
-                    boolean isDefaultLimit, long offset) {
+            boolean isDefaultLimit, long offset) {
         super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
@@ -81,6 +85,10 @@ public class SortNode extends PlanNode {
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
     }
 
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
+        this(id, input, info, useTopN, true, 0);
+    }
+
     /**
      * Clone 'inputSortNode' for distributed Top-N.
      */
@@ -91,6 +99,14 @@ public class SortNode extends PlanNode {
         this.isDefaultLimit = inputSortNode.isDefaultLimit;
         this.children.add(child);
         this.offset = inputSortNode.offset;
+    }
+
+    /**
+     * set isDefaultLimit when translate PhysicalLimit
+     * @param defaultLimit
+     */
+    public void setDefaultLimit(boolean defaultLimit) {
+        isDefaultLimit = defaultLimit;
     }
 
     public void setIsAnalyticSort(boolean v) {
@@ -197,9 +213,6 @@ public class SortNode extends PlanNode {
         outputSmap = new ExprSubstitutionMap();
 
         for (int i = 0; i < slotExprs.size(); ++i) {
-            if (!sortTupleSlots.get(i).isMaterialized()) {
-                continue;
-            }
             resolvedTupleExprs.add(slotExprs.get(i));
             outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
         }
@@ -230,24 +243,16 @@ public class SortNode extends PlanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
-        TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(info.getOrderingExprs()),
-                info.getIsAscOrder(),
-                info.getNullsFirst());
+
+        TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        if (resolvedTupleExprs != null) {
+            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
-
-        // TODO(lingbin): remove blew codes, because it is duplicate with TSortInfo
-        msg.sort_node.setOrderingExprs(Expr.treesToThrift(info.getOrderingExprs()));
-        msg.sort_node.setIsAscOrder(info.getIsAscOrder());
-        msg.sort_node.setNullsFirst(info.getNullsFirst());
-        if (info.getSortTupleSlotExprs() != null) {
-            msg.sort_node.setSortTupleSlotExprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
-        }
     }
 
     @Override
@@ -267,9 +272,32 @@ public class SortNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+        for (int i = 0; i < slotDescriptorList.size(); i++) {
+            if (!slotDescriptorList.get(i).isMaterialized()) {
+                resolvedTupleExprs.remove(i);
+            }
+        }
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    /**
+     * Supplement the information needed by be for the sort node.
+     * TODO: currently we only process slotref, so when order key is a + 1, we will failed.
+     */
+    public void finalizeForNereids(TupleDescriptor tupleDescriptor,
+            List<Expr> outputList, List<Expr> orderingExpr) {
+        resolvedTupleExprs = Lists.newArrayList(orderingExpr);
+        for (Expr output : outputList) {
+            if (!resolvedTupleExprs.contains(output)) {
+                resolvedTupleExprs.add(output);
+            }
+        }
+        info.setSortTupleDesc(tupleDescriptor);
+        info.setSortTupleSlotExprs(resolvedTupleExprs);
+
     }
 }

@@ -20,14 +20,14 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.analysis.BinlogDesc;
 import org.apache.doris.analysis.ChannelDescription;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.load.sync.SyncChannel;
 import org.apache.doris.load.sync.SyncFailMsg;
@@ -61,8 +61,8 @@ public class CanalSyncJobTest {
     private String dbName;
     private String tblName;
     private String jobName;
-    private Catalog catalog;
-    private InternalDataSource ds;
+    private Env env;
+    private InternalCatalog catalog;
     private Map<String, String> properties;
 
     @Mocked
@@ -88,33 +88,33 @@ public class CanalSyncJobTest {
         properties.put(CanalSyncJob.CANAL_USERNAME, "test_user");
         properties.put(CanalSyncJob.CANAL_PASSWORD, "test_password");
 
-        ds = Deencapsulation.newInstance(InternalDataSource.class);
-        new Expectations(ds) {
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
+        new Expectations(catalog) {
             {
-                ds.getDbNullable(10000L);
+                catalog.getDbNullable(10000L);
                 minTimes = 0;
                 result = database;
 
-                ds.getDbNullable("testDb");
+                catalog.getDbNullable("testDb");
                 minTimes = 0;
                 result = database;
             }
         };
 
-        catalog = Deencapsulation.newInstance(Catalog.class);
-        new Expectations(catalog) {
+        env = Deencapsulation.newInstance(Env.class);
+        new Expectations(env) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 

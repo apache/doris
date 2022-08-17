@@ -157,7 +157,7 @@ public class Tablet extends MetaObject implements Writable {
         if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
             replicas.add(replica);
             if (!isRestore) {
-                Catalog.getCurrentInvertedIndex().addReplica(id, replica);
+                Env.getCurrentInvertedIndex().addReplica(id, replica);
             }
         }
     }
@@ -180,7 +180,7 @@ public class Tablet extends MetaObject implements Writable {
 
     public List<Long> getNormalReplicaBackendIds() {
         List<Long> beIds = Lists.newArrayList();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -198,7 +198,7 @@ public class Tablet extends MetaObject implements Writable {
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() {
         Multimap<Long, Long> map = HashMultimap.create();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -270,7 +270,7 @@ public class Tablet extends MetaObject implements Writable {
     public boolean deleteReplica(Replica replica) {
         if (replicas.contains(replica)) {
             replicas.remove(replica);
-            Catalog.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendId());
+            Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendId());
             return true;
         }
         return false;
@@ -282,7 +282,7 @@ public class Tablet extends MetaObject implements Writable {
             Replica replica = iterator.next();
             if (replica.getBackendId() == backendId) {
                 iterator.remove();
-                Catalog.getCurrentInvertedIndex().deleteReplica(id, backendId);
+                Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
                 return true;
             }
         }
@@ -394,6 +394,12 @@ public class Tablet extends MetaObject implements Writable {
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
     }
 
+    public long getRowCount(boolean singleReplica) {
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getRowCount);
+        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
     /**
      * A replica is healthy only if
      * 1. the backend is available
@@ -457,8 +463,8 @@ public class Tablet extends MetaObject implements Writable {
 
             versions.add(replica.getVersionCount());
 
-            short curNum = currentAllocMap.getOrDefault(backend.getTag(), (short) 0);
-            currentAllocMap.put(backend.getTag(), (short) (curNum + 1));
+            short curNum = currentAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+            currentAllocMap.put(backend.getLocationTag(), (short) (curNum + 1));
         }
 
         // 1. alive replicas are not enough

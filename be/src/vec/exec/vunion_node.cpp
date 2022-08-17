@@ -67,18 +67,18 @@ Status VUnionNode::prepare(RuntimeState* state) {
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     // Prepare const expr lists.
     for (const std::vector<VExprContext*>& exprs : _const_expr_lists) {
-        RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_desc(), expr_mem_tracker()));
+        RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_desc()));
     }
 
     // Prepare result expr lists.
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc(),
-                                       expr_mem_tracker()));
+        RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     return Status::OK();
 }
 
 Status VUnionNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VUnionNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // open const expr lists.
@@ -107,7 +107,8 @@ Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
         _child_eos = false;
     }
     DCHECK_EQ(block->rows(), 0);
-    RETURN_IF_ERROR(child(_child_idx)->get_next(state, block, &_child_eos));
+    RETURN_IF_ERROR_AND_CHECK_SPAN(child(_child_idx)->get_next(state, block, &_child_eos),
+                                   child(_child_idx)->get_next_span(), _child_eos);
     if (_child_eos) {
         // Even though the child is at eos, it's not OK to close() it here. Once we close
         // the child, the row batches that it produced are invalid. Marking the batch as
@@ -147,7 +148,9 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         // Here need materialize block of child block, so here so not mem_reuse
         child_block.clear();
         // The first batch from each child is always fetched here.
-        RETURN_IF_ERROR(child(_child_idx)->get_next(state, &child_block, &_child_eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(_child_idx)->get_next(state, &child_block, &_child_eos),
+                child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
             mblock.merge(materialize_block(&child_block));
@@ -213,8 +216,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
 }
 
 Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VUnionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     // RETURN_IF_ERROR(QueryMaintenance(state));
 
@@ -248,6 +251,7 @@ Status VUnionNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VUnionNode::close");
     for (auto& exprs : _const_expr_lists) {
         VExpr::close(exprs, state);
     }

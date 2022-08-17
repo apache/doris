@@ -50,7 +50,6 @@ public:
     void* get_slot(TupleRow* row);
     Tuple* get_tuple(TupleRow* row);
     bool is_null_bit_set(TupleRow* row);
-    static bool vector_compute_fn(Expr* expr, VectorizedRowBatch* batch);
     static bool is_nullable(Expr* expr);
     virtual std::string debug_string() const override;
     virtual bool is_constant() const override { return false; }
@@ -70,8 +69,13 @@ public:
     virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow* row) override;
     virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DateV2Val get_datev2_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DateTimeV2Val get_datetimev2_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal64Val get_decimal64_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal128Val get_decimal128_val(ExprContext* context, TupleRow*) override;
 
 private:
     int _tuple_idx;                             // within row
@@ -82,10 +86,6 @@ private:
     TupleId _tuple_id;       // used for desc this slot from
     bool _is_nullable;
 };
-
-inline bool SlotRef::vector_compute_fn(Expr* expr, VectorizedRowBatch* /* batch */) {
-    return true;
-}
 
 inline void* SlotRef::get_value(Expr* expr, TupleRow* row) {
     SlotRef* ref = (SlotRef*)expr;

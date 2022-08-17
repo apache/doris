@@ -57,11 +57,6 @@ protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
-    // Writes a slot in tuple from an MySQL value containing text data.
-    // The Odbc value is converted into the appropriate target type.
-    Status write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                           RuntimeState* state);
-
     bool _is_init;
 
     std::string _scan_node_type;
@@ -87,8 +82,6 @@ private:
     ODBCConnectorParam _odbc_param;
     // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
-    // Current tuple.
-    doris::Tuple* _tuple = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

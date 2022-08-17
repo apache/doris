@@ -56,9 +56,8 @@ Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKey
 
     // check if body size match footer's information
     if (body.size != (_footer.key_bytes() + _footer.offset_bytes())) {
-        return Status::Corruption(strings::Substitute("Index size not match, need=$0, real=$1",
-                                                      _footer.key_bytes() + _footer.offset_bytes(),
-                                                      body.size));
+        return Status::Corruption("Index size not match, need={}, real={}",
+                                  _footer.key_bytes() + _footer.offset_bytes(), body.size);
     }
 
     // set index buffer

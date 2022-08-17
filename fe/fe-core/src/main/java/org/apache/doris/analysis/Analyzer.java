@@ -20,25 +20,26 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNode;
@@ -57,7 +58,9 @@ import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
+import org.apache.doris.rewrite.RewriteImplicitCastRule;
 import org.apache.doris.rewrite.RewriteInPredicateRule;
+import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -149,6 +152,17 @@ public class Analyzer {
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
 
+    public boolean isInlineView() {
+        return isInlineView;
+    }
+
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    // Flag indicating if this analyzer instance belongs to an inlineview.
+    private boolean isInlineView = false;
+
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
 
@@ -204,6 +218,18 @@ public class Analyzer {
         return timezone;
     }
 
+    public void putEquivalentSlot(SlotId srcSid, SlotId targetSid) {
+        globalState.equivalentSlots.put(srcSid, targetSid);
+    }
+
+    public SlotId getEquivalentSlot(SlotId srcSid) {
+        return globalState.equivalentSlots.get(srcSid);
+    }
+
+    public boolean containEquivalentSlot(SlotId srcSid) {
+        return globalState.equivalentSlots.containsKey(srcSid);
+    }
+
     public void putAssignedRuntimeFilter(RuntimeFilter rf) {
         assignedRuntimeFilters.add(rf);
     }
@@ -226,7 +252,7 @@ public class Analyzer {
     // them properties of the tuple descriptor itself.
     private static class GlobalState {
         private final DescriptorTable descTbl = new DescriptorTable();
-        private final Catalog catalog;
+        private final Env env;
         private final IdGenerator<ExprId> conjunctIdGenerator = ExprId.createGenerator();
         private final ConnectContext context;
 
@@ -255,14 +281,13 @@ public class Analyzer {
         private final Map<TupleId, List<ExprId>> eqJoinConjuncts = Maps.newHashMap();
 
         // set of conjuncts that have been assigned to some PlanNode
-        private Set<ExprId> assignedConjuncts =
-                Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+        private Set<ExprId> assignedConjuncts = Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+
+        private Set<TupleId> inlineViewTupleIds = Sets.newHashSet();
 
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
-
-        private final Set<TupleId> outerJoinedMaterializedTupleIds = Sets.newHashSet();
 
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
@@ -341,8 +366,10 @@ public class Analyzer {
 
         private final long autoBroadcastJoinThreshold;
 
-        public GlobalState(Catalog catalog, ConnectContext context) {
-            this.catalog = catalog;
+        private final Map<SlotId, SlotId> equivalentSlots = Maps.newHashMap();
+
+        public GlobalState(Env env, ConnectContext context) {
+            this.env = env;
             this.context = context;
             List<ExprRewriteRule> rules = Lists.newArrayList();
             // BetweenPredicates must be rewritten to be executable. Other non-essential
@@ -354,6 +381,8 @@ public class Analyzer {
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             // Put it after NormalizeBinaryPredicatesRule, make sure slotRef is on the left and Literal is on the right.
             rules.add(RewriteBinaryPredicatesRule.INSTANCE);
+            rules.add(RewriteImplicitCastRule.INSTANCE);
+            rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
@@ -428,9 +457,9 @@ public class Analyzer {
     // conjunct evaluating to false.
     private boolean hasEmptySpjResultSet = false;
 
-    public Analyzer(Catalog catalog, ConnectContext context) {
+    public Analyzer(Env env, ConnectContext context) {
         ancestors = Lists.newArrayList();
-        globalState = new GlobalState(catalog, context);
+        globalState = new GlobalState(env, context);
     }
 
     /**
@@ -460,7 +489,7 @@ public class Analyzer {
      * global state.
      */
     public static Analyzer createWithNewGlobalState(Analyzer parentAnalyzer) {
-        GlobalState globalState = new GlobalState(parentAnalyzer.globalState.catalog, parentAnalyzer.getContext());
+        GlobalState globalState = new GlobalState(parentAnalyzer.globalState.env, parentAnalyzer.getContext());
         return new Analyzer(parentAnalyzer, globalState);
     }
 
@@ -649,17 +678,10 @@ public class Analyzer {
 
         // Resolve the table ref's path and determine what resolved table ref
         // to replace it with.
-        String dbName = tableName.getDb();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = getDefaultDb();
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), tableName.getDb());
-        }
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
+        tableName.analyze(this);
 
-        DatabaseIf database = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf database = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tableName.getCtl())
+                .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
@@ -682,13 +704,22 @@ public class Analyzer {
             table = HudiUtils.resolveHudiTable((HudiTable) table);
         }
 
+        // Now hms table only support a bit of table kinds in the whole hive system.
+        // So Add this strong checker here to avoid some undefine behaviour in doris.
+        if (table.getType() == TableType.HMS_EXTERNAL_TABLE && !((HMSExternalTable) table).isSupportedHmsTable()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
+                    table.getName(),
+                    ((HMSExternalTable) table).getDbName(),
+                    tableName.getCtl());
+        }
+
         // tableName.getTbl() stores the table name specified by the user in the from statement.
         // In the case of case-sensitive table names, the value of tableName.getTbl() is the same as table.getName().
         // However, since the system view is not case-sensitive, table.getName() gets the lowercase view name,
         // which may not be the same as the user's reference to the table name, causing the table name not to be found
         // in registerColumnRef(). So here the tblName is constructed using tableName.getTbl()
         // instead of table.getName().
-        TableName tblName = new TableName(dbName, tableName.getTbl());
+        TableName tblName = new TableName(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
         } else {
@@ -698,7 +729,8 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(tblName.getDb());
+        DatabaseIf db = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl())
+                .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
@@ -755,6 +787,21 @@ public class Analyzer {
             d = resolveColumnRef(colName);
         } else {
             d = resolveColumnRef(newTblName, colName);
+            //in reanalyze, the inferred expr may contain upper level table alias, and the upper level alias has not
+            // been PROCESSED. So we resolve this column without tbl name.
+            // For example: a view V "select * from t where t.a>1"
+            // sql: select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2)
+            // after first analyze, sql becomes:
+            //  select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2) and t2.a in (1, 2)
+            // in reanalyze, when we process V as t2, we indeed process sql like this:
+            //    select * from t where t.a>1 and t2.a in (1, 2)
+            //  in order to resolve t2.a, we have to ignore "t2"
+            // ===================================================
+            // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
+            // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
+            if (d == null && isInlineView) {
+                d = resolveColumnRef(colName);
+            }
         }
         /*
          * Now, we only support the columns in the subquery to associate the outer query columns in parent level.
@@ -789,19 +836,18 @@ public class Analyzer {
         String key = d.getAlias() + "." + col.getName();
         SlotDescriptor result = slotRefMap.get(key);
         if (result != null) {
-            // this is a trick to set slot as nullable when slot is on inline view
-            // When analyze InlineViewRef, we first generate sMap and baseTblSmap and then analyze join.
-            // We have already registered column ref at that time, but we did not know
-            // whether inline view is outer joined. So we have to check it and set slot as nullable here.
-            if (isOuterJoined(d.getId())) {
-                result.setIsNullable(true);
-            }
             result.setMultiRef(true);
             return result;
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        result.setIsNullable(col.isAllowNull() || isOuterJoined(d.getId()));
+        boolean isNullable;
+        if (VectorizedUtil.isVectorized()) {
+            isNullable = col.isAllowNull();
+        } else {
+            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
+        }
+        result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);
         return result;
@@ -900,6 +946,10 @@ public class Analyzer {
         return result;
     }
 
+    public void registerInlineViewTupleId(TupleId tupleId) {
+        globalState.inlineViewTupleIds.add(tupleId);
+    }
+
     /**
      * Register conjuncts that are outer joined by a full outer join. For a given
      * predicate, we record the last full outer join that outer-joined any of its
@@ -948,57 +998,6 @@ public class Analyzer {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("registerOuterJoinedTids: " + globalState.outerJoinedTupleIds);
-        }
-    }
-
-    public void registerOuterJoinedMaterilizeTids(List<TupleId> tids) {
-        globalState.outerJoinedMaterializedTupleIds.addAll(tids);
-    }
-
-    /**
-     * The main function of this method is to set the column property on the nullable side of the outer join
-     * to nullable in the case of vectorization.
-     * For example:
-     * Query: select * from t1 left join t2 on t1.k1=t2.k1
-     * Origin: t2.k1 not null
-     * Result: t2.k1 is nullable
-     *
-     * @throws VecNotImplException In some cases, it is not possible to directly modify the column property to nullable.
-     *     It will report an error and fall back from vectorized mode to non-vectorized mode for execution.
-     *     If the nullside column of the outer join is a column that must return non-null like count(*)
-     *     then there is no way to force the column to be nullable.
-     *     At this time, vectorization cannot support this situation,
-     *     so it is necessary to fall back to non-vectorization for processing.
-     *     For example:
-     *       Query: select * from t1 left join
-     *              (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
-     *       Origin: tmp.k1 not null, tmp.count_k2 not null
-     *       Result: throw VecNotImplException
-     */
-    public void changeAllOuterJoinTupleToNull() throws VecNotImplException {
-        for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
-            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                changeSlotToNull(slotDescriptor);
-            }
-        }
-
-        for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
-            for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                changeSlotToNull(slotDescriptor);
-            }
-        }
-    }
-
-    private void changeSlotToNull(SlotDescriptor slotDescriptor) throws VecNotImplException {
-        if (slotDescriptor.getSourceExprs().isEmpty()) {
-            slotDescriptor.setIsNullable(true);
-            return;
-        }
-        for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
-            if (!sourceExpr.isNullable()) {
-                throw new VecNotImplException("The slot (" + slotDescriptor.toString()
-                        + ") could not be changed to nullable");
-            }
         }
     }
 
@@ -1421,10 +1420,6 @@ public class Analyzer {
         return globalState.fullOuterJoinedTupleIds.containsKey(tid);
     }
 
-    public boolean isOuterMaterializedJoined(TupleId tid) {
-        return globalState.outerJoinedMaterializedTupleIds.contains(tid);
-    }
-
     public boolean isFullOuterJoined(SlotId sid) {
         return isFullOuterJoined(getTupleId(sid));
     }
@@ -1446,8 +1441,8 @@ public class Analyzer {
         return globalState.descTbl;
     }
 
-    public Catalog getCatalog() {
-        return globalState.catalog;
+    public Env getEnv() {
+        return globalState.env;
     }
 
     public Set<String> getAliases() {
@@ -1887,12 +1882,12 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = Type.DATETIME;
+                compatibleType = ScalarType.getDefaultDateType(Type.DATETIME);
             }
         }
         // Add implicit casts if necessary.
         for (int i = 0; i < exprs.size(); ++i) {
-            if (exprs.get(i).getType() != compatibleType) {
+            if (!exprs.get(i).getType().equals(compatibleType)) {
                 Expr castExpr = exprs.get(i).castTo(compatibleType);
                 exprs.set(i, castExpr);
             }
@@ -2238,6 +2233,10 @@ public class Analyzer {
         return globalState.outerJoinedTupleIds.containsKey(tid);
     }
 
+    public boolean isInlineView(TupleId tid) {
+        return globalState.inlineViewTupleIds.contains(tid);
+    }
+
     public boolean containSubquery() {
         return globalState.containsSubquery;
     }
@@ -2297,7 +2296,7 @@ public class Analyzer {
      * TODO(zxy) Use value-transfer graph to check
      */
     public boolean hasValueTransfer(SlotId a, SlotId b) {
-        return a.equals(b);
+        return getValueTransferTargets(a).contains(b);
     }
 
     /**
@@ -2309,6 +2308,11 @@ public class Analyzer {
     public List<SlotId> getValueTransferTargets(SlotId srcSid) {
         List<SlotId> result = new ArrayList<>();
         result.add(srcSid);
+        SlotId equalSlot = srcSid;
+        while (containEquivalentSlot(equalSlot)) {
+            result.add(getEquivalentSlot(equalSlot));
+            equalSlot = getEquivalentSlot(equalSlot);
+        }
         return result;
     }
 
@@ -2325,5 +2329,32 @@ public class Analyzer {
             }
         }
         return false;
+    }
+
+
+    /**
+     * Change all outer joined slots to nullable
+     * Returns the slots actually be changed from not nullable to nullable
+     */
+    public List<SlotDescriptor> changeSlotToNullableOfOuterJoinedTuples() {
+        List<SlotDescriptor> result = new ArrayList<>();
+        for (TupleId id : globalState.outerJoinedTupleIds.keySet()) {
+            TupleDescriptor tupleDescriptor = globalState.descTbl.getTupleDesc(id);
+            if (tupleDescriptor != null) {
+                for (SlotDescriptor desc : tupleDescriptor.getSlots()) {
+                    if (!desc.getIsNullable()) {
+                        desc.setIsNullable(true);
+                        result.add(desc);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    public void changeSlotsToNotNullable(List<SlotDescriptor> slots) {
+        for (SlotDescriptor slot : slots) {
+            slot.setIsNullable(false);
+        }
     }
 }

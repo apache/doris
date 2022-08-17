@@ -30,6 +30,7 @@
 namespace doris {
 
 Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+                             TabletSchemaSPtr cur_tablet_schema,
                              const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                              RowsetWriter* dst_rowset_writer, Merger::Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
@@ -40,15 +41,23 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+                  std::inserter(reader_params.delete_predicates,
+                                reader_params.delete_predicates.begin()));
+    }
+
+    reader_params.tablet_schema = cur_tablet_schema;
     RETURN_NOT_OK(reader.init(reader_params));
 
     RowCursor row_cursor;
     RETURN_NOT_OK_LOG(
-            row_cursor.init(tablet->tablet_schema()),
+            row_cursor.init(cur_tablet_schema),
             "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
-    row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
+    row_cursor.allocate_memory_for_string_type(cur_tablet_schema);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool("Merger:merge_rowsets"));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
 
     // The following procedure would last for long time, half of one day, etc.
     int64_t output_rows = 0;
@@ -88,6 +97,7 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 }
 
 Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+                              TabletSchemaSPtr cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                               RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
@@ -98,14 +108,39 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
+    reader_params.tablet_schema = cur_tablet_schema;
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+                  std::inserter(reader_params.delete_predicates,
+                                reader_params.delete_predicates.begin()));
+    }
 
-    const auto& schema = tablet->tablet_schema();
-    reader_params.return_columns.resize(schema.num_columns());
+    if (tablet->enable_unique_key_merge_on_write()) {
+        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
+
+    if (stats_output && stats_output->rowid_conversion) {
+        reader_params.record_rowids = true;
+    }
+
+    reader_params.return_columns.resize(cur_tablet_schema->num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
 
-    vectorized::Block block = schema.create_block(reader_params.return_columns);
+    if (reader_params.record_rowids) {
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
+        // init segment rowid map for rowid conversion
+        std::vector<uint32_t> segment_num_rows;
+        for (auto& rs_reader : reader_params.rs_readers) {
+            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
+                                                             segment_num_rows);
+        }
+    }
+
+    vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof) {
@@ -116,6 +151,14 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         RETURN_NOT_OK_LOG(
                 dst_rowset_writer->add_block(&block),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
+
+        if (reader_params.record_rowids && block.rows() > 0) {
+            std::vector<uint32_t> segment_num_rows;
+            RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
+                                                segment_num_rows);
+        }
+
         output_rows += block.rows();
         block.clear_column_data();
     }

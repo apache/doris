@@ -17,11 +17,11 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -38,9 +38,9 @@ public class DbsProcDirTest {
     private Database db1;
     private Database db2;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
 
     // construct test case
     //  catalog
@@ -55,46 +55,46 @@ public class DbsProcDirTest {
 
     @After
     public void tearDown() {
-        catalog = null;
+        env = null;
     }
 
     @Test
     public void testRegister() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         Assert.assertFalse(dir.register("db1", new BaseProcDir()));
     }
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable("db1");
+                catalog.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable("db2");
+                catalog.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable("db3");
+                catalog.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                ds.getDbNullable(db1.getId());
+                catalog.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable(db2.getId());
+                catalog.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -103,7 +103,7 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcNodeInterface node;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         try {
             node = dir.lookup(String.valueOf(db1.getId()));
             Assert.assertNotNull(node);
@@ -112,7 +112,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         try {
             node = dir.lookup(String.valueOf(db2.getId()));
             Assert.assertNotNull(node);
@@ -121,7 +121,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         node = dir.lookup("10002");
         Assert.assertNull(node);
     }
@@ -130,7 +130,7 @@ public class DbsProcDirTest {
     public void testLookupInvalid() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         try {
             dir.lookup(null);
         } catch (AnalysisException e) {
@@ -148,37 +148,37 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNames();
+                catalog.getDbNames();
                 minTimes = 0;
                 result = Lists.newArrayList("db1", "db2");
 
-                ds.getDbNullable("db1");
+                catalog.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable("db2");
+                catalog.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable("db3");
+                catalog.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                ds.getDbNullable(db1.getId());
+                catalog.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable(db2.getId());
+                catalog.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -187,28 +187,29 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
 
-        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
+        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
+                    "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota"),
                 result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 TB", FeConstants.null_string, "1073741824"));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 TB", FeConstants.null_string, "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "1024.000 TB", FeConstants.null_string, "0", "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "1024.000 TB", FeConstants.null_string, "0", "1073741824"));
         Assert.assertEquals(rows, result.getRows());
     }
 
     @Test
     public void testFetchResultInvalid() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNames();
+                catalog.getDbNames();
                 minTimes = 0;
                 result = null;
             }
@@ -217,16 +218,17 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(null);
+        dir = new DbsProcDir(null, catalog);
         try {
             result = dir.fetchResult();
         } catch (NullPointerException e) {
             e.printStackTrace();
         }
 
-        dir = new DbsProcDir(catalog);
+        dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
-        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
+        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
+                    "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota"),
                             result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         Assert.assertEquals(rows, result.getRows());

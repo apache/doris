@@ -78,7 +78,7 @@ private:
 
     std::unique_ptr<PageBuilder> _data_page_builder;
 
-    std::unique_ptr<BinaryPlainPageBuilder> _dict_builder;
+    std::unique_ptr<BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>> _dict_builder;
 
     EncodingTypePB _encoding_type;
     struct HashOfSlice {
@@ -108,6 +108,9 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override;
+
     size_t count() const override { return _data_page_decoder->count(); }
 
     size_t current_index() const override { return _data_page_decoder->current_index(); }
@@ -122,7 +125,7 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder* _dict_decoder = nullptr;
+    BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;

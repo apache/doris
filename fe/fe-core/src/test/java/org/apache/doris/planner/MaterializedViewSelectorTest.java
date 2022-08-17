@@ -34,6 +34,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
@@ -49,7 +50,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class MaterializedViewSelectorTest {
-
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Test
     public void initTest(@Injectable SelectStmt selectStmt,
@@ -62,8 +63,8 @@ public class MaterializedViewSelectorTest {
                          @Injectable TupleDescriptor tableBDesc,
                          @Injectable Table tableB,
                          @Injectable Analyzer analyzer) {
-        TableName tableAName = new TableName("test", "tableA");
-        TableName tableBName = new TableName("test", "tableB");
+        TableName tableAName = new TableName(internalCtl, "test", "tableA");
+        TableName tableBName = new TableName(internalCtl, "test", "tableB");
         SlotRef tableAColumn1 = new SlotRef(tableAName, "c1");
         Deencapsulation.setField(tableAColumn1, "isAnalyzed", true);
         SlotRef tableAColumn2 = new SlotRef(tableAName, "c2");
@@ -209,6 +210,7 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckGrouping(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable OlapTable table,
             @Injectable MaterializedIndexMeta indexMeta1,
             @Injectable MaterializedIndexMeta indexMeta2,
             @Injectable MaterializedIndexMeta indexMeta3) {
@@ -248,7 +250,7 @@ public class MaterializedViewSelectorTest {
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Deencapsulation.invoke(selector, "checkGrouping", tableAColumnNames, candidateIndexIdToSchema);
+        Deencapsulation.invoke(selector, "checkGrouping", table, tableAColumnNames, candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
@@ -256,6 +258,7 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckAggregationFunction(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable OlapTable table,
             @Injectable MaterializedIndexMeta indexMeta1,
             @Injectable MaterializedIndexMeta indexMeta2,
             @Injectable MaterializedIndexMeta indexMeta3) {
@@ -292,14 +295,14 @@ public class MaterializedViewSelectorTest {
         };
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
-        TableName tableName = new TableName("db1", "table1");
+        TableName tableName = new TableName(internalCtl, "db1", "table1");
         SlotRef slotRef = new SlotRef(tableName, "C1");
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", Lists.newArrayList(slotRef));
         Set<FunctionCallExpr> aggregatedColumnsInQueryOutput = Sets.newHashSet();
         aggregatedColumnsInQueryOutput.add(functionCallExpr);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Deencapsulation.invoke(selector, "checkAggregationFunction", aggregatedColumnsInQueryOutput,
-                               candidateIndexIdToSchema);
+        Deencapsulation.invoke(selector, "checkAggregationFunction", table, aggregatedColumnsInQueryOutput,
+                candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));

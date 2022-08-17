@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -36,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class ExprTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Test
     public void testGetTableNameToColumnNames(@Mocked Analyzer analyzer,
@@ -45,8 +47,8 @@ public class ExprTest {
                                               @Injectable TupleDescriptor tupleDescriptor2,
                                               @Injectable Table tableA,
                                               @Injectable Table tableB) throws AnalysisException {
-        TableName tableAName = new TableName("test", "tableA");
-        TableName tableBName = new TableName("test", "tableB");
+        TableName tableAName = new TableName(internalCtl, "test", "tableA");
+        TableName tableBName = new TableName(internalCtl, "test", "tableB");
         SlotRef tableAColumn1 = new SlotRef(tableAName, "c1");
         SlotRef tableBColumn1 = new SlotRef(tableBName, "c1");
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, tableAColumn1, tableBColumn1);
@@ -94,7 +96,7 @@ public class ExprTest {
         // uncheckedCastTo should return new object
 
         // date
-        DateLiteral dateLiteral = new DateLiteral(2020, 4, 5, 12, 0, 5);
+        DateLiteral dateLiteral = new DateLiteral(2020, 4, 5, 12, 0, 5, Type.DATETIME);
         Assert.assertTrue(dateLiteral.getType().equals(Type.DATETIME));
         DateLiteral castLiteral = (DateLiteral) dateLiteral.uncheckedCastTo(Type.DATE);
         Assert.assertFalse(dateLiteral == castLiteral);
@@ -109,7 +111,7 @@ public class ExprTest {
         Assert.assertEquals(0, dateLiteral.getMinute());
         Assert.assertEquals(5, dateLiteral.getSecond());
 
-        DateLiteral dateLiteral2 = new DateLiteral(2020, 4, 5);
+        DateLiteral dateLiteral2 = new DateLiteral(2020, 4, 5, Type.DATE);
         Assert.assertTrue(dateLiteral2.getType().equals(Type.DATE));
         castLiteral = (DateLiteral) dateLiteral2.uncheckedCastTo(Type.DATETIME);
         Assert.assertFalse(dateLiteral2 == castLiteral);
@@ -198,7 +200,7 @@ public class ExprTest {
 
     @Test
     public void testSrcSlotRef(@Injectable SlotDescriptor slotDescriptor) {
-        TableName tableName = new TableName("db1", "table1");
+        TableName tableName = new TableName(internalCtl, "db1", "table1");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         slotRef.setDesc(slotDescriptor);
         Deencapsulation.setField(slotRef, "isAnalyzed", true);

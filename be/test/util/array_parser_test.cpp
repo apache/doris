@@ -22,7 +22,6 @@
 
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/string_value.h"
 #include "testutil/array_utils.h"
 
@@ -52,8 +51,7 @@ static TypeInfoPtr get_type_info(const ColumnPB& column_pb) {
 
 static void test_array_parser(const ColumnPB& column_pb, const std::string& json,
                               const CollectionValue& expect) {
-    MemTracker tracker(1024 * 1024, "ArrayParserTest");
-    MemPool mem_pool(&tracker);
+    MemPool mem_pool;
     FunctionContext context;
     ArrayUtils::prepare_context(context, mem_pool, column_pb);
     CollectionValue actual;
@@ -172,4 +170,20 @@ TEST(ArrayParserTest, TestDecimalArray) {
     value = {data, num_items, false, nullptr};
     test_array_parser(column_pb, "[2147483647.5, \"34359738368.5\"]", value);
 }
+
+TEST(ArrayParserTest, TestFreePool) {
+    auto column_pb = create_column_pb("ARRAY", "DECIMAL");
+    MemPool mem_pool;
+    FunctionContext context;
+    ArrayUtils::prepare_context(context, mem_pool, column_pb);
+    int alignment = 1;
+    for (int i = 1; i <= 4; ++i) {
+        alignment <<= 1;
+        auto* p = context.aligned_allocate(alignment, alignment);
+        EXPECT_TRUE(reinterpret_cast<uint64_t>(p) % alignment == 0);
+        p = context.aligned_allocate(alignment, alignment);
+        EXPECT_TRUE(reinterpret_cast<uint64_t>(p) % alignment == 0);
+    }
+}
+
 } // namespace doris

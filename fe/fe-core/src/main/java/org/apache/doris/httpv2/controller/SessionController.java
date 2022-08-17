@@ -61,7 +61,8 @@ public class SessionController extends BaseController {
     }
 
     private void appendSessionInfo(Map<String, Object> result) {
-        List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler().listConnection("root");
+        List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler()
+                .listConnection("root", false);
         List<List<String>> rows = Lists.newArrayList();
 
         result.put("column_names", SESSION_TABLE_HEADER);

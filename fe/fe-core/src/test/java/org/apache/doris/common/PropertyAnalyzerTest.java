@@ -27,6 +27,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -155,8 +156,8 @@ public class PropertyAnalyzerTest {
     @Test
     public void testStorageFormat() throws AnalysisException {
         HashMap<String, String> propertiesV1 = Maps.newHashMap();
-        HashMap<String, String>  propertiesV2 = Maps.newHashMap();
-        HashMap<String, String>  propertiesDefault = Maps.newHashMap();
+        HashMap<String, String> propertiesV2 = Maps.newHashMap();
+        HashMap<String, String> propertiesDefault = Maps.newHashMap();
         propertiesV1.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v1");
         propertiesV2.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v2");
         propertiesDefault.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "default");
@@ -164,8 +165,24 @@ public class PropertyAnalyzerTest {
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14,"
-                + " please use V2 instead");
+        expectedEx.expectMessage(
+                "Storage format V1 has been deprecated since version 0.14," + " please use V2 instead");
         PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
+    }
+
+    @Test
+    public void testTag() throws AnalysisException {
+        HashMap<String, String> properties = Maps.newHashMap();
+        properties.put("tag.location", "l1");
+        properties.put("other", "prop");
+        Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
+        Assert.assertEquals("l1", tagMap.get("location"));
+        Assert.assertEquals(1, tagMap.size());
+        Assert.assertEquals(1, properties.size());
+
+        properties.clear();
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+        Assert.assertEquals(1, tagMap.size());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG.value, tagMap.get(Tag.TYPE_LOCATION));
     }
 }

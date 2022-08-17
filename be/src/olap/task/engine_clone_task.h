@@ -51,7 +51,7 @@ private:
 
     Status _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
 
-    Status _make_and_download_snapshots(DataDir& data_dir, const string& local_data_path,
+    Status _make_and_download_snapshots(DataDir& data_dir, const std::string& local_data_path,
                                         TBackend* src_host, string* src_file_path,
                                         vector<string>* error_msgs,
                                         const vector<Version>* missing_versions,
@@ -79,7 +79,7 @@ private:
     const TMasterInfo& _master_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

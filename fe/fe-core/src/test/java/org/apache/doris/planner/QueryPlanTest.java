@@ -27,13 +27,14 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -420,7 +421,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testFunctionViewGroupingSet() throws Exception {
         String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup("
                 + "query_id, client_ip, concat);";
-        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]");
+        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [8], [8, 9], [8, 9, 10]]");
     }
 
     @Test
@@ -439,7 +440,7 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    `id`\n    `id2`"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
         assertSQLPlanOrErrorMsgContains("insert into test.bitmap_table select id, id from test.bitmap_table_2;",
@@ -450,7 +451,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testBitmapQuery() throws Exception {
         assertSQLPlanOrErrorMsgContains(
                 "select * from test.bitmap_table;",
-                "OUTPUT EXPRS:`default_cluster:test`.`bitmap_table`.`id` | `default_cluster:test`.`bitmap_table`.`id2`"
+                "OUTPUT EXPRS:\n    `default_cluster:test`.`bitmap_table`.`id`\n    `default_cluster:test`.`bitmap_table`.`id2`"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -499,7 +500,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testHLLTypeQuery() throws Exception {
         assertSQLPlanOrErrorMsgContains(
                 "select * from test.hll_table;",
-                "OUTPUT EXPRS:`default_cluster:test`.`hll_table`.`id` | `default_cluster:test`.`hll_table`.`id2`"
+                "OUTPUT EXPRS:\n    `default_cluster:test`.`hll_table`.`id`\n    `default_cluster:test`.`hll_table`.`id2`"
         );
 
         assertSQLPlanOrErrorMsgContains(
@@ -682,7 +683,7 @@ public class QueryPlanTest extends TestWithFeService {
         String castSql = "select * from test.baseall where k11 < cast('2020-03-26' as date)";
         SelectStmt selectStmt = (SelectStmt) parseAndAnalyzeStmt(castSql);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
-        Assert.assertTrue(rightExpr.getType().equals(Type.DATETIME));
+        Assert.assertTrue(rightExpr.getType().equals(ScalarType.getDefaultDateType(Type.DATETIME)));
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
@@ -701,7 +702,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "(event_date = default_value('2020-03-06'))) \n"
                 + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n";
         LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
-        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
+        Env.getCurrentEnv().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
     }
 
@@ -744,7 +745,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -831,7 +832,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
@@ -883,13 +884,13 @@ public class QueryPlanTest extends TestWithFeService {
         String sql121 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col121 from"
                 + " test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql121),
-                "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
+                "OUTPUT EXPRS:\n    CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
 
         // 1.2.2 when expr which can not be converted to constants in the first
         String sql122 = "select case when substr(k7,2,1) then 2 when false then 3 else 0 end as col122"
                 + " from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql122),
-                "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
+                "OUTPUT EXPRS:\n    CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.2.3 test return `then expr` in the middle
         String sql124 = "select case when false then 1 when true then 2 when false then 3 else 'other' end as col124";
@@ -915,7 +916,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3"
                 + " else 0 end as col from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql15),
-                "OUTPUT EXPRS:CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2"
+                "OUTPUT EXPRS:\n    CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2"
                         + " WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.6 test when expr is null
@@ -949,20 +950,20 @@ public class QueryPlanTest extends TestWithFeService {
                 + " else 0 end as col23 from test.baseall";
         String a = getSQLPlanOrErrorMsg("explain " + sql23);
         Assert.assertTrue(StringUtils.containsIgnoreCase(a,
-                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:\n    CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
         String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
                 + " as col231 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql231),
-                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0'"
+                "OUTPUT EXPRS:\n    CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0'"
                         + " THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
         String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
                 + " as col232 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql232),
-                "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' "
+                "OUTPUT EXPRS:\n    CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' "
                         + "WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
@@ -988,36 +989,35 @@ public class QueryPlanTest extends TestWithFeService {
         // 5.1 test same type in then expr and else expr
         String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql51),
-                "OUTPUT EXPRS: CASE WHEN 132 THEN `k7` ELSE 'all' END"));
+                "CASE WHEN 132 THEN `k7` ELSE 'all' END"));
 
         // 5.2 test same type in then expr and else expr
         String sql52 = "select case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql52),
-                "OUTPUT EXPRS: `k7`"));
+                "`k7`"));
 
         // 5.3 test different type in then expr and else expr, and return CastExpr<SlotRef>
         String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql53),
-                "OUTPUT EXPRS: `k1`"));
+                "`k1`"));
 
         // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
         String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall"
                 + " group by k2, col54, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql54),
-                "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
+                "OUTPUT EXPRS:\n    <slot 3> `k2`\n    <slot 4> `k1`\n    <slot 5> `k7`"));
 
         // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
         String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from"
                 + " test.baseall group by col55, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql55),
-                "OUTPUT EXPRS:<slot 2> CAST(`k1` AS INT) | <slot 3> `k7`"));
+                "OUTPUT EXPRS:\n    <slot 2> CAST(`k1` AS INT)\n    <slot 3> `k7`"));
     }
 
     @Test
     public void testJoinPredicateTransitivityWithSubqueryInWhereClause() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT *\n"
-
                 + "FROM test.pushdown_test\n"
                 + "WHERE 0 < (\n"
                 + "    SELECT MAX(k9)\n" + "    FROM test.pushdown_test);";
@@ -1036,7 +1036,7 @@ public class QueryPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testConstInParitionPrune() throws Exception {
+    public void testConstInPartitionPrune() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9"
                 + " group by kk1)tt where kk1 in ('aa');";
@@ -1105,7 +1105,7 @@ public class QueryPlanTest extends TestWithFeService {
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1113,13 +1113,13 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 0, 10000);
                     }
                 }
             }
         }
 
-        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1127,7 +1127,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 0, 10000);
                     }
                 }
             }
@@ -1165,19 +1165,20 @@ public class QueryPlanTest extends TestWithFeService {
 
         // support recurse of bucket shuffle join
         // TODO: support the UT in the future
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and"
-                + " t1.k1 = t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 and t2.k2 = t3.k2";
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2"
+                + " on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3"
+                + " on t2.k1 = t3.k1 and t2.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
+        // Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        //  Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
 
         // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
         queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and"
                 + " t1.k1 = t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and"
                 + " t4.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
+        //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
         // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
         queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 ="
@@ -1196,7 +1197,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1204,11 +1205,14 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 0, 10000);
                     }
                 }
             }
         }
+
+        // disable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
 
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1231,7 +1235,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0);
+                        replica.updateVersionInfo(2, 0, 0, 0);
                     }
                 }
             }
@@ -1243,7 +1247,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1251,12 +1255,14 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 10000);
+                        replica.updateVersionInfo(2, 200000, 0, 10000);
                     }
                 }
             }
         }
 
+        // disable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN(BROADCAST)"));
@@ -1278,7 +1284,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0);
+                        replica.updateVersionInfo(2, 0, 0, 0);
                     }
                 }
             }
@@ -1351,7 +1357,9 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String queryStr = "explain select * from (select k2 from jointest group by k2)t2, jointest t1 where t1.k1 = t2.k2";
+        String queryStr = "explain select * from (select k2 from jointest)t2, jointest t1 where t1.k1 = t2.k2";
+        // disable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
 
         // default set PreferBroadcastJoin true
         String explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1535,7 +1543,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testInformationFunctions() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         InformationFunction infoFunc = new InformationFunction("database");
         infoFunc.analyze(analyzer);
         Assert.assertEquals("test", infoFunc.getStrValue());
@@ -1620,32 +1628,31 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
     }
 
     @Test
@@ -1655,57 +1662,6 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
-
-        //format yyyy-MM-dd HH:mm:ss or %Y-%m-%d %H:%i:%s
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm:ss') > '2021-03-02 10:01:28'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
-        sql = "select * from test1 where from_unixtime(query_time, '%Y-%m-%d %H:%i:%s') > '2021-03-02 10:01:28'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
-
-        //format yyyy-MM-dd or %Y-%m-%d
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') > '2021-03-02'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-        sql = "select * from test1 where from_unixtime(query_time, '%Y-%m-%d') > '2021-03-02'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-
-        // format yyyyMMdd or %Y%m%d
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyyMMdd') > '20210302'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-        sql = "select * from test1 where from_unixtime(query_time, '%Y%m%d') > '20210302'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
-
-        //format less than
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
-
-        // Do not support other format
-        //format yyyy-MM-dd HH:mm
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm') > '2021-03-02 10:01'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        //format yyyy-MM-dd HH
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH') > '2021-03-02 10'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        //format yyyy-MM
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM') > '2021-03'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        //format yyyy
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyy') > '2021'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
-        // parse error
-        sql = "select * from test1 where from_unixtime(query_time, 'yyyyMMdd') > '2021-03-02 10:01:28'";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
     }
 
     @Test
@@ -1733,7 +1689,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01.111111'"));
+        } else {
+            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
+        }
         //invalid date
 
         sql = "select day from tbl_int_date where day = '2020-10-32'";
@@ -1787,7 +1747,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid datetime contains micro second
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01.111111'"));
+        } else {
+            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
+        }
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
@@ -1929,7 +1893,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         String createDbStmtStr = "create database issue7929;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable(" CREATE TABLE issue7929.`t1` (\n"
                 + "  `k1` int(11) NULL COMMENT \"\",\n"
                 + "  `k2` int(11) NULL COMMENT \"\"\n"
@@ -1966,7 +1930,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testGroupingSetOutOfBoundError() throws Exception {
         String createDbStmtStr = "create database issue1111;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable("CREATE TABLE issue1111.`test1` (\n"
                 + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
                 + "  `k2` smallint(6) NULL COMMENT \"\"\n"
@@ -2017,7 +1981,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testGroupingSets() throws Exception {
         String createDbStmtStr = "create database issue7971;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable("CREATE TABLE issue7971.`t` (\n"
                 + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
                 + "  `k2` smallint(6) NULL COMMENT \"\",\n"
@@ -2088,17 +2052,13 @@ public class QueryPlanTest extends TestWithFeService {
                 + "\"storage_medium\" = \"HDD\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ");\n");
-        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n"
-                + "SELECT a.aid,\n"
-                + "       b.bid\n"
-                + "FROM\n"
-                + "  (SELECT 3 AS aid)a\n"
-                + "RIGHT JOIN\n"
-                + "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
+        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n" + "SELECT a.aid,\n" + "       b.bid\n" + "FROM\n"
+                + "  (SELECT 3 AS aid)a\n" + "RIGHT JOIN\n" + "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
+        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+        Assert.assertTrue(explainString.contains(
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> AS INT)\n" + "    CAST(<slot 5> AS INT)"));
     }
 
     @Test
@@ -2168,5 +2128,23 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertFalse(explainString.contains("CROSS JOIN"));
 
+    }
+
+    @Test
+    public void testDefaultJoinReorderWithView() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE t_1 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createTable("CREATE TABLE t_2 (col1 varchar, col2 varchar, col3 int)\n" + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 3\n" + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n" + ");");
+        createView("CREATE VIEW v_1 as select col1 from t_1;");
+        createView("CREATE VIEW v_2 as select x.col2 from (select t_2.col2, 1 + 1 from t_2) x;");
+
+        String sql = "explain select t_1.col2, v_1.col1 from t_1 inner join t_2 on t_1.col1 = t_2.col1 inner join v_1 "
+                + "on v_1.col1 = t_2.col2 inner join v_2 on v_2.col2 = t_2.col1";
+        String explainString = getSQLPlanOrErrorMsg(sql);
+        System.out.println(explainString);
+        // errCode = 2, detailMessage = Unknown column 'col2' in 't_2'
+        Assert.assertFalse(explainString.contains("errCode"));
     }
 }

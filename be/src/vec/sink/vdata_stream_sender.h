@@ -135,7 +135,7 @@ protected:
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput;
@@ -247,7 +247,7 @@ private:
                     "failed to send brpc batch, error={}, error_text={}, client: {}",
                     berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost());
             LOG(WARNING) << err;
-            return Status::ThriftRpcError(err);
+            return Status::RpcError(err);
         }
         return Status::OK();
     }

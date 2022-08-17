@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.Type;
 public abstract class DataType {
     /**
      * Convert data type in Doris catalog to data type in Nereids.
+     * TODO: throw exception when cannot convert catalog type to Nereids type
      *
      * @param catalogType data type in Doris catalog
      * @return data type in Nereids
@@ -38,28 +40,103 @@ public abstract class DataType {
         if (catalogType instanceof ScalarType) {
             ScalarType scalarType = (ScalarType) catalogType;
             switch (scalarType.getPrimitiveType()) {
+                case BOOLEAN:
+                    return BooleanType.INSTANCE;
                 case INT:
                     return IntegerType.INSTANCE;
+                case BIGINT:
+                    return BigIntType.INSTANCE;
                 case DOUBLE:
                     return DoubleType.INSTANCE;
+                case VARCHAR:
+                    return VarcharType.createVarcharType(scalarType.getLength());
                 case STRING:
                     return StringType.INSTANCE;
+                case DATE:
+                    return DateType.INSTANCE;
+                case DATETIME:
+                    return DateTimeType.INSTANCE;
+                case DECIMALV2:
+                    return DecimalType.createDecimalType(scalarType.decimalPrecision(), scalarType.decimalScale());
+                case NULL_TYPE:
+                    return NullType.INSTANCE;
                 default:
-                    return null;
+                    throw new AnalysisException("Nereids do not support type: " + scalarType.getPrimitiveType());
             }
         } else if (catalogType instanceof MapType) {
-            return null;
+            throw new AnalysisException("Nereids do not support map type.");
         } else if (catalogType instanceof StructType) {
-            return null;
+            throw new AnalysisException("Nereids do not support struct type.");
         } else if (catalogType instanceof ArrayType) {
-            return null;
+            throw new AnalysisException("Nereids do not support array type.");
         } else if (catalogType instanceof MultiRowType) {
-            return null;
+            throw new AnalysisException("Nereids do not support multi row type.");
         } else {
-            return null;
+            throw new AnalysisException("Nereids do not support type: " + catalogType);
+        }
+    }
+
+    /**
+     * Convert to data type in Nereids.
+     * throw exception when cannot convert to Nereids type
+     *
+     * @param type data type in string representation
+     * @return data type in Nereids
+     */
+    public static DataType convertFromString(String type) {
+        // TODO: use a better way to resolve types
+        switch (type.toLowerCase()) {
+            case "bool":
+            case "boolean":
+                return BooleanType.INSTANCE;
+            case "int":
+                return IntegerType.INSTANCE;
+            case "bigint":
+                return BigIntType.INSTANCE;
+            case "double":
+                return DoubleType.INSTANCE;
+            case "string":
+                return StringType.INSTANCE;
+            case "null":
+                return NullType.INSTANCE;
+            case "datetime":
+                return DateTimeType.INSTANCE;
+            default:
+                throw new AnalysisException("Nereids do not support type: " + type);
         }
     }
 
     public abstract Type toCatalogDataType();
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
+    }
+
+    public boolean isDate() {
+        return this instanceof DateType;
+    }
+
+    public boolean isIntType() {
+        return this instanceof IntegerType;
+    }
+
+    public boolean isDateTime() {
+        return this instanceof DateTimeType;
+    }
+
+    public boolean isDateType() {
+        return isDate() || isDateTime();
+    }
 }

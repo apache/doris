@@ -44,6 +44,7 @@ Usage: $0 <options>
      --be               build Backend
      --meta-tool        build Backend meta tool
      --broker           build Broker
+     --audit            build audit loader
      --spark-dpp        build Spark DPP application
      --hive-udf         build Hive UDF library for Spark Load
      --java-udf         build Java UDF library
@@ -103,6 +104,7 @@ OPTS=$(getopt \
   -l 'fe' \
   -l 'be' \
   -l 'broker' \
+  -l 'audit' \
   -l 'meta-tool' \
   -l 'spark-dpp' \
   -l 'java-udf' \
@@ -122,6 +124,7 @@ PARALLEL=$[$(nproc)/4+1]
 BUILD_FE=0
 BUILD_BE=0
 BUILD_BROKER=0
+BUILD_AUDIT=0
 BUILD_META_TOOL=OFF
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=0
@@ -135,6 +138,7 @@ if [ $# == 1 ] ; then
     BUILD_FE=1
     BUILD_BE=1
     BUILD_BROKER=1
+    BUILD_AUDIT=1
     BUILD_META_TOOL=OFF
     BUILD_SPARK_DPP=1
     BUILD_JAVA_UDF=0 # TODO: open it when ready
@@ -146,6 +150,7 @@ else
             --fe) BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --be) BUILD_BE=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
+            --audit)  BUILD_AUDIT=1 ; shift ;;
             --meta-tool) BUILD_META_TOOL=ON ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
@@ -163,9 +168,9 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_BROKER=1
+        BUILD_AUDIT=1
         BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
-        BUILD_JAVA_UDF=1
         BUILD_HIVE_UDF=1
         CLEAN=0
     fi
@@ -211,6 +216,12 @@ fi
 if [[ -z ${USE_MEM_TRACKER} ]]; then
     USE_MEM_TRACKER=ON
 fi
+if [[ -z ${USE_JEMALLOC} ]]; then
+    USE_JEMALLOC=OFF
+fi
+if [[ -z ${STRICT_MEMORY_USE} ]]; then
+    STRICT_MEMORY_USE=OFF
+fi
 
 if [[ -z ${USE_DWARF} ]]; then
     USE_DWARF=OFF
@@ -220,6 +231,7 @@ echo "Get params:
     BUILD_FE            -- $BUILD_FE
     BUILD_BE            -- $BUILD_BE
     BUILD_BROKER        -- $BUILD_BROKER
+    BUILD_AUDIT         -- $BUILD_AUDIT
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
@@ -234,6 +246,8 @@ echo "Get params:
     USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
     USE_MEM_TRACKER     -- $USE_MEM_TRACKER
+    USE_JEMALLOC        -- $USE_JEMALLOC
+    STRICT_MEMORY_USE   -- $STRICT_MEMORY_USE
 "
 
 # Clean and build generated code
@@ -278,6 +292,9 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
+    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+    echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS}"
+
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -G "${GENERATOR}"  \
@@ -294,8 +311,12 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_DWARF=${USE_DWARF} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
+            -DUSE_JEMALLOC=${USE_JEMALLOC} \
+            -DSTRICT_MEMORY_USE=${STRICT_MEMORY_USE} \
             -DUSE_AVX2=${USE_AVX2} \
-            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} \
+            -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+            ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}
@@ -363,6 +384,7 @@ if [ ${BUILD_FE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
     cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+    cp -r -p ${DORIS_HOME}/conf/*.xml ${DORIS_OUTPUT}/fe/conf/
     rm -rf ${DORIS_OUTPUT}/fe/lib/*
     cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
     rm -f ${DORIS_OUTPUT}/fe/lib/palo-fe.jar
@@ -423,6 +445,16 @@ if [ ${BUILD_BROKER} -eq 1 ]; then
     ./build.sh
     rm -rf ${DORIS_OUTPUT}/apache_hdfs_broker/*
     cp -r -p ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker/* ${DORIS_OUTPUT}/apache_hdfs_broker/
+    cd ${DORIS_HOME}
+fi
+
+if [ ${BUILD_AUDIT} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/audit_loader
+
+    cd ${DORIS_HOME}/fe_plugins/auditloader/
+    ./build.sh
+    rm -rf ${DORIS_OUTPUT}/audit_loader/*
+    cp -r -p ${DORIS_HOME}/fe_plugins/auditloader/output/* ${DORIS_OUTPUT}/audit_loader/
     cd ${DORIS_HOME}
 fi
 

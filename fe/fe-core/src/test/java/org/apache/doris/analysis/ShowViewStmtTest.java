@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
@@ -38,6 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class ShowViewStmtTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static String runningDir = "fe/mocked/ShowViewTest/" + UUID.randomUUID().toString() + "/";
     private static DorisAssert dorisAssert;
 
@@ -96,8 +98,8 @@ public class ShowViewStmtTest {
     @Test
     public void testNormal() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test1"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         Assert.assertEquals("SHOW VIEW FROM `default_cluster:testDb`.`test1`", stmt.toString());
         Assert.assertEquals("default_cluster:testDb", stmt.getDb());
         Assert.assertEquals("test1", stmt.getTbl());
@@ -109,8 +111,8 @@ public class ShowViewStmtTest {
     @Test(expected = UserException.class)
     public void testNoDb() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("", "testTbl"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "", "testTbl"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         Assert.fail();
     }
 
@@ -121,8 +123,8 @@ public class ShowViewStmtTest {
                 + "SELECT a, b FROM test1;";
         dorisAssert.withView(testView1);
 
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test1"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -143,8 +145,8 @@ public class ShowViewStmtTest {
                 + "ON test1.a = test2.c;";
         dorisAssert.withView(testView2);
 
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test1"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -153,8 +155,8 @@ public class ShowViewStmtTest {
         Assert.assertEquals("view2", resultSet.getString(0));
         Assert.assertFalse(resultSet.next());
 
-        stmt = new ShowViewStmt("", new TableName("testDb", "test2"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test2"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         executor = new ShowExecutor(ctx, stmt);
         resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -176,8 +178,8 @@ public class ShowViewStmtTest {
                 + "ON test1.a = test4.e;";
         dorisAssert.withView(testView3);
 
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test1"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -186,8 +188,8 @@ public class ShowViewStmtTest {
         Assert.assertEquals("view3", resultSet.getString(0));
         Assert.assertFalse(resultSet.next());
 
-        stmt = new ShowViewStmt("", new TableName("testDb", "test2"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test2"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         executor = new ShowExecutor(ctx, stmt);
         resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -196,8 +198,8 @@ public class ShowViewStmtTest {
         Assert.assertEquals("view3", resultSet.getString(0));
         Assert.assertFalse(resultSet.next());
 
-        stmt = new ShowViewStmt("", new TableName("testDb", "test3"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test3"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         executor = new ShowExecutor(ctx, stmt);
         resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -221,8 +223,8 @@ public class ShowViewStmtTest {
         dorisAssert.withView(testView4);
         dorisAssert.withView(testView5);
 
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "test1"));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
@@ -249,7 +251,7 @@ public class ShowViewStmtTest {
         QueryStmt queryStmt = (QueryStmt) SqlParserUtils.getFirstStmt(parser);
         List<TableRef> tblRefs = Lists.newArrayList();
         Set<String> parentViewNameSet = Sets.newHashSet();
-        queryStmt.getTableRefs(new Analyzer(ctx.getCatalog(), ctx), tblRefs, parentViewNameSet);
+        queryStmt.getTableRefs(new Analyzer(ctx.getEnv(), ctx), tblRefs, parentViewNameSet);
 
         Assert.assertEquals(3, tblRefs.size());
         Assert.assertEquals("test1", tblRefs.get(0).getName().getTbl());

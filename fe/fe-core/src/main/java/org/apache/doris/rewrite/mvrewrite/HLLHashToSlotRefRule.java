@@ -27,7 +27,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -81,7 +81,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
             return expr;
         }
         Column column = queryColumnSlotRef.getColumn();
-        Table table = queryColumnSlotRef.getTable();
+        TableIf table = queryColumnSlotRef.getTable();
         if (column == null || table == null || !(table instanceof OlapTable)) {
             return expr;
         }
@@ -106,8 +106,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         TableName tableName = queryColumnSlotRef.getTableName();
         Preconditions.checkNotNull(tableName);
         SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getName());
-        List<Expr> newFnParams = Lists.newArrayList();
-        newFnParams.add(mvSlotRef);
+        List<Expr> newFnParams = Lists.newArrayList(mvSlotRef);
         FunctionCallExpr result = new FunctionCallExpr(fnName, newFnParams);
         result.analyzeNoThrow(analyzer);
         return result;

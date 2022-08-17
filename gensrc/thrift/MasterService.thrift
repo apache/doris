@@ -29,6 +29,7 @@ struct TTabletInfo {
     3: required Types.TVersion version
     4: required Types.TVersionHash version_hash
     5: required Types.TCount row_count
+    // data size on local disk
     6: required Types.TSize data_size
     7: optional Types.TStorageMedium storage_medium
     8: optional list<Types.TTransactionId> transaction_ids
@@ -39,6 +40,8 @@ struct TTabletInfo {
     13: optional Types.TPartitionId partition_id
     14: optional bool is_in_memory
     15: optional Types.TReplicaId replica_id
+    // data size on remote storage
+    16: optional Types.TSize remote_data_size
 }
 
 struct TFinishTaskRequest {
@@ -67,11 +70,13 @@ struct TTablet {
 struct TDisk {
     1: required string root_path
     2: required Types.TSize disk_total_capacity
+    // local used capacity
     3: required Types.TSize data_used_capacity
     4: required bool used
     5: optional Types.TSize disk_available_capacity
     6: optional i64 path_hash
     7: optional Types.TStorageMedium storage_medium
+    8: optional Types.TSize remote_used_capacity
 }
 
 struct TPluginInfo {

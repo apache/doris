@@ -59,12 +59,12 @@ under the License.
 
 | SSB表名        | 行数       | 备注             |
 | :------------- | :--------- | :--------------- |
-| lineorder      | 600,037,902 | 商品订单明细表表 |
-| customer       | 3,000,000    | 客户信息表       |
-| part           | 1,400,000    | 零件信息表       |
+| lineorder      | 600,037,902 | 商品订单明细表表  |
+| customer       | 3,000,000   | 客户信息表       |
+| part           | 1,400,000   | 零件信息表       |
 | supplier       | 200,000     | 供应商信息表     |
-| date           | 2,556       | 日期表           |
-| lineorder_flat | 600,037,902 | 数据展平后的宽表 |
+| date           | 2,556       | 日期表          |
+| lineorder_flat | 600,037,902 | 数据展平后的宽表  |
 
 ## 4. 测试结果
 
@@ -144,7 +144,7 @@ sh gen-ssb-data.sh -s 100 -c 100
 | customer  | 300万（3000000） | 277M | 1           |
 | part      | 140万（1400000） | 116M | 1           |
 | supplier  | 20万（200000）   | 17M  | 1           |
-| date      | 2556             | 228K | 1           |
+| dates     | 2556            | 228K | 1           |
 
 ### 6.3 建表
 
@@ -282,7 +282,7 @@ sh load-ssb-flat-data.sh
 select count(*) from part;
 select count(*) from customer;
 select count(*) from supplier;
-select count(*) from date;
+select count(*) from dates;
 select count(*) from lineorder;
 select count(*) from lineorder_flat;
 ```
@@ -296,7 +296,7 @@ select count(*) from lineorder_flat;
 | customer       | 300万（3000000） | 277 MB      | 138.247 MB                |
 | part           | 140万（1400000） | 116 MB      | 12.759 MB                 |
 | supplier       | 20万（200000）   | 17 MB       | 9.143 MB                  |
-| date           | 2556             | 228 KB      | 34.276 KB                 |
+| dates          | 2556            | 228 KB      | 34.276 KB                 |
 
 ### 6.6 查询测试
 
@@ -368,7 +368,7 @@ ORDER BY YEAR ASC, revenue DESC;
 --Q4.1
 SELECT (LO_ORDERDATE DIV 10000) AS YEAR, C_NATION, SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
 FROM lineorder_flat
-WHERE C_REGION = 'AMERICA' ND S_REGION = 'AMERICA' AND P_MFGR IN ('MFGR#1', 'MFGR#2')
+WHERE C_REGION = 'AMERICA' AND S_REGION = 'AMERICA' AND P_MFGR IN ('MFGR#1', 'MFGR#2')
 GROUP BY YEAR, C_NATION
 ORDER BY YEAR ASC, C_NATION ASC;
 

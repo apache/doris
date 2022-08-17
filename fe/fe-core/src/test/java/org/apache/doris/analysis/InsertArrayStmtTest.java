@@ -18,9 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -43,7 +44,7 @@ public class InsertArrayStmtTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(RUNNING_DIR);
         connectContext = UtFrameUtils.createDefaultCtx();
-        connectContext.getSessionVariable().setEnableArrayType(true);
+        Config.enable_array_type = true;
         createDatabase("create database test;");
     }
 
@@ -54,12 +55,12 @@ public class InsertArrayStmtTest {
 
     private static void createDatabase(String sql) throws Exception {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static InsertStmt parseAndAnalyze(String sql) throws Exception {
@@ -67,7 +68,7 @@ public class InsertArrayStmtTest {
                 new StringReader(sql), connectContext.getSessionVariable().getSqlMode()
         ));
         InsertStmt insertStmt = (InsertStmt) SqlParserUtils.getFirstStmt(parser);
-        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         insertStmt.analyze(analyzer);
         return insertStmt;
     }

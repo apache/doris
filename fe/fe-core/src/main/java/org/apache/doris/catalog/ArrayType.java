@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -62,6 +62,10 @@ public class ArrayType extends Type {
         return containsNull;
     }
 
+    public void setContainsNull(boolean containsNull) {
+        this.containsNull = containsNull;
+    }
+
     @Override
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.ARRAY;
@@ -81,7 +85,8 @@ public class ArrayType extends Type {
         if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
             return true;
         }
-        return Type.isImplicitlyCastable(itemType, ((ArrayType) t).itemType, true)
+
+        return itemType.matchesType(((ArrayType) t).itemType)
                 && (((ArrayType) t).containsNull || !containsNull);
     }
 
@@ -96,9 +101,9 @@ public class ArrayType extends Type {
     @Override
     public String toSql(int depth) {
         if (!containsNull) {
-            return "ARRAY<NOT_NULL(" + itemType.toSql(depth + 1) + ")>";
+            return "array<not_null(" + itemType.toSql(depth + 1) + ")>";
         } else {
-            return "ARRAY<" + itemType.toSql(depth + 1) + ">";
+            return "array<" + itemType.toSql(depth + 1) + ">";
         }
     }
 
@@ -113,7 +118,7 @@ public class ArrayType extends Type {
             return false;
         }
         ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType);
+        return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
     }
 
     public static boolean canCastTo(ArrayType type, ArrayType targetType) {
@@ -150,7 +155,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        if (!ConnectContext.get().getSessionVariable().isEnableArrayType()) {
+        if (!Config.enable_array_type) {
             return false;
         }
         return !itemType.isNull();
@@ -158,7 +163,7 @@ public class ArrayType extends Type {
 
     @Override
     public String toString() {
-        return toSql(0);
+        return toSql(0).toUpperCase();
     }
 
     @Override

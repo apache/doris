@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ShowTabletStmt extends ShowStmt {
+    private TableName dbTableName;
     private String dbName;
     private String tableName;
     private long tabletId;
@@ -60,6 +62,7 @@ public class ShowTabletStmt extends ShowStmt {
 
     public ShowTabletStmt(TableName dbTableName, long tabletId, PartitionNames partitionNames,
             Expr whereClause, List<OrderByElement> orderByElements, LimitElement limitElement) {
+        this.dbTableName = dbTableName;
         if (dbTableName == null) {
             this.dbName = null;
             this.tableName = null;
@@ -147,11 +150,16 @@ public class ShowTabletStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // check access first
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
         }
 
         super.analyze(analyzer);
+        if (dbTableName != null) {
+            dbTableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
+        }
         if (!isShowSingleTablet && Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {

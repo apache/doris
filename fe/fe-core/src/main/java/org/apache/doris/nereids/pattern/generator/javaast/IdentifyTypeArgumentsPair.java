@@ -32,10 +32,8 @@ public class IdentifyTypeArgumentsPair implements JavaAstNode {
 
     @Override
     public String toString() {
-        if (typeArguments.isPresent()) {
-            return identifier + typeArguments.get();
-        } else {
-            return identifier;
-        }
+        return typeArguments
+                .map(arguments -> identifier + arguments)
+                .orElse(identifier);
     }
 }

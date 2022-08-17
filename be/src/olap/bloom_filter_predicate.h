@@ -23,18 +23,12 @@
 
 #include "exprs/bloomfilter_predicate.h"
 #include "olap/column_predicate.h"
-#include "olap/field.h"
-#include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
-
-class VectorizedRowBatch;
 
 // only use in runtime filter and segment v2
 template <PrimitiveType T>
@@ -51,8 +45,6 @@ public:
 
     PredicateType type() const override { return PredicateType::BF; }
 
-    void evaluate(VectorizedRowBatch* batch) const override;
-
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
     void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
@@ -60,23 +52,25 @@ public:
     void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
                       bool* flags) const override {};
 
-    Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-                    uint32_t num_rows, roaring::Roaring* roaring) const override {
+    Status evaluate(BitmapIndexIterator* iterators, uint32_t num_rows,
+                    roaring::Roaring* roaring) const override {
         return Status::OK();
     }
 
-    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                      uint16_t size) const override;
 
 private:
-    template <bool is_nullable, typename file_type = void>
-    uint16_t evaluate(vectorized::IColumn& column, uint8_t* null_map, uint16_t* sel,
+    template <bool is_nullable>
+    uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
                       uint16_t size) const {
-        if constexpr (is_nullable) DCHECK(null_map);
+        if constexpr (is_nullable) {
+            DCHECK(null_map);
+        }
 
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
-            auto* dict_col = reinterpret_cast<vectorized::ColumnDictI32*>(&column);
-            dict_col->generate_hash_values_for_runtime_filter();
+            auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
             for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -89,20 +83,9 @@ private:
             }
         } else {
             uint24_t tmp_uint24_value;
-            auto get_column_data = [](vectorized::IColumn& column) {
-                if constexpr (std::is_same_v<file_type, uint24_t>) {
-                    return reinterpret_cast<vectorized::PredicateColumnType<uint32_t>*>(&column)
-                            ->get_data()
-                            .data();
-                } else {
-                    return reinterpret_cast<vectorized::PredicateColumnType<file_type>*>(&column)
-                            ->get_data()
-                            .data();
-                }
-            };
-
             auto get_cell_value = [&tmp_uint24_value](auto& data) {
-                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t>) {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t> &&
+                              T == PrimitiveType::TYPE_DATE) {
                     memcpy((char*)(&tmp_uint24_value), (char*)(&data), sizeof(uint24_t));
                     return (const char*)&tmp_uint24_value;
                 } else {
@@ -110,7 +93,10 @@ private:
                 }
             };
 
-            auto pred_col_data = get_column_data(column);
+            auto pred_col_data =
+                    reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                            ->get_data()
+                            .data();
             for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -133,18 +119,6 @@ private:
     mutable uint64_t _passed_rows = 0;
     mutable bool _enable_pred = true;
 };
-
-// bloom filter column predicate do not support in segment v1
-template <PrimitiveType T>
-void BloomFilterColumnPredicate<T>::evaluate(VectorizedRowBatch* batch) const {
-    uint16_t n = batch->size();
-    uint16_t* sel = batch->selected();
-    if (!batch->selected_in_use()) {
-        for (uint16_t i = 0; i != n; ++i) {
-            sel[i] = i;
-        }
-    }
-}
 
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
@@ -170,20 +144,19 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 }
 
 template <PrimitiveType T>
-uint16_t BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
+uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
-    using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
     if (!_enable_pred) {
         return size;
     }
     if (column.is_nullable()) {
-        auto* nullable_col = reinterpret_cast<vectorized::ColumnNullable*>(&column);
+        auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
-        new_size = evaluate<true, FT>(nullable_col->get_nested_column(), null_map_data.data(), sel,
-                                      size);
+        new_size =
+                evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {
-        new_size = evaluate<false, FT>(column, nullptr, sel, size);
+        new_size = evaluate<false>(column, nullptr, sel, size);
     }
     // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
     // Some bloomfilter is useless, for example ssb 4.3, it consumes a lot of cpu but it is

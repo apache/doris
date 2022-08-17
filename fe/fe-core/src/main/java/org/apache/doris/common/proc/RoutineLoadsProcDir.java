@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -63,7 +63,7 @@ public class RoutineLoadsProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult baseProcResult = new BaseProcResult();
         baseProcResult.setNames(TITLE_NAMES);
-        RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
         try {
             List<RoutineLoadJob> routineLoadJobList = routineLoadManager.getJob(null, null, true, null);
             for (RoutineLoadJob routineLoadJob : routineLoadJobList) {

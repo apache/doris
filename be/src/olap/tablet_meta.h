@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstddef>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -27,6 +29,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -65,7 +68,9 @@ class RowsetMeta;
 class Rowset;
 class DataDir;
 class TabletMeta;
+class DeleteBitmap;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
+using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
@@ -84,8 +89,9 @@ public:
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
-               TStorageMedium::type t_storage_medium, const std::string& remote_storage_name,
-               TCompressionType::type compression_type);
+               TCompressionType::type compression_type,
+               const std::string& storage_policy = std::string(),
+               bool enable_unique_key_merge_on_write = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -103,6 +109,8 @@ public:
     Status serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
+    // Init `RowsetMeta._fs` if rowset is local.
+    void init_rs_metas_fs(const io::FileSystemPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
@@ -123,8 +131,12 @@ public:
     void set_cumulative_layer_point(int64_t new_point);
 
     size_t num_rows() const;
-    // disk space occupied by tablet
+    // Disk space occupied by tablet, contain local and remote.
     size_t tablet_footprint() const;
+    // Local disk space occupied by tablet.
+    size_t tablet_local_size() const;
+    // Remote disk space occupied by tablet.
+    size_t tablet_remote_size() const;
     size_t version_count() const;
     Version max_version() const;
 
@@ -134,11 +146,12 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    const TabletSchema& tablet_schema() const;
+    TabletSchemaSPtr tablet_schema() const;
 
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
+    std::vector<RowsetMetaSharedPtr>& all_mutable_rs_metas();
     Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
@@ -148,6 +161,7 @@ public:
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -156,7 +170,7 @@ public:
 
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     void remove_delete_predicate_by_version(const Version& version);
-    DelPredicateArray delete_predicates() const;
+    const std::vector<DeletePredicatePB>& delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;
@@ -174,15 +188,32 @@ public:
 
     bool all_beta() const;
 
-    std::string remote_storage_name() const { return _remote_storage_name; }
+    const std::string& storage_policy() const {
+        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        return _storage_policy;
+    }
 
-    StorageMediumPB storage_medium() const { return _storage_medium; }
+    void set_storage_policy(const std::string& policy) {
+        std::unique_lock<std::shared_mutex> wlock(_meta_lock);
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " storage policy from " << _storage_policy
+                    << " to " << policy;
+        _storage_policy = policy;
+    }
+
+    static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
+                                         ColumnPB* column);
+
+    DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
+
+    bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
+
+    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
+                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
-    void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
-    // _del_pred_array is ignored to compare.
+    // _del_predicates is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
     friend bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
@@ -209,12 +240,185 @@ private:
     // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
 
-    DelPredicateArray _del_pred_array;
+    std::vector<DeletePredicatePB> _del_predicates;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
-    std::string _remote_storage_name;
-    StorageMediumPB _storage_medium = StorageMediumPB::HDD;
-    std::shared_mutex _meta_lock;
+
+    std::string _storage_policy;
+
+    // For unique key data model, the feature Merge-on-Write will leverage a primary
+    // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
+    // which can avoid the merging cost in read stage, and accelerate the aggregation
+    // query performance significantly.
+    bool _enable_unique_key_merge_on_write = false;
+    std::shared_ptr<DeleteBitmap> _delete_bitmap;
+
+    mutable std::shared_mutex _meta_lock;
+};
+
+/**
+ * Wraps multiple bitmaps for recording rows (row id) that are deleted or
+ * overwritten. For now, it's only used when unique key merge-on-write property
+ * enabled.
+ *
+ * RowsetId and SegmentId are for locating segment, Version here is a single
+ * uint32_t means that at which "version" of the load causes the delete or
+ * overwrite.
+ *
+ * The start and end version of a load is the same, it's ok and straightforward
+ * to use a single uint32_t.
+ *
+ * e.g.
+ * There is a key "key1" in rowset id 1, version [1,1], segment id 1, row id 1.
+ * A new load also contains "key1", the rowset id 2, version [2,2], segment id 1
+ * the delete bitmap will be `{1,1,2} -> 1`, which means the "row id 1" in
+ * "rowset id 1, segment id 1" is deleted/overitten by some loads at "version 2"
+ */
+class DeleteBitmap {
+public:
+    mutable std::shared_mutex lock;
+    using SegmentId = uint32_t;
+    using Version = uint64_t;
+    using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
+    std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
+
+    /**
+     * 
+     * @param tablet_id the tablet which this delete bitmap associates with
+     */
+    DeleteBitmap(int64_t tablet_id);
+
+    /**
+     * Copy c-tor for making delete bitmap snapshot on read path
+     */
+    DeleteBitmap(const DeleteBitmap& r);
+    DeleteBitmap& operator=(const DeleteBitmap& r);
+    /**
+     * Move c-tor for making delete bitmap snapshot on read path
+     */
+    DeleteBitmap(DeleteBitmap&& r);
+    DeleteBitmap& operator=(DeleteBitmap&& r);
+
+    /**
+     * Makes a snapshot of delete bimap, read lock will be acquired in this
+     * process
+     */
+    DeleteBitmap snapshot() const;
+
+    /**
+     * Makes a snapshot of delete bimap on given version, read lock will be
+     * acquired temporary in this process
+     */
+    DeleteBitmap snapshot(Version version) const;
+
+    /**
+     * Marks the specific row deleted
+     */
+    void add(const BitmapKey& bmk, uint32_t row_id);
+
+    /**
+     * Clears the deletetion mark specific row
+     *
+     * @return non-zero if the associated delete bimap does not exist
+     */
+    int remove(const BitmapKey& bmk, uint32_t row_id);
+
+    /**
+     * Clears bitmaps in range [lower_key, upper_key)
+     */
+    void remove(const BitmapKey& lower_key, const BitmapKey& upper_key);
+
+    /**
+     * Checks if the given row is marked deleted
+     *
+     * @return true if marked deleted
+     */
+    bool contains(const BitmapKey& bmk, uint32_t row_id) const;
+
+    /**
+     * Sets the bitmap of specific segment, it's may be insertion or replacement
+     *
+     * @return 1 if the insertion took place, 0 if the assignment took place
+     */
+    int set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
+
+    /**
+     * Gets a copy of specific delete bmk
+     *
+     * @param segment_delete_bitmap output param
+     * @return non-zero if the associated delete bimap does not exist
+     */
+    int get(const BitmapKey& bmk, roaring::Roaring* segment_delete_bitmap) const;
+
+    /**
+     * Gets reference to a specific delete map, DO NOT use this function on a
+     * mutable DeleteBitmap object
+     * @return nullptr if the given bitmap does not exist
+     */
+    const roaring::Roaring* get(const BitmapKey& bmk) const;
+
+    /**
+     * Gets subset of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     * @parma subset_delete_map output param
+     */
+    void subset(const BitmapKey& start, const BitmapKey& end,
+                DeleteBitmap* subset_delete_map) const;
+
+    /**
+     * Merges the given delete bitmap into *this
+     *
+     * @param other
+     */
+    void merge(const DeleteBitmap& other);
+
+    /**
+     * Checks if the given row is marked deleted in bitmap with the condition:
+     * all the bitmaps that
+     * RowsetId and SegmentId are the same as the given ones,
+     * and Version <= the given Version
+     *
+     * Note: aggregation cache may be used.
+     *
+     * @return true if marked deleted
+     */
+    bool contains_agg(const BitmapKey& bitmap, uint32_t row_id) const;
+
+    /**
+     * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
+     * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
+     *
+     * @return shared_ptr to a bitmap, which may be empty
+     */
+    std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
+
+    class AggCache {
+    public:
+        struct Value {
+            roaring::Roaring bitmap;
+        };
+
+        AggCache(size_t size_in_bytes) {
+            static std::once_flag once;
+            std::call_once(once, [size_in_bytes] {
+                auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
+                                               LRUCacheType::SIZE, 2048);
+                AggCache::s_repr.store(tmp, std::memory_order_release);
+            });
+
+            while (!s_repr.load(std::memory_order_acquire)) {
+            }
+        }
+
+        static ShardedLRUCache* repr() { return s_repr.load(std::memory_order_acquire); }
+        static std::atomic<ShardedLRUCache*> s_repr;
+    };
+
+private:
+    mutable std::shared_ptr<AggCache> _agg_cache;
+    int64_t _tablet_id;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
@@ -283,6 +487,26 @@ inline size_t TabletMeta::tablet_footprint() const {
     return total_size;
 }
 
+inline size_t TabletMeta::tablet_local_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (rs->is_local()) {
+            total_size += rs->data_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_remote_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (!rs->is_local()) {
+            total_size += rs->data_disk_size();
+        }
+    }
+    return total_size;
+}
+
 inline size_t TabletMeta::version_count() const {
     return _rs_metas.size();
 }
@@ -303,8 +527,8 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return *_schema;
+inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+    return _schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {
@@ -312,6 +536,10 @@ inline TabletSchema* TabletMeta::mutable_tablet_schema() {
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
+    return _rs_metas;
+}
+
+inline std::vector<RowsetMetaSharedPtr>& TabletMeta::all_mutable_rs_metas() {
     return _rs_metas;
 }
 

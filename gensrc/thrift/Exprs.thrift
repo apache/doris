@@ -73,6 +73,7 @@ enum TExprNodeType {
 struct TAggregateExpr {
   // Indicates whether this expr is the merge() of an aggregation.
   1: required bool is_merge_agg
+  2: required list<Types.TTypeDesc> param_types
 }
 struct TBoolLiteral {
   1: required bool value
@@ -120,8 +121,14 @@ struct TLiteralPredicate {
   2: required bool is_null
 }
 
+enum TNullSide {
+   LEFT,
+   RIGHT
+}
+
 struct TTupleIsNullPredicate {
   1: required list<Types.TTupleId> tuple_ids
+  2: optional TNullSide null_side
 }
 
 struct TSlotRef {

@@ -21,12 +21,12 @@ import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob.JobState;
 import org.apache.doris.load.sync.SyncJob.SyncJobUpdateStateInfo;
@@ -59,9 +59,9 @@ public class SyncJobManagerTest {
     @Mocked
     EditLog editLog;
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
-    InternalDataSource ds;
+    InternalCatalog catalog;
     @Mocked
     Database database;
     @Mocked
@@ -71,21 +71,21 @@ public class SyncJobManagerTest {
     public void setUp() throws DdlException {
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyString);
+                result = catalog;
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = dbId;
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
     }

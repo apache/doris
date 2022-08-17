@@ -20,9 +20,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
@@ -1108,7 +1108,7 @@ public class StmtRewriter {
             return null;
         }
         // Create a SlotRef from the first item of inlineView's select list
-        SlotRef slotRef = new SlotRef(new TableName(null, inlineView.getAlias()),
+        SlotRef slotRef = new SlotRef(new TableName(null, null, inlineView.getAlias()),
                 inlineView.getColLabels().get(0));
         slotRef.analyze(analyzer);
         Expr subquerySubstitute = slotRef;
@@ -1162,13 +1162,13 @@ public class StmtRewriter {
     }
 
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
-        Catalog currentCatalog = Catalog.getCurrentCatalog();
+        Env currentEnv = Env.getCurrentEnv();
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
         String user = analyzer.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
-        if (!currentCatalog.getPolicyMgr().existPolicy(user)) {
+        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
             return false;
         }
         if (!(statementBase instanceof SelectStmt)) {
@@ -1186,15 +1186,15 @@ public class StmtRewriter {
                 }
                 continue;
             }
-            Table table = tableRef.getTable();
+            TableIf table = tableRef.getTable();
             String dbName = tableRef.getName().getDb();
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
             }
-            Database db = currentCatalog.getInternalDataSource().getDbOrAnalysisException(dbName);
+            Database db = currentEnv.getInternalCatalog().getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;
             }

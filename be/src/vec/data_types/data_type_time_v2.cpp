@@ -30,13 +30,9 @@ std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) con
     UInt32 int_val =
             assert_cast<const ColumnUInt32&>(*column.convert_to_full_column_if_const().get())
                     .get_data()[row_num];
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
     std::stringstream ss;
-    // Year
-    ss << (int_val & 0xFFFF0000) << '-';
-    // Month
-    ss << (int_val & 0x0000FF00) << '-';
-    // Day
-    ss << int_val % 0xFF;
+    ss << val;
     return ss.str();
 }
 
@@ -44,7 +40,7 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
     UInt32 int_val =
             assert_cast<const ColumnUInt32&>(*column.convert_to_full_column_if_const().get())
                     .get_data()[row_num];
-    DateV2Value value = binary_cast<UInt32, DateV2Value>(int_val);
+    DateV2Value<DateV2ValueType> value = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
 
     char buf[64];
     char* pos = value.to_string(buf);
@@ -53,21 +49,97 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 }
 
 MutableColumnPtr DataTypeDateV2::create_column() const {
-    auto col = DataTypeNumberBase<UInt32>::create_column();
-    col->set_date_v2_type();
-    return col;
+    return DataTypeNumberBase<UInt32>::create_column();
 }
 
-void DataTypeDateV2::cast_to_date_time(const UInt32& from, Int64& to) {
-    auto& to_value = (doris::vectorized::VecDateTimeValue&)to;
-    auto& from_value = (doris::vectorized::DateV2Value&)from;
+void DataTypeDateV2::cast_to_date_time(const UInt32 from, Int64& to) {
+    auto& to_value = (VecDateTimeValue&)to;
+    auto& from_value = (DateV2Value<DateV2ValueType>&)from;
     to_value.create_from_date_v2(from_value, TimeType::TIME_DATETIME);
 }
 
-void DataTypeDateV2::cast_to_date(const UInt32& from, Int64& to) {
-    auto& to_value = (doris::vectorized::VecDateTimeValue&)(to);
-    auto& from_value = (doris::vectorized::DateV2Value&)from;
+void DataTypeDateV2::cast_to_date(const UInt32 from, Int64& to) {
+    auto& to_value = (VecDateTimeValue&)(to);
+    auto& from_value = (DateV2Value<DateV2ValueType>&)from;
     to_value.create_from_date_v2(from_value, TimeType::TIME_DATE);
 }
 
+void DataTypeDateV2::cast_to_date_time_v2(const UInt32 from, UInt64& to) {
+    to = ((UInt64)from) << TIME_PART_LENGTH;
+}
+
+void DataTypeDateV2::cast_from_date(const Int64 from, UInt32& to) {
+    auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
+    auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
+    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0, 0);
+}
+
+void DataTypeDateV2::cast_from_date_time(const Int64 from, UInt32& to) {
+    auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
+    auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
+    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0, 0);
+}
+
+bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
+    return typeid(rhs) == typeid(*this);
+}
+
+std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num) const {
+    UInt64 int_val =
+            assert_cast<const ColumnUInt64&>(*column.convert_to_full_column_if_const().get())
+                    .get_data()[row_num];
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+    std::stringstream ss;
+    ss << val;
+    return ss.str();
+}
+
+void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
+                                   BufferWritable& ostr) const {
+    UInt64 int_val =
+            assert_cast<const ColumnUInt64&>(*column.convert_to_full_column_if_const().get())
+                    .get_data()[row_num];
+    DateV2Value<DateTimeV2ValueType> value =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+
+    char buf[64];
+    char* pos = value.to_string(buf);
+    // DateTime to_string the end is /0
+    ostr.write(buf, pos - buf - 1);
+}
+
+MutableColumnPtr DataTypeDateTimeV2::create_column() const {
+    return DataTypeNumberBase<UInt64>::create_column();
+}
+
+void DataTypeDateTimeV2::cast_to_date_time(const UInt64 from, Int64& to) {
+    auto& to_value = (VecDateTimeValue&)to;
+    auto& from_value = (DateV2Value<DateTimeV2ValueType>&)from;
+    to_value.create_from_date_v2(from_value, TimeType::TIME_DATETIME);
+}
+
+void DataTypeDateTimeV2::cast_to_date(const UInt64 from, Int64& to) {
+    auto& to_value = (VecDateTimeValue&)(to);
+    auto& from_value = (DateV2Value<DateTimeV2ValueType>&)from;
+    to_value.create_from_date_v2(from_value, TimeType::TIME_DATE);
+}
+
+void DataTypeDateTimeV2::cast_from_date(const Int64 from, UInt64& to) {
+    auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(to);
+    auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
+    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), from_value.hour(),
+                      from_value.minute(), from_value.second(), 0);
+}
+
+void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
+    auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(to);
+    auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
+    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), from_value.hour(),
+                      from_value.minute(), from_value.second(), 0);
+}
+
+void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
+    to = from >> TIME_PART_LENGTH;
+}
 } // namespace doris::vectorized

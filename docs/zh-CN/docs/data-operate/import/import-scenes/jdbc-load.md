@@ -79,7 +79,7 @@ public class DorisJDBCDemo {
     private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mysql://%s:%d/%s?rewriteBatchedStatements=true";
     private static final String HOST = "127.0.0.1"; // Leader Node host
-    private static final int PORT = 8030;   // http port of Leader Node
+    private static final int PORT = 9030;   // query_port of Leader Node
     private static final String DB = "demo";
     private static final String TBL = "test_1";
     private static final String USER = "admin";

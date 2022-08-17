@@ -22,6 +22,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
@@ -30,9 +31,12 @@
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_tree.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
@@ -52,13 +56,14 @@ struct RowsetWriterContext;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
+enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
+
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   const StorageParamPB& storage_param,
                                                    DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
 
     Status init();
@@ -79,11 +84,19 @@ public:
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
 
-    size_t tablet_footprint(); // disk space occupied by tablet
+    // Disk space occupied by tablet, contain local and remote.
+    size_t tablet_footprint();
+    // Local disk space occupied by tablet.
+    size_t tablet_local_size();
+    // Remote disk space occupied by tablet.
+    size_t tablet_remote_size();
+
     size_t num_rows();
     int version_count() const;
     Version max_version() const;
+    Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
+    bool enable_unique_key_merge_on_write() const;
 
     // properties encapsulated in TabletSchema
     KeysType keys_type() const;
@@ -114,6 +127,9 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
+    static RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+            const std::vector<RowsetMetaSharedPtr>& rowset_metas);
+
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
@@ -140,7 +156,9 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
+    const std::vector<DeletePredicatePB>& delete_predicates() {
+        return _tablet_meta->delete_predicates();
+    }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
@@ -261,24 +279,64 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    std::shared_ptr<MemTracker>& get_compaction_mem_tracker(CompactionType compaction_type);
-
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
 
-    void find_alpha_rowsets(std::vector<RowsetSharedPtr>* rowsets) const;
+    TabletSchemaSPtr tablet_schema() const override;
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap,
+                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
+                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
                                 const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
+                                TabletSchemaSPtr tablet_schema,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
+    // Cooldown to remote fs.
+    Status cooldown();
+
+    RowsetSharedPtr pick_cooldown_rowset();
+
+    bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
+
+    Status remove_all_remote_rowsets();
+
+    // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
+    // NOTE: the method only works in unique key model with primary key index, you will got a
+    //       not supported error in other data model.
+    Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
+                          RowLocation* row_location, uint32_t version);
+
+    // calc delete bitmap when flush memtable, use a fake version to calc
+    // For example, cur max version is 5, and we use version 6 to calc but
+    // finally this rowset publish version with 8, we should make up data
+    // for rowset 6-7. Also, if a compaction happens between commit_txn and
+    // publish_txn, we should remove compaction input rowsets' delete_bitmap
+    // and build newly generated rowset's delete_bitmap
+    Status calc_delete_bitmap(RowsetId rowset_id,
+                              const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                              const RowsetIdUnorderedSet* specified_rowset_ids,
+                              DeleteBitmapPtr delete_bitmap, bool check_pre_segments = false);
+
+    Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
+                                const RowsetIdUnorderedSet& pre_rowset_ids);
+    RowsetIdUnorderedSet all_rs_id() const;
+
+    void remove_self_owned_remote_rowsets();
+
+    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
+    // REQUIRES: held _meta_lock
+    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
+
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+                                     int64_t num_segments);
+
+    bool check_all_rowset_segment();
 
 private:
     Status _init_once_action();
@@ -307,6 +365,14 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
+    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+                                   const Slice& key, const Version& version,
+                                   DeleteBitmapPtr delete_bitmap);
+    void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
+                                RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
+    Status _load_rowset_segments(const RowsetSharedPtr& rowset,
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments);
+
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
@@ -333,6 +399,9 @@ private:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
+    // RowsetTree is used to locate rowsets containing a key or a key range quickly.
+    // It's only used in UNIQUE_KEYS data model.
+    std::unique_ptr<RowsetTree> _rowset_tree;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
@@ -368,11 +437,14 @@ private:
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;
 
+    // Remote rowsets not shared by other BE. We can delete them when drop tablet.
+    std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
 public:
     IntCounter* flush_bytes;
-    IntCounter* flush_count;
+    IntCounter* flush_finish_count;
     std::atomic<int64_t> publised_count = 0;
 };
 
@@ -408,11 +480,30 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
 
+inline bool Tablet::enable_unique_key_merge_on_write() const {
+#ifdef BE_TEST
+    if (_tablet_meta == nullptr) {
+        return false;
+    }
+#endif
+    return _tablet_meta->enable_unique_key_merge_on_write();
+}
+
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
 inline size_t Tablet::tablet_footprint() {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->tablet_footprint();
+}
+
+inline size_t Tablet::tablet_local_size() {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->tablet_local_size();
+}
+
+inline size_t Tablet::tablet_remote_size() {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->tablet_remote_size();
 }
 
 // TODO(lingbin): Why other methods which need to get information from _tablet_meta
@@ -430,56 +521,60 @@ inline Version Tablet::max_version() const {
     return _tablet_meta->max_version();
 }
 
+inline Version Tablet::max_version_unlocked() const {
+    return _tablet_meta->max_version();
+}
+
 inline KeysType Tablet::keys_type() const {
-    return _schema.keys_type();
+    return _schema->keys_type();
 }
 
 inline SortType Tablet::sort_type() const {
-    return _schema.sort_type();
+    return _schema->sort_type();
 }
 
 inline size_t Tablet::sort_col_num() const {
-    return _schema.sort_col_num();
+    return _schema->sort_col_num();
 }
 
 inline size_t Tablet::num_columns() const {
-    return _schema.num_columns();
+    return _schema->num_columns();
 }
 
 inline size_t Tablet::num_null_columns() const {
-    return _schema.num_null_columns();
+    return _schema->num_null_columns();
 }
 
 inline size_t Tablet::num_key_columns() const {
-    return _schema.num_key_columns();
+    return _schema->num_key_columns();
 }
 
 inline size_t Tablet::num_short_key_columns() const {
-    return _schema.num_short_key_columns();
+    return _schema->num_short_key_columns();
 }
 
 inline size_t Tablet::num_rows_per_row_block() const {
-    return _schema.num_rows_per_row_block();
+    return _schema->num_rows_per_row_block();
 }
 
 inline CompressKind Tablet::compress_kind() const {
-    return _schema.compress_kind();
+    return _schema->compress_kind();
 }
 
 inline double Tablet::bloom_filter_fpp() const {
-    return _schema.bloom_filter_fpp();
+    return _schema->bloom_filter_fpp();
 }
 
 inline size_t Tablet::next_unique_id() const {
-    return _schema.next_column_unique_id();
+    return _schema->next_column_unique_id();
 }
 
 inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema.field_index(field_name);
+    return _schema->field_index(field_name);
 }
 
 inline size_t Tablet::row_size() const {
-    return _schema.row_size();
+    return _schema->row_size();
 }
 
 } // namespace doris

@@ -14,11 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <aws/core/auth/AWSCredentials.h>
+#include <aws/s3/S3Client.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "io/fs/s3_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
 #include "olap/row_block.h"
@@ -33,7 +38,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -43,21 +48,15 @@ namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 StorageEngine* k_engine = nullptr;
+static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
 public:
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+    BetaRowsetTest() : _data_dir(std::make_unique<DataDir>(kTestDir)) {
+        _data_dir->update_capacity();
     }
 
-protected:
-    OlapReaderStatistics _stats;
-
-    void SetUp() override {
+    static void SetUpTestSuite() {
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -80,18 +79,22 @@ protected:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
 
-        const std::string rowset_dir = "./data_test/data/beta_rowset_test";
-        EXPECT_TRUE(FileUtils::create_dir(rowset_dir).ok());
+        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
     }
 
-    void TearDown() override {
-        if (FileUtils::check_exist(config::storage_root_path)) {
-            EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
+    static void TearDownTestSuite() {
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
         }
     }
 
+protected:
+    OlapReaderStatistics _stats;
+
     // (k1 int, k2 varchar(20), k3 int) duplicated key (k1, k2)
-    void create_tablet_schema(TabletSchema* tablet_schema) {
+    void create_tablet_schema(TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(DUP_KEYS);
         tablet_schema_pb.set_num_short_key_columns(2);
@@ -134,16 +137,17 @@ protected:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void create_rowset_writer_context(TabletSchema* tablet_schema,
+    void create_rowset_writer_context(TabletSchemaSPtr tablet_schema,
                                       RowsetWriterContext* rowset_writer_context) {
         RowsetId rowset_id;
         rowset_id.init(10000);
+        // rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->tablet_id = 12345;
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->path_desc.filepath = "./data_test/data/beta_rowset_test";
+        rowset_writer_context->tablet_path = kTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -159,19 +163,23 @@ protected:
         s = (*result)->init(&context);
         EXPECT_EQ(Status::OK(), s);
     }
+
+private:
+    std::unique_ptr<DataDir> _data_dir;
 };
 
 TEST_F(BetaRowsetTest, BasicFunctionTest) {
     Status s;
-    TabletSchema tablet_schema;
-    create_tablet_schema(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
 
     RowsetSharedPtr rowset;
     const int num_segments = 3;
     const uint32_t rows_per_segment = 4096;
+    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
-        create_rowset_writer_context(&tablet_schema, &writer_context);
+        create_rowset_writer_context(tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
@@ -185,7 +193,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         // k2 := k1 * 10
         // k3 := 4096 * i + rid
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool("BetaRowsetTest");
+            MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 10 + i;
                 uint32_t k2 = k1 * 10;
@@ -208,11 +216,10 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
     { // test return ordered results and return k1 and k2
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = &tablet_schema;
+        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
         // without predicates
@@ -247,13 +254,19 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            EXPECT_EQ(segment_num_rows.size(), num_segments);
+            for (auto i = 0; i < num_segments; i++) {
+                EXPECT_EQ(segment_num_rows[i], rows_per_segment);
+            }
         }
 
         // merge segments with predicates
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k1 = 10
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate(
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(0, 10));
             column_predicates.emplace_back(predicate.get());
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;
@@ -283,16 +296,20 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(1, num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            EXPECT_EQ(segment_num_rows.size(), num_segments);
+            for (auto i = 0; i < num_segments; i++) {
+                EXPECT_EQ(segment_num_rows[i], rows_per_segment);
+            }
         }
     }
 
     { // test return unordered data and only k3
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = &tablet_schema;
+        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {2};
         reader_context.return_columns = &return_columns;
-        reader_context.seek_columns = &return_columns;
         reader_context.stats = &_stats;
 
         // without predicate
@@ -321,13 +338,19 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            EXPECT_EQ(segment_num_rows.size(), num_segments);
+            for (auto i = 0; i < num_segments; i++) {
+                EXPECT_EQ(segment_num_rows[i], rows_per_segment);
+            }
         }
 
         // with predicate
         {
             std::vector<ColumnPredicate*> column_predicates;
             // column predicate: k3 < 100
-            ColumnPredicate* predicate = new LessPredicate<int32_t>(2, 100);
+            ColumnPredicate* predicate =
+                    new ComparisonPredicateBase<TYPE_INT, PredicateType::LT>(2, 100);
             column_predicates.emplace_back(predicate);
             reader_context.predicates = &column_predicates;
             RowsetReaderSharedPtr rowset_reader;
@@ -355,8 +378,130 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(100, num_rows_read);
             delete predicate;
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            EXPECT_EQ(segment_num_rows.size(), num_segments);
+            for (auto i = 0; i < num_segments; i++) {
+                EXPECT_EQ(segment_num_rows[i], rows_per_segment);
+            }
         }
     }
+}
+
+class S3ClientMock : public Aws::S3::S3Client {
+    S3ClientMock() {}
+    S3ClientMock(const Aws::Auth::AWSCredentials& credentials,
+                 const Aws::Client::ClientConfiguration& clientConfiguration,
+                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy signPayloads,
+                 bool use_virtual_addressing)
+            : Aws::S3::S3Client(credentials, clientConfiguration, signPayloads,
+                                use_virtual_addressing) {}
+
+    Aws::S3::Model::HeadObjectOutcome HeadObject(
+            const Aws::S3::Model::HeadObjectRequest& request) const override {
+        Aws::S3::Model::HeadObjectOutcome response;
+        response.success = false;
+        return response;
+    }
+
+    Aws::S3::Model::GetObjectOutcome GetObject(
+            const Aws::S3::Model::GetObjectRequest& request) const override {
+        Aws::S3::Model::GetObjectOutcome response;
+        response.success = false;
+        return response;
+    }
+};
+
+class S3ClientMockGetError : public S3ClientMock {
+    Aws::S3::Model::HeadObjectOutcome HeadObject(
+            const Aws::S3::Model::HeadObjectRequest& request) const override {
+        Aws::S3::Model::HeadObjectOutcome response;
+        response.GetResult().SetContentLength(20);
+        response.success = true;
+        return response;
+    }
+};
+
+class S3ClientMockGetErrorData : public S3ClientMock {
+    Aws::S3::Model::HeadObjectOutcome HeadObject(
+            const Aws::S3::Model::HeadObjectRequest& request) const override {
+        Aws::S3::Model::HeadObjectOutcome response;
+        response.GetResult().SetContentLength(20);
+        response.success = true;
+        return response;
+    }
+
+    Aws::S3::Model::GetObjectOutcome GetObject(
+            const Aws::S3::Model::GetObjectRequest& request) const override {
+        Aws::S3::Model::GetObjectOutcome response;
+        response.GetResult().SetContentLength(4);
+        response.success = true;
+        return response;
+    }
+};
+
+TEST_F(BetaRowsetTest, ReadTest) {
+    RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
+    BetaRowset rowset(nullptr, "", rowset_meta);
+    S3Conf s3_conf;
+    s3_conf.ak = "ak";
+    s3_conf.sk = "sk";
+    s3_conf.endpoint = "endpoint";
+    s3_conf.region = "region";
+    s3_conf.bucket = "bucket";
+    s3_conf.prefix = "prefix";
+    io::ResourceId resource_id = "test_resourse_id";
+    std::shared_ptr<io::S3FileSystem> fs =
+            std::make_shared<io::S3FileSystem>(std::move(s3_conf), resource_id);
+    Aws::SDKOptions aws_options = Aws::SDKOptions {};
+    Aws::InitAPI(aws_options);
+    // failed to head object
+    {
+        Aws::Auth::AWSCredentials aws_cred("ak", "sk");
+        Aws::Client::ClientConfiguration aws_config;
+        fs->_client.reset(
+                new S3ClientMock(aws_cred, aws_config,
+                                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true));
+
+        rowset.rowset_meta()->set_num_segments(1);
+        rowset.rowset_meta()->set_resource_id(resource_id);
+        rowset.rowset_meta()->set_fs(fs);
+
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        Status st = rowset.load_segments(&segments);
+        ASSERT_FALSE(st.ok());
+    }
+
+    // failed to get object
+    {
+        Aws::Auth::AWSCredentials aws_cred("ak", "sk");
+        Aws::Client::ClientConfiguration aws_config;
+        fs->_client.reset(new S3ClientMockGetError());
+
+        rowset.rowset_meta()->set_num_segments(1);
+        rowset.rowset_meta()->set_resource_id(resource_id);
+        rowset.rowset_meta()->set_fs(fs);
+
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        Status st = rowset.load_segments(&segments);
+        ASSERT_FALSE(st.ok());
+    }
+
+    // get error data
+    {
+        Aws::Auth::AWSCredentials aws_cred("ak", "sk");
+        Aws::Client::ClientConfiguration aws_config;
+        fs->_client.reset(new S3ClientMockGetErrorData());
+
+        rowset.rowset_meta()->set_num_segments(1);
+        rowset.rowset_meta()->set_resource_id(resource_id);
+        rowset.rowset_meta()->set_fs(fs);
+
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        Status st = rowset.load_segments(&segments);
+        ASSERT_FALSE(st.ok());
+    }
+
+    Aws::ShutdownAPI(aws_options);
 }
 
 } // namespace doris

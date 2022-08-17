@@ -18,13 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -45,9 +45,9 @@ public class ShowDataStmtTest {
     @Mocked
     private Analyzer analyzer;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -60,14 +60,14 @@ public class ShowDataStmtTest {
         auth = new PaloAuth();
         new Expectations() {
             {
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
             }
         };
 
         db = CatalogMocker.mockDb();
-        ds = Deencapsulation.newInstance(InternalDataSource.class);
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
         new Expectations() {
             {
@@ -79,27 +79,27 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = "testCluster:testDb";
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbOrAnalysisException(anyString);
+                catalog.getDbOrAnalysisException(anyString);
                 minTimes = 0;
                 result = db;
 
@@ -138,7 +138,7 @@ public class ShowDataStmtTest {
 
     @Test
     public void testNormal() throws AnalysisException, UserException {
-        ShowDataStmt stmt = new ShowDataStmt(null, null, null);
+        ShowDataStmt stmt = new ShowDataStmt(null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA FROM `testCluster:testDb`", stmt.toString());
         Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
@@ -149,14 +149,18 @@ public class ShowDataStmtTest {
         SlotRef slotRefTwo = new SlotRef(null, "Size");
         OrderByElement orderByElementTwo = new OrderByElement(slotRefTwo, false, false);
 
-        stmt = new ShowDataStmt("testDb", "test_tbl", Arrays.asList(orderByElementOne, orderByElementTwo));
+        stmt = new ShowDataStmt(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb", "test_tbl"),
+                Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
+        Assert.assertEquals(
+                "SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+                stmt.toString());
         Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
 
-        stmt = new ShowDataStmt(null, null, Arrays.asList(orderByElementOne, orderByElementTwo));
+        stmt = new ShowDataStmt(null, Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
+        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+                stmt.toString());
     }
 }

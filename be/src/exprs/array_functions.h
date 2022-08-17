@@ -32,4 +32,6 @@ public:
 
     static CollectionVal array(FunctionContext* context, int num_children, const StringVal* values);
 };
+
+doris_udf::AnyVal array_fake_function(FunctionContext* context);
 } // namespace doris

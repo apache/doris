@@ -20,14 +20,14 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
@@ -61,7 +61,7 @@ public class RoutineLoadJobTest {
     Symbol symbol;
 
     @Test
-    public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Catalog catalog,
+    public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Env env,
                                                        @Injectable TransactionState transactionState,
                                                        @Injectable RoutineLoadTaskInfo routineLoadTaskInfo)
             throws UserException {
@@ -146,7 +146,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testAfterCommittedWhileTaskAborted(@Mocked Catalog catalog,
+    public void testAfterCommittedWhileTaskAborted(@Mocked Env env,
                                                    @Injectable TransactionState transactionState,
                                                    @Injectable KafkaProgress progress) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -192,18 +192,18 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileDbDeleted(@Mocked Catalog catalog, @Mocked InternalDataSource ds) throws UserException {
+    public void testUpdateWhileDbDeleted(@Mocked Env env, @Mocked InternalCatalog catalog) throws UserException {
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
             }
         };
 
         new Expectations() {
             {
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -216,14 +216,14 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileTableDeleted(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void testUpdateWhileTableDeleted(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database) throws UserException {
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -238,7 +238,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhilePartitionChanged(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void testUpdateWhilePartitionChanged(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database, @Injectable Table table, @Injectable PartitionInfo partitionInfo,
             @Injectable KafkaProgress kafkaProgress) throws UserException {
         List<PartitionInfo> partitionInfoList = Lists.newArrayList();
@@ -246,10 +246,10 @@ public class RoutineLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -275,7 +275,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateNumOfDataErrorRowMoreThanMax(@Mocked Catalog catalog) {
+    public void testUpdateNumOfDataErrorRowMoreThanMax(@Mocked Env env) {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 0);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);

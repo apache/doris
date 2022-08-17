@@ -30,7 +30,7 @@ import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -342,12 +342,12 @@ public class FoldConstantsRule implements ExprRewriteRule {
         TNetworkAddress brpcAddress = null;
         Map<String, Map<String, Expr>> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
             Collections.shuffle(backendIds);
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();

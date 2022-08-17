@@ -26,8 +26,8 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -37,7 +37,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
@@ -70,6 +70,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class DeleteHandlerTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     private DeleteHandler deleteHandler;
 
@@ -85,7 +86,7 @@ public class DeleteHandlerTest {
     private static final long DB_ID = 20000L;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -106,7 +107,7 @@ public class DeleteHandlerTest {
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
 
-        globalTransactionMgr = new GlobalTransactionMgr(catalog);
+        globalTransactionMgr = new GlobalTransactionMgr(env);
         globalTransactionMgr.setEditLog(editLog);
         deleteHandler = new DeleteHandler();
         auth = AccessTestUtil.fetchAdminAccess();
@@ -128,42 +129,42 @@ public class DeleteHandlerTest {
             }
         };
 
-        InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
+        InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                catalog.getCurrentDataSource();
+                env.getCurrentCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyString);
-                minTimes = 0;
-                result = db;
-
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                catalog.getDbNullable(anyLong);
+                minTimes = 0;
+                result = db;
+
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 10L;
 
-                catalog.getTabletInvertedIndex();
+                env.getTabletInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -172,15 +173,15 @@ public class DeleteHandlerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = globalTransactionMgr;
 
@@ -199,7 +200,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         new Expectations(globalTransactionMgr) {
@@ -226,7 +227,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -275,7 +276,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -326,7 +327,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -391,7 +392,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -450,7 +451,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();

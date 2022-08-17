@@ -20,16 +20,10 @@
 
 package org.apache.doris.analysis;
 
-
-import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -68,29 +62,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
-    }
-
-    private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
-        for (TableRef tblRef : tablerefs) {
-            if (!(tblRef instanceof BaseTableRef)) {
-                continue;
-            }
-
-            TableName tableName = tblRef.getName();
-            String dbName = tableName.getDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                dbName = analyzer.getDefaultDb();
-            } else {
-                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
-            }
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-
-            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
-            String tblName = tableName.getTbl();
-            db.getTableOrAnalysisException(tblName);
-        }
     }
 
     /**
@@ -154,11 +125,28 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
-
-        // TODO: remove when query from hive table is supported
-        checkFromHiveTable(analyzer);
+        // Fix the problem of column nullable attribute error caused by inline view + outer join
+        changeTblRefToNullable(analyzer);
 
         analyzed = true;
+    }
+
+    // set null-side inlinve view column
+    // For example: select * from (select a as k1 from t) tmp right join b on tmp.k1=b.k1
+    // The columns from tmp should be nullable.
+    // The table ref tmp will be used by HashJoinNode.computeOutputTuple()
+    private void changeTblRefToNullable(Analyzer analyzer) {
+        for (TableRef tableRef : tablerefs) {
+            if (!(tableRef instanceof InlineViewRef)) {
+                continue;
+            }
+            InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+            if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                for (SlotDescriptor slotDescriptor : inlineViewRef.getDesc().getSlots()) {
+                    slotDescriptor.setIsNullable(true);
+                }
+            }
+        }
     }
 
     public FromClause clone() {

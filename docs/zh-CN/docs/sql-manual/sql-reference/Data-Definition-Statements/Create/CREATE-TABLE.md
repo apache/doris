@@ -299,16 +299,36 @@ distribution_info
 
         `"in_memory" = "true"`
 
+    * `compression`
+
+        Doris 表的默认压缩方式是 LZ4。1.1版本后，支持将压缩方式指定为ZSTD以获得更高的压缩比。
+
+        `"compression"="zstd"`
+
     * `function_column.sequence_type`
 
         当使用 UNIQUE KEY 模型时，可以指定一个sequence列，当KEY列相同时，将按照 sequence 列进行 REPLACE(较大值替换较小值，否则无法替换)
 
         这里我们仅需指定顺序列的类型，支持时间类型或整型。Doris 会创建一个隐藏的顺序列。
-
+    
         `"function_column.sequence_type" = 'Date'`
+    
+    * `light_schema_change`
+
+        Doris默认不使用light schema change优化。如果想使用该优化需要指定为true。
+    
+        `"light_schema_change" = 'true'`
+    
+    * `disable_auto_compaction`
+
+        是否对这个表禁用自动compaction。
+
+        如果这个属性设置成 `true`, 后台的自动compaction进程会跳过这个表的所有tablet。
+
+        `"disable_auto_compaction" = "false"`
 
     * 动态分区相关
-
+    
         动态分区相关参数如下：
     
         * `dynamic_partition.enable`: 用于指定表级别的动态分区功能是否开启。默认为 true。
@@ -320,9 +340,9 @@ distribution_info
         * `dynamic_partition.create_history_partition`: 是否创建历史分区。
         * `dynamic_partition.history_partition_num`: 指定创建历史分区的数量。
         * `dynamic_partition.reserved_history_periods`: 用于指定保留的历史分区的时间段。
-
+    
     * 数据排序相关
-
+    
         数据排序相关参数如下:
     
         * `data_sort.sort_type`: 数据排序使用的方法，目前支持两种：lexical/z-order，默认是lexical
@@ -358,8 +378,8 @@ distribution_info
     PARTITION BY RANGE(k1)
     (
         PARTITION p1 VALUES LESS THAN ("2020-02-01"),
-        PARTITION p1 VALUES LESS THAN ("2020-03-01"),
-        PARTITION p1 VALUES LESS THAN ("2020-04-01")
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
@@ -529,8 +549,8 @@ distribution_info
     PROPERTIES (
         "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
     );
-
-
+    ```
+    ```sql
     CREATE TABLE example_db.dynamic_partition
     (
         k1 DATE,

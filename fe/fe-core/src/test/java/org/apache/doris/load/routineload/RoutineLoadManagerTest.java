@@ -25,8 +25,9 @@ import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -36,7 +37,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -76,7 +77,7 @@ public class RoutineLoadManagerTest {
     public void testAddJobByStmt(@Injectable PaloAuth paloAuth,
                                  @Injectable TResourceInfo tResourceInfo,
                                  @Mocked ConnectContext connectContext,
-                                 @Mocked Catalog catalog) throws UserException {
+                                 @Mocked Env env) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -110,7 +111,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
@@ -145,7 +146,7 @@ public class RoutineLoadManagerTest {
     public void testCreateJobAuthDeny(@Injectable PaloAuth paloAuth,
                                       @Injectable TResourceInfo tResourceInfo,
                                       @Mocked ConnectContext connectContext,
-                                      @Mocked Catalog catalog) {
+                                      @Mocked Env env) {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -170,7 +171,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
@@ -221,7 +222,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testCreateWithSameNameOfStoppedJob(@Mocked ConnectContext connectContext,
-                                                   @Mocked Catalog catalog,
+                                                   @Mocked Env env,
                                                    @Mocked EditLog editLog) throws DdlException {
         String jobName = "job1";
         String topicName = "topic1";
@@ -233,7 +234,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -283,7 +284,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
@@ -319,7 +320,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
@@ -359,7 +360,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
@@ -394,7 +395,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
@@ -439,7 +440,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
@@ -541,8 +542,8 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testGetJobIncludeHistory(@Injectable RoutineLoadJob routineLoadJob1,
-            @Injectable RoutineLoadJob routineLoadJob2, @Injectable RoutineLoadJob routineLoadJob3,
-            @Mocked Catalog catalog, @Mocked InternalDataSource ds, @Mocked Database database)
+            @Injectable RoutineLoadJob routineLoadJob2, @Injectable RoutineLoadJob routineLoadJob3, @Mocked Env env,
+            @Mocked InternalCatalog catalog, @Mocked Database database)
             throws MetaNotFoundException {
         new Expectations() {
             {
@@ -555,10 +556,10 @@ public class RoutineLoadManagerTest {
                 routineLoadJob3.isFinal();
                 minTimes = 0;
                 result = true;
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyString);
+                result = catalog;
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -586,8 +587,8 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testPauseRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+    public void testPauseRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt, @Mocked Env env,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -611,16 +612,22 @@ public class RoutineLoadManagerTest {
                 pauseRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable("");
+                result = catalog;
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getAuth();
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -651,9 +658,9 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt,
-            @Mocked Catalog catalog, @Mocked InternalDataSource ds, @Mocked Database database,
-            @Mocked PaloAuth paloAuth, @Mocked ConnectContext connectContext) throws UserException {
+    public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
+            @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
@@ -672,16 +679,22 @@ public class RoutineLoadManagerTest {
                 resumeRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable("");
+                result = catalog;
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getAuth();
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -696,8 +709,8 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testStopRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+    public void testStopRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -717,16 +730,22 @@ public class RoutineLoadManagerTest {
                 stopRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable("");
+                result = catalog;
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getAuth();
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -741,7 +760,7 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testCheckBeToTask(@Mocked Catalog catalog,
+    public void testCheckBeToTask(@Mocked Env env,
                                   @Mocked SystemInfoService systemInfoService) throws LoadException, DdlException {
         List<Long> beIdsInCluster = Lists.newArrayList();
         beIdsInCluster.add(1L);
@@ -766,7 +785,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testCleanOldRoutineLoadJobs(@Injectable RoutineLoadJob routineLoadJob,
-                                            @Mocked Catalog catalog,
+                                            @Mocked Env env,
                                             @Mocked EditLog editLog) {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -791,7 +810,7 @@ public class RoutineLoadManagerTest {
                 routineLoadJob.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -893,8 +912,8 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+    public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -914,16 +933,22 @@ public class RoutineLoadManagerTest {
                 stopRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable("");
+                result = catalog;
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getAuth();
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -939,8 +964,8 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testPauseAndResumeAllRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt,
-            @Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Catalog catalog,
-            @Mocked InternalDataSource ds, @Mocked Database database, @Mocked PaloAuth paloAuth,
+            @Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env, @Mocked InternalCatalog catalog,
+            @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -972,16 +997,22 @@ public class RoutineLoadManagerTest {
                 pauseRoutineLoadStmt.getDbFullName();
                 minTimes = 0;
                 result = "";
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDb("");
+                result = catalog;
+                catalog.getDb("");
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getAuth();
+                database.getTableOrAnalysisException(anyLong);
+                minTimes = 0;
+                result = tbl;
+                tbl.getName();
+                minTimes = 0;
+                result = "tbl";
+                env.getAuth();
                 minTimes = 0;
                 result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);

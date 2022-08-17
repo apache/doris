@@ -19,10 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.BrokerTable;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -37,7 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -98,7 +98,6 @@ public class InsertStmt extends DdlStmt {
     private Boolean isRepartition;
     private boolean isStreaming = false;
     private String label = null;
-    private boolean isUserSpecifiedLabel = false;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -140,10 +139,6 @@ public class InsertStmt extends DdlStmt {
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
         this.targetColumnNames = cols;
-
-        if (!Strings.isNullOrEmpty(label)) {
-            isUserSpecifiedLabel = true;
-        }
 
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
@@ -195,14 +190,16 @@ public class InsertStmt extends DdlStmt {
         // get dbs of statement
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        DatabaseIf db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
-        if (!Catalog.getCurrentCatalog().getAuth()
+        if (!Env.getCurrentEnv().getAuth()
                 .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -245,10 +242,6 @@ public class InsertStmt extends DdlStmt {
         return label;
     }
 
-    public boolean isUserSpecifiedLabel() {
-        return isUserSpecifiedLabel;
-    }
-
     public DataSink getDataSink() {
         return dataSink;
     }
@@ -267,10 +260,12 @@ public class InsertStmt extends DdlStmt {
 
         if (targetTable == null) {
             tblName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
         }
 
         // Check privilege
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -296,18 +291,17 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
+        db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tblName.getDb());
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         if (Strings.isNullOrEmpty(label)) {
-            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
+            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
         if (!isExplain() && !isTransactionBegin) {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
-                MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-                transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(targetTable.getId()), label,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         sourceType, timeoutSecond);
@@ -327,7 +321,7 @@ public class InsertStmt extends DdlStmt {
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(tblName.getDb());
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tblName.getDb());
             targetTable = (Table) db.getTableOrAnalysisException(tblName.getTbl());
         }
 
@@ -712,7 +706,8 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
+                    analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
@@ -737,7 +732,7 @@ public class InsertStmt extends DdlStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).complete();
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), transactionId);
             if (txnState == null) {
                 throw new DdlException("txn does not exist: " + transactionId);

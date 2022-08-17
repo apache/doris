@@ -18,13 +18,13 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.CreateFileStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 
 import mockit.Expectations;
@@ -37,9 +37,9 @@ import org.junit.Test;
 public class SmallFileMgrTest {
 
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
-    InternalDataSource ds;
+    InternalCatalog catalog;
     @Mocked
     EditLog editLog;
     @Mocked
@@ -53,10 +53,10 @@ public class SmallFileMgrTest {
                 db.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyString);
+                result = catalog;
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
                 stmt1.getDbName();

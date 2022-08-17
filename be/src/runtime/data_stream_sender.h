@@ -171,7 +171,7 @@ protected:
                    << ", error_text=" << cntl->ErrorText()
                    << ", client: " << BackendOptions::get_localhost();
                 LOG(WARNING) << ss.str();
-                return Status::ThriftRpcError(ss.str());
+                return Status::RpcError(ss.str());
             }
             return Status::OK();
         }
@@ -224,7 +224,7 @@ protected:
 
     RuntimeProfile* _profile; // Allocated from _pool
     PRowBatch* _cur_pb_batch;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     ObjectPool* _pool;
     // Sender instance id, unique within a fragment.
     int _sender_id;

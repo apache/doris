@@ -50,25 +50,25 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const auto& typed_column = block.get_by_position(arguments[0]);
+        auto ptr = typed_column.column->convert_to_full_column_if_const();
         const typename Impl::column_type* column_array;
-        if (typed_column.column->is_nullable()) {
+        if (ptr->is_nullable()) {
             column_array = check_and_get_column<const typename Impl::column_type>(
-                    static_cast<const ColumnNullable*>(typed_column.column.get())
-                            ->get_nested_column_ptr()
-                            .get());
+                    static_cast<const ColumnNullable*>(ptr.get())->get_nested_column_ptr().get());
         } else {
-            column_array = check_and_get_column<const typename Impl::column_type>(
-                    typed_column.column.get());
+            column_array = check_and_get_column<const typename Impl::column_type>(ptr.get());
         }
         const auto* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(typed_column.type).get());
-        return Impl::execute(block, result, data_type_array, *column_array);
+        return Impl::execute(block, arguments, result, data_type_array, *column_array);
     }
-    size_t get_number_of_arguments() const override { return 1; }
+
+    bool is_variadic() const override { return Impl::_is_variadic(); }
+
+    size_t get_number_of_arguments() const override { return Impl::_get_number_of_arguments(); }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        const DataTypeArray* data_type_array =
-                static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
-        return Impl::get_return_type(data_type_array);
+        return Impl::get_return_type(arguments);
     }
 };
 

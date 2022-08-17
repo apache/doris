@@ -17,19 +17,75 @@
 
 package org.apache.doris.nereids.properties;
 
+import java.util.Objects;
+
 /**
  * Physical properties used in cascades.
  */
 public class PhysicalProperties {
-    private DistributionSpec distributionDesc;
 
-    public PhysicalProperties() {}
+    public static PhysicalProperties ANY = new PhysicalProperties();
 
-    public DistributionSpec getDistributionDesc() {
-        return distributionDesc;
+    public static PhysicalProperties REPLICATED = new PhysicalProperties(DistributionSpecReplicated.INSTANCE);
+
+    public static PhysicalProperties GATHER = new PhysicalProperties(DistributionSpecGather.INSTANCE);
+
+    private final OrderSpec orderSpec;
+
+    private final DistributionSpec distributionSpec;
+
+    private PhysicalProperties() {
+        this.orderSpec = new OrderSpec();
+        this.distributionSpec = DistributionSpecAny.INSTANCE;
     }
 
-    public void setDistributionDesc(DistributionSpec distributionDesc) {
-        this.distributionDesc = distributionDesc;
+    private PhysicalProperties(DistributionSpec distributionSpec) {
+        this.distributionSpec = distributionSpec;
+        this.orderSpec = new OrderSpec();
+    }
+
+    public PhysicalProperties(OrderSpec orderSpec) {
+        this.orderSpec = orderSpec;
+        this.distributionSpec = DistributionSpecAny.INSTANCE;
+    }
+
+    public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
+        this.distributionSpec = distributionSpec;
+        this.orderSpec = orderSpec;
+    }
+
+    public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {
+        return new PhysicalProperties(distributionSpecHash);
+    }
+
+    // Current properties satisfies other properties.
+    public boolean satisfy(PhysicalProperties other) {
+        return orderSpec.satisfy(other.orderSpec) && distributionSpec.satisfy(other.distributionSpec);
+    }
+
+    public OrderSpec getOrderSpec() {
+        return orderSpec;
+    }
+
+    public DistributionSpec getDistributionSpec() {
+        return distributionSpec;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalProperties that = (PhysicalProperties) o;
+        return orderSpec.equals(that.orderSpec)
+                && distributionSpec.equals(that.distributionSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderSpec, distributionSpec);
     }
 }

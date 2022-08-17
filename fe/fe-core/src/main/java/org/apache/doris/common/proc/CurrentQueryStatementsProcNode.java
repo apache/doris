@@ -36,7 +36,7 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
             .add("QueryId").add("ConnectionId").add("Database").add("User")
             .add("ExecTime").add("SqlHash").add("Statement").build();
 
-    private static final int EXEC_TIME_INDEX = 5;
+    private static final int EXEC_TIME_INDEX = 4;
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {

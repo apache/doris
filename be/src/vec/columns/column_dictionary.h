@@ -241,7 +241,7 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
-    void generate_hash_values_for_runtime_filter() {
+    void generate_hash_values_for_runtime_filter() override {
         _dict.generate_hash_values_for_runtime_filter(_type);
     }
 
@@ -257,7 +257,10 @@ public:
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
-        auto res = vectorized::PredicateColumnType<StringValue>::create();
+        if (is_dict_sorted() && !is_dict_code_converted()) {
+            convert_dict_codes_if_necessary();
+        }
+        auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
         res->reserve(_reserve_size);
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
@@ -268,6 +271,8 @@ public:
         _dict.clear();
         return res;
     }
+
+    inline const StringValue& get_value(value_type code) const { return _dict.get_value(code); }
 
     class Dictionary {
     public:
@@ -294,6 +299,10 @@ public:
         T get_null_code() { return -1; }
 
         inline StringValue& get_value(T code) {
+            return code >= _dict_data.size() ? _null_value : _dict_data[code];
+        }
+
+        inline const StringValue& get_value(T code) const {
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
         }
 

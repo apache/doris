@@ -47,13 +47,18 @@ struct WriteRequest {
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
     bool is_high_priority = false;
+    POlapTableSchemaParam ptable_schema_param;
+    int64_t index_id;
 };
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer, bool is_vec = false);
+    static Status open(WriteRequest* req, DeltaWriter** writer,
+                       const std::shared_ptr<MemTrackerLimiter>& parent_tracker =
+                               std::shared_ptr<MemTrackerLimiter>(),
+                       bool is_vec = false);
 
     ~DeltaWriter();
 
@@ -67,7 +72,13 @@ public:
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait();
+    Status close_wait(const PSlaveTabletNodes& slave_tablet_nodes, const bool write_single_replica);
+
+    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                           success_slave_tablet_node_ids);
+
+    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                             success_slave_tablet_node_ids);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -91,12 +102,17 @@ public:
 
     int32_t schema_hash() { return _tablet->schema_hash(); }
 
+    int64_t memtable_consumption() const;
+
     int64_t save_mem_consumption_snapshot();
 
     int64_t get_mem_consumption_snapshot() const;
 
+    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
+                const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -105,6 +121,12 @@ private:
 
     void _reset_mem_table();
 
+    void _build_current_tablet_schema(int64_t index_id,
+                                      const POlapTableSchemaParam& table_schema_param,
+                                      const TabletSchema& ori_tablet_schema);
+
+    void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
+
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
@@ -112,14 +134,24 @@ private:
     RowsetSharedPtr _cur_rowset;
     std::unique_ptr<RowsetWriter> _rowset_writer;
     // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
-    std::shared_ptr<MemTable> _mem_table;
+    std::unique_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
-    const TabletSchema* _tablet_schema;
+    //const TabletSchema* _tablet_schema;
+    // tablet schema owned by delta writer, all write will use this tablet schema
+    // it's build from tablet_schema（stored when create tablet） and OlapTableSchema
+    // every request will have it's own tablet schema so simple schema change can work
+    TabletSchemaSPtr _tablet_schema;
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    // The memory value automatically tracked by the Tcmalloc hook is 20% less than the manually recorded
+    // value in the memtable, because some freed memory is not allocated in the DeltaWriter.
+    // The memory value automatically tracked by the Tcmalloc hook, used for load channel mgr to trigger
+    // flush memtable when the sum of all channel memory exceeds the limit.
+    // The manually recorded value of memtable is used to flush when it is larger than write_buffer_size.
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _parent_tracker;
 
     // The counter of number of segment flushed already.
     int64_t _segment_counter = 0;
@@ -131,6 +163,14 @@ private:
 
     //only used for std::sort more detail see issue(#9237)
     int64_t _mem_consumption_snapshot = 0;
+
+    std::unordered_set<int64_t> _unfinished_slave_node;
+    PSuccessSlaveTabletNodeIds _success_slave_node_ids;
+    std::shared_mutex _slave_node_lock;
+
+    DeleteBitmapPtr _delete_bitmap;
+    // current rowset_ids, used to do diff in publish_version
+    RowsetIdUnorderedSet _rowset_ids;
 };
 
 } // namespace doris

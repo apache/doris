@@ -31,15 +31,20 @@ namespace vectorized {
 class Block;
 }
 
+class POlapTableIndexSchema;
+
 class TabletColumn {
 public:
     TabletColumn();
+    TabletColumn(const ColumnPB& column);
+    TabletColumn(const TColumn& column);
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
                  int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
-    void to_schema_pb(ColumnPB* column);
+    void init_from_thrift(const TColumn& column);
+    void to_schema_pb(ColumnPB* column) const;
     uint32_t mem_size() const;
 
     int32_t unique_id() const { return _unique_id; }
@@ -57,9 +62,6 @@ public:
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
-    bool has_reference_column() const { return _has_referenced_column; }
-    int32_t referenced_column_id() const { return _referenced_column_id; }
-    std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
@@ -104,10 +106,6 @@ private:
 
     bool _is_bf_column = false;
 
-    bool _has_referenced_column = false;
-    int32_t _referenced_column_id;
-    std::string _referenced_column;
-
     bool _has_bitmap_index = false;
     bool _visible = true;
 
@@ -126,11 +124,15 @@ public:
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
-    void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
+    void append_column(TabletColumn column);
+    void copy_from(const TabletSchema& tablet_schema);
+    std::string to_key() const;
     uint32_t mem_size() const;
 
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
+    int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
     const std::vector<TabletColumn>& columns() const;
     size_t num_columns() const { return _num_columns; }
@@ -143,19 +145,30 @@ public:
     size_t sort_col_num() const { return _sort_col_num; }
     CompressKind compress_kind() const { return _compress_kind; }
     size_t next_column_unique_id() const { return _next_column_unique_id; }
+    bool has_bf_fpp() const { return _has_bf_fpp; }
     double bloom_filter_fpp() const { return _bf_fpp; }
     bool is_in_memory() const { return _is_in_memory; }
     void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
+    void set_disable_auto_compaction(bool disable_auto_compaction) {
+        _disable_auto_compaction = disable_auto_compaction;
+    }
+    bool disable_auto_compaction() const { return _disable_auto_compaction; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
+    int32_t schema_version() const { return _schema_version; }
+    void clear_columns();
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block() const;
+
+    void build_current_tablet_schema(int64_t index_id, int32_t version,
+                                     const POlapTableIndexSchema& index,
+                                     const TabletSchema& out_tablet_schema);
 
 private:
     // Only for unit test.
@@ -170,6 +183,7 @@ private:
     size_t _sort_col_num = 0;
     std::vector<TabletColumn> _cols;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
+    std::unordered_map<int32_t, int32_t> _field_id_to_index;
     size_t _num_columns = 0;
     size_t _num_key_columns = 0;
     size_t _num_null_columns = 0;
@@ -184,9 +198,13 @@ private:
     bool _is_in_memory = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
+    int32_t _schema_version = -1;
+    bool _disable_auto_compaction = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
 bool operator!=(const TabletSchema& a, const TabletSchema& b);
+
+using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 } // namespace doris

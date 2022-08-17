@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_AsText`,`ST_AsWKT`",
+    "title": "ST_AsText,ST_AsWKT",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_AsText`,`ST_AsWKT`
+## ST_AsText,ST_AsWKT
 ### description
 #### Syntax
 

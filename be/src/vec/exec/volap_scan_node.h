@@ -20,11 +20,15 @@
 #include "exec/olap_common.h"
 #include "exec/scan_node.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/tablet.h"
 #include "util/progress_updater.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class ObjectPool;
@@ -52,8 +56,6 @@ public:
 
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
-
     Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range, int block_row_count,
                      bool is_begin_include, bool is_end_include,
                      const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
@@ -64,37 +66,16 @@ private:
     // In order to ensure the accuracy of the query result
     // only key column conjuncts will be remove as idle conjunct
     bool is_key_column(const std::string& key_name);
-    void remove_pushed_conjuncts(RuntimeState* state);
+
     Status start_scan(RuntimeState* state);
-    void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
-    template <class T>
-    Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
-    template <class T>
-    Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
-
-    template <class T>
-    Status normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
-
-    template <class T>
-    Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
-
-    Status normalize_bloom_filter_predicate(SlotDescriptor* slot);
-
-    template <typename T>
-    static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
-                                            const std::string& is_null_str,
-                                            ColumnValueRange<T>* range);
-    bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
-
-    template <typename T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, PrimitiveType type,
-                                           void* value, const ChangeFixedValueRangeFunc& func);
-
-    std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
-                                                         int conj_idx, int child_idx);
+    template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+    static Status change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
+                                     const ChangeFixedValueRangeFunc& func,
+                                     const std::string& fn_name, bool cast_date_to_datetime = true,
+                                     int slot_ref_child = -1);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
@@ -112,6 +93,54 @@ private:
         return _runtime_filter_descs;
     }
 
+    template <PrimitiveType T>
+    Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                          SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                          bool* push_down);
+    template <PrimitiveType T>
+    Status _normalize_not_in_and_not_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                  bool* push_down);
+
+    template <PrimitiveType T>
+    Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                             SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                             bool* push_down);
+
+    template <PrimitiveType T>
+    Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                        SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                        bool* push_down);
+
+    Status _normalize_bloom_filter(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                   SlotDescriptor* slot, bool* push_down);
+
+    void eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, bool* push_down);
+
+    vectorized::VExpr* _normalize_predicate(RuntimeState* state,
+                                            vectorized::VExpr* conjunct_expr_root);
+
+    Status _normalize_function_filters(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                       SlotDescriptor* slot, bool* push_down);
+
+    template <bool IsNotIn>
+    bool _should_push_down_in_predicate(VInPredicate* in_pred, VExprContext* expr_ctx);
+
+    bool _is_predicate_acting_on_slot(VExpr* expr,
+                                      const std::function<bool(const std::vector<VExpr*>&,
+                                                               const VSlotRef**, VExpr**)>& checker,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
+
+    bool _should_push_down_binary_predicate(
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
+            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
+
+    bool _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
+                                           StringVal* constant_str,
+                                           doris_udf::FunctionContext** fn_ctx);
+
+    Status _append_rf_into_conjuncts(RuntimeState* state, std::vector<VExpr*>& vexprs);
+
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
     // doris scan node used to scan doris
@@ -122,9 +151,6 @@ private:
     int _tuple_idx;
     // string slots
     std::vector<SlotDescriptor*> _string_slots;
-    // conjunct's index which already be push down storage engine
-    // should be remove in olap_scan_node, no need check this conjunct again
-    std::set<uint32_t> _pushed_conjuncts_index;
     // collection slots
     std::vector<SlotDescriptor*> _collection_slots;
 
@@ -144,6 +170,10 @@ private:
     std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
+    // push down functions to storage engine
+    // only support scalar functions, now just support like / not like
+    std::vector<FunctionFilter> _push_down_functions;
+
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
@@ -154,26 +184,12 @@ private:
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
 
-    // Lock and condition variables protecting _materialized_row_batches.  Row batches are
-    // produced asynchronously by the scanner threads and consumed by the main thread in
-    // GetNext.  Row batches must be processed by the main thread in the order they are
-    // queued to avoid freeing attached resources prematurely (row batches will never depend
-    // on resources attached to earlier batches in the queue).
-    // This lock cannot be taken together with any other locks except _lock.
-    std::mutex _row_batches_lock;
-    std::condition_variable _row_batch_added_cv;
-    std::condition_variable _row_batch_consumed_cv;
-
-    std::list<RowBatch*> _materialized_row_batches;
     // to limit _materialized_row_batches_bytes < _max_scanner_queue_size_bytes / 2
     std::atomic_size_t _materialized_row_batches_bytes = 0;
 
-    std::mutex _scan_batches_lock;
-    std::condition_variable _scan_batch_added_cv;
     std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
-    std::list<RowBatch*> _scan_row_batches;
     // to limit _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2
     std::atomic_size_t _scan_row_batches_bytes = 0;
 
@@ -186,7 +202,6 @@ private:
     // Used in Scan thread to ensure thread-safe
     std::atomic_bool _scanner_done;
     std::atomic_bool _transfer_done;
-    size_t _direct_conjunct_size;
 
     int _total_assign_num;
     int _nice;
@@ -206,10 +221,8 @@ private:
 
     int64_t _buffered_bytes;
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
-    std::shared_ptr<MemTracker> _scanner_mem_tracker;
+    std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
-
-    bool _need_agg_finalize = true;
 
     // the max num of scan keys of this scan request.
     // it will set as BE's config `doris_max_scan_key_num`,
@@ -320,11 +333,15 @@ private:
     std::list<VOlapScanner*> _volap_scanners;
     std::mutex _volap_scanners_lock;
 
-    std::shared_ptr<MemTracker> _block_mem_tracker;
-
     int _max_materialized_blocks;
 
     size_t _block_size = 0;
+
+    phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
+    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    int64_t _limit_per_scanner = -1;
+    phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
+            _id_to_slot_column_value_range;
 };
 } // namespace vectorized
 } // namespace doris

@@ -105,14 +105,12 @@ public class AgentTaskTest {
 
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
-                                                  indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1,
-                                                  version, KeysType.AGG_KEYS,
-                                                  storageType, TStorageMedium.SSD,
-                                                  columns, null, 0, latch, null,
-                                                  false, TTabletType.TABLET_TYPE_DISK, TCompressionType.LZ4F);
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
+                TCompressionType.LZ4F, false, "", false);
 
         // drop
-        dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1);
+        dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);
 
         // clone
         cloneTask =
@@ -226,7 +224,7 @@ public class AgentTaskTest {
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));
 
         dropTask.failed();
-        DropReplicaTask dropTask2 = new DropReplicaTask(backendId2, tabletId1, replicaId1, schemaHash1);
+        DropReplicaTask dropTask2 = new DropReplicaTask(backendId2, tabletId1, replicaId1, schemaHash1, false);
         AgentTaskQueue.addTask(dropTask2);
         dropTask2.failed();
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));

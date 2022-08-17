@@ -18,6 +18,7 @@
 #include "service/http_service.h"
 
 #include "http/action/check_rpc_channel_action.h"
+#include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
@@ -25,7 +26,6 @@
 #include "http/action/health_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
-#include "http/action/mini_load.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
 #include "http/action/reset_rpc_channel_action.h"
@@ -54,12 +54,12 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
 HttpService::~HttpService() {}
 
 Status HttpService::start() {
-    add_default_path_handlers(_web_page_handler.get(), MemTracker::get_process_tracker());
+    add_default_path_handlers(_web_page_handler.get());
 
     // register load
-    MiniLoadAction* miniload_action = _pool.add(new MiniLoadAction(_env));
-    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_load", miniload_action);
     StreamLoadAction* streamload_action = _pool.add(new StreamLoadAction(_env));
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_load",
+                                      streamload_action);
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load",
                                       streamload_action);
     StreamLoad2PCAction* streamload_2pc_action = _pool.add(new StreamLoad2PCAction(_env));
@@ -69,9 +69,6 @@ Status HttpService::start() {
     // register download action
     std::vector<std::string> allow_paths;
     for (auto& path : _env->store_paths()) {
-        if (FilePathDesc::is_remote(path.storage_medium)) {
-            continue;
-        }
         allow_paths.emplace_back(path.path);
     }
     DownloadAction* download_action = _pool.add(new DownloadAction(_env, allow_paths));
@@ -170,6 +167,12 @@ Status HttpService::start() {
     ResetRPCChannelAction* reset_rpc_channel_action = _pool.add(new ResetRPCChannelAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/reset_rpc_channel/{endpoints}",
                                       reset_rpc_channel_action);
+
+    CheckTabletSegmentAction* check_tablet_segment_action =
+            _pool.add(new CheckTabletSegmentAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/check_tablet_segment_lost",
+                                      check_tablet_segment_action);
+
     _ev_http_server->start();
     return Status::OK();
 }

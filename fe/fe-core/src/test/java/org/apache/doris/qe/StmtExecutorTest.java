@@ -30,10 +30,11 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -89,7 +90,7 @@ public class StmtExecutorTest {
 
         SessionVariable sessionVariable = new SessionVariable();
         MysqlSerializer serializer = MysqlSerializer.newInstance();
-        Catalog catalog = AccessTestUtil.fetchAdminCatalog();
+        Env env = AccessTestUtil.fetchAdminCatalog();
 
         channel = new MysqlChannel(socketChannel);
         new Expectations(channel) {
@@ -112,9 +113,9 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = serializer;
 
-                ctx.getCatalog();
+                ctx.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 ctx.getState();
                 minTimes = 0;
@@ -176,8 +177,8 @@ public class StmtExecutorTest {
                            @Mocked SqlParser parser,
                            @Mocked OriginalPlanner planner,
                            @Mocked Coordinator coordinator) throws Exception {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Deencapsulation.setField(catalog, "canRead", new AtomicBoolean(true));
+        Env env = Env.getCurrentEnv();
+        Deencapsulation.setField(env, "canRead", new AtomicBoolean(true));
 
         new Expectations() {
             {
@@ -233,9 +234,9 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = -1L;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -356,7 +357,7 @@ public class StmtExecutorTest {
     @Test
     public void testKillOtherFail(@Mocked KillStmt killStmt, @Mocked SqlParser parser,
             @Mocked ConnectContext killCtx) throws Exception {
-        Catalog killCatalog = AccessTestUtil.fetchAdminCatalog();
+        Env killEnv = AccessTestUtil.fetchAdminCatalog();
 
         new Expectations() {
             {
@@ -380,9 +381,9 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = symbol;
 
-                killCtx.getCatalog();
+                killCtx.getEnv();
                 minTimes = 0;
-                result = killCatalog;
+                result = killEnv;
 
                 killCtx.getQualifiedUser();
                 minTimes = 0;
@@ -414,7 +415,7 @@ public class StmtExecutorTest {
     @Test
     public void testKillOther(@Mocked KillStmt killStmt, @Mocked SqlParser parser,
             @Mocked ConnectContext killCtx) throws Exception {
-        Catalog killCatalog = AccessTestUtil.fetchAdminCatalog();
+        Env killEnv = AccessTestUtil.fetchAdminCatalog();
         new Expectations() {
             {
                 killStmt.analyze((Analyzer) any);
@@ -437,9 +438,9 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = symbol;
 
-                killCtx.getCatalog();
+                killCtx.getEnv();
                 minTimes = 0;
-                result = killCatalog;
+                result = killEnv;
 
                 killCtx.getQualifiedUser();
                 minTimes = 0;
@@ -594,7 +595,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
+                DdlExecutor.execute((Env) any, (DdlStmt) any);
                 minTimes = 0;
             }
         };
@@ -627,7 +628,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
+                DdlExecutor.execute((Env) any, (DdlStmt) any);
                 minTimes = 0;
                 result = new DdlException("ddl fail");
             }
@@ -661,7 +662,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
+                DdlExecutor.execute((Env) any, (DdlStmt) any);
                 minTimes = 0;
                 result = new Exception("bug");
             }
@@ -723,6 +724,78 @@ public class StmtExecutorTest {
                 useStmt.getClusterName();
                 minTimes = 0;
                 result = "testCluster";
+
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        StmtExecutor executor = new StmtExecutor(ctx, "");
+        executor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testUseWithCatalog(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                useStmt.getCatalogName();
+                minTimes = 0;
+                result = InternalCatalog.INTERNAL_CATALOG_NAME;
+
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        StmtExecutor executor = new StmtExecutor(ctx, "");
+        executor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testUseWithCatalogFail(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "blockDb";
+
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                useStmt.getCatalogName();
+                minTimes = 0;
+                result = "testcatalog";
 
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();

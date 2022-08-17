@@ -174,9 +174,6 @@ private:
         } else if (right_column.is_date_type()) {
             return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_null_map,
                                                                  nested_column, right_column);
-        } else if (right_column.is_date_v2_type()) {
-            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_null_map,
-                                                                   nested_column, right_column);
         } else if (right_column.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_null_map,
                                                                      nested_column, right_column);
@@ -254,9 +251,6 @@ private:
             if (nested_column->is_date_type()) {
                 return_column = _execute_number_expanded<ColumnDate>(offsets, nested_null_map,
                                                                      *nested_column, *right_column);
-            } else if (nested_column->is_date_v2_type()) {
-                return_column = _execute_number_expanded<ColumnDateV2>(
-                        offsets, nested_null_map, *nested_column, *right_column);
             } else if (nested_column->is_datetime_type()) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
                         offsets, nested_null_map, *nested_column, *right_column);
@@ -267,10 +261,10 @@ private:
             block.replace_by_position(result, std::move(return_column));
             return Status::OK();
         }
-        return Status::RuntimeError(
-                fmt::format("execute failed or unsupported types for function {}({}, {})",
-                            get_name(), block.get_by_position(arguments[0]).type->get_name(),
-                            block.get_by_position(arguments[1]).type->get_name()));
+        return Status::RuntimeError("execute failed or unsupported types for function {}({}, {})",
+                                    get_name(),
+                                    block.get_by_position(arguments[0]).type->get_name(),
+                                    block.get_by_position(arguments[1]).type->get_name());
     }
 };
 

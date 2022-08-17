@@ -41,14 +41,10 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/fs/file_block_manager.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
@@ -60,8 +56,6 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -116,22 +110,17 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
-          _index_stream_lru_cache(nullptr),
-          _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::AutoCompaction",
-                                                             nullptr, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::TabletHeader", nullptr,
-                                                         MemTrackerLevel::OVERVIEW)),
-          _schema_change_mem_tracker(MemTracker::create_tracker(
-                  -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
-          _storage_migration_mem_tracker(MemTracker::create_tracker(
-                  -1, "StorageEngine::StorageMigration", nullptr, MemTrackerLevel::OVERVIEW)),
-          _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,
-                                                        MemTrackerLevel::OVERVIEW)),
-          _batch_load_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::BatchLoad",
-                                                             nullptr, MemTrackerLevel::OVERVIEW)),
-          _consistency_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Consistency",
-                                                              nullptr, MemTrackerLevel::OVERVIEW)),
+          _compaction_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
+          _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
+          _schema_change_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::SchemaChange")),
+          _clone_mem_tracker(std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Clone")),
+          _batch_load_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::BatchLoad")),
+          _consistency_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Consistency")),
+          _mem_tracker(std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Self")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -142,7 +131,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stream_load_recorder(nullptr) {
     _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
-        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
     REGISTER_HOOK_METRIC(compaction_mem_consumption,
@@ -163,9 +152,11 @@ StorageEngine::~StorageEngine() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
-    if (_convert_rowset_thread_pool) {
-        _convert_rowset_thread_pool->shutdown();
+
+    if (_quick_compaction_thread_pool) {
+        _quick_compaction_thread_pool->shutdown();
     }
+
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
@@ -174,7 +165,8 @@ StorageEngine::~StorageEngine() {
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
+        threads.emplace_back([this, data_dir] {
+            SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
             auto res = data_dir->load();
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
@@ -199,11 +191,6 @@ Status StorageEngine::_open() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
-    _index_stream_lru_cache =
-            new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
-
-    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
-
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
 
@@ -224,7 +211,8 @@ Status StorageEngine::_init_store_map() {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
-        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
+        threads.emplace_back([this, store, &error_msg_lock, &error_msg]() {
+            SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
             auto st = store->init();
             if (!st.ok()) {
                 {
@@ -244,7 +232,7 @@ Status StorageEngine::_init_store_map() {
         for (auto store : tmp_stores) {
             delete store;
         }
-        return Status::InternalError(strings::Substitute("init path failed, error=$0", error_msg));
+        return Status::InternalError("init path failed, error={}", error_msg);
     }
 
     for (auto store : tmp_stores) {
@@ -274,8 +262,8 @@ Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_
     auto st = _stream_load_recorder->init();
     if (!st.ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(Substitute("open StreamLoadRecorder rocksdb failed, path=$0",
-                                           stream_load_record_path)),
+                Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
+                                stream_load_record_path),
                 "init StreamLoadRecorder failed");
     }
     return Status::OK();
@@ -307,9 +295,8 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     } else {
         if (cluster_id != _effective_cluster_id) {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::Corruption(
-                            strings::Substitute("multiple cluster ids is not equal. one=$0, other=",
-                                                _effective_cluster_id, cluster_id)),
+                    Status::Corruption("multiple cluster ids is not equal. one={}, other={}",
+                                       _effective_cluster_id, cluster_id),
                     "cluster id not equal");
         }
     }
@@ -334,7 +321,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
     stores.reserve(_store_map.size());
 
     std::lock_guard<std::mutex> l(_store_lock);
-    if (include_unused) {
+    if constexpr (include_unused) {
         for (auto& it : _store_map) {
             stores.push_back(it.second);
         }
@@ -382,7 +369,8 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
         std::lock_guard<std::mutex> l(_store_lock);
         auto data_dir = _store_map.find(path.first);
         DCHECK(data_dir != _store_map.end());
-        data_dir->second->update_user_data_size(path.second.data_used_capacity);
+        data_dir->second->update_local_data_size(path.second.local_used_capacity);
+        data_dir->second->update_remote_data_size(path.second.remote_used_capacity);
     }
 
     // add path info to data_dir_infos
@@ -397,7 +385,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     return res;
 }
 
-int64_t StorageEngine::get_file_or_directory_size(std::filesystem::path file_path) {
+int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) {
     if (!std::filesystem::exists(file_path)) {
         return 0;
     }
@@ -455,9 +443,8 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
             cluster_id = tmp_cluster_id;
         } else {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::Corruption(strings::Substitute(
-                            "multiple cluster ids is not equal. one=$0, other=", cluster_id,
-                            tmp_cluster_id)),
+                    Status::Corruption("multiple cluster ids is not equal. one={}, other={}",
+                                       cluster_id, tmp_cluster_id),
                     "cluster id not equal");
         }
     }
@@ -491,9 +478,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium ||
-                    (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE &&
-                     FilePathDesc::is_remote(storage_medium))) {
+                    it.second->storage_medium() == storage_medium) {
                     stores.push_back(it.second);
                 }
             }
@@ -584,9 +569,6 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    if (_alpha_rowset_scan_thread) {
-        THREAD_JOIN(_alpha_rowset_scan_thread);
-    }
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -607,9 +589,6 @@ void StorageEngine::stop() {
 }
 
 void StorageEngine::_clear() {
-    SAFE_DELETE(_index_stream_lru_cache);
-    _file_cache.reset();
-
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
         delete store_pair.second;
@@ -653,7 +632,6 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_cache() {
-    _file_cache->prune();
     SegmentLoader::instance()->prune();
 }
 
@@ -691,7 +669,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path_desc.filepath;
+        LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
             continue;
         }
@@ -700,21 +678,18 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         Status curr_res = Status::OK();
-        FilePathDesc snapshot_path_desc(info.path_desc.filepath + SNAPSHOT_PREFIX);
-        curr_res = _do_sweep(snapshot_path_desc, local_now, snapshot_expire);
+        auto snapshot_path = fmt::format("{}/{}", info.path, SNAPSHOT_PREFIX);
+        curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
         if (!curr_res.ok()) {
-            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path_desc.filepath
+            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
 
-        FilePathDescStream trash_path_desc_s;
-        trash_path_desc_s << info.path_desc << TRASH_PREFIX;
-        FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
-        curr_res =
-                _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
+        auto trash_path = fmt::format("{}/{}", info.path, TRASH_PREFIX);
+        curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (!curr_res.ok()) {
-            LOG(WARNING) << "failed to sweep trash. path=" << trash_path_desc.filepath
+            LOG(WARNING) << "failed to sweep trash. path=" << trash_path
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
@@ -733,6 +708,12 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
 
+    // clean unused rowsets in remote storage backends
+    for (auto data_dir : get_stores()) {
+        data_dir->perform_remote_rowset_gc();
+        data_dir->perform_remote_tablet_gc();
+    }
+
     return res;
 }
 
@@ -741,7 +722,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
                                                            const std::string& meta_str) -> bool {
         // return false will break meta iterator, return true to skip this error
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
@@ -791,9 +772,6 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        if (data_dir->is_remote()) {
-            continue;
-        }
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
             RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
@@ -824,10 +802,10 @@ void StorageEngine::_clean_unused_txns() {
     }
 }
 
-Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
+Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& local_now,
                                 const int32_t expire) {
     Status res = Status::OK();
-    if (!FileUtils::check_exist(scan_root_desc.filepath)) {
+    if (!FileUtils::check_exist(scan_root)) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -835,7 +813,7 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
-        std::copy(directory_iterator(path(scan_root_desc.filepath)), directory_iterator(),
+        std::copy(directory_iterator(scan_root), directory_iterator(),
                   std::back_inserter(sorted_pathes));
         std::sort(sorted_pathes.begin(), sorted_pathes.end());
         for (const auto& sorted_path : sorted_pathes) {
@@ -860,48 +838,10 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                std::string storage_name_path = path_name + "/" + STORAGE_NAME;
-                if (scan_root_desc.is_remote() && FileUtils::check_exist(storage_name_path)) {
-                    FilePathDesc remote_path_desc = scan_root_desc;
-                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path,
-                                                       &(remote_path_desc.storage_name))
-                                 .ok()) {
-                        LOG(WARNING) << "read storage_name failed: " << storage_name_path;
-                        continue;
-                    }
-                    boost::algorithm::trim(remote_path_desc.storage_name);
-                    std::shared_ptr<StorageBackend> storage_backend =
-                            StorageBackendMgr::instance()->get_storage_backend(
-                                    remote_path_desc.storage_name);
-                    // if storage_backend is nullptr, the remote storage is invalid.
-                    // Only the local path need to be removed.
-                    if (storage_backend != nullptr) {
-                        std::string remote_root_path;
-                        if (!StorageBackendMgr::instance()->get_root_path(
-                                    remote_path_desc.storage_name, &remote_root_path)) {
-                            LOG(WARNING) << "read storage root_path failed: "
-                                         << remote_path_desc.storage_name;
-                            continue;
-                        }
-                        remote_path_desc.remote_path = remote_root_path + TRASH_PREFIX;
-                        std::filesystem::path local_path(path_name);
-                        std::stringstream remote_file_stream;
-                        remote_file_stream << remote_path_desc.remote_path << "/"
-                                           << local_path.filename().string();
-                        Status ret = storage_backend->rmdir(remote_file_stream.str());
-                        if (!ret.ok()) {
-                            LOG(WARNING)
-                                    << "fail to remove file or directory. path="
-                                    << remote_file_stream.str() << ", error=" << ret.to_string();
-                            res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
-                            continue;
-                        }
-                    }
-                }
                 Status ret = FileUtils::remove_all(path_name);
                 if (!ret.ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path_desc: "
-                                 << scan_root_desc.debug_string() << ", error=" << ret.to_string();
+                    LOG(WARNING) << "fail to remove file or directory. path_desc: " << scan_root
+                                 << ", error=" << ret.to_string();
                     res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
                     continue;
                 }
@@ -911,8 +851,7 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path_desc="
-                     << scan_root_desc.debug_string();
+        LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root;
         res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
@@ -941,12 +880,16 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second.use_count() != 1) {
             ++it;
         } else if (it->second->need_delete_file()) {
-            VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
-                        << ", version:" << it->second->version().first << "-"
-                        << it->second->version().second;
-            Status status = it->second->remove();
-            VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
-                        << " finished. status:" << status;
+            // FIXME(cyx): Currently remote unused rowsets are generated by compaction gc,
+            // we cannot remove them directly as other BE may need them.
+            if (it->second->is_local()) {
+                VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
+                            << ", version:" << it->second->version().first << "-"
+                            << it->second->version().second;
+                Status status = it->second->remove();
+                VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
+                            << " finished. status:" << status;
+            }
             it = _unused_rowsets.erase(it);
         }
     }
@@ -1010,7 +953,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
     }
 
     std::stringstream root_path_stream;
-    root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
+    root_path_stream << stores[0]->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
     *store = stores[0];
 

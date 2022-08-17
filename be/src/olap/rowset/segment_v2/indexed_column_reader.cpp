@@ -18,6 +18,8 @@
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 
 #include "gutil/strings/substitute.h" // for Substitute
+#include "io/fs/file_system_map.h"
+#include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/page_io.h"
@@ -33,21 +35,17 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
 
     _type_info = get_scalar_type_info((FieldType)_meta.data_type());
     if (_type_info == nullptr) {
-        return Status::NotSupported(
-                strings::Substitute("unsupported typeinfo, type=$0", _meta.data_type()));
+        return Status::NotSupported("unsupported typeinfo, type={}", _meta.data_type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
     _value_key_coder = get_key_coder(_type_info->type());
 
-    std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc);
-    RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
     // read and parse ordinal index page when exists
     if (_meta.has_ordinal_index_meta()) {
         if (_meta.ordinal_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.ordinal_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(load_index_page(rblock.get(), _meta.ordinal_index_meta().root_page(),
+            RETURN_IF_ERROR(load_index_page(_meta.ordinal_index_meta().root_page(),
                                             &_ordinal_index_page_handle, &_ordinal_index_reader));
             _has_index_page = true;
         }
@@ -58,7 +56,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
         if (_meta.value_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(load_index_page(rblock.get(), _meta.value_index_meta().root_page(),
+            RETURN_IF_ERROR(load_index_page(_meta.value_index_meta().root_page(),
                                             &_value_index_page_handle, &_value_index_reader));
             _has_index_page = true;
         }
@@ -67,23 +65,24 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     return Status::OK();
 }
 
-Status IndexedColumnReader::load_index_page(fs::ReadableBlock* rblock, const PagePointerPB& pp,
-                                            PageHandle* handle, IndexPageReader* reader) {
+Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle* handle,
+                                            IndexPageReader* reader) {
     Slice body;
     PageFooterPB footer;
     std::unique_ptr<BlockCompressionCodec> local_compress_codec;
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), local_compress_codec));
-    RETURN_IF_ERROR(read_page(rblock, PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
+    RETURN_IF_ERROR(read_page(PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
                               local_compress_codec.get()));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
+    _mem_size += body.get_size();
     return Status::OK();
 }
 
-Status IndexedColumnReader::read_page(fs::ReadableBlock* rblock, const PagePointer& pp,
-                                      PageHandle* handle, Slice* body, PageFooterPB* footer,
-                                      PageTypePB type, BlockCompressionCodec* codec) const {
+Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle, Slice* body,
+                                      PageFooterPB* footer, PageTypePB type,
+                                      BlockCompressionCodec* codec) const {
     PageReadOptions opts;
-    opts.rblock = rblock;
+    opts.file_reader = _file_reader.get();
     opts.page_pointer = pp;
     opts.codec = codec;
     OlapReaderStatistics tmp_stats;
@@ -100,18 +99,21 @@ Status IndexedColumnReader::read_page(fs::ReadableBlock* rblock, const PagePoint
 
 Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     // there is not init() for IndexedColumnIterator, so do it here
-    if (!_compress_codec.get())
+    if (!_compress_codec) {
         RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+    }
 
     PageHandle handle;
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(_reader->read_page(_rblock.get(), pp, &handle, &body, &footer, DATA_PAGE,
-                                       _compress_codec.get()));
+    RETURN_IF_ERROR(
+            _reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec.get()));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
+    PageDecoderOptions opts;
+    opts.need_check_bitmap = false;
     return ParsedPage::create(std::move(handle), body, footer.data_page_footer(),
-                              _reader->encoding_info(), pp, 0, &_data_page);
+                              _reader->encoding_info(), pp, 0, &_data_page, opts);
 }
 
 Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
@@ -193,7 +195,17 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     }
 
     // seek inside data page
-    RETURN_IF_ERROR(_data_page.data_decoder->seek_at_or_after_value(key, exact_match));
+    Status st = _data_page.data_decoder->seek_at_or_after_value(key, exact_match);
+    // return the first row of next page when not found
+    if (st.is_not_found() && _reader->_has_index_page) {
+        if (_value_iter.move_next()) {
+            _seeked = true;
+            *exact_match = false;
+            _current_ordinal = _data_page.first_ordinal + _data_page.num_rows;
+            return Status::OK();
+        }
+    }
+    RETURN_IF_ERROR(st);
     _data_page.offset_in_page = _data_page.data_decoder->current_index();
     _current_ordinal = _data_page.first_ordinal + _data_page.offset_in_page;
     DCHECK(_data_page.contains(_current_ordinal));

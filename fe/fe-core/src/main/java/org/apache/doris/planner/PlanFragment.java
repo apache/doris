@@ -24,6 +24,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.qe.ConnectContext;
@@ -227,7 +228,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     /**
      * Finalize plan tree and create stream sink, if needed.
      */
-    public void finalize(QueryStmt queryStmt) {
+    public void finalize(StatementBase stmtBase) {
         if (sink != null) {
             return;
         }
@@ -245,6 +246,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 return;
             }
             Preconditions.checkState(sink == null);
+            QueryStmt queryStmt = stmtBase instanceof QueryStmt ? (QueryStmt) stmtBase : null;
             if (queryStmt != null && queryStmt.hasOutFileClause()) {
                 sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause(), queryStmt.getColLabels());
             } else {
@@ -294,8 +296,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
         if (CollectionUtils.isNotEmpty(outputExprs)) {
-            str.append("  OUTPUT EXPRS:");
-            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining(" | ")));
+            str.append("  OUTPUT EXPRS:\n    ");
+            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining("\n    ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");

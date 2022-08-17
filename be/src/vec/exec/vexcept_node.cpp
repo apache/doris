@@ -42,9 +42,10 @@ Status VExceptNode::prepare(RuntimeState* state) {
 }
 
 Status VExceptNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExceptNode::open");
     RETURN_IF_ERROR(VSetOperationNode::open(state));
     bool eos = false;
-    Status st;
+    Status st = Status::OK();
     for (int i = 1; i < _children.size(); ++i) {
         if (i > 1) {
             refresh_hash_table<false>();
@@ -78,6 +79,7 @@ Status VExceptNode::open(RuntimeState* state) {
 }
 
 Status VExceptNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExceptNode::get_next");
     SCOPED_TIMER(_probe_timer);
     Status st;
     create_mutable_cols(output_block);
@@ -104,6 +106,7 @@ Status VExceptNode::get_next(RuntimeState* state, Block* output_block, bool* eos
 }
 
 Status VExceptNode::close(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExceptNode::close");
     return VSetOperationNode::close(state);
 }
 

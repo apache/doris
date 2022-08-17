@@ -7,18 +7,17 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include <boost/stacktrace.hpp>
 #include <iostream>
 #include <string>
-#include <vector>
+#include <string_view>
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
 #include "gen_cpp/Status_types.h" // for TStatus
-#include "gen_cpp/types.pb.h"     // for PStatus
-#include "util/slice.h"           // for Slice
 
 namespace doris {
+
+class PStatus;
 
 // ErrorName, ErrorCode, String Description, Should print stacktrace
 #define APPLY_FOR_ERROR_CODES(M)                                         \
@@ -231,7 +230,8 @@ namespace doris {
     M(OLAP_ERR_ROWSET_READ_FAILED, -3111, "", true)                      \
     M(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION, -3112, "", true)         \
     M(OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE, -3113, "", true)           \
-    M(OLAP_ERR_ROWSET_ADD_MIGRATION_V2, -3114, "", true)
+    M(OLAP_ERR_ROWSET_ADD_MIGRATION_V2, -3114, "", true)                 \
+    M(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS, -3115, "", false)
 
 enum ErrorCode {
 #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) NAME = ERRORCODE,
@@ -240,157 +240,164 @@ enum ErrorCode {
 };
 
 class Status {
-    enum {
-        // If the error and log returned by the query are truncated, the status to string may be too long.
-        STATE_CAPACITY = 2048,
-        HEADER_LEN = 7,
-        MESSAGE_LEN = STATE_CAPACITY - HEADER_LEN
-    };
-
 public:
-    Status() : _length(0) {}
+    Status() : _code(TStatusCode::OK), _precise_code(0) {}
 
     // copy c'tor makes copy of error detail so Status can be returned by value
-    Status(const Status& rhs) { *this = rhs; }
+    Status(const Status& rhs) = default;
 
     // move c'tor
-    Status(Status&& rhs) { *this = rhs; }
+    Status(Status&& rhs) noexcept = default;
 
     // same as copy c'tor
-    Status& operator=(const Status& rhs) {
-        if (rhs._length) {
-            memcpy(_state, rhs._state, rhs._length);
-        } else {
-            _length = 0;
-        }
-        return *this;
-    }
+    Status& operator=(const Status& rhs) = default;
 
     // move assign
-    Status& operator=(Status&& rhs) {
-        this->operator=(rhs);
-        return *this;
-    }
+    Status& operator=(Status&& rhs) noexcept = default;
 
     // "Copy" c'tor from TStatus.
     Status(const TStatus& status);
 
     Status(const PStatus& pstatus);
 
+    Status(TStatusCode::type code, std::string_view msg, int16_t precise_code = 1)
+            : _code(code), _precise_code(precise_code), _err_msg(msg) {}
+
+    Status(TStatusCode::type code, std::string&& msg, int16_t precise_code = 1)
+            : _code(code), _precise_code(precise_code), _err_msg(std::move(msg)) {}
+
     static Status OK() { return Status(); }
 
-    static Status PublishTimeout(const Slice& msg, int16_t precise_code = 1,
-                                 const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, precise_code, msg2);
-    }
-    static Status MemoryAllocFailed(const Slice& msg, int16_t precise_code = 1,
-                                    const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, precise_code, msg2);
-    }
-    static Status BufferAllocFailed(const Slice& msg, int16_t precise_code = 1,
-                                    const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, precise_code, msg2);
-    }
-    static Status InvalidArgument(const Slice& msg, int16_t precise_code = 1,
-                                  const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
-    }
-    static Status MinimumReservationUnavailable(const Slice& msg, int16_t precise_code = 1,
-                                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, msg, precise_code, msg2);
-    }
-    static Status Corruption(const Slice& msg, int16_t precise_code = 1,
-                             const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
-    }
-    static Status IOError(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
-    }
-    static Status NotFound(const Slice& msg, int16_t precise_code = 1,
-                           const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
-    }
-    static Status AlreadyExist(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::ALREADY_EXIST, msg, precise_code, msg2);
-    }
-    static Status NotSupported(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, precise_code, msg2);
-    }
-    static Status EndOfFile(const Slice& msg, int16_t precise_code = 1,
-                            const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
-    }
-    static Status InternalError(const Slice& msg, int16_t precise_code = 1,
-                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
-    }
-    static Status RuntimeError(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::RUNTIME_ERROR, msg, precise_code, msg2);
-    }
-    static Status Cancelled(const Slice& msg, int16_t precise_code = 1,
-                            const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CANCELLED, msg, precise_code, msg2);
-    }
-
-    static Status MemoryLimitExceeded(const Slice& msg, int16_t precise_code = 1,
-                                      const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, precise_code, msg2);
-    }
-
-    static Status ThriftRpcError(const Slice& msg, int16_t precise_code = 1,
-                                 const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, precise_code, msg2);
-    }
-
-    static Status TimedOut(const Slice& msg, int16_t precise_code = 1,
-                           const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
-    }
-
-    static Status TooManyTasks(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TOO_MANY_TASKS, msg, precise_code, msg2);
-    }
-    static Status ServiceUnavailable(const Slice& msg, int16_t precise_code = -1,
-                                     const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::SERVICE_UNAVAILABLE, msg, precise_code, msg2);
-    }
-    static Status Uninitialized(const Slice& msg, int16_t precise_code = -1,
-                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::UNINITIALIZED, msg, precise_code, msg2);
-    }
-    static Status Aborted(const Slice& msg, int16_t precise_code = -1,
-                          const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::ABORTED, msg, precise_code, msg2);
-    }
-
-    static Status DataQualityError(const Slice& msg, int16_t precise_code = -1,
-                                   const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::DATA_QUALITY_ERROR, msg, precise_code, msg2);
+    template <typename... Args>
+    static Status ErrorFmt(TStatusCode::type code, std::string_view fmt, Args&&... args) {
+        // In some cases, fmt contains '{}' but there are no args.
+        if constexpr (sizeof...(args) == 0) {
+            return Status(code, fmt);
+        } else {
+            return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
+        }
     }
 
     template <typename... Args>
-    static Status OLAPInternalError(int16_t precise_code, const std::string& fmt, Args&&... args) {
-        return ConstructErrorStatus(precise_code, fmt::format(fmt, std::forward<Args>(args)...));
+    static Status PublishTimeout(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::PUBLISH_TIMEOUT, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status MemoryAllocFailed(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::MEM_ALLOC_FAILED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status BufferAllocFailed(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::BUFFER_ALLOCATION_FAILED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status InvalidArgument(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::INVALID_ARGUMENT, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status MinimumReservationUnavailable(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, fmt,
+                        std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status Corruption(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::CORRUPTION, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status IOError(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::IO_ERROR, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status NotFound(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::NOT_FOUND, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status AlreadyExist(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::ALREADY_EXIST, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status NotSupported(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::NOT_IMPLEMENTED_ERROR, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status EndOfFile(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::END_OF_FILE, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status InternalError(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::INTERNAL_ERROR, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status RuntimeError(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::RUNTIME_ERROR, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status Cancelled(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::CANCELLED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status MemoryLimitExceeded(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::MEM_LIMIT_EXCEEDED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status RpcError(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::THRIFT_RPC_ERROR, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status TimedOut(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::TIMEOUT, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status TooManyTasks(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::TOO_MANY_TASKS, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status ServiceUnavailable(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::SERVICE_UNAVAILABLE, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status Uninitialized(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::UNINITIALIZED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status Aborted(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::ABORTED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status DataQualityError(std::string_view fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::DATA_QUALITY_ERROR, fmt, std::forward<Args>(args)...);
     }
 
     // A wrapper for ErrorCode
     //      Precise code is for ErrorCode's enum value
     //      All Status Error is treated as Internal Error
     static Status OLAPInternalError(int16_t precise_code) {
-        return ConstructErrorStatus(precise_code, Slice());
+        return ConstructErrorStatus(precise_code);
     }
 
-    static Status ConstructErrorStatus(int16_t precise_code, const Slice& msg);
+    static Status ConstructErrorStatus(int16_t precise_code);
 
-    bool ok() const { return _length == 0; }
+    bool ok() const { return _code == TStatusCode::OK; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
-    bool is_thrift_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
+    bool is_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
     bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }
@@ -430,10 +437,7 @@ public:
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
-    std::string get_error_msg() const {
-        auto msg = message();
-        return std::string(msg.data, msg.size);
-    }
+    const std::string& get_error_msg() const { return _err_msg; }
 
     /// @return A string representation of this status suitable for printing.
     ///   Returns the string "OK" for success.
@@ -444,17 +448,7 @@ public:
 
     /// @return A string representation of the status code, without the message
     ///   text or sub code information.
-    std::string code_as_string() const;
-
-    // This is similar to to_string, except that it does not include
-    // the stringified error code or sub code.
-    //
-    // @note The returned Slice is only valid as long as this Status object
-    //   remains live and unchanged.
-    //
-    // @return The message portion of the Status. For @c OK statuses,
-    //   this returns an empty string.
-    Slice message() const;
+    const char* code_as_string() const;
 
     TStatusCode::type code() const {
         return ok() ? TStatusCode::OK : static_cast<TStatusCode::type>(_code);
@@ -468,19 +462,17 @@ public:
     ///
     /// @param [in] msg
     ///   The message to prepend.
-    /// @return A new Status object with the same state plus an additional
-    ///   leading message.
-    Status clone_and_prepend(const Slice& msg) const;
+    /// @return A ref to Status object
+    Status& prepend(std::string_view msg);
 
-    /// Clone this status and add the specified suffix to the message.
+    /// Add the specified suffix to the message.
     ///
     /// If this status is OK, then an OK status will be returned.
     ///
     /// @param [in] msg
     ///   The message to append.
-    /// @return A new Status object with the same state plus an additional
-    ///   trailing message.
-    Status clone_and_append(const Slice& msg) const;
+    /// @return A ref to Status object
+    Status& append(std::string_view msg);
 
     // if(!status) or if (status) will use this operator
     operator bool() const { return this->ok(); }
@@ -488,77 +480,19 @@ public:
     // Used like if (res == Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
-    bool operator==(const Status& st) {
+    bool operator==(const Status& st) const {
         return ok() ? st.ok() : code() == st.code() && precise_code() == st.precise_code();
     }
 
     // Used like if (res != Status::OK())
-    bool operator!=(const Status& st) {
+    bool operator!=(const Status& st) const {
         return ok() ? !st.ok() : code() != st.code() || precise_code() != st.precise_code();
     }
 
 private:
-    void assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code,
-                        const Slice& msg2) {
-        DCHECK(code != TStatusCode::OK);
-        uint32_t len1 = msg.size;
-        uint32_t len2 = msg2.size;
-        uint32_t size = len1 + ((len2 > 0) ? (2 + len2) : 0);
-
-        // limited to MESSAGE_LEN
-        if (UNLIKELY(size > MESSAGE_LEN)) {
-            std::string str = code_as_string();
-            str.append(": ");
-            str.append(msg.data, msg.size);
-            char buf[64] = {};
-            int n = snprintf(buf, sizeof(buf), " precise_code:%d ", precise_code);
-            str.append(buf, n);
-            str.append(msg2.data, msg2.size);
-            LOG(WARNING) << "warning: Status msg truncated, " << str;
-            size = MESSAGE_LEN;
-        }
-
-        _length = size + HEADER_LEN;
-        _code = (char)code;
-        _precise_code = precise_code;
-
-        // copy msg
-        char* result = _state + HEADER_LEN;
-        uint32_t len = std::min<uint32_t>(len1, MESSAGE_LEN);
-        memcpy(result, msg.data, len);
-
-        // copy msg2
-        if (len2 > 0 && len < MESSAGE_LEN - 2) {
-            result[len++] = ':';
-            result[len++] = ' ';
-            memcpy(&result[len], msg2.data, std::min<uint32_t>(len2, MESSAGE_LEN - len));
-        }
-    }
-
-    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
-        assemble_state(code, msg, precise_code, msg2);
-    }
-
-private:
-    // OK status has a zero _length.  Otherwise, _state is a static array
-    // of the following form:
-    //    _state[0..3] == length of message
-    //    _state[4]    == code
-    //    _state[5..6] == precise_code
-    //    _state[7..]  == message
-    union {
-        char _state[STATE_CAPACITY];
-
-        struct {
-            // Message length == HEADER(7 bytes) + message size
-            // Sometimes error message is empty, so that we could not use length==0 to indicate
-            // whether there is error happens
-            int64_t _length : 32;
-            int64_t _code : 8;
-            int64_t _precise_code : 16;
-            int64_t _message : 8; // save message since here
-        };
-    };
+    TStatusCode::type _code;
+    int16_t _precise_code;
+    std::string _err_msg;
 };
 
 // Override the << operator, it is used during LOG(INFO) << "xxxx" << status;
@@ -568,12 +502,25 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 }
 
 // some generally useful macros
-#define RETURN_IF_ERROR(stmt)            \
-    do {                                 \
-        const Status& _status_ = (stmt); \
-        if (UNLIKELY(!_status_.ok())) {  \
-            return _status_;             \
-        }                                \
+#define RETURN_IF_ERROR(stmt)           \
+    do {                                \
+        Status _status_ = (stmt);       \
+        if (UNLIKELY(!_status_.ok())) { \
+            return _status_;            \
+        }                               \
+    } while (false)
+
+// End _get_next_span after last call to get_next method
+#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
+    do {                                                          \
+        Status _status_ = (stmt);                                 \
+        auto _span = (get_next_span);                             \
+        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
+            _span->End();                                         \
+        }                                                         \
+        if (UNLIKELY(!_status_.ok())) {                           \
+            return _status_;                                      \
+        }                                                         \
     } while (false)
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
@@ -584,20 +531,19 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
         }                                    \
     } while (false)
 
-#define EXIT_IF_ERROR(stmt)                        \
-    do {                                           \
-        const Status& _status_ = (stmt);           \
-        if (UNLIKELY(!_status_.ok())) {            \
-            string msg = _status_.get_error_msg(); \
-            LOG(ERROR) << msg;                     \
-            exit(1);                               \
-        }                                          \
+#define EXIT_IF_ERROR(stmt)                         \
+    do {                                            \
+        Status _status_ = (stmt);                   \
+        if (UNLIKELY(!_status_.ok())) {             \
+            LOG(ERROR) << _status_.get_error_msg(); \
+            exit(1);                                \
+        }                                           \
     } while (false)
 
 /// @brief Emit a warning if @c to_call returns a bad status.
 #define WARN_IF_ERROR(to_call, warning_prefix)                          \
     do {                                                                \
-        const Status& _s = (to_call);                                   \
+        Status _s = (to_call);                                          \
         if (UNLIKELY(!_s.ok())) {                                       \
             LOG(WARNING) << (warning_prefix) << ": " << _s.to_string(); \
         }                                                               \
@@ -605,7 +551,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 
 #define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)              \
     do {                                                                       \
-        const Status& _s = (stmt);                                             \
+        Status _s = (stmt);                                                    \
         if (UNLIKELY(!_s.ok())) {                                              \
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
             return ret_code;                                                   \
@@ -614,7 +560,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 
 #define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix)                   \
     do {                                                                       \
-        const Status& _s = (stmt);                                             \
+        Status _s = (stmt);                                                    \
         if (UNLIKELY(!_s.ok())) {                                              \
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
             return _s;                                                         \
