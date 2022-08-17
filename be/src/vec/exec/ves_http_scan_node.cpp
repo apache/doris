@@ -124,8 +124,8 @@ Status VEsHttpScanNode::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
-    std::map<std::string, std::string> properties(_properties);
-    if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
+    // fe by enable_new_es_dsl to control whether to generate DSL for easy rollback. After the code is stable, can delete the be generation logic
+    if (_properties.find(ESScanReader::KEY_QUERY_DSL) != _properties.end()) {
         RETURN_IF_ERROR(start_scanners());
         return Status::OK();
     }
