@@ -174,7 +174,7 @@ suite("test_union") {
     // test_union_bug
     // PALO-3617
     qt_union36 """select * from (select 1 as a, 2 as b union select 3, 3) c where a = 1"""
-    sql """drop view nullable"""
+    sql """drop view if exists nullable"""
     sql """CREATE VIEW `nullable` AS SELECT `a`.`k1` AS `n1`, `b`.`k2` AS `n2` 
            FROM `default_cluster:${db}`.`baseall` a LEFT OUTER JOIN 
            `default_cluster:${db}`.`bigtable` b ON `a`.`k1` = `b`.`k1` + 10
