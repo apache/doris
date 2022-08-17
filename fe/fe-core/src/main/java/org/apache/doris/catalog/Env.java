@@ -2915,6 +2915,10 @@ public class Env {
                 sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
+            // disable auto compaction
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
+            sb.append(olapTable.disableAutoCompaction()).append("\"");
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;

@@ -55,7 +55,8 @@
         "sort_type": "LEXICAL",
         "sort_col_num": 0,
         "compression_type": "LZ4F",
-        "schema_version": 0
+        "schema_version": 0,
+        "disable_auto_compaction": false
     },
     "rs_metas": [
         {

@@ -970,7 +970,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
                             localTbl.getCompressionType(),
-                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy());
+                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
+                            localTbl.disableAutoCompaction());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
