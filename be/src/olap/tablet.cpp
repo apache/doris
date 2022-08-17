@@ -1887,6 +1887,9 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
     // to search the key in the rowset with larger version.
     std::sort(selected_rs.begin(), selected_rs.end(),
               [](std::pair<RowsetSharedPtr, int32_t>& a, std::pair<RowsetSharedPtr, int32_t>& b) {
+                  if (a.first->end_version() == b.first->end_version()) {
+                      return a.second > b.second;
+                  }
                   return a.first->end_version() > b.first->end_version();
               });
     RowLocation loc;
