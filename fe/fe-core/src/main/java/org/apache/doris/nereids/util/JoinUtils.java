@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -39,11 +40,13 @@ import java.util.Set;
 public class JoinUtils {
     public static boolean onlyBroadcast(AbstractPhysicalJoin join) {
         // Cross-join only can be broadcast join.
-        return join.getJoinType().isCrossJoin();
+        return join.getJoinType().isCrossJoin() || join.getHint() == JoinHint.BROADCAST_RIGHT;
     }
 
     public static boolean onlyShuffle(AbstractPhysicalJoin join) {
-        return join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin();
+        return join.getJoinType().isRightJoin()
+                || join.getJoinType().isFullOuterJoin()
+                || join.getHint() == JoinHint.SHUFFLE_RIGHT;
     }
 
     /**

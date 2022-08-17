@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
@@ -69,6 +70,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -360,6 +362,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanTranslatorContext context) {
+        if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
+            throw new RuntimeException("Physical hash join could not execute without equal join condition.");
+        }
+
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
         PlanFragment rightFragment = hashJoin.child(1).accept(this, context);
         PlanFragment leftFragment = hashJoin.child(0).accept(this, context);
@@ -367,32 +373,75 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
         JoinType joinType = hashJoin.getJoinType();
 
-        if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
-            throw new RuntimeException("Physical hash join could not execute without equal join condition.");
-        } else {
-            Expression eqJoinExpression = hashJoin.getCondition().get();
-            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunction(eqJoinExpression).stream()
-                    .map(EqualTo.class::cast)
-                    .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toList());
+        Expression eqJoinExpression = hashJoin.getCondition().get();
+        List<Expr> execEqConjunctList = ExpressionUtils.extractConjunction(eqJoinExpression).stream()
+                .map(EqualTo.class::cast)
+                .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
 
-            TupleDescriptor outputDescriptor = context.generateTupleDesc();
-            List<Expr> srcToOutput = hashJoin.getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .peek(s -> context.createSlotDesc(outputDescriptor, s))
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toList());
+        TupleDescriptor outputDescriptor = context.generateTupleDesc();
+        List<Expr> srcToOutput = hashJoin.getOutput().stream()
+                .map(SlotReference.class::cast)
+                .peek(s -> context.createSlotDesc(outputDescriptor, s))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
 
-            HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
-                    rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
-                    srcToOutput, outputDescriptor, outputDescriptor);
+        HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
+                rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
+                srcToOutput, outputDescriptor, outputDescriptor);
 
+        // TODO: use distribution info from physical properties.
+        boolean doBroadcast = !JoinUtils.onlyShuffle(hashJoin);
+        if (doBroadcast) {
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
             hashJoinNode.setChild(0, leftFragmentPlanRoot);
             connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(hashJoinNode);
             return leftFragment;
+        } else {
+            hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
+            // Create a new parent fragment containing a HashJoin node with two
+            // ExchangeNodes as inputs; the latter are the destinations of the
+            // left- and rightChildFragments, which now partition their output
+            // on their respective join exprs.
+            // The new fragment is hash-partitioned on the lhs input join exprs.
+            // TODO: create equivalence classes based on equality predicates
+
+            // first, extract join exprs
+            List<BinaryPredicate> eqJoinConjuncts = hashJoinNode.getEqJoinConjuncts();
+            List<Expr> lhsJoinExprs = Lists.newArrayList();
+            List<Expr> rhsJoinExprs = Lists.newArrayList();
+            for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
+                // no remapping necessary
+                lhsJoinExprs.add(eqJoinPredicate.getChild(0).clone(null));
+                rhsJoinExprs.add(eqJoinPredicate.getChild(1).clone(null));
+            }
+
+            // create the parent fragment containing the HashJoin node
+            DataPartition lhsJoinPartition = new DataPartition(TPartitionType.HASH_PARTITIONED,
+                    Expr.cloneList(lhsJoinExprs, null));
+            ExchangeNode lhsExchange =
+                    new ExchangeNode(context.nextPlanNodeId(), leftFragment.getPlanRoot(), false);
+            lhsExchange.setNumInstances(leftFragment.getPlanRoot().getNumInstances());
+
+            DataPartition rhsJoinPartition =
+                    new DataPartition(TPartitionType.HASH_PARTITIONED, rhsJoinExprs);
+            ExchangeNode rhsExchange =
+                    new ExchangeNode(context.nextPlanNodeId(), rightFragment.getPlanRoot(), false);
+            rhsExchange.setNumInstances(rightFragment.getPlanRoot().getNumInstances());
+//            rhsExchange.init(ctx.getRootAnalyzer());
+
+            hashJoinNode.setChild(0, lhsExchange);
+            hashJoinNode.setChild(1, rhsExchange);
+            PlanFragment joinFragment = new PlanFragment(context.nextFragmentId(), hashJoinNode, lhsJoinPartition);
+            // connect the child fragments
+            leftFragment.setDestination(lhsExchange);
+            leftFragment.setOutputPartition(lhsJoinPartition);
+            rightFragment.setDestination(rhsExchange);
+            rightFragment.setOutputPartition(rhsJoinPartition);
+
+            return joinFragment;
         }
     }
 

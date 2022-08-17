@@ -51,7 +51,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(any(), any()).then(join -> {
+        return innerLogicalJoin(any(), any()).when(join -> !join.hasHint()).then(join -> {
             if (!check(join)) {
                 return null;
             }
@@ -63,6 +63,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
             LogicalJoin newJoin = new LogicalJoin(
                     join.getJoinType(),
                     join.getCondition(),
+                    join.getHint(),
                     join.right(), join.left(),
                     join.getJoinReorderContext()
             );

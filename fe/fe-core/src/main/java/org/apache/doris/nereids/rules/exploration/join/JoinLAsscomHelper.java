@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -166,6 +167,7 @@ public class JoinLAsscomHelper {
         return new LogicalJoin(
                 bottomJoin.getJoinType(),
                 Optional.of(ExpressionUtils.and(newBottomJoinOnCondition)),
+                JoinHint.NONE,
                 a, c);
     }
 
@@ -192,6 +194,7 @@ public class JoinLAsscomHelper {
         return new LogicalJoin<>(
                 topJoin.getJoinType(),
                 Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                JoinHint.NONE,
                 left, right);
     }
 
@@ -207,6 +210,7 @@ public class JoinLAsscomHelper {
         return new LogicalJoin(
                 topJoin.getJoinType(),
                 Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                JoinHint.NONE,
                 newBottomJoin(), b);
     }
 

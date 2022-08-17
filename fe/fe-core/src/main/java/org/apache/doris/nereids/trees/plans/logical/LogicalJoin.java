@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,30 +42,34 @@ import java.util.stream.Collectors;
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
-
     private final JoinType joinType;
     private final Optional<Expression> condition;
+    private final JoinHint hint;
 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
 
     /**
-     * Constructor for LogicalJoinPlan.
-     *
-     * @param joinType logical type for join
+     * Not that constructors without condition or hint are not provided
+     * in case of forgetting to set these properties by mistake.
      */
-    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, Optional.empty(), Optional.empty(), Optional.empty(), leftChild, rightChild);
+    public LogicalJoin(
+            JoinType joinType,
+            Optional<Expression> condition,
+            JoinHint hint,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, condition, hint, Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
-    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
-    }
-
-    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
-        this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
+    public LogicalJoin(
+            JoinType joinType,
+            Optional<Expression> condition,
+            JoinHint hint,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild,
+            JoinReorderContext joinReorderContext) {
+        this(joinType, condition, hint, Optional.empty(), Optional.empty(), leftChild, rightChild);
         this.joinReorderContext.copyFrom(joinReorderContext);
     }
 
@@ -74,12 +79,18 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * @param joinType logical type for join
      * @param condition on clause for join node
      */
-    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+    public LogicalJoin(
+            JoinType joinType,
+            Optional<Expression> condition,
+            JoinHint hint,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.condition = Objects.requireNonNull(condition, "condition can not be null");
+        this.hint = Objects.requireNonNull(hint, "hint can nto be null");
     }
 
     public Optional<Expression> getCondition() {
@@ -88,6 +99,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public JoinType getJoinType() {
         return joinType;
+    }
+
+    public JoinHint getHint() {
+        return hint;
+    }
+
+    public boolean hasHint() {
+        return hint != JoinHint.NONE;
     }
 
     @Override
@@ -133,6 +152,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public String toString() {
         StringBuilder sb = new StringBuilder("LogicalJoin (").append(joinType);
         condition.ifPresent(expression -> sb.append(", ").append(expression));
+        if (hint != JoinHint.NONE) {
+            sb.append(", ").append(hint);
+        }
         return sb.append(")").toString();
     }
 
@@ -170,17 +192,17 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, condition, children.get(0), children.get(1));
+        return new LogicalJoin<>(joinType, condition, hint, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJoin<>(joinType, condition, groupExpression,
+        return new LogicalJoin<>(joinType, condition, hint, groupExpression,
                 Optional.of(logicalProperties), left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalJoin<>(joinType, condition, Optional.empty(), logicalProperties, left(), right());
+        return new LogicalJoin<>(joinType, condition, hint, Optional.empty(), logicalProperties, left(), right());
     }
 }

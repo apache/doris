@@ -23,6 +23,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Iterator;
+import java.util.Optional;
 
 public class GroupExpressionMatchingTest {
 
@@ -151,6 +153,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testInnerLogicalJoinMatch() {
         Plan root = new LogicalJoin(JoinType.INNER_JOIN,
+                Optional.empty(),
+                JoinHint.NONE,
                 new UnboundRelation(ImmutableList.of("a")),
                 new UnboundRelation(ImmutableList.of("b"))
         );
@@ -173,6 +177,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testInnerLogicalJoinMismatch() {
         Plan root = new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
+                Optional.empty(),
+                JoinHint.NONE,
                 new UnboundRelation(ImmutableList.of("a")),
                 new UnboundRelation(ImmutableList.of("b"))
         );
@@ -190,6 +196,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testTopMatchButChildrenNotMatch() {
         Plan root = new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
+                Optional.empty(),
+                JoinHint.NONE,
                 new UnboundRelation(ImmutableList.of("a")),
                 new UnboundRelation(ImmutableList.of("b"))
         );
@@ -211,7 +219,11 @@ public class GroupExpressionMatchingTest {
                 new LogicalFilter(new EqualTo(new UnboundSlot(Lists.newArrayList("a", "id")),
                         new UnboundSlot(Lists.newArrayList("b", "id"))),
                         new LogicalJoin(JoinType.INNER_JOIN,
+                                Optional.empty(),
+                                JoinHint.NONE,
                                 new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
+                                        Optional.empty(),
+                                        JoinHint.NONE,
                                         new UnboundRelation(ImmutableList.of("a")),
                                         new UnboundRelation(ImmutableList.of("b"))),
                                 new UnboundRelation(ImmutableList.of("c")))

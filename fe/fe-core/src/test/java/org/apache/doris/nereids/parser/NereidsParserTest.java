@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -186,5 +187,54 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = nereidsParser.parseSingle(crossJoin);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
+    }
+
+    @Test
+    public void testJoinHint() {
+        // no hint
+        parsePlan("select * from t1 join t2 on t1.key=t2.key")
+                .matchesFromRoot(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
+
+        // valid hint
+        parsePlan("select * from t1 join [shuffle] t2 on t1.key=t2.key")
+                .matchesFromRoot(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+
+        parsePlan("select * from t1 join [  shuffle ] t2 on t1.key=t2.key")
+                .matchesFromRoot(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+
+        parsePlan("select * from t1 join [broadcast] t2 on t1.key=t2.key")
+                .matchesFromRoot(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+
+
+        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.key=t2.key")
+                .matchesFromRoot(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+
+        // invalid hint position
+        parsePlan("select * from [shuffle] t1 join t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '[' expecting {<EOF>, ';'}(line 1, pos14)");
+
+        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '/*+' expecting {<EOF>, ';'}(line 1, pos14)");
+
+        // invalid hint content
+        parsePlan("select * from t1 join [bucket] t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("Invalid join hint: bucket(line 1, pos22)\n"
+                        + "\n"
+                        + "== SQL ==\n"
+                        + "select * from t1 join [bucket] t2 on t1.key=t2.key\n"
+                        + "----------------------^^^");
+
+        // invalid multiple hints
+        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input ',' expecting '*/'(line 1, pos34)");
+
+        parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.key=t2.key")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input ',' expecting ']'(line 1, pos30)");
+
     }
 }

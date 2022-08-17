@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -40,7 +41,7 @@ public class JoinExchange extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).then(topJoin -> {
+        return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).when(join -> !join.hasHint()).then(topJoin -> {
             LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
             LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right();
 
@@ -49,9 +50,12 @@ public class JoinExchange extends OneExplorationRuleFactory {
             GroupPlan c = rightJoin.left();
             GroupPlan d = rightJoin.right();
 
-            Plan newLeftJoin = new LogicalJoin(leftJoin.getJoinType(), leftJoin.getCondition(), a, c);
-            Plan newRightJoin = new LogicalJoin(rightJoin.getJoinType(), rightJoin.getCondition(), b, d);
-            return new LogicalJoin(topJoin.getJoinType(), topJoin.getCondition(), newLeftJoin, newRightJoin);
+            Plan newLeftJoin = new LogicalJoin(leftJoin.getJoinType(), leftJoin.getCondition(), leftJoin.getHint(), a,
+                    c);
+            Plan newRightJoin = new LogicalJoin(rightJoin.getJoinType(), rightJoin.getCondition(), rightJoin.getHint(),
+                    b, d);
+            return new LogicalJoin(topJoin.getJoinType(), topJoin.getCondition(), JoinHint.NONE, newLeftJoin,
+                    newRightJoin);
         }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 }

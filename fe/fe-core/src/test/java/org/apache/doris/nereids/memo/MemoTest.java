@@ -21,6 +21,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -34,6 +35,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 public class MemoTest {
     @Test
@@ -193,10 +196,14 @@ public class MemoTest {
         UnboundRelation unboundRelationA = new UnboundRelation(Lists.newArrayList("A"));
         UnboundRelation unboundRelationB = new UnboundRelation(Lists.newArrayList("B"));
         UnboundRelation unboundRelationC = new UnboundRelation(Lists.newArrayList("C"));
-        LogicalJoin logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationA, unboundRelationB);
-        LogicalJoin logicalJoinBA = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationB, unboundRelationA);
-        LogicalJoin logicalJoinCAB = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationC, logicalJoinAB);
-        LogicalJoin logicalJoinCBA = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationC, logicalJoinBA);
+        LogicalJoin logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), JoinHint.NONE,
+                unboundRelationA, unboundRelationB);
+        LogicalJoin logicalJoinBA = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), JoinHint.NONE,
+                unboundRelationB, unboundRelationA);
+        LogicalJoin logicalJoinCAB = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), JoinHint.NONE,
+                unboundRelationC, logicalJoinAB);
+        LogicalJoin logicalJoinCBA = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), JoinHint.NONE,
+                unboundRelationC, logicalJoinBA);
         LogicalFilter logicalFilter = new LogicalFilter<>(new BooleanLiteral(true), logicalJoinCBA);
 
         Memo memo = new Memo(logicalFilter);
@@ -205,7 +212,8 @@ public class MemoTest {
         Assertions.assertEquals(8, memo.getGroupExpressions().size());
 
         Group target = memo.getRoot().getLogicalExpression().child(0).getLogicalExpression().child(1);
-        LogicalJoin repeat = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationA, unboundRelationB);
+        LogicalJoin repeat = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(),
+                JoinHint.NONE, unboundRelationA, unboundRelationB);
         memo.copyIn(repeat, target, false);
         Assertions.assertEquals(6, memo.getGroups().size());
         Assertions.assertEquals(7, memo.getGroupExpressions().size());

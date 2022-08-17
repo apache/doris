@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -39,8 +40,8 @@ public abstract class AbstractPhysicalJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
     protected final JoinType joinType;
-
     protected final Optional<Expression> condition;
+    protected final JoinHint hint;
 
     /**
      * Constructor of PhysicalJoin.
@@ -48,12 +49,13 @@ public abstract class AbstractPhysicalJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public AbstractPhysicalJoin(PlanType type, JoinType joinType, Optional<Expression> condition,
+    public AbstractPhysicalJoin(PlanType type, JoinType joinType, Optional<Expression> condition,  JoinHint joinHint,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.condition = Objects.requireNonNull(condition, "condition can not be null");
+        this.hint = Objects.requireNonNull(joinHint, "hint can not be null");
     }
 
     public JoinType getJoinType() {
@@ -62,6 +64,10 @@ public abstract class AbstractPhysicalJoin<
 
     public Optional<Expression> getCondition() {
         return condition;
+    }
+
+    public JoinHint getHint() {
+        return hint;
     }
 
     @Override

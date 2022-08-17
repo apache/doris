@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -90,7 +91,7 @@ public class CostAndEnforcerJobTest {
         Expression bottomJoinOnCondition = new EqualTo(outputs.get(0).get(0), outputs.get(1).get(0));
 
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
+                Optional.of(bottomJoinOnCondition), JoinHint.NONE, scans.get(0), scans.get(1));
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(bottomJoin);
         cascadesContext.pushJob(

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -38,9 +39,9 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, LogicalProperties logicalProperties,
-                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
+    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, JoinHint hint,
+            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, condition, hint, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /**
@@ -49,10 +50,10 @@ public class PhysicalHashJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition,
+    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, JoinHint hint,
                             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_HASH_JOIN, joinType, condition,
+        super(PlanType.PHYSICAL_HASH_JOIN, joinType, condition, hint,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -75,17 +76,17 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
+        return new PhysicalHashJoin<>(joinType, condition, hint, logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashJoin<>(joinType, condition, groupExpression, logicalProperties, left(), right());
+        return new PhysicalHashJoin<>(joinType, condition, hint, groupExpression, logicalProperties, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHashJoin<>(joinType, condition, Optional.empty(),
+        return new PhysicalHashJoin<>(joinType, condition, hint, Optional.empty(),
             logicalProperties.get(), left(), right());
     }
 }

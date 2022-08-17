@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -88,7 +89,7 @@ public class PushDownPredicateTest {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
 
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(onCondition), rStudent, rScore);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(onCondition), JoinHint.NONE, rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 
         Plan root = new LogicalProject(
@@ -131,7 +132,8 @@ public class PushDownPredicateTest {
         Expression whereCondition3 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(),
+                JoinHint.NONE, rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 
         Plan root = new LogicalProject(
@@ -190,8 +192,8 @@ public class PushDownPredicateTest {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3,
                 whereCondition4);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
-        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), join, rCourse);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), JoinHint.NONE, rStudent, rScore);
+        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), JoinHint.NONE, join, rCourse);
         Plan filter = new LogicalFilter(whereCondition, join1);
 
         Plan root = new LogicalProject(

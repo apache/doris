@@ -114,7 +114,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (newCondition.equals(condition.get())) {
                     return join;
                 }
-                return new LogicalJoin<>(join.getJoinType(), Optional.of(newCondition), join.left(), join.right());
+                return new LogicalJoin<>(join.getJoinType(), Optional.of(newCondition), join.getHint(), join.left(),
+                        join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }

@@ -26,7 +26,9 @@ import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
+import org.apache.doris.nereids.DorisParser.BracketStyleHintContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
+import org.apache.doris.nereids.DorisParser.CommentStyleHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
@@ -117,6 +119,7 @@ import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -635,6 +638,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         new LogicalJoin<>(
                                 JoinType.CROSS_JOIN,
                                 Optional.empty(),
+                                JoinHint.NONE,
                                 left,
                                 right);
                 left = withJoinRelations(left, relation);
@@ -810,7 +814,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = getExpression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalJoin<>(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
+            JoinHint joinHint = Optional.ofNullable(join.joinHint()).map(hintCtx -> {
+                String hint = typedVisit(join.joinHint());
+                if (JoinHint.JoinHintType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
+                    return JoinHint.SHUFFLE_RIGHT;
+                } else if (JoinHint.JoinHintType.BROADCAST.toString().equalsIgnoreCase(hint)) {
+                    return JoinHint.BROADCAST_RIGHT;
+                } else {
+                    throw new ParseException("Invalid join hint: " + hint, hintCtx);
+                }
+            }).orElse(JoinHint.NONE);
+
+            last = new LogicalJoin<>(joinType, Optional.ofNullable(condition), joinHint, last,
+                plan(join.relationPrimary()));
         }
         return last;
     }
@@ -838,6 +854,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             hints.put(hintName, new SelectHint(hintName, parameters));
         }
         return new LogicalSelectHint<>(hints, logicalPlan);
+    }
+
+    @Override
+    public String visitBracketStyleHint(BracketStyleHintContext ctx) {
+        return ctx.identifier().getText();
+    }
+
+    @Override
+    public Object visitCommentStyleHint(CommentStyleHintContext ctx) {
+        return ctx.identifier().getText();
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectClauseContext selectCtx,

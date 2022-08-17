@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -81,17 +82,19 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
 
             LogicalJoin join;
             if (joinConditions.isEmpty()) {
-                join = new LogicalJoin(JoinType.CROSS_JOIN, Optional.empty(), joinInputs.get(0), joinInputs.get(1));
+                join = new LogicalJoin(JoinType.CROSS_JOIN, Optional.empty(), JoinHint.NONE, joinInputs.get(0),
+                        joinInputs.get(1));
             } else {
                 join = new LogicalJoin(JoinType.INNER_JOIN,
                         Optional.of(ExpressionUtils.and(joinConditions)),
+                        JoinHint.NONE,
                         joinInputs.get(0), joinInputs.get(1));
             }
 
             if (nonJoinConditions.isEmpty()) {
                 return join;
             } else {
-                return new LogicalFilter(ExpressionUtils.and(nonJoinConditions), join);
+                return new LogicalFilter<>(ExpressionUtils.and(nonJoinConditions), join);
             }
         }
         // input size >= 3;
@@ -136,7 +139,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             cond = Optional.of(ExpressionUtils.and(joinConditions));
         }
 
-        LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, left, right);
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.INNER_JOIN, cond, JoinHint.NONE, left, right);
 
         List<Plan> newInputs = new ArrayList<>();
         newInputs.add(join);
@@ -178,6 +181,10 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
 
     @Override
     public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
+        if (join.hasHint()) {
+            return null;
+        }
+
         if (join.getJoinType() != JoinType.CROSS_JOIN && join.getJoinType() != JoinType.INNER_JOIN) {
             return null;
         }

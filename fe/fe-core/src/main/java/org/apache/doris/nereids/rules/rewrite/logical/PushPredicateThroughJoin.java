@@ -131,7 +131,8 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             rightPlan = new LogicalFilter(right, rightPlan);
         }
 
-        return new LogicalJoin<>(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);
+        return new LogicalJoin<>(joinPlan.getJoinType(), Optional.of(joinConditions), joinPlan.getHint(), leftPlan,
+                rightPlan);
     }
 
     private Expression getJoinCondition(Expression predicate, List<Slot> leftOutputs, List<Slot> rightOutputs) {

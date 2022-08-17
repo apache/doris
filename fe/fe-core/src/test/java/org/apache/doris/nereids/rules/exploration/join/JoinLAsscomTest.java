@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -73,9 +74,9 @@ public class JoinLAsscomTest {
          */
         Assertions.assertEquals(3, scans.size());
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
+                Optional.of(bottomJoinOnCondition), JoinHint.NONE, scans.get(0), scans.get(1));
         LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> topJoin = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), bottomJoin, scans.get(2));
+                JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), JoinHint.NONE, bottomJoin, scans.get(2));
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
         Rule rule = new JoinLAsscom().build();

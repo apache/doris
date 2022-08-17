@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -47,7 +48,7 @@ public class JoinCommuteTest {
                 new SlotReference("id", new BigIntType(), true, ImmutableList.of("table1")),
                 new SlotReference("id", new BigIntType(), true, ImmutableList.of("table2")));
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Optional.of(onCondition), scan1, scan2);
+                JoinType.INNER_JOIN, Optional.of(onCondition), JoinHint.NONE, scan1, scan2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
         Rule rule = new JoinCommute(true).build();
