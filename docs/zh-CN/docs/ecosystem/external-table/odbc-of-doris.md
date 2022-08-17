@@ -371,3 +371,7 @@ sudo alien -i  oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
 10. 报错`driver connect Err: xxx`
 
     通常是连接数据库失败，Err部分代表了不同的数据库连接失败的报错。这种情况通常是配置存在问题。可以检查是否错配了ip地址，端口或账号密码。
+    
+11. 读写mysql外表的emoji表情出现乱码
+
+    Doris进行odbc外表连接时，默认采用的编码为utf8，由于mysql之中默认的utf8编码为utf8mb3，无法表示需要4字节编码的emoji表情。这里需要在建立mysql外表时设置`charset`=`utf8mb4`，便可以正常读写emoji表情😀。
