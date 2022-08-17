@@ -124,6 +124,12 @@ Status VEsHttpScanNode::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
+    std::map<std::string, std::string> properties(_properties);
+    if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
+        RETURN_IF_ERROR(start_scanners());
+        return Status::OK();
+    }
+
     // if conjunct is constant, compute direct and set eos = true
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
