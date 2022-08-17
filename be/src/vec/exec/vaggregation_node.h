@@ -27,7 +27,6 @@
 #include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
 class TPlanNode;
