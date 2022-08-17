@@ -439,7 +439,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                 runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
                 scanner_filter_apply_marks[i] = true;
                 if (!_runtime_filter_ready_flag[i] && !vexprs.empty()) {
-                    std::unique_lock<std::mutex> l(*_rf_lock);
+                    std::unique_lock<std::mutex> l(_rf_lock);
                     if (!_runtime_filter_ready_flag[i]) {
                         // Use all conjuncts and new arrival runtime filters to construct a new
                         // expression tree here.
