@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`B00LEAN BITMAP_HAS_ALL(BITMAP lhs, BITMAP rhs)`
+`BOOLEAN BITMAP_HAS_ALL(BITMAP lhs, BITMAP rhs)`
 
 如果第一个bitmap包含第二个bitmap的全部元素，则返回true。
 如果第二个bitmap包含的元素为空，返回true。
