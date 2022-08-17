@@ -41,7 +41,6 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -1082,14 +1081,13 @@ public class HashJoinNode extends PlanNode {
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 // Enable it after we support new optimizers
-                if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                    msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                } else {
-                    msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                }
+                // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                // } else
+                msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
-        msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
+        // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
             // Enable it after we support new optimizers
@@ -1263,5 +1261,26 @@ public class HashJoinNode extends PlanNode {
             }
         }
         return true;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvOutputTupleDesc(TupleDescriptor vOutputTupleDesc) {
+        this.vOutputTupleDesc = vOutputTupleDesc;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
+        this.vIntermediateTupleDescList = vIntermediateTupleDescList;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvSrcToOutputSMap(List<Expr> lhs) {
+        this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
     }
 }

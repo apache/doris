@@ -430,7 +430,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
-    // TODO: generate expression mapping when be project could do in ExecNode
+    // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
@@ -444,6 +444,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (project.child(0) instanceof PhysicalHashJoin) {
             return inputFragment;
         }
+
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
@@ -452,6 +453,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slotList = project.getOutput();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        if (inputPlanNode instanceof HashJoinNode) {
+            HashJoinNode hashJoinNode = (HashJoinNode) inputPlanNode;
+            hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
+            hashJoinNode.setvSrcToOutputSMap(execExprList);
+            return inputFragment;
+        }
         inputPlanNode.setProjectList(execExprList);
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         if (project.child(0) instanceof PhysicalFilter) {
