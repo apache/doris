@@ -537,7 +537,7 @@ bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
 
 Status Conditions::append_condition(const TCondition& tcond) {
     DCHECK(_schema != nullptr);
-    int32_t index = _schema->field_index(tcond.column_name);
+    int32_t index = _schema->field_index(tcond.column_unique_id);
     if (index < 0) {
         LOG(WARNING) << "fail to get field index, field name=" << tcond.column_name;
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);

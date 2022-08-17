@@ -503,6 +503,9 @@ struct TCondition {
     1:  required string column_name
     2:  required string condition_op
     3:  required list<string> condition_values
+    // In delete condition, the different column may have same column name, need
+    // using unique id to distinguish them
+    4:  optional i32 column_unique_id
 }
 
 struct TExportStatusResult {

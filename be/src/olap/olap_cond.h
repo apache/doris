@@ -144,9 +144,10 @@ class Conditions {
 public:
     // Key: field index of condition's column
     // Value: CondColumn object
+    // col_unique_id --> CondColumn
     typedef std::map<int32_t, CondColumn*> CondColumns;
 
-    Conditions() {}
+    Conditions(TabletSchemaSPtr schema) : _schema(schema) {}
     ~Conditions() { finalize(); }
 
     void finalize() {
@@ -157,9 +158,6 @@ public:
     }
     bool empty() const { return _columns.empty(); }
 
-    // TODO(yingchun): should do it in constructor
-    void set_tablet_schema(TabletSchemaSPtr schema) { _schema = schema; }
-
     // 如果成功，则_columns中增加一项，如果失败则无视此condition，同时输出日志
     // 对于下列情况，将不会被处理
     // 1. column不属于key列
@@ -168,7 +166,7 @@ public:
 
     const CondColumns& columns() const { return _columns; }
 
-    CondColumn* get_column(int32_t cid) const;
+    CondColumn* get_column(int32_t col_unique_id) const;
 
 private:
     bool _cond_column_is_key_or_duplicate(const CondColumn* cc) const {

@@ -159,9 +159,7 @@ public:
     const std::vector<DeletePredicatePB>& delete_predicates() {
         return _tablet_meta->delete_predicates();
     }
-    void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
-    bool version_for_load_deletion(const Version& version);
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
@@ -286,6 +284,11 @@ public:
     }
 
     TabletSchemaSPtr tablet_schema() const override;
+
+    // Find the related rowset with specified version and return its tablet schema
+    TabletSchemaSPtr tablet_schema(Version version) const {
+        return _tablet_meta->tablet_schema(version);
+    }
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                 const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,

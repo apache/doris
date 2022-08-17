@@ -31,6 +31,7 @@ namespace doris {
 
 class Conditions;
 class RowCursor;
+class Tablet;
 class TabletReader;
 class TabletSchema;
 
@@ -90,8 +91,8 @@ public:
     // return:
     //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
-    Status init(TabletSchemaSPtr schema, const std::vector<DeletePredicatePB>& delete_conditions,
-                int64_t version, const doris::TabletReader* = nullptr);
+    Status init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tablet_schema,
+                const std::vector<DeletePredicatePB>& delete_conditions, int64_t version);
 
     // Return the delete conditions' size.
     size_t conditions_num() const { return _del_conds.size(); }
@@ -118,6 +119,7 @@ private:
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
+    std::unique_ptr<MemPool> _predicate_mem_pool;
 
     DISALLOW_COPY_AND_ASSIGN(DeleteHandler);
 };

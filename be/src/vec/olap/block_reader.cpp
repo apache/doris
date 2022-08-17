@@ -105,7 +105,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
-    TabletReader::init(read_params);
+    RETURN_NOT_OK(TabletReader::init(read_params));
 
     int32_t return_column_size = 0;
     // read sequence column if not reader_query

@@ -571,8 +571,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_op("<");
             std::vector<std::string> vals = {"2"};
             condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
@@ -595,8 +594,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_op("<");
             std::vector<std::string> vals = {"100"};
             condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
@@ -645,8 +643,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_op("<");
             std::vector<std::string> vals = {"165000"};
             condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             // the second page read will be pruned by the following delete predicate
@@ -655,8 +652,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             delete_condition.__set_condition_op("=");
             std::vector<std::string> vals2 = {"164001"};
             delete_condition.__set_condition_values(vals2);
-            std::shared_ptr<Conditions> delete_conditions(new Conditions());
-            delete_conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> delete_conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), delete_conditions->append_condition(delete_condition));
 
             StorageReadOptions read_opts;
@@ -710,8 +706,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             // 102 is not in page 1
             std::vector<std::string> vals = {"102"};
             condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
             read_opts.conditions = conditions.get();
             std::unique_ptr<RowwiseIterator> iter;
@@ -1061,8 +1056,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             condition.__set_condition_op(">");
             std::vector<std::string> vals = {"100"};
             condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
@@ -1119,8 +1113,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             condition.__set_condition_op("<");
             std::vector<std::string> vals = {"-2"};
             condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
+            std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;

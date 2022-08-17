@@ -458,14 +458,18 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
             agg_name, argument_types, {}, argument_types.back()->is_nullable());
 }
 
-void TabletSchema::append_column(TabletColumn column) {
+void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     if (column.is_key()) {
         _num_key_columns++;
     }
     if (column.is_nullable()) {
         _num_null_columns++;
     }
-    _field_name_to_index[column.name()] = _num_columns;
+    // The dropped column may have same name with exsiting column, so that
+    // not add to name to index map, only for uid to index map
+    if (!is_dropped_column) {
+        _field_name_to_index[column.name()] = _num_columns;
+    }
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
     _num_columns++;
@@ -590,6 +594,24 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     }
 }
 
+void TabletSchema::merge_dropped_columns(TabletSchemaSPtr src_schema) {
+    // If they are the same tablet schema object, then just return
+    if (this == src_schema.get()) {
+        return;
+    }
+    for (const auto& src_col : src_schema->columns()) {
+        if (_field_id_to_index.find(src_col.unique_id()) == _field_id_to_index.end()) {
+            CHECK(!src_col.is_key()) << src_col.name() << " is key column, should not be dropped.";
+            ColumnPB src_col_pb;
+            // There are some pointer in tablet column, not sure the reference relation, so
+            // that deep copy it.
+            src_col.to_schema_pb(&src_col_pb);
+            TabletColumn new_col(src_col_pb);
+            append_column(new_col, /* is_dropped_column */ true);
+        }
+    }
+}
+
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_keys_type(_keys_type);
     for (auto& col : _cols) {
@@ -653,6 +675,15 @@ const std::vector<TabletColumn>& TabletSchema::columns() const {
 const TabletColumn& TabletSchema::column(size_t ordinal) const {
     DCHECK(ordinal < _num_columns) << "ordinal:" << ordinal << ", _num_columns:" << _num_columns;
     return _cols[ordinal];
+}
+
+const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
+    return _cols.at(_field_id_to_index.at(col_unique_id));
+}
+
+const TabletColumn& TabletSchema::column(const std::string& field_name) const {
+    const auto& found = _field_name_to_index.find(field_name);
+    return _cols[found->second];
 }
 
 void TabletSchema::init_field_index_for_test() {

@@ -82,11 +82,6 @@ std::string TabletReader::KeysParam::to_string() const {
 
 TabletReader::~TabletReader() {
     VLOG_NOTICE << "merged rows:" << _merged_rows;
-    _conditions.finalize();
-    if (!_all_conditions.empty()) {
-        _all_conditions.finalize();
-    }
-    _delete_handler.finalize();
 
     for (auto pred : _col_predicates) {
         delete pred;
@@ -97,11 +92,7 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
-#ifndef NDEBUG
     _predicate_mem_pool.reset(new MemPool());
-#else
-    _predicate_mem_pool.reset(new MemPool());
-#endif
 
     Status res = _init_params(read_params);
     if (!res.ok()) {
@@ -214,8 +205,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.load_bf_columns = &_load_bf_columns;
     _reader_context.load_bf_all_columns = &_load_bf_all_columns;
-    _reader_context.conditions = &_conditions;
-    _reader_context.all_conditions = &_all_conditions;
+    _reader_context.conditions = _conditions.get();
+    _reader_context.all_conditions = _all_conditions.get();
     _reader_context.predicates = &_col_predicates;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
@@ -447,20 +438,26 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 }
 
 void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
-    _conditions.set_tablet_schema(_tablet_schema);
-    _all_conditions.set_tablet_schema(_tablet_schema);
-    for (const auto& condition : read_params.conditions) {
-        ColumnPredicate* predicate = _parse_to_predicate(condition);
+    _conditions = std::make_unique<Conditions>(_tablet_schema);
+    _all_conditions = std::make_unique<Conditions>(_tablet_schema);
+    for (auto& condition : read_params.conditions) {
+        // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
+        // is too complicated to modify related interface
+        TCondition tmp_cond = condition;
+        auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
+        tmp_cond.__set_column_unique_id(condition_col_uid);
+        ColumnPredicate* predicate =
+                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
         if (predicate != nullptr) {
-            if (_tablet_schema->column(_tablet_schema->field_index(condition.column_name))
-                        .aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+            if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
+                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
-                Status status = _conditions.append_condition(condition);
+                Status status = _conditions->append_condition(tmp_cond);
                 DCHECK_EQ(Status::OK(), status);
             }
-            Status status = _all_conditions.append_condition(condition);
+            Status status = _all_conditions->append_condition(tmp_cond);
             DCHECK_EQ(Status::OK(), status);
         }
     }
@@ -498,54 +495,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
                                           function_filter._string_param);
 }
 
-ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
-                                                   bool opposite) const {
-    // TODO: not equal and not in predicate is not pushed down
-    int32_t index = _tablet_schema->field_index(condition.column_name);
-    if (index < 0) {
-        return nullptr;
-    }
-
-    const TabletColumn& column = _tablet_schema->column(index);
-
-    if (to_lower(condition.condition_op) == "is") {
-        return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null",
-                                 opposite);
-    }
-
-    if ((condition.condition_op == "*=" || condition.condition_op == "!*=") &&
-        condition.condition_values.size() > 1) {
-        decltype(create_list_predicate<PredicateType::UNKNOWN>)* create = nullptr;
-
-        if (condition.condition_op == "*=") {
-            create = create_list_predicate<PredicateType::IN_LIST>;
-        } else {
-            create = create_list_predicate<PredicateType::NOT_IN_LIST>;
-        }
-        return create(column, index, condition.condition_values, opposite,
-                      _predicate_mem_pool.get());
-    }
-
-    decltype(create_comparison_predicate<PredicateType::UNKNOWN>)* create = nullptr;
-    if (condition.condition_op == "*=" || condition.condition_op == "=") {
-        create = create_comparison_predicate<PredicateType::EQ>;
-    } else if (condition.condition_op == "!*=" || condition.condition_op == "!=") {
-        create = create_comparison_predicate<PredicateType::NE>;
-    } else if (condition.condition_op == "<<") {
-        create = create_comparison_predicate<PredicateType::LT>;
-    } else if (condition.condition_op == "<=") {
-        create = create_comparison_predicate<PredicateType::LE>;
-    } else if (condition.condition_op == ">>") {
-        create = create_comparison_predicate<PredicateType::GT>;
-    } else if (condition.condition_op == ">=") {
-        create = create_comparison_predicate<PredicateType::GE>;
-    }
-    return create(column, index, condition.condition_values[0], opposite,
-                  _predicate_mem_pool.get());
-}
 void TabletReader::_init_load_bf_columns(const ReaderParams& read_params) {
-    _init_load_bf_columns(read_params, &_conditions, &_load_bf_columns);
-    _init_load_bf_columns(read_params, &_all_conditions, &_load_bf_all_columns);
+    _init_load_bf_columns(read_params, _conditions.get(), &_load_bf_columns);
+    _init_load_bf_columns(read_params, _all_conditions.get(), &_load_bf_all_columns);
 }
 
 void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
@@ -615,8 +567,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
         _filter_delete = true;
     }
 
-    return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second, this);
+    return _delete_handler.init(_tablet, _tablet_schema, read_params.delete_predicates,
+                                read_params.version.second);
 }
 
 } // namespace doris
