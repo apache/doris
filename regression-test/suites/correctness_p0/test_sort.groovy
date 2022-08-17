@@ -18,7 +18,7 @@
 suite("test_sort") {
 
     sql """
-        DROP TABLE IF EXISTS test_sort 
+        DROP TABLE IF EXISTS test_sort_table 
     """
 
     sql """
