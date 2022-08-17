@@ -21,10 +21,6 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -99,24 +95,4 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
     }
 
     // TODO: Should consider the distribution of data.
-    @Override
-    public Double visitGreaterThan(GreaterThan greaterThan, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
-    @Override
-    public Double visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
-    @Override
-    public Double visitLessThan(LessThan lessThan, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
-    @Override
-    public Double visitInPredicate(InPredicate inPredicate, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
 }

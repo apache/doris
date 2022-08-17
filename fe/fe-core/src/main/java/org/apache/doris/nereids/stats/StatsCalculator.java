@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -195,13 +197,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
     private StatsDeriveResult computeScan(Scan scan) {
-        Table table = scan.getTable();
-        TableStats tableStats = Utils.execWithReturnVal(() -> {
-            Statistics statistics = ConnectContext.get().getEnv().getStatisticsManager().getStatistics();
-            // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
-            statistics.mockTableStatsWithRowCount(scan.getTable().getId(), 0);
-            return statistics.getTableStats(table.getId());
-        });
+        TableStats tableStats = Utils.execWithReturnVal(() ->
+                // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
+                mockRowCountInStatistic(scan)
+        );
         Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
@@ -218,6 +217,23 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
+    }
+
+    // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
+    private TableStats mockRowCountInStatistic(Scan scan) throws AnalysisException {
+        long cardinality = 0;
+        if (scan instanceof PhysicalOlapScan) {
+            PhysicalOlapScan olapScan = (PhysicalOlapScan) scan;
+            for (long selectedPartitionId : olapScan.getSelectedPartitionId()) {
+                final Partition partition = olapScan.getTable().getPartition(selectedPartitionId);
+                final MaterializedIndex baseIndex = partition.getBaseIndex();
+                cardinality += baseIndex.getRowCount();
+            }
+        }
+        Statistics statistics = ConnectContext.get().getEnv().getStatisticsManager().getStatistics();
+
+        statistics.mockTableStatsWithRowCount(scan.getTable().getId(), cardinality);
+        return statistics.getTableStats(scan.getTable().getId());
     }
 
     private StatsDeriveResult computeTopN(TopN topN) {
