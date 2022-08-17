@@ -68,7 +68,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     // generate the filter clause
     rapidjson::Document scratch_document;
     rapidjson::Value query_node(rapidjson::kObjectType);
-    // use fe generate dsl, it has to be outside the if avoid valid.
+    // use fe generate dsl, it must be placed outside the if, otherwise it will cause problems in AddMember
     rapidjson::Document fe_query_dsl;
     if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
         auto query_dsl = properties.at(ESScanReader::KEY_QUERY_DSL);
