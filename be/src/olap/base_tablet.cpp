@@ -31,7 +31,7 @@ extern MetricPrototype METRIC_query_scan_count;
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
         : _state(tablet_meta->tablet_state()), _tablet_meta(tablet_meta), _data_dir(data_dir) {
-    _schema = TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema().to_key());
+    _schema = TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema()->to_key());
     _gen_tablet_path();
 
     std::stringstream ss;
