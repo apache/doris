@@ -146,10 +146,10 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new PushDownNotSlotReferenceExpressionOfOnClauseJob(cascadesContext).execute();
         new NormalizeExpressionRulesJob(cascadesContext).execute();
         new JoinReorderRulesJob(cascadesContext).execute();
         new PredicatePushDownRulesJob(cascadesContext).execute();
+        new PushDownNotSlotReferenceExpressionOfOnClauseJob(cascadesContext).execute();
         new DisassembleRulesJob(cascadesContext).execute();
     }
 
