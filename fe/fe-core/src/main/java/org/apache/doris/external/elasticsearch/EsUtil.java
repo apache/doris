@@ -234,15 +234,15 @@ public class EsUtil {
         }
     }
 
-    public static QueryBuilder toEsDsl(Expr expr) {
-        return toEsDsl(expr, new ArrayList<>());
-    }
-
     private static Expr exprWithoutCast(Expr expr) {
         if (expr instanceof CastExpr) {
             return exprWithoutCast(expr.getChild(0));
         }
         return expr;
+    }
+
+    public static QueryBuilder toEsDsl(Expr expr) {
+        return toEsDsl(expr, new ArrayList<>());
     }
 
     /**
@@ -261,7 +261,10 @@ public class EsUtil {
         // Type transformed cast can not pushdown
         if (expr.getChild(0) instanceof CastExpr) {
             Expr withoutCastExpr = exprWithoutCast(expr.getChild(0));
-            if (withoutCastExpr.getType().equals(expr.getChild(0).getType())) {
+            // pushdown col(float) >= 3
+            if (withoutCastExpr.getType().equals(expr.getChild(0).getType()) || (
+                    withoutCastExpr.getType().isFloatingPointType() && expr.getChild(0).getType()
+                            .isFloatingPointType())) {
                 column = ((SlotRef) withoutCastExpr).getColumnName();
             } else {
                 notPushDownList.add(expr);
