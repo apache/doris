@@ -72,7 +72,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _build_tuple_size; ++i) {
         TupleDescriptor* build_tuple_desc = child(1)->row_desc().tuple_descriptors()[i];
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
-        RETURN_IF_INVALID_IDX(build_tuple_desc->id(), tuple_idx);
+        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
         _build_tuple_idx.push_back(tuple_idx);
     }
 
