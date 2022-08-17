@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-suite("drop_policy", "policy") {
+suite("drop_policy") {
     def storage_exist = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;
