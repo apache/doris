@@ -167,6 +167,9 @@ message PrimaryKeyIndexMetaPB {
     optional IndexedColumnMetaPB primary_key_index = 1;
     // bloom filter index
     optional ColumnIndexMetaPB bloom_filter_index = 2;
+
+    optional bytes min_key = 3;
+    optional bytes max_key = 4;
 }
 
 message SegmentFooterPB {
