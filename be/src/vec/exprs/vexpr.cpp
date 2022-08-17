@@ -318,6 +318,9 @@ ColumnPtrWrapper* VExpr::get_const_col(VExprContext* context) {
     Block block;
     execute(context, &block, &result);
     DCHECK(result != -1);
+    if (-1 == result) {
+        return nullptr;
+    }
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
     return _constant_col.get();
