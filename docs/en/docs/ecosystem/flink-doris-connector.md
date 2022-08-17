@@ -43,10 +43,11 @@ Github: https://github.com/apache/incubator-doris-flink-connector
 
 ## Version Compatibility
 
-| Connector       | Flink  | Doris | Java | Scala |
-| --------------- | ------ | ----- | ---- | ----- |
-| 1.14_2.11-1.1.0 | 1.14.x | 1.0+  | 8    | 2.11  |
-| 1.14_2.12-1.1.0 | 1.14.x | 1.0+  | 8    | 2.12  |
+| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
+| --------- | ----- | ------ | ---- | ----- |
+| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.0     | 1.14+ | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.0     | 1.15+ | 1.0+   | 8    | -         |
 
 ## Build and Install
 
