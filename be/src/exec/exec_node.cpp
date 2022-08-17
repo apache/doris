@@ -284,6 +284,8 @@ Status ExecNode::close(RuntimeState* state) {
         state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
     }
 
+    runtime_profile()->add_to_span();
+
     return result;
 }
 

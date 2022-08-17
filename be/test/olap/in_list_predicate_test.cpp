@@ -33,12 +33,12 @@ namespace doris {
 
 namespace datetime {
 
-static uint24_t timestamp_from_date(const char* date_string) {
+static uint32_t timestamp_from_date(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
     int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-    return uint24_t(value);
+    return uint32_t(value);
 }
 
 static uint32_t timestamp_from_date_v2(const char* date_string) {
@@ -525,7 +525,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    phmap::flat_hash_set<uint24_t> values;
+    phmap::flat_hash_set<uint32_t> values;
     uint24_t value1 = datetime::timestamp_from_date("2017-09-09");
     values.insert(value1);
 
@@ -552,7 +552,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::timestamp_from_date(date_array[i].c_str());
+        uint24_t timestamp = uint24_t(datetime::timestamp_from_date(date_array[i].c_str()));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -574,7 +574,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::timestamp_from_date(date_array[i].c_str());
+            uint24_t timestamp = uint24_t(datetime::timestamp_from_date(date_array[i].c_str()));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }

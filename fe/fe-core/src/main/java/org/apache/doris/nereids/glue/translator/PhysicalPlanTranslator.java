@@ -30,6 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -423,6 +424,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
+
+        // TODO: handle p.child(0) is not NamedExpression.
+        project.getProjects().stream().filter(Alias.class::isInstance).forEach(p -> {
+            SlotRef ref = context.findSlotRef(((NamedExpression) p.child(0)).getExprId());
+            context.addExprIdPair(p.getExprId(), ref);
+        });
+
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))

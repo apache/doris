@@ -34,7 +34,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -79,7 +79,7 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testFromLoadStmt(@Injectable LoadStmt loadStmt, @Injectable LabelName labelName,
-            @Injectable DataDescription dataDescription, @Mocked Env env, @Mocked InternalDataSource ds,
+            @Injectable DataDescription dataDescription, @Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database) {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
@@ -94,10 +94,10 @@ public class BrokerLoadJobTest {
                 labelName.getDbName();
                 minTimes = 0;
                 result = databaseName;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(databaseName);
+                result = catalog;
+                catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
@@ -124,7 +124,7 @@ public class BrokerLoadJobTest {
     @Test
     public void testFromLoadStmt2(@Injectable LoadStmt loadStmt, @Injectable DataDescription dataDescription,
             @Injectable LabelName labelName, @Injectable Database database, @Injectable OlapTable olapTable,
-            @Mocked Env env, @Mocked InternalDataSource ds) {
+            @Mocked Env env, @Mocked InternalCatalog catalog) {
 
         String label = "label";
         long dbId = 1;
@@ -145,10 +145,10 @@ public class BrokerLoadJobTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = label;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(databaseName);
+                result = catalog;
+                catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
@@ -197,7 +197,7 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testGetTableNames(@Injectable BrokerFileGroupAggInfo fileGroupAggInfo,
-            @Injectable BrokerFileGroup brokerFileGroup, @Mocked Env env, @Mocked InternalDataSource ds,
+            @Injectable BrokerFileGroup brokerFileGroup, @Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database, @Injectable Table table) throws MetaNotFoundException {
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         brokerFileGroups.add(brokerFileGroup);
@@ -215,10 +215,10 @@ public class BrokerLoadJobTest {
                 fileGroupAggInfo.getAllTableIds();
                 minTimes = 0;
                 result = Sets.newHashSet(1L);
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDb(anyLong);
+                result = catalog;
+                catalog.getDb(anyLong);
                 minTimes = 0;
                 result = Optional.of(database);
                 database.getTable(1L);
@@ -276,7 +276,7 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testPendingTaskOnFinished(@Injectable BrokerPendingTaskAttachment attachment, @Mocked Env env,
-            @Mocked InternalDataSource ds, @Injectable Database database,
+            @Mocked InternalCatalog catalog, @Injectable Database database,
             @Injectable BrokerFileGroupAggInfo fileGroupAggInfo, @Injectable BrokerFileGroup brokerFileGroup1,
             @Injectable BrokerFileGroup brokerFileGroup2, @Injectable BrokerFileGroup brokerFileGroup3,
             @Mocked MasterTaskExecutor masterTaskExecutor, @Injectable OlapTable olapTable,
@@ -307,10 +307,10 @@ public class BrokerLoadJobTest {
                 attachment.getTaskId();
                 minTimes = 0;
                 result = taskId;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 fileGroupAggInfo.getAggKeyToFileGroups();
@@ -462,7 +462,7 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testLoadingTaskOnFinished(@Injectable BrokerLoadingTaskAttachment attachment1,
-            @Injectable LoadTask loadTask1, @Mocked Env env, @Mocked InternalDataSource ds,
+            @Injectable LoadTask loadTask1, @Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
         Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
@@ -480,10 +480,10 @@ public class BrokerLoadJobTest {
                 attachment1.getTaskId();
                 minTimes = 0;
                 result = 1L;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
             }

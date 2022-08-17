@@ -59,8 +59,6 @@ public:
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id);
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                    const TNetworkAddress& broker_addr,
-                   const std::map<std::string, std::string>& broker_prop);
-    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                    const std::map<std::string, std::string>& broker_prop,
                    TStorageBackendType::type type);
 

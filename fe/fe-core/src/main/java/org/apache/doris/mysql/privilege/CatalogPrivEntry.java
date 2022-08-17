@@ -23,7 +23,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -60,7 +60,7 @@ public class CatalogPrivEntry extends PrivEntry {
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
-            throw new AnalysisException("Datasource privilege can not contains node or resource privileges: " + privs);
+            throw new AnalysisException("Catalog privilege can not contains node or resource privileges: " + privs);
         }
 
         return new CatalogPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, isDomain, privs);
@@ -130,7 +130,7 @@ public class CatalogPrivEntry extends PrivEntry {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             origCtl = Text.readString(in);
         } else {
-            origCtl = InternalDataSource.INTERNAL_DS_NAME;
+            origCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
         try {
             ctlPattern = createCtlPatternMatcher(origCtl);

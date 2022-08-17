@@ -195,15 +195,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * The Internal data source will manage all self-managed meta object in a Doris cluster.
+ * The Internal catalog will manage all self-managed meta object in a Doris cluster.
  * Such as Database, tables, etc.
- * There is only one internal data source in a cluster. And its id is always 0.
+ * There is only one internal catalog in a cluster. And its id is always 0.
  */
-public class InternalDataSource implements DataSourceIf<Database> {
-    public static final String INTERNAL_DS_NAME = "internal";
+public class InternalCatalog implements CatalogIf<Database> {
+    public static final String INTERNAL_CATALOG_NAME = "internal";
     public static final long INTERNAL_DS_ID = 0L;
 
-    private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
+    private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
@@ -229,7 +229,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
     @Override
     public String getName() {
-        return INTERNAL_DS_NAME;
+        return INTERNAL_CATALOG_NAME;
     }
 
 
@@ -270,13 +270,13 @@ public class InternalDataSource implements DataSourceIf<Database> {
     }
 
     @Override
-    public void modifyDatasourceName(String name) {
-        LOG.warn("Ignore the modify datasource name in build-in datasource.");
+    public void modifyCatalogName(String name) {
+        LOG.warn("Ignore the modify catalog name in build-in catalog.");
     }
 
     @Override
-    public void modifyDatasourceProps(Map<String, String> props) {
-        LOG.warn("Ignore the modify datasource props in build-in datasource.");
+    public void modifyCatalogProps(Map<String, String> props) {
+        LOG.warn("Ignore the modify catalog props in build-in catalog.");
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1247,6 +1247,10 @@ public class InternalDataSource implements DataSourceIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
+                        olapTable.disableAutoCompaction().toString());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -1325,7 +1329,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
-                    olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(), idGeneratorBuffer);
+                    olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(), idGeneratorBuffer,
+                    olapTable.disableAutoCompaction());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1547,7 +1552,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite,  String storagePolicy,
-            IdGeneratorBuffer idGeneratorBuffer) throws DdlException {
+            IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1607,7 +1612,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
-                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy);
+                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
+                            disableAutoCompaction);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -1727,23 +1733,23 @@ public class InternalDataSource implements DataSourceIf<Database> {
         Map<String, String> properties = stmt.getProperties();
 
         // get use light schema change
-        Boolean useLightSchemaChange = false;
+        Boolean enableLightSchemaChange = false;
         try {
-            useLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
+            enableLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
         // use light schema change optimization
-        olapTable.setUseLightSchemaChange(useLightSchemaChange);
-        if (useLightSchemaChange) {
-            for (Column column : baseSchema) {
-                column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
-                LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
-                        column.getUniqueId());
-            }
-        } else {
-            LOG.debug("table: {} doesn't use light schema change", olapTable.getName());
+        olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
+
+        boolean disableAutoCompaction = false;
+        try {
+            disableAutoCompaction = PropertyAnalyzer.analyzeDisableAutoCompaction(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
         }
+        // use light schema change optimization
+        olapTable.setDisableAutoCompaction(disableAutoCompaction);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
@@ -1912,16 +1918,14 @@ public class InternalDataSource implements DataSourceIf<Database> {
         try {
             sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
             if (sequenceColType != null) {
-                // TODO(zhannngchen) will support sequence column later.
-                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    throw new AnalysisException("Unique key table with MoW(merge on write) not support "
-                        + "sequence column for now");
-                }
                 olapTable.setSequenceInfo(sequenceColType);
             }
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
+
+        olapTable.initSchemaColumnUniqueId();
+        olapTable.rebuildFullSchema();
 
         // analyze version info
         Long versionInfo = null;
@@ -1961,7 +1965,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                        idGeneratorBuffer);
+                        idGeneratorBuffer, olapTable.disableAutoCompaction());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -2019,7 +2023,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                             tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer);
+                            idGeneratorBuffer, olapTable.disableAutoCompaction());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -2396,7 +2400,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
-                        olapTable.getStoragePolicy(), idGeneratorBuffer);
+                        olapTable.getStoragePolicy(), idGeneratorBuffer, olapTable.disableAutoCompaction());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {
@@ -3099,7 +3103,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
             String dbName = InfoSchemaDb.getFullInfoSchemaDbName(cluster.getName());
             // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
             // when checkpoint thread load image.
-            InfoSchemaDb db = (InfoSchemaDb) Env.getServingEnv().getInternalDataSource().getDbNullable(dbName);
+            InfoSchemaDb db = (InfoSchemaDb) Env.getServingEnv().getInternalCatalog().getDbNullable(dbName);
             if (db == null) {
                 db = new InfoSchemaDb(cluster.getName());
                 db.setClusterName(cluster.getName());

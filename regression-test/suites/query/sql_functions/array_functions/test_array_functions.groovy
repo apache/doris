@@ -18,7 +18,7 @@
 suite("test_array_functions", "query") {
     def tableName = "tbl_test_array_functions"
     // open enable_array_type
-    sql """ set enable_array_type = true """
+    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
 
@@ -57,4 +57,5 @@ suite("test_array_functions", "query") {
     qt_select "SELECT k1, array_slice(k2, 2) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_slice(k2, 1, 2) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, reverse(k2), reverse(k3), reverse(k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_join(k2, '_', 'null'), array_join(k3, '-', 'null') FROM ${tableName} ORDER BY k1"
 }

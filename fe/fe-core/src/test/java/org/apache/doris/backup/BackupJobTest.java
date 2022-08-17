@@ -30,7 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -86,7 +86,7 @@ public class BackupJobTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
 
     private MockBackupHandler backupHandler;
 
@@ -149,14 +149,14 @@ public class BackupJobTest {
         Deencapsulation.setField(env, "backupHandler", backupHandler);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
-        ds = Deencapsulation.newInstance(InternalDataSource.class);
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations(env) {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
@@ -208,7 +208,7 @@ public class BackupJobTest {
 
         List<TableRef> tableRefs = Lists.newArrayList();
         tableRefs.add(new TableRef(
-                new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
                 null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 env, repo.getId());
@@ -344,7 +344,7 @@ public class BackupJobTest {
 
         List<TableRef> tableRefs = Lists.newArrayList();
         tableRefs.add(
-                new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
                         null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 env, repo.getId());

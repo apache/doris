@@ -17,11 +17,24 @@
 
 suite("test_segment_iterator_delete") {
     def tableName = "delete_regression_test_segment_iterator"
+    def tableName_dict = "delete_regression_test_segment_iterator_column_dictionary"
 
     // test duplicate key
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (c1 int NOT NULL, c2 int NOT NULL , c3 int not null ) ENGINE=OLAP DUPLICATE KEY(c1, c2) COMMENT "OLAP" DISTRIBUTED BY HASH(c3) BUCKETS 1 
     PROPERTIES ( "replication_num" = "1" );"""
+
+    sql """ DROP TABLE IF EXISTS ${tableName_dict} """
+    sql """
+    CREATE TABLE ${tableName_dict} (
+        `tinyint_key` tinyint(4) NOT NULL,
+        `char_50_key` char(50) NOT NULL,
+        `character_key` varchar(500) NOT NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`tinyint_key`, `char_50_key`, `character_key`)
+    DISTRIBUTED BY HASH(`tinyint_key`) BUCKETS 1
+    PROPERTIES ( "replication_num" = "1" );
+    """
 
     sql """INSERT INTO ${tableName} VALUES (1,1,1)"""
     sql """INSERT INTO ${tableName} VALUES (2,2,2)"""
@@ -90,4 +103,9 @@ suite("test_segment_iterator_delete") {
     qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName};"""
 
     sql """drop table ${tableName} force"""
+
+    // delete ColumnDictionary
+    sql """INSERT INTO ${tableName_dict} VALUES(1, 'dddd', 'adgs'), (1, 'SSS', 'sk6S0'), (1, 'ttt', 'zdges');"""
+    sql """delete from ${tableName_dict} where character_key < "sk6S0";"""
+    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tableName_dict} order by tinyint_key, char_50_key;"""
 }

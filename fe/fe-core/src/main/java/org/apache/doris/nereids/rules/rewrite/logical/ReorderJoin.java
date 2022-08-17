@@ -51,8 +51,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             }
             MultiJoin multiJoin = new MultiJoin();
             filter.accept(multiJoin, null);
-
-            return multiJoin.reorderJoinsAccordingToConditions();
+            return multiJoin.reorderJoinsAccordingToConditions().orElse(filter);
         }).toRule(RuleType.REORDER_JOIN);
     }
 }

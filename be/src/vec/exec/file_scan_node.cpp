@@ -30,6 +30,7 @@
 #include "util/thread.h"
 #include "util/types.h"
 #include "vec/exec/file_arrow_scanner.h"
+#include "vec/exec/file_hdfs_scanner.h"
 #include "vec/exec/file_text_scanner.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
@@ -471,6 +472,8 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
     case TFileFormatType::FORMAT_PARQUET:
         scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
                                        scan_range.ranges, _pre_filter_texprs, counter);
+        //        scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
+        //                                       scan_range.ranges, _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,

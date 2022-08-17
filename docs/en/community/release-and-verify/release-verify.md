@@ -30,14 +30,13 @@ This validation step can be used for validation during release polling and also 
 
 The following steps can be followed to verify.
 
-1. [ ] Whether the download link is legitimate.
-2. [ ] Whether the checksum and PGP signature are legitimate. 3.
-3. [ ] Whether the DISCLAIMER or DISCLAIMER-WIP is included.
-4. [ ] Whether the code matches the current release.
-5. [ ] Whether the LICENSE and NOTICE files are correct.
-6. [ ] All files carry the necessary protocol descriptions.
-7. [ ] No compiled content is included in the source package.
-8. [ ] Whether the compilation can be executed without problems.
+1. [ ] The download link is legal.
+2. [ ] The PGP signature are valid.
+3. [ ] The source code matches the current release version.
+4. [ ] The LICENSE and NOTICE files are correct.
+5. [ ] All files carry the necessary protocol header.
+6. [ ] The compiled content is not included in the source package.
+7. [ ] The compilation can be executed smoothly.
 
 Here we use the verification of the Doris Core version as an example. Note that other components have their corresponding names changed.
 

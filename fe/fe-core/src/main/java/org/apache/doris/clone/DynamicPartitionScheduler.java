@@ -494,7 +494,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void initDynamicPartitionTable() {
-        for (Long dbId : Env.getCurrentEnv().getInternalDataSource().getDbIds()) {
+        for (Long dbId : Env.getCurrentEnv().getInternalCatalog().getDbIds()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;

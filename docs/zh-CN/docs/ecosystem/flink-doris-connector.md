@@ -45,10 +45,11 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 ## 版本兼容
 
-| Connector | Flink | Doris  | Java | Scala |
+| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.14_2.11-1.1.0 | 1.14.x | 1.0+ | 8 | 2.11 |
-| 1.14_2.12-1.1.0 | 1.14.x | 1.0+ | 8 | 2.12 |
+| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.0     | 1.14+ | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.0     | 1.15+ | 1.0+   | 8    | -         |
 
 ## 编译与安装
 

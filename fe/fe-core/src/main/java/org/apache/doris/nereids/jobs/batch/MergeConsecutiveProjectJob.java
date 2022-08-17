@@ -15,16 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 
-public class DataSourceException extends UserException {
-    public DataSourceException(String msg) {
-        super(msg);
-    }
+import com.google.common.collect.ImmutableList;
 
-    public DataSourceException(String msg, Throwable cause) {
-        super(msg, cause);
+/**
+ * Merge consecutive project rules.
+ */
+public class MergeConsecutiveProjectJob extends BatchRulesJob {
+
+    /**
+     * Execute the merge consecutive job.
+     * @param ctx planner context for execute job
+     */
+    public MergeConsecutiveProjectJob(CascadesContext ctx) {
+        //TODO: eliminate consecutive projects for view
+        super(ctx);
+        rulesJob.addAll(ImmutableList.of(
+                bottomUpBatch(ImmutableList.of(
+                        new MergeConsecutiveProjects()))));
     }
 }
