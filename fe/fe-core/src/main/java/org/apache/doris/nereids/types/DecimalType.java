@@ -72,6 +72,16 @@ public class DecimalType extends FractionalType {
         throw new RuntimeException("Could not create decimal for type " + dataType);
     }
 
+    public static DecimalType widerDecimalType(DecimalType left, DecimalType right) {
+        return widerDecimalType(left.getPrecision(), right.getPrecision(), left.getScale(), right.getScale());
+    }
+
+    private static DecimalType widerDecimalType(int leftPrecision, int rightPrecision, int leftScale, int rightScale) {
+        int scale = Math.max(leftScale, rightScale);
+        int range = Math.max(leftPrecision, rightPrecision);
+        DecimalType.createDecimalType(range + scale, scale);
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.DECIMALV2;
