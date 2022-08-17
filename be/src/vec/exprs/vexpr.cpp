@@ -317,11 +317,7 @@ ColumnPtrWrapper* VExpr::get_const_col(VExprContext* context) {
     int result = -1;
     Block block;
     execute(context, &block, &result);
-    // comment DCHECK temporarily to run fuzzy test smoothly
-    // DCHECK(result != -1);
-    if (-1 == result) {
-        return nullptr;
-    }
+    DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
     return _constant_col.get();

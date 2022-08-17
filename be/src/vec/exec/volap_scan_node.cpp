@@ -1365,13 +1365,8 @@ bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
             return false;
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            // temporarily check if it would return nullptr
-            auto col_ptr = children[1 - i]->get_const_col(expr_ctx);
-            if (nullptr == col_ptr) {
-                return false;
-            }
-            if (const ColumnConst* const_column =
-                        check_and_get_column<ColumnConst>(col_ptr->column_ptr)) {
+            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
+                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
                 return false;
@@ -1400,13 +1395,8 @@ bool VOlapScanNode::_should_push_down_binary_predicate(
             // only handle constant value
             return false;
         } else {
-            // temporarily check if it would return nullptr
-            auto col_ptr = children[1 - i]->get_const_col(expr_ctx);
-            if (nullptr == col_ptr) {
-                return false;
-            }
-            if (const ColumnConst* const_column =
-                        check_and_get_column<ColumnConst>(col_ptr->column_ptr)) {
+            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
+                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
             } else {
@@ -1707,13 +1697,9 @@ Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* exp
 void VOlapScanNode::eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, bool* push_down) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        auto col_ptr = vexpr->get_const_col(expr_ctx);
-        const ColumnConst* const_column = nullptr;
-        // temporarily check if it would return nullptr
-        if (nullptr != col_ptr) {
-            const_column = check_and_get_column<ColumnConst>(col_ptr->column_ptr);
-        }
-        if (nullptr != const_column) {
+        if (const ColumnConst* const_column =
+                    check_and_get_column<ColumnConst>(vexpr->get_const_col(expr_ctx)->column_ptr)) {
+            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
                 *push_down = true;
