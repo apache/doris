@@ -1700,7 +1700,6 @@ void VOlapScanNode::eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, b
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(vexpr->get_const_col(expr_ctx)->column_ptr)) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
-            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
                 *push_down = true;
                 _eos = true;
