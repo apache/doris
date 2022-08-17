@@ -32,7 +32,8 @@ Status VExplodeNumbersTableFunction::process_init(vectorized::Block* block) {
             << _vexpr_context->root()->children().size();
 
     int value_column_idx = -1;
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block, &value_column_idx));
+    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
+                                                                   &value_column_idx));
     _value_column = block->get_by_position(value_column_idx).column;
 
     return Status::OK();
