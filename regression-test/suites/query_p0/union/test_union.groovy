@@ -16,13 +16,11 @@
 // under the License.
 
 suite("test_union") {
-    order_qt_select "select k1, k2 from test_query_db.baseall union select k2, k3 from test_query_db.test"
-    order_qt_select "select k2, count(k1) from ((select k2, avg(k1) k1 from test_query_db.baseall group by k2) union all (select k2, count(k1) k1 from test_query_db.test group by k2) )b group by k2 having k2 > 0 order by k2;"
+    order_qt_select "select k1, k2 from baseall union select k2, k3 from test"
+    order_qt_select "select k2, count(k1) from ((select k2, avg(k1) k1 from baseall group by k2) union all (select k2, count(k1) k1 from test group by k2) )b group by k2 having k2 > 0 order by k2;"
 
-    def db = "test_query_db"
     def tbName1 = "test"
     def tbName2 = "baseall"
-    sql "use ${db}"
 
     qt_union1 """(select A.k2 as wj1,count(*) as wj2, case A.k2 when 1989 then "wj" 
 		    when 1992 then "dyk" when 1985 then "wcx" else "mlx" end 
