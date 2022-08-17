@@ -287,21 +287,6 @@ message TabletMetaPB {
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
 }
 
-message OLAPIndexHeaderMessage {
-    required int32 start_version = 1;
-    required int32 end_version = 2;
-    required int64 cumulative_version_hash = 3;
-
-    required uint32 segment = 4;
-    required uint32 num_rows_per_block = 5;
-    optional bool null_supported = 6;
-    optional bool delete_flag = 7;
-}
-
-message OLAPDataHeaderMessage {
-    required uint32 segment = 2;
-}
-
 message OLAPRawDeltaHeaderMessage {
     required int32 schema_hash = 2;
 }
