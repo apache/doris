@@ -36,12 +36,12 @@ suite("aggregate_group_by_hll_and_bitmap") {
     }
 
     test {
-        sql "select user_ids from test_group_by_hll_and_bitmap group by user_ids"
+        sql "select user_ids from test_group_by_hll_and_bitmap order by user_ids"
         exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
     }
 
     test {
-        sql "select hll_set from test_group_by_hll_and_bitmap group by hll_set"
+        sql "select hll_set from test_group_by_hll_and_bitmap order by hll_set"
         exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
     }
 
