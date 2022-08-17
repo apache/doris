@@ -20,11 +20,9 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
@@ -37,7 +35,7 @@ import java.util.Optional;
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class GroupPlan extends LogicalLeaf implements PhysicalPlan {
+public class GroupPlan extends LogicalLeaf {
     private final Group group;
 
     public GroupPlan(Group group) {
@@ -101,7 +99,4 @@ public class GroupPlan extends LogicalLeaf implements PhysicalPlan {
         return "GroupPlan( " + group.getGroupId() + " )";
     }
 
-    public PhysicalProperties getPhysicalProperties() {
-        return null;
-    }
 }

@@ -147,6 +147,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             fragment.finalize(null);
         }
         Collections.reverse(context.getPlanFragments());
+        context.getDescTable().computeMemLayout();
         return rootFragment;
     }
 
@@ -263,6 +264,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: add data partition after we have physical properties
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);
+        olapScanNode.setIsPreAggregation(true, "Nereids support duplicate table only for now");
         return planFragment;
     }
 
@@ -441,9 +443,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addExprIdSlotRefPair(p.getExprId(), ref);
         });
 
-        if (project.child(0) instanceof PhysicalHashJoin) {
-            return inputFragment;
-        }
 
         List<Expr> execExprList = project.getProjects()
                 .stream()
@@ -461,10 +460,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         inputPlanNode.setProjectList(execExprList);
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-        if (project.child(0) instanceof PhysicalFilter) {
-            PhysicalFilter<Plan> filter = (PhysicalFilter<Plan>) project.child(0);
-            addConjunctsToPlanNode(filter, inputPlanNode, context);
-        }
+
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<Integer> requiredSlotIdList = new HashSet<>();
         for (Expr expr : predicateList) {

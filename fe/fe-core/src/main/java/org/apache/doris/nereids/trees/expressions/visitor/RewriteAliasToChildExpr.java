@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.rewrite.logical.CollapseFilterAndProject;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
-import com.google.common.collect.ImmutableList;
+import java.util.Map;
 
 /**
- * Clean up.
+ * UpdateAliasVisitor
  */
-public class CleanUpJob extends BatchRulesJob {
-    public CleanUpJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(
-                        new CollapseFilterAndProject()
-                ))));
+public class RewriteAliasToChildExpr extends DefaultExpressionRewriter<Map<Slot, Alias>> {
+
+    @Override
+    public Expression visitSlotReference(SlotReference slotReference, Map<Slot, Alias> context) {
+        Alias alias = context.get(slotReference);
+        return alias == null ? slotReference : alias.child(0);
     }
 }
