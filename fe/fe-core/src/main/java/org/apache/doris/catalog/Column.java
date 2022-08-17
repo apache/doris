@@ -245,7 +245,9 @@ public class Column implements Writable {
     }
 
     public boolean isSequenceColumn() {
-        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
+        // aggregationType is NONE for unique table with merge on write.
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(SEQUENCE_COL, true);
     }
 
     public PrimitiveType getDataType() {

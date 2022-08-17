@@ -56,7 +56,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     auto fs = io::global_local_filesystem();
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
-    PrimaryKeyIndexBuilder builder(file_writer.get());
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
     builder.init();
     size_t num_rows = 0;
     std::vector<std::string> keys;

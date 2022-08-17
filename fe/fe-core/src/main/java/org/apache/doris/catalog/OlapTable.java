@@ -885,8 +885,16 @@ public class OlapTable extends Table {
         this.hasSequenceCol = true;
         this.sequenceType = type;
 
-        // sequence column is value column with REPLACE aggregate type
-        Column sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
+        Column sequenceCol;
+        if (getEnableUniqueKeyMergeOnWrite()) {
+            // sequence column is value column with NONE aggregate type for
+            // unique key table with merge on write
+            sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.NONE).toColumn();
+        } else {
+            // sequence column is value column with REPLACE aggregate type for
+            // unique key table
+            sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
+        }
         // add sequence column at last
         fullSchema.add(sequenceCol);
         nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
