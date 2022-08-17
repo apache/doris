@@ -103,7 +103,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(0))
                 .applyTopDown(new EliminateAliasNode())
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
                         logicalProject(
                             logicalOlapScan().when(o -> true)
@@ -123,7 +123,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(1))
                 .applyTopDown(new EliminateAliasNode())
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),
@@ -154,7 +154,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(5))
                 .applyTopDown(new EliminateAliasNode())
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),

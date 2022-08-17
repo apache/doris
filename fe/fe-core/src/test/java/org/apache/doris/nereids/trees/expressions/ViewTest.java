@@ -114,7 +114,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
                 .analyze("SELECT * FROM V1")
                 .applyTopDown(new EliminateAliasNode())
                 .applyTopDown(new MergeConsecutiveProjects())
-                .matches(
+                .matchesFromRoot(
                       logicalProject(
                               logicalOlapScan()
                       )
@@ -127,7 +127,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
                 .analyze("SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3")
                 .applyTopDown(new EliminateAliasNode())
                 .applyTopDown(new MergeConsecutiveProjects())
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalJoin(
                                         logicalProject(
