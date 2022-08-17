@@ -522,6 +522,13 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     std::string index_key;
     encode_key_with_padding<RowCursor, true, true>(
             &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
+    if (index_key < _segment->min_key()) {
+        *rowid = 0;
+        return Status::OK();
+    } else if (index_key > _segment->max_key()) {
+        *rowid = num_rows();
+        return Status::OK();
+    }
     bool exact_match = false;
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;

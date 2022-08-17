@@ -150,24 +150,39 @@ Status Segment::_parse_footer() {
     return Status::OK();
 }
 
+Status Segment::_load_pk_bloom_filter() {
+    DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
+    DCHECK(_footer.has_primary_key_index_meta());
+    DCHECK(_pk_index_reader != nullptr);
+    return _load_pk_bf_once.call([this] {
+        RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, _footer.primary_key_index_meta()));
+        _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+        return Status::OK();
+    });
+}
+
+Status Segment::load_pk_index_and_bf() {
+    RETURN_IF_ERROR(load_index());
+    RETURN_IF_ERROR(_load_pk_bloom_filter());
+    return Status::OK();
+}
 Status Segment::load_index() {
     return _load_index_once.call([this] {
-        // read and parse short key index page
-        PageReadOptions opts;
-        opts.file_reader = _file_reader.get();
-        opts.page_pointer = PagePointer(_footer.short_key_index_page());
-        opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
-        OlapReaderStatistics tmp_stats;
-        opts.stats = &tmp_stats;
-        opts.type = INDEX_PAGE;
-
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(
-                    _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta()));
+                    _pk_index_reader->parse_index(_file_reader, _footer.primary_key_index_meta()));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
         } else {
+            // read and parse short key index page
+            PageReadOptions opts;
+            opts.file_reader = _file_reader.get();
+            opts.page_pointer = PagePointer(_footer.short_key_index_page());
+            opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
+            OlapReaderStatistics tmp_stats;
+            opts.stats = &tmp_stats;
+            opts.type = INDEX_PAGE;
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(
@@ -244,7 +259,7 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
-    RETURN_IF_ERROR(load_index());
+    RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = _tablet_schema->has_sequence_col();
     size_t seq_col_length = 0;
     if (has_seq_col) {

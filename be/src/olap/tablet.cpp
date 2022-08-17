@@ -1950,7 +1950,7 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     int64_t end_version = max_version_unlocked().second;
     Version dummy_version(end_version + 1, end_version + 1);
     for (auto& seg : segments) {
-        seg->load_index(); // We need index blocks to iterate
+        seg->load_pk_index_and_bf(); // We need index blocks to iterate
         auto pk_idx = seg->get_primary_key_index();
         int cnt = 0;
         int total = pk_idx->num_rows();

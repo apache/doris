@@ -76,7 +76,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    EXPECT_TRUE(index_reader.parse(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;

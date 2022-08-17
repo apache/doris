@@ -68,39 +68,48 @@ private:
 
 class PrimaryKeyIndexReader {
 public:
-    PrimaryKeyIndexReader() : _parsed(false) {}
+    PrimaryKeyIndexReader() : _index_parsed(false), _bf_parsed(false) {}
 
-    Status parse(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
+    Status parse_index(io::FileReaderSPtr file_reader,
+                       const segment_v2::PrimaryKeyIndexMetaPB& meta);
+
+    Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
-        DCHECK(_parsed);
+        DCHECK(_index_parsed);
         index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get()));
         return Status::OK();
     }
 
     const TypeInfo* type_info() const {
-        DCHECK(_parsed);
+        DCHECK(_index_parsed);
         return _index_reader->type_info();
     }
 
     // verify whether exist in BloomFilter
     bool check_present(const Slice& key) {
-        DCHECK(_parsed);
+        DCHECK(_bf_parsed);
         return _bf->test_bytes(key.data, key.size);
     }
 
     uint32_t num_rows() const {
-        DCHECK(_parsed);
+        DCHECK(_index_parsed);
         return _index_reader->num_values();
     }
 
+    uint64_t get_bf_memory_size() {
+        DCHECK(_bf_parsed);
+        return _bf->size();
+    }
+
     uint64_t get_memory_size() {
-        DCHECK(_parsed);
-        return _index_reader->get_memory_size() + _bf->size();
+        DCHECK(_index_parsed);
+        return _index_reader->get_memory_size();
     }
 
 private:
-    bool _parsed;
+    bool _index_parsed;
+    bool _bf_parsed;
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
     std::unique_ptr<segment_v2::BloomFilter> _bf;
 };
