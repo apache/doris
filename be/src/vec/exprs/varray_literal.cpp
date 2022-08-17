@@ -28,7 +28,10 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
     Field array = is_null ? Field() : Array();
     for (const auto child : _children) {
         Field item;
-        child->get_const_col(context)->column_ptr->get(0, item);
+        auto col_ptr = child->get_const_col(context);
+        if (nullptr != col_ptr) {
+          col_ptr->column_ptr->get(0,item);
+        }
         array.get<Array>().push_back(item);
     }
     _column_ptr = _data_type->create_column_const(1, array);
