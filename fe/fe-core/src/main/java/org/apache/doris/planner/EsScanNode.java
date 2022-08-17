@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
@@ -177,7 +178,9 @@ public class EsScanNode extends ScanNode {
             esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
-        properties.put(EsTable.QUERY_DSL, queryBuilder.toJson());
+        if (Config.enable_new_es_dsl) {
+            properties.put(EsTable.QUERY_DSL, queryBuilder.toJson());
+        }
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
@@ -368,6 +371,9 @@ public class EsScanNode extends ScanNode {
                 queryBuilder = QueryBuilders.matchAllQuery();
             } else {
                 queryBuilder = boolQueryBuilder;
+            }
+            if (Config.enable_new_es_dsl) {
+                notPushDownList.forEach(expr -> conjuncts.removeIf(e -> e.equals(expr)));
             }
         }
     }
