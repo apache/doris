@@ -38,18 +38,12 @@ import java.util.stream.Collectors;
  * If an else expr is given then it is the last child.
  */
 public class CaseWhen extends Expression {
-    /**
-     * If default value exists, then defaultValueIndex is the index of the last element in children,
-     * otherwise it is -1
-     */
-    private final int defaultValueIndex;
 
     private final List<WhenClause> whenClauses;
     private final Optional<Expression> defaultValue;
 
     public CaseWhen(List<WhenClause> whenClauses) {
         super(whenClauses.toArray(new Expression[0]));
-        defaultValueIndex = -1;
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         defaultValue = Optional.empty();
     }
@@ -58,7 +52,6 @@ public class CaseWhen extends Expression {
         super(ImmutableList.<Expression>builder()
                 .addAll(whenClauses).add(defaultValue).build()
                 .toArray(new Expression[0]));
-        defaultValueIndex = children().size() - 1;
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
     }
