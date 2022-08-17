@@ -77,14 +77,14 @@ Here we recommend using the ext4 file system. When installing the operating syst
 | Module | CPU | Memory | Disk | Network | Instance Number|
 |---|---|---|---|---|---|
 | Frontend | 8 core + | 8GB + | SSD or SATA, 10GB + * | Gigabit Network Card | 1|
-| Backend | 8-core + | 16GB + | SSD or SATA, 50GB + * | Gigabit Network Card | 1-3*|
+| Backend | 8 core + | 16GB + | SSD or SATA, 50GB + * | Gigabit Network Card | 1-3*|
 
 #### Production environment
 
 | Module | CPU | Memory | Disk | Network | Number of Instances (Minimum Requirements)|
 |---|---|---|---|---|---|
 | Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-5*|
-| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card*|
+| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 10-100 * |
 
 > Note 1:
 > 
