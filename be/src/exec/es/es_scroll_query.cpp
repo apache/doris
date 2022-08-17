@@ -72,8 +72,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     rapidjson::Document fe_query_dsl;
     if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
         auto query_dsl = properties.at(ESScanReader::KEY_QUERY_DSL);
-        es_query_dsl.AddMember("query",
-                               fe_query_dsl.Parse(query_dsl.c_str(), query_dsl.length()),
+        es_query_dsl.AddMember("query", fe_query_dsl.Parse(query_dsl.c_str(), query_dsl.length()),
                                allocator);
     } else {
         query_node.SetObject();
