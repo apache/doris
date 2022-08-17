@@ -256,10 +256,9 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testCastConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
         FloatLiteral floatLiteral = new FloatLiteral(3.14);
         CastExpr castExpr = new CastExpr(TypeDef.create(PrimitiveType.INT), floatLiteral);
-        BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, k1, castExpr);
+        BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
         List<Expr> notPushDownList = new ArrayList<>();
         Assertions.assertNull(EsUtil.toEsDsl(castPredicate, notPushDownList));
         Assertions.assertEquals(1, notPushDownList.size());
