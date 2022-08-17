@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_union") {
+    def dbName = "test_query_db"
+    sql "use ${dbName}"
+
     order_qt_select "select k1, k2 from baseall union select k2, k3 from test"
     order_qt_select "select k2, count(k1) from ((select k2, avg(k1) k1 from baseall group by k2) union all (select k2, count(k1) k1 from test group by k2) )b group by k2 having k2 > 0 order by k2;"
 
