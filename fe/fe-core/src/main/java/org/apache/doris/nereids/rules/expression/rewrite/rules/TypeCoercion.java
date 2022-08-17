@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -49,11 +50,14 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * a rule to add implicit cast for expressions.
  */
+@Developing
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     public static final TypeCoercion INSTANCE = new TypeCoercion();
@@ -130,6 +134,25 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     return caseWhen.withChildren(newChildren);
                 })
                 .orElse(caseWhen);
+    }
+
+    @Override
+    public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
+        if (inPredicate.getOptions().stream().map(Expression::getDataType)
+                .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
+            return inPredicate;
+        }
+        Optional<DataType> optionalCommonType = findWiderCommonType(inPredicate.children()
+                .stream().map(Expression::getDataType).collect(Collectors.toList()));
+
+        return optionalCommonType
+                .map(commonType -> {
+                    List<Expression> newChildren = inPredicate.children().stream()
+                            .map(e -> castIfNotSameType(e, commonType))
+                            .collect(Collectors.toList());
+                    return inPredicate.withChildren(newChildren);
+                })
+                .orElse(inPredicate);
     }
 
     /**
@@ -277,6 +300,36 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     // TODO
     @Developing
     private Optional<DataType> findWiderCommonType(List<DataType> dataTypes) {
+        return Optional.empty();
+    }
+
+    @Developing
+    private Optional<DataType> findWiderTypeForTwo(DataType left, DataType right) {
+        return Stream
+                .<Supplier<Optional<DataType>>>of(
+                        () -> findTightestCommonType(left, right),
+                        () -> findWiderTypeForDecimal(left, right),
+                        () -> stringPromotion(left, right),
+                        () -> findTypeForComplex(left, right))
+                .map(Supplier::get)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .findFirst();
+    }
+
+    @Developing
+    private Optional<DataType> findWiderTypeForDecimal(DataType left, DataType right) {
+        return Optional.empty();
+    }
+
+    @Developing
+    private Optional<DataType> stringPromotion(DataType left, DataType right) {
+        return Optional.empty();
+    }
+
+    @Developing
+    private Optional<DataType> findTypeForComplex(DataType left, DataType right) {
+        // TODO: we need to add real logical here, if we add array type in Nereids
         return Optional.empty();
     }
 

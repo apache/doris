@@ -117,7 +117,7 @@ public class CaseWhen extends Expression {
             } else if (children.size() - 1 == i) {
                 defaultValue = children.get(i);
             } else {
-                throw new IllegalArgumentException("The children format needs to be [WhenClause*, DefaultValue+]");
+                throw new IllegalArgumentException("The children format needs to be [WhenClause+, DefaultValue?]");
             }
         }
         if (defaultValue == null) {
