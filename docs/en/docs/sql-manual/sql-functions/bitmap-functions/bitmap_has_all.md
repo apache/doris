@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`B00LEAN BITMAP_HAS_ALL(BITMAP lhs, BITMAP rhs)`
+`BOOLEAN BITMAP_HAS_ALL(BITMAP lhs, BITMAP rhs)`
 
 Returns true if the first bitmap contains all the elements of the second bitmap.
 Returns true if the second bitmap contains an empty element.
