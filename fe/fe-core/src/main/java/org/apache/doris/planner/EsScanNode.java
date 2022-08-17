@@ -106,6 +106,7 @@ public class EsScanNode extends ScanNode {
         computeColumnFilter();
         assignBackends();
         computeStats(analyzer);
+        buildQuery();
     }
 
     @Override
@@ -163,7 +164,6 @@ public class EsScanNode extends ScanNode {
     @SneakyThrows
     @Override
     protected void toThrift(TPlanNode msg) {
-        buildQuery();
         msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         Map<String, String> properties = Maps.newHashMap();
         if (table.getUserName() != null) {
@@ -342,11 +342,8 @@ public class EsScanNode extends ScanNode {
 
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("LOCAL_PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
-            buildQuery();
-            output.append(prefix).append("REMOTE_PREDICATES: ").append(queryBuilder.toJson()).append("\n");
-        } else {
-            output.append(prefix).append("REMOTE_PREDICATES: ").append("{\"match_all\": {}}").append("\n");
         }
+        output.append(prefix).append("REMOTE_PREDICATES: ").append(queryBuilder.toJson()).append("\n");
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
         output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
@@ -373,7 +370,7 @@ public class EsScanNode extends ScanNode {
                 queryBuilder = boolQueryBuilder;
             }
             if (Config.enable_new_es_dsl) {
-                notPushDownList.forEach(expr -> conjuncts.removeIf(e -> e.equals(expr)));
+                conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
             }
         }
     }
