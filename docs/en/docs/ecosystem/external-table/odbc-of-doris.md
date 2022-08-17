@@ -383,6 +383,6 @@ This is the compatibility problem between MySQL database ODBC driver and existin
 
  11. Messy code appears when reading and writing emoji emoji in mysql odbc table
 
-    The default encoding used by Doris when connecting to odbc tables is utf8, since the default utf8 encoding in mysql is utf8mb3, it can't represent the emoji expressions which need 4-byte encoding. Here need to set `charset`=`utf8mb4` when you create odbc mysql tables, then can read and write emoji emojis normally 😀.
+    The default encoding used by Doris when connecting to odbc tables is utf8, since the default utf8 encoding in mysql is utf8mb3, it can't represent the emoji expressions which need 4-byte encoding. Here need to set `charset`=`utf8mb4` when you create odbc mysql tables, then can read and write emoji normally 😀.
 
 
