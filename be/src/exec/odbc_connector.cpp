@@ -49,8 +49,8 @@ static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
 static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
 static std::u16string utf8_to_wstring(const std::string& str) {
-    std::wstring_convert<std::codecvt_utf8<char16_t>, char16_t> utf8_ucs2_cvt;
-    return utf8_ucs2_cvt.from_bytes(str);
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> utf8_utf16_cvt;
+    return utf8_utf16_cvt.from_bytes(str);
 }
 
 namespace doris {
