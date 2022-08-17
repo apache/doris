@@ -879,6 +879,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime");
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
+    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
+
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
@@ -1034,8 +1036,11 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     }
 
     _add_tuple_is_null_column(&temp_block);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+    {
+        SCOPED_TIMER(_join_filter_timer);
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+    }
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
