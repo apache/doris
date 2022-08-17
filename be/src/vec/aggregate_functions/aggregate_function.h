@@ -37,6 +37,9 @@ class IDataType;
 
 template <bool nullable, typename ColVecType>
 class AggregateFunctionBitmapCount;
+template <typename Op>
+class AggregateFunctionBitmapOp;
+struct AggregateFunctionBitmapUnionOp;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -184,7 +187,9 @@ public:
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena, bool agg_many) const override {
         if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<false, ColumnBitmap>> ||
-                      std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>>) {
+                      std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>> ||
+                      std::is_same_v<Derived,
+                                     AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>) {
             if (agg_many) {
                 phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
                 for (int i = 0; i < batch_size; ++i) {
