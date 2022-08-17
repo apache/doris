@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.statistics.ColumnStats;
 
 import com.google.common.base.Preconditions;
@@ -35,7 +35,7 @@ import java.util.Map;
 /**
  * Calculate selectivity of the filter.
  */
-public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double, Void> {
+public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void> {
 
     private static double DEFAULT_SELECTIVITY = 0.1;
 
