@@ -44,7 +44,7 @@ DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
 1. Delete the index
 
     ```sql
-    CREATE INDEX [IF NOT EXISTS] index_name ON table1 ;
+    DROP INDEX [IF NOT EXISTS] index_name ON table1 ;
     ````
 
 ### Keywords
