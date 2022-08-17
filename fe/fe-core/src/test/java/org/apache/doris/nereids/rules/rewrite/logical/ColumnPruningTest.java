@@ -60,7 +60,7 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
                 .analyze("select id,name,grade from student left join score on student.id = score.sid"
                         + " where score.grade > 60")
                 .applyTopDown(new ColumnPruning())
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -92,7 +92,7 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
                         + "from student left join score on student.id = score.sid "
                         + "where score.grade > 60")
                 .applyTopDown(new ColumnPruning())
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -122,7 +122,7 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
         PlanChecker.from(connectContext)
                 .analyze("select id,name from student where age > 18")
                 .applyTopDown(new ColumnPruning())
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject().when(p -> getOutputQualifiedNames(p)
@@ -144,7 +144,7 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
                         + "on score.cid = course.cid "
                         + "where score.grade > 60")
                 .applyTopDown(new ColumnPruning())
-                .matches(
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(

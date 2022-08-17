@@ -213,8 +213,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRegularQuerySpecification(RegularQuerySpecificationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: support on row relation
-            LogicalPlan relation = withRelation(Optional.ofNullable(ctx.fromClause()));
+            // TODO: support one row relation
+            if (ctx.fromClause() == null) {
+                throw new ParseException("Unsupported one row relation", ctx);
+            }
+
+            LogicalPlan relation = visitFromClause(ctx.fromClause());
             return withSelectQuerySpecification(
                 ctx, relation,
                 ctx.selectClause(),
@@ -326,8 +330,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.NSEQ:
                     return new NullSafeEqual(left, right);
                 default:
-                    throw new IllegalStateException("Unsupported comparison expression: "
-                        + operator.getSymbol().getText());
+                    throw new ParseException("Unsupported comparison expression: "
+                        + operator.getSymbol().getText(), ctx);
             }
         });
     }
@@ -356,7 +360,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.OR:
                     return new Or(left, right);
                 default:
-                    throw new IllegalStateException("Unsupported logical binary type: " + ctx.operator.getText());
+                    throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
             }
         });
     }
@@ -387,7 +391,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.MINUS:
                     //TODO: Add single operator subtraction
                 default:
-                    throw new IllegalStateException("Unsupported arithmetic unary type: " + ctx.operator.getText());
+                    throw new ParseException("Unsupported arithmetic unary type: " + ctx.operator.getText(), ctx);
             }
         });
     }
@@ -401,7 +405,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             int type = ctx.operator.getType();
             if (left instanceof IntervalLiteral) {
                 if (type != DorisParser.PLUS) {
-                    throw new IllegalArgumentException("Only supported: " + Operator.ADD);
+                    throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 IntervalLiteral interval = (IntervalLiteral) left;
                 return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
@@ -414,7 +418,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else if (type == DorisParser.MINUS) {
                     op = Operator.SUBTRACT;
                 } else {
-                    throw new IllegalArgumentException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT);
+                    throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 IntervalLiteral interval = (IntervalLiteral) right;
                 return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
@@ -433,8 +437,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     case DorisParser.MINUS:
                         return new Subtract(left, right);
                     default:
-                        throw new IllegalStateException(
-                                "Unsupported arithmetic binary type: " + ctx.operator.getText());
+                        throw new ParseException(
+                                "Unsupported arithmetic binary type: " + ctx.operator.getText(), ctx);
                 }
             });
         });
@@ -537,7 +541,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             case "DATETIME":
                 return new DateTimeLiteral(value);
             default:
-                throw new IllegalStateException("Unsupported data type : " + type);
+                throw new ParseException("Unsupported data type : " + type, ctx);
         }
     }
 
@@ -552,7 +556,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return new UnboundSlot(nameParts);
             } else {
                 // todo: base is an expression, may be not a table name.
-                throw new IllegalStateException("Unsupported dereference expression: " + ctx.getText());
+                throw new ParseException("Unsupported dereference expression: " + ctx.getText(), ctx);
             }
         });
     }
@@ -614,7 +618,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan right = plan(ctx.relationPrimary());
         if (ctx.LATERAL() != null) {
             if (!(right instanceof LogicalSubQueryAlias)) {
-                throw new IllegalStateException("lateral join right table should be sub-query");
+                throw new ParseException("lateral join right table should be sub-query", ctx);
             }
         }
         return right;
@@ -719,7 +723,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withSort(LogicalPlan input, Optional<SortClauseContext> sortCtx) {
         return input.optionalMap(sortCtx, () -> {
             List<OrderKey> orderKeys = visit(sortCtx.get().sortItem(), OrderKey.class);
-            return new LogicalSort(orderKeys, input);
+            return new LogicalSort<>(orderKeys, input);
         });
     }
 
@@ -732,7 +736,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (input instanceof LogicalSort) {
                     offset = Long.parseLong(offsetToken.getText());
                 } else {
-                    throw new IllegalStateException("OFFSET requires an ORDER BY clause");
+                    throw new ParseException("OFFSET requires an ORDER BY clause", limitCtx.get());
                 }
             }
             return new LogicalLimit<>(limit, offset, input);
@@ -764,14 +768,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan projection = withProjection(having, selectClause, aggClause);
             return withSelectHint(projection, selectClause.selectHint());
         });
-    }
-
-    private LogicalPlan withRelation(Optional<FromClauseContext> ctx) {
-        if (ctx.isPresent()) {
-            return visitFromClause(ctx.get());
-        } else {
-            throw new IllegalStateException("Unsupported one row relation");
-        }
     }
 
     /**
@@ -916,7 +912,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                     break;
                 default:
-                    throw new IllegalStateException("Unsupported predicate type: " + ctx.kind.getText());
+                    throw new ParseException("Unsupported predicate type: " + ctx.kind.getText(), ctx);
             }
             return ctx.NOT() != null ? new Not(outExpression) : outExpression;
         });
@@ -925,14 +921,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private List<NamedExpression> getNamedExpressions(NamedExpressionSeqContext namedCtx) {
         return ParserUtils.withOrigin(namedCtx, () -> {
             List<Expression> expressions = visit(namedCtx.namedExpression(), Expression.class);
-            List<NamedExpression> namedExpressions = expressions.stream().map(expression -> {
+            return expressions.stream().map(expression -> {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
                 } else {
                     return new UnboundAlias(expression);
                 }
             }).collect(ImmutableList.toImmutableList());
-            return namedExpressions;
         });
     }
 
@@ -947,8 +942,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     public List<Expression> withInList(PredicateContext ctx) {
-        List<Expression> expressions = ctx.expression().stream()
-                .map(this::getExpression).collect(ImmutableList.toImmutableList());
-        return expressions;
+        return ctx.expression().stream().map(this::getExpression).collect(ImmutableList.toImmutableList());
     }
 }
