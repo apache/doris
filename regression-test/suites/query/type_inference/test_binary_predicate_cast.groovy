@@ -32,6 +32,5 @@ sql """insert into test_demo values (10003,195456789345678955654444443875),(1000
     """
 
 qt_test_largeint_string "select * from test_demo where phone='195456789345678955654444443878' order by user_id"
-qt_explain_largeint_string "explain verbose select * from test_demo where phone='195456789345678955654444443878' order by user_id"
 
 }
