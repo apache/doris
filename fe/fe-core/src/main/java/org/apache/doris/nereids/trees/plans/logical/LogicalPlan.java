@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
@@ -39,11 +40,7 @@ public interface LogicalPlan extends Plan {
         }
     }
 
-    default <C> LogicalPlan optionalMap(C ctx, Supplier<LogicalPlan> f) {
-        if (ctx != null) {
-            return f.get();
-        } else {
-            return this;
-        }
+    default <C> LogicalPlan optionalMap(Optional<C> ctx, Supplier<LogicalPlan> f) {
+        return ctx.map(a -> f.get()).orElse(this);
     }
 }

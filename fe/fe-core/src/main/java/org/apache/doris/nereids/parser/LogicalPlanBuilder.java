@@ -222,8 +222,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return withSelectQuerySpecification(
                 ctx, relation,
                 ctx.selectClause(),
-                ctx.whereClause(),
-                ctx.aggClause()
+                Optional.ofNullable(ctx.whereClause()),
+                Optional.ofNullable(ctx.aggClause())
             );
         });
     }
@@ -714,27 +714,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
-        LogicalPlan sort = withSort(inputPlan, ctx.sortClause());
-        return withLimit(sort, ctx.limitClause());
+        Optional<SortClauseContext> sortClauseContext = Optional.ofNullable(ctx.sortClause());
+        Optional<LimitClauseContext> limitClauseContext = Optional.ofNullable(ctx.limitClause());
+        LogicalPlan sort = withSort(inputPlan, sortClauseContext);
+        return withLimit(sort, limitClauseContext);
     }
 
-    private LogicalPlan withSort(LogicalPlan input, SortClauseContext sortCtx) {
+    private LogicalPlan withSort(LogicalPlan input, Optional<SortClauseContext> sortCtx) {
         return input.optionalMap(sortCtx, () -> {
-            List<OrderKey> orderKeys = visit(sortCtx.sortItem(), OrderKey.class);
+            List<OrderKey> orderKeys = visit(sortCtx.get().sortItem(), OrderKey.class);
             return new LogicalSort<>(orderKeys, input);
         });
     }
 
-    private LogicalPlan withLimit(LogicalPlan input, LimitClauseContext limitCtx) {
+    private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
         return input.optionalMap(limitCtx, () -> {
-            long limit = Long.parseLong(limitCtx.limit.getText());
+            long limit = Long.parseLong(limitCtx.get().limit.getText());
             long offset = 0;
-            Token offsetToken = limitCtx.offset;
+            Token offsetToken = limitCtx.get().offset;
             if (offsetToken != null) {
                 if (input instanceof LogicalSort) {
                     offset = Long.parseLong(offsetToken.getText());
                 } else {
-                    throw new ParseException("OFFSET requires an ORDER BY clause", limitCtx);
+                    throw new ParseException("OFFSET requires an ORDER BY clause", limitCtx.get());
                 }
             }
             return new LogicalLimit<>(limit, offset, input);
@@ -752,8 +754,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             ParserRuleContext ctx,
             LogicalPlan inputRelation,
             SelectClauseContext selectClause,
-            WhereClauseContext whereClause,
-            AggClauseContext aggClause) {
+            Optional<WhereClauseContext> whereClause,
+            Optional<AggClauseContext> aggClause) {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: add lateral views
 
@@ -763,7 +765,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan aggregate = withAggregate(filter, selectClause, aggClause);
             // TODO: replace and process having at this position
             LogicalPlan having = aggregate; // LogicalPlan having = withFilter(aggregate, havingClause);
-            LogicalPlan projection = withProjection(having, selectClause, Optional.ofNullable(aggClause));
+            LogicalPlan projection = withProjection(having, selectClause, aggClause);
             return withSelectHint(projection, selectClause.selectHint());
         });
     }
@@ -851,16 +853,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
-    private LogicalPlan withFilter(LogicalPlan input, WhereClauseContext whereCtx) {
+    private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-            new LogicalFilter<>(getExpression((whereCtx.booleanExpression())), input)
+            new LogicalFilter<>(getExpression((whereCtx.get().booleanExpression())), input)
         );
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
-                                      AggClauseContext aggCtx) {
+                                      Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
-            List<Expression> groupByExpressions = visit(aggCtx.groupByItem().expression(), Expression.class);
+            List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
             return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
         });

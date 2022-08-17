@@ -27,7 +27,7 @@ import com.google.common.base.Suppliers;
 import org.junit.jupiter.api.Assertions;
 
 public class PlanParseChecker extends ParseChecker {
-    private final Supplier<Plan> parsedSupplier;
+    final Supplier<Plan> parsedSupplier;
 
     public PlanParseChecker(String sql) {
         super(sql);

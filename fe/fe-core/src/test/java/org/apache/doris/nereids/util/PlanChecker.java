@@ -28,6 +28,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Supplier;
 import org.junit.jupiter.api.Assertions;
 
+import java.util.function.Consumer;
+
 /**
  * Utility to apply rules to plan and check output plan matches the expected pattern.
  */
@@ -35,6 +37,7 @@ public class PlanChecker {
     private ConnectContext connectContext;
     private CascadesContext cascadesContext;
 
+    private Plan parsedPlan;
 
     public PlanChecker(ConnectContext connectContext) {
         this.connectContext = connectContext;
@@ -43,6 +46,18 @@ public class PlanChecker {
     public PlanChecker(CascadesContext cascadesContext) {
         this.connectContext = cascadesContext.getConnectContext();
         this.cascadesContext = cascadesContext;
+    }
+
+    public PlanChecker checkParse(String sql, Consumer<PlanParseChecker> consumer) {
+        PlanParseChecker checker = new PlanParseChecker(sql);
+        consumer.accept(checker);
+        parsedPlan = checker.parsedSupplier.get();
+        return this;
+    }
+
+    public PlanChecker analyze() {
+        MemoTestUtils.createCascadesContext(connectContext, parsedPlan);
+        return this;
     }
 
     public PlanChecker analyze(String sql) {
