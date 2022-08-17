@@ -126,12 +126,6 @@ public class RepeatNode extends PlanNode {
             outputTupleDesc.setTable(analyzer.getTupleDesc(inputTupleIds.get(0)).getTable());
         }
 
-        //set aggregate nullable
-        for (Expr slot : groupByClause.getGroupingExprs()) {
-            if (slot instanceof SlotRef && !(slot instanceof VirtualSlotRef)) {
-                ((SlotRef) slot).getDesc().setIsNullable(true);
-            }
-        }
         outputTupleDesc.computeStatAndMemLayout();
 
         List<Set<SlotId>> groupingIdList = new ArrayList<>();
