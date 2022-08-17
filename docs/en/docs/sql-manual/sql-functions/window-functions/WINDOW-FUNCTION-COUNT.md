@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Count the number of occurrences of data in the window
 
 ```sql
-COUNT([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+COUNT(expression) [OVER (analytic_clause)]
 ```
 
 ### example
