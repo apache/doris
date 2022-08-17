@@ -1582,6 +1582,22 @@ public class OlapTable extends Table {
         return "";
     }
 
+    public void setDisableAutoCompaction(boolean disableAutoCompaction) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
+                Boolean.valueOf(disableAutoCompaction).toString());
+        tableProperty.buildDisableAutoCompaction();
+    }
+
+    public Boolean disableAutoCompaction() {
+        if (tableProperty != null) {
+            return tableProperty.disableAutoCompaction();
+        }
+        return false;
+    }
+
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());

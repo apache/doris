@@ -318,6 +318,14 @@ distribution_info
     
         `"light_schema_change"="true"`
     
+    * `disable_auto_compaction`
+
+        Whether to disable automatic compaction for this table.
+
+        If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
+
+        `"disable_auto_compaction" = "false"`
+    
     * Dynamic partition related
     
         The relevant parameters of dynamic partition are as follows:

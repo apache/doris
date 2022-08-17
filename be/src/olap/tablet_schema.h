@@ -149,6 +149,10 @@ public:
     double bloom_filter_fpp() const { return _bf_fpp; }
     bool is_in_memory() const { return _is_in_memory; }
     void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
+    void set_disable_auto_compaction(bool disable_auto_compaction) {
+        _disable_auto_compaction = disable_auto_compaction;
+    }
+    bool disable_auto_compaction() const { return _disable_auto_compaction; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
@@ -195,6 +199,7 @@ private:
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _schema_version = -1;
+    bool _disable_auto_compaction = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

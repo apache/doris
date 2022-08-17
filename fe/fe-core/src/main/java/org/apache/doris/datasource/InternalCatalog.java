@@ -1247,6 +1247,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
+                        olapTable.disableAutoCompaction().toString());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -1325,7 +1329,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
-                    olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(), idGeneratorBuffer);
+                    olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(), idGeneratorBuffer,
+                    olapTable.disableAutoCompaction());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1547,7 +1552,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite,  String storagePolicy,
-            IdGeneratorBuffer idGeneratorBuffer) throws DdlException {
+            IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1607,7 +1612,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
-                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy);
+                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
+                            disableAutoCompaction);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -1735,6 +1741,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         // use light schema change optimization
         olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
+
+        boolean disableAutoCompaction = false;
+        try {
+            disableAutoCompaction = PropertyAnalyzer.analyzeDisableAutoCompaction(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        // use light schema change optimization
+        olapTable.setDisableAutoCompaction(disableAutoCompaction);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
@@ -1950,7 +1965,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                        idGeneratorBuffer);
+                        idGeneratorBuffer, olapTable.disableAutoCompaction());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -2008,7 +2023,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer);
+                            idGeneratorBuffer, olapTable.disableAutoCompaction());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -2385,7 +2400,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
-                        olapTable.getStoragePolicy(), idGeneratorBuffer);
+                        olapTable.getStoragePolicy(), idGeneratorBuffer, olapTable.disableAutoCompaction());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {
