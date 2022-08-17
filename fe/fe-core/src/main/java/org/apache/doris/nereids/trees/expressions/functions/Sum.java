@@ -23,10 +23,11 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.NumericType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -46,7 +47,9 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     @Override
     public DataType getDataType() {
         DataType dataType = child().getDataType();
-        if (dataType instanceof IntegralType) {
+        if (dataType instanceof LargeIntType) {
+            return dataType;
+        } else if (dataType instanceof IntegralType) {
             return BigIntType.INSTANCE;
         } else if (dataType instanceof FractionalType) {
             // TODO: precision + 10

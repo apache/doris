@@ -40,4 +40,14 @@ public class IntegerType extends IntegralType {
     public String simpleString() {
         return "int";
     }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof IntegerType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
 }

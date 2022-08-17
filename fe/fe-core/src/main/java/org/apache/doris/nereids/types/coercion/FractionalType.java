@@ -17,10 +17,27 @@
 
 package org.apache.doris.nereids.types.coercion;
 
-import org.apache.doris.nereids.types.NumericType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 
 /**
  * Abstract for all fractional type in Nereids.
  */
-public abstract class FractionalType extends NumericType {
+public class FractionalType extends NumericType {
+    public static final FractionalType INSTANCE = new FractionalType();
+
+    @Override
+    public DataType defaultConcreteType() {
+        return DoubleType.INSTANCE;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof FractionalType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "fractional";
+    }
 }

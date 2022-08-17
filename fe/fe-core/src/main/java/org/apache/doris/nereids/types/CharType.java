@@ -44,6 +44,21 @@ public class CharType extends CharacterType {
     }
 
     @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof CharType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "char";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (!super.equals(o)) {
             return false;

@@ -15,34 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.catalog.Type;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DecimalType;
+
+import java.math.BigDecimal;
+import java.util.Objects;
 
 /**
- * Abstract class for all numeric type in Nereids.
+ * decimal type literal
  */
-public class NumericType extends PrimitiveType {
+public class DecimalLiteral extends Literal {
 
-    public static final NumericType INSTANCE = new NumericType();
+    private final BigDecimal value;
 
-    @Override
-    public Type toCatalogDataType() {
-        throw new RuntimeException("NumericType is only used for implicit cast.");
+    public DecimalLiteral(BigDecimal value) {
+        super(DecimalType.createDecimalType(value));
+        this.value = Objects.requireNonNull(value);
     }
 
     @Override
-    public DataType defaultConcreteType() {
-        return DoubleType.INSTANCE;
+    public BigDecimal getValue() {
+        return value;
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof NumericType;
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDecimalLiteral(this, context);
     }
 
     @Override
-    public String simpleString() {
-        return "numeric";
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.DecimalLiteral(value);
     }
 }

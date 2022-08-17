@@ -15,42 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.CharType;
+
+import com.google.common.base.Preconditions;
+
+import java.util.Objects;
 
 /**
- * binary arithmetic operator. Such as +, -, *, /.
+ * char type literal
  */
-public abstract class BinaryArithmetic extends BinaryOperator {
+public class CharLiteral extends Literal {
 
-    private final Operator staleOperator;
+    private final String value;
 
-    public BinaryArithmetic(Expression left, Expression right, String symbol, Operator staleOperator) {
-        super(left, right, symbol);
-        this.staleOperator = staleOperator;
-    }
-
-    public Operator getStaleOperator() {
-        return staleOperator;
+    public CharLiteral(String value, int len) {
+        super(CharType.createCharType(len));
+        this.value = Objects.requireNonNull(value);
+        Preconditions.checkArgument(value.length() <= len);
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        return left().getDataType().promotion();
+    public String getValue() {
+        return value;
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return child(0).nullable() || child(1).nullable();
-    }
-
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitBinaryArithmetic(this, context);
+        return visitor.visitCharLiteral(this, context);
     }
 
-
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new StringLiteral(value);
+    }
 }

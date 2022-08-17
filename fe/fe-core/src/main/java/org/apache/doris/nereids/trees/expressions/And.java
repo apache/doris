@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -29,7 +28,7 @@ import java.util.List;
 /**
  * And predicate expression.
  */
-public class And extends CompoundPredicate implements ExpectsInputTypes {
+public class And extends CompoundPredicate {
 
     /**
      * Desc: Constructor for CompoundPredicate.

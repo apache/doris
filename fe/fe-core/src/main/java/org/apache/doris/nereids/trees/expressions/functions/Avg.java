@@ -25,9 +25,9 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.NumericType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.TypeCollection;
 
 import com.google.common.base.Preconditions;

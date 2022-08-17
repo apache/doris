@@ -40,4 +40,14 @@ public class DoubleType extends FractionalType {
     public String simpleString() {
         return "double";
     }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof DoubleType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
 }

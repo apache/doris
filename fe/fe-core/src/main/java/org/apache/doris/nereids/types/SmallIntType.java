@@ -40,4 +40,14 @@ public class SmallIntType extends IntegralType {
     public String simpleString() {
         return "smallint";
     }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof SmallIntType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
 }

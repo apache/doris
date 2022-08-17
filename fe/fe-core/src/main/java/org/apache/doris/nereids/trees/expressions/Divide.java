@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.NumericType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 

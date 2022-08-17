@@ -21,9 +21,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
+import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Decimal type in Nereids.
@@ -57,12 +60,21 @@ public class DecimalType extends FractionalType {
     private final int scale;
 
     public DecimalType(int precision, int scale) {
+        Preconditions.checkArgument(precision >= scale);
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION);
+        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE);
         this.precision = precision;
         this.scale = scale;
     }
 
     public static DecimalType createDecimalType(int precision, int scale) {
         return new DecimalType(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE));
+    }
+
+    public static DecimalType createDecimalType(BigDecimal bigDecimal) {
+        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
+        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
+        return createDecimalType(precision, scale);
     }
 
     public static DecimalType forType(DataType dataType) {
@@ -127,6 +139,26 @@ public class DecimalType extends FractionalType {
     @Override
     public String toSql() {
         return "DECIMAL(" + precision + ", " + scale + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        DecimalType that = (DecimalType) o;
+        return precision == that.precision && scale == that.scale;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), precision, scale);
     }
 }
 

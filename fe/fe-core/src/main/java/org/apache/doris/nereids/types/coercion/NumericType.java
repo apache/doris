@@ -15,39 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 
 /**
- * LargeInt type in Nereids.
+ * Abstract class for all numeric type in Nereids.
  */
-public class LargeIntType extends IntegralType {
-    public static LargeIntType INSTANCE = new LargeIntType();
+public class NumericType extends PrimitiveType {
+
+    public static final NumericType INSTANCE = new NumericType();
 
     @Override
     public Type toCatalogDataType() {
-        return Type.LARGEINT;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof LargeIntType;
-    }
-
-    @Override
-    public String simpleString() {
-        return "largeint";
-    }
-
-    @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof LargeIntType;
+        throw new RuntimeException("NumericType is only used for implicit cast.");
     }
 
     @Override
     public DataType defaultConcreteType() {
-        return this;
+        return DoubleType.INSTANCE;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof NumericType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "numeric";
     }
 }

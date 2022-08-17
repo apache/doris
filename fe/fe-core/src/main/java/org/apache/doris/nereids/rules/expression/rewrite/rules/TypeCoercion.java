@@ -26,38 +26,16 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalType;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.NumericType;
-import org.apache.doris.nereids.types.PrimitiveType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.CharacterType;
-import org.apache.doris.nereids.types.coercion.FractionalType;
-import org.apache.doris.nereids.types.coercion.IntegralType;
-import org.apache.doris.nereids.types.coercion.TypeCollection;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * a rule to add implicit cast for expressions.
@@ -66,16 +44,6 @@ import java.util.stream.Stream;
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     public static final TypeCoercion INSTANCE = new TypeCoercion();
-
-    public static final List<DataType> NUMERIC_PRECEDENCE = ImmutableList.of(
-            DoubleType.INSTANCE,
-            LargeIntType.INSTANCE,
-            FloatType.INSTANCE,
-            BigIntType.INSTANCE,
-            IntegerType.INSTANCE,
-            SmallIntType.INSTANCE,
-            TinyIntType.INSTANCE
-    );
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
@@ -92,10 +60,10 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
         Expression left = binaryOperator.left();
         Expression right = binaryOperator.right();
-        if (!canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
+        if (!TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
             return binaryOperator;
         }
-        return findTightestCommonType(left.getDataType(), right.getDataType())
+        return TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType())
                 .map(commonType -> {
                     if (binaryOperator.inputType().acceptsType(commonType) && (
                             !left.getDataType().equals(commonType) || !right.getDataType().equals(commonType))) {
@@ -125,16 +93,16 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
             return caseWhen;
         }
-        Optional<DataType> optionalCommonType = findWiderCommonType(dataTypesForCoercion);
+        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion);
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> wc.withChildren(wc.getOperand(),
-                                    castIfNotSameType(wc.getResult(), commonType)))
+                                    TypeCoercionUtils.castIfNotSameType(wc.getResult(), commonType)))
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
-                            .map(dv -> castIfNotSameType(dv, commonType))
+                            .map(dv -> TypeCoercionUtils.castIfNotSameType(dv, commonType))
                             .ifPresent(newChildren::add);
                     return caseWhen.withChildren(newChildren);
                 })
@@ -147,13 +115,13 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
             return inPredicate;
         }
-        Optional<DataType> optionalCommonType = findWiderCommonType(inPredicate.children()
+        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(inPredicate.children()
                 .stream().map(Expression::getDataType).collect(Collectors.toList()));
 
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = inPredicate.children().stream()
-                            .map(e -> castIfNotSameType(e, commonType))
+                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
                             .collect(Collectors.toList());
                     return inPredicate.withChildren(newChildren);
                 })
@@ -190,7 +158,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     private Optional<Expression> implicitCast(Expression input, AbstractDataType expected,
             ExpressionRewriteContext ctx) {
         Expression rewrittenInput = rewrite(input, ctx);
-        Optional<DataType> castDataType = implicitCast(rewrittenInput.getDataType(), expected);
+        Optional<DataType> castDataType = TypeCoercionUtils.implicitCast(rewrittenInput.getDataType(), expected);
         if (castDataType.isPresent() && !castDataType.get().equals(rewrittenInput.getDataType())) {
             return Optional.of(new Cast(rewrittenInput, castDataType.get()));
         } else {
@@ -200,195 +168,6 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
             } else {
                 return Optional.of(rewrittenInput);
             }
-        }
-    }
-
-    /**
-     * Return Optional.empty() if cannot do implicit cast.
-     * TODO: datetime and date type
-     */
-    @Developing
-    private Optional<DataType> implicitCast(DataType input, AbstractDataType expected) {
-        DataType returnType = null;
-        if (expected.acceptsType(input)) {
-            // If the expected type is already a parent of the input type, no need to cast.
-            return Optional.of(input);
-        }
-        if (expected instanceof TypeCollection) {
-            TypeCollection typeCollection = (TypeCollection) expected;
-            // use origin datatype first. use implicit cast instead if origin type cannot be accepted.
-            return Stream.<Supplier<Optional<DataType>>>of(
-                    () -> typeCollection.getTypes().stream()
-                            .filter(e -> e.acceptsType(input))
-                            .map(e -> input)
-                            .findFirst(),
-                    () -> typeCollection.getTypes().stream()
-                            .map(e -> implicitCast(input, e))
-                            .filter(Optional::isPresent)
-                            .map(Optional::get)
-                            .findFirst())
-                    .map(Supplier::get)
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .findFirst();
-        }
-        if (input.isNullType()) {
-            // Cast null type (usually from null literals) into target types
-            returnType = expected.defaultConcreteType();
-        } else if (input.isNumericType() && expected instanceof DecimalType) {
-            // If input is a numeric type but not decimal, and we expect a decimal type,
-            // cast the input to decimal.
-            returnType = DecimalType.forType(input);
-        } else if (input.isNumericType() && expected instanceof NumericType) {
-            // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
-            returnType = (DataType) expected;
-        } else if (input.isStringType()) {
-            if (expected instanceof DecimalType) {
-                returnType = DecimalType.SYSTEM_DEFAULT;
-            } else if (expected instanceof NumericType) {
-                returnType = expected.defaultConcreteType();
-            }
-        } else if (input.isPrimitive() && !input.isStringType() && expected instanceof CharacterType) {
-            returnType = StringType.INSTANCE;
-        }
-
-        // could not do implicit cast, just return null. Throw exception in check analysis.
-        return Optional.ofNullable(returnType);
-    }
-
-    private boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
-        if (leftType instanceof DecimalType && rightType instanceof NullType) {
-            return true;
-        }
-        if (leftType instanceof NullType && rightType instanceof DecimalType) {
-            return true;
-        }
-        if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
-            return true;
-        }
-        return false;
-    }
-
-    // TODO: compatible with origin planner and BE
-    // TODO: when add new type, add it to here
-    @Developing
-    private Optional<DataType> findTightestCommonType(DataType left, DataType right) {
-        DataType tightestCommonType = null;
-        if (left.equals(right)) {
-            tightestCommonType = left;
-        } else if (left instanceof NullType) {
-            tightestCommonType = right;
-        } else if (right instanceof NullType) {
-            tightestCommonType = left;
-        } else if (left instanceof IntegralType && right instanceof DecimalType
-                && ((DecimalType) right).isWiderThan(left)) {
-            tightestCommonType = right;
-        } else if (right instanceof IntegralType && left instanceof DecimalType
-                && ((DecimalType) left).isWiderThan(right)) {
-            tightestCommonType = left;
-        } else if (left instanceof NumericType && right instanceof NumericType
-                && !(left instanceof DecimalType) && !(right instanceof DecimalType)) {
-            for (DataType dataType : NUMERIC_PRECEDENCE) {
-                if (dataType.equals(left) || dataType.equals(right)) {
-                    tightestCommonType = dataType;
-                    break;
-                }
-            }
-        } else if (left instanceof CharacterType || right instanceof CharacterType) {
-            if (left instanceof StringType || right instanceof StringType) {
-                tightestCommonType = StringType.INSTANCE;
-            } else if (left instanceof CharacterType && right instanceof CharacterType) {
-                tightestCommonType = VarcharType.createVarcharType(
-                        Math.max(((CharacterType) left).getLen(), ((CharacterType) right).getLen()));
-            } else if (left instanceof CharacterType) {
-                tightestCommonType = VarcharType.createVarcharType(((CharacterType) left).getLen());
-            } else {
-                tightestCommonType = VarcharType.createVarcharType(((CharacterType) right).getLen());
-            }
-        }
-        return Optional.ofNullable(tightestCommonType);
-    }
-
-    // TODO: do not consider complex type
-    @Developing
-    private Optional<DataType> findWiderCommonType(List<DataType> dataTypes) {
-        Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
-                .collect(Collectors.partitioningBy(this::hasCharacterType));
-        List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
-        needTypeCoercion.addAll(partitioned.get(false));
-        return needTypeCoercion.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
-                (r, c) -> {
-                    if (r.isPresent() && c.isPresent()) {
-                        return findWiderTypeForTwo(r.get(), c.get());
-                    } else {
-                        return Optional.empty();
-                    }
-                });
-    }
-
-    // TODO: consider complex type
-    @Developing
-    private boolean hasCharacterType(DataType dataType) {
-        return dataType instanceof CharacterType;
-    }
-
-    // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
-    @Developing
-    private Optional<DataType> findWiderTypeForTwo(DataType left, DataType right) {
-        return Stream
-                .<Supplier<Optional<DataType>>>of(
-                        () -> findTightestCommonType(left, right),
-                        () -> findWiderTypeForDecimal(left, right),
-                        () -> stringPromotion(left, right),
-                        () -> findTypeForComplex(left, right))
-                .map(Supplier::get)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .findFirst();
-    }
-
-    @Developing
-    private Optional<DataType> findWiderTypeForDecimal(DataType left, DataType right) {
-        DataType commonType = null;
-        if (left instanceof DecimalType && right instanceof DecimalType) {
-            commonType = DecimalType.widerDecimalType((DecimalType) left, (DecimalType) right);
-        }
-        if (left instanceof IntegralType && right instanceof DecimalType) {
-            commonType = DecimalType.widerDecimalType(DecimalType.forType(left), (DecimalType) right);
-        }
-        if (left instanceof DecimalType && right instanceof IntegralType) {
-            commonType = DecimalType.widerDecimalType((DecimalType) left, DecimalType.forType(right));
-        }
-        if ((left instanceof FractionalType && right instanceof DecimalType)
-                || (left instanceof DecimalType && right instanceof FractionalType)) {
-            commonType = DoubleType.INSTANCE;
-        }
-        return Optional.ofNullable(commonType);
-    }
-
-    // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
-    @Developing
-    private Optional<DataType> stringPromotion(DataType left, DataType right) {
-        if (left instanceof CharacterType && right instanceof PrimitiveType && !(right instanceof BooleanType)) {
-            return Optional.of(StringType.INSTANCE);
-        }
-        if (left instanceof PrimitiveType && !(left instanceof BooleanType && right instanceof CharacterType)) {
-            return Optional.of(StringType.INSTANCE);
-        }
-        return Optional.empty();
-    }
-
-    @Developing
-    private Optional<DataType> findTypeForComplex(DataType left, DataType right) {
-        // TODO: we need to add real logical here, if we add array type in Nereids
-        return Optional.empty();
-    }
-
-    private Expression castIfNotSameType(Expression input, DataType dataType) {
-        if (input.getDataType().equals(dataType)) {
-            return input;
-        } else {
-            return new Cast(input, dataType);
         }
     }
 }

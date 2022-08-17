@@ -20,21 +20,15 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -59,12 +53,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
 import java.util.ArrayList;
@@ -176,52 +165,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitBooleanLiteral(BooleanLiteral booleanLiteral, PlanTranslatorContext context) {
-        return new BoolLiteral(booleanLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitStringLiteral(org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral,
-            PlanTranslatorContext context) {
-        return new StringLiteral(stringLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitIntegerLiteral(IntegerLiteral integerLiteral, PlanTranslatorContext context) {
-        return new IntLiteral(integerLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitBigIntLiteral(BigIntLiteral bigIntLiteral, PlanTranslatorContext context) {
-        try {
-            return new IntLiteral(bigIntLiteral.getValue(), Type.BIGINT);
-        } catch (Throwable t) {
-            throw new IllegalStateException("Can not translate BigIntLiteral: " + bigIntLiteral.getValue(), t);
-        }
-    }
-
-    @Override
-    public Expr visitNullLiteral(org.apache.doris.nereids.trees.expressions.literal.NullLiteral nullLiteral,
-            PlanTranslatorContext context) {
-        return new NullLiteral();
-    }
-
-    @Override
-    public Expr visitDoubleLiteral(DoubleLiteral doubleLiteral, PlanTranslatorContext context) {
-        return new FloatLiteral(doubleLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitDateLiteral(DateLiteral dateLiteral, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(),
-                dateLiteral.getDay(), 0, 0, 0);
-    }
-
-    @Override
-    public Expr visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.DateLiteral(dateTimeLiteral.getYear(), dateTimeLiteral.getMonth(),
-                dateTimeLiteral.getDay(), dateTimeLiteral.getHour(), dateTimeLiteral.getMinute(),
-                dateTimeLiteral.getSecond());
+    public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
+        return literal.toLegacyLiteral();
     }
 
     @Override

@@ -62,13 +62,20 @@ import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 /**
  * Use the visitor to visit expression and forward to unified method(visitExpression).
@@ -133,12 +140,32 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(literal, context);
     }
 
+    public R visitNullLiteral(NullLiteral nullLiteral, C context) {
+        return visitLiteral(nullLiteral, context);
+    }
+
     public R visitBooleanLiteral(BooleanLiteral booleanLiteral, C context) {
         return visitLiteral(booleanLiteral, context);
     }
 
+    public R visitCharLiteral(CharLiteral charLiteral, C context) {
+        return visitLiteral(charLiteral, context);
+    }
+
+    public R visitVarcharLiteral(VarcharLiteral varcharLiteral, C context) {
+        return visitLiteral(varcharLiteral, context);
+    }
+
     public R visitStringLiteral(StringLiteral stringLiteral, C context) {
         return visitLiteral(stringLiteral, context);
+    }
+
+    public R visitTinyIntLiteral(TinyIntLiteral tinyIntLiteral, C context) {
+        return visitLiteral(tinyIntLiteral, context);
+    }
+
+    public R visitSmallIntLiteral(SmallIntLiteral smallIntLiteral, C context) {
+        return visitLiteral(smallIntLiteral, context);
     }
 
     public R visitIntegerLiteral(IntegerLiteral integerLiteral, C context) {
@@ -149,8 +176,16 @@ public abstract class ExpressionVisitor<R, C> {
         return visitLiteral(bigIntLiteral, context);
     }
 
-    public R visitNullLiteral(NullLiteral nullLiteral, C context) {
-        return visitLiteral(nullLiteral, context);
+    public R visitLargeIntLiteral(LargeIntLiteral largeIntLiteral, C context) {
+        return visitLiteral(largeIntLiteral, context);
+    }
+
+    public R visitDecimalLiteral(DecimalLiteral decimalLiteral, C context) {
+        return visitLiteral(decimalLiteral, context);
+    }
+
+    public R visitFloatLiteral(FloatLiteral floatLiteral, C context) {
+        return visitLiteral(floatLiteral, context);
     }
 
     public R visitDoubleLiteral(DoubleLiteral doubleLiteral, C context) {

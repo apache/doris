@@ -35,4 +35,19 @@ public class StringType extends CharacterType {
     public Type toCatalogDataType() {
         return Type.STRING;
     }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof StringType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "string";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
 }

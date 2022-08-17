@@ -15,16 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import java.util.Locale;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.FloatType;
 
 /**
- * Primitive data type in Nereids.
+ * float type literal
  */
-public abstract class PrimitiveType extends DataType {
+public class FloatLiteral extends Literal {
+
+    private final float value;
+
+    public FloatLiteral(float value) {
+        super(FloatType.INSTANCE);
+        this.value = value;
+    }
+
     @Override
-    public String toSql() {
-        return simpleString().toUpperCase(Locale.ROOT);
+    public Float getValue() {
+        return value;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitFloatLiteral(this, context);
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.FloatLiteral((double) value, Type.FLOAT);
     }
 }

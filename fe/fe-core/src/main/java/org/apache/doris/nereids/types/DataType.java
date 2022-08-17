@@ -26,13 +26,30 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Abstract class for all data type in Nereids.
  */
 public abstract class DataType implements AbstractDataType {
+
+    // use class and supplier here to avoid class load deadlock.
+    private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
+            = ImmutableMap.<Class<? extends NumericType>, Supplier<DataType>>builder()
+            .put(TinyIntType.class, () -> SmallIntType.INSTANCE)
+            .put(SmallIntType.class, () -> IntegerType.INSTANCE)
+            .put(IntegerType.class, () -> BigIntType.INSTANCE)
+            .put(BigIntType.class, () -> LargeIntType.INSTANCE)
+            .put(FloatType.class, () -> DoubleType.INSTANCE)
+            .build();
+
     /**
      * Convert data type in Doris catalog to data type in Nereids.
      * TODO: throw exception when cannot convert catalog type to Nereids type
@@ -202,5 +219,13 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isPrimitive() {
         return this instanceof PrimitiveType;
+    }
+
+    public DataType promotion() {
+        if (PROMOTION_MAP.containsKey(this.getClass())) {
+            return PROMOTION_MAP.get(this.getClass()).get();
+        } else {
+            return this;
+        }
     }
 }

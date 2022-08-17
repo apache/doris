@@ -35,4 +35,19 @@ public class FloatType extends FractionalType {
     public boolean equals(Object o) {
         return o instanceof FloatType;
     }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof FloatType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
+
+    @Override
+    public String simpleString() {
+        return "float";
+    }
 }

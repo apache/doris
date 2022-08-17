@@ -15,42 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
+
+import com.google.common.base.Preconditions;
+
+import java.util.Objects;
 
 /**
- * binary arithmetic operator. Such as +, -, *, /.
+ * varchar type literal
  */
-public abstract class BinaryArithmetic extends BinaryOperator {
+public class VarcharLiteral extends Literal {
 
-    private final Operator staleOperator;
+    private final String value;
 
-    public BinaryArithmetic(Expression left, Expression right, String symbol, Operator staleOperator) {
-        super(left, right, symbol);
-        this.staleOperator = staleOperator;
+    public VarcharLiteral(String value) {
+        super(VarcharType.SYSTEM_DEFAULT);
+        this.value = Objects.requireNonNull(value);
     }
 
-    public Operator getStaleOperator() {
-        return staleOperator;
-    }
-
-    @Override
-    public DataType getDataType() throws UnboundException {
-        return left().getDataType().promotion();
+    public VarcharLiteral(String value, int len) {
+        super(VarcharType.createVarcharType(len));
+        this.value = Objects.requireNonNull(value);
+        Preconditions.checkArgument(value.length() <= len);
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return child(0).nullable() || child(1).nullable();
+    public String getValue() {
+        return value;
     }
 
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitBinaryArithmetic(this, context);
+        return visitor.visitVarcharLiteral(this, context);
     }
 
-
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new StringLiteral(value);
+    }
 }

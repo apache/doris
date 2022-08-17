@@ -17,22 +17,24 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.NumericType;
 
 /**
  * Abstract class for all integral data type in Nereids.
  */
-public abstract class IntegralType extends NumericType {
+public class IntegralType extends NumericType {
+
+    public static final IntegralType INSTANCE = new IntegralType();
+
     @Override
     public DataType defaultConcreteType() {
-        return IntegerType.INSTANCE;
+        return BigIntType.INSTANCE;
     }
 
     @Override
     public boolean acceptsType(DataType other) {
-        return other instanceof IntegerType;
+        return other instanceof IntegralType;
     }
 
     @Override

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
@@ -130,6 +131,11 @@ public class DateLiteral extends Literal {
     public DateLiteral withDataType(DataType type) {
         Preconditions.checkArgument(type.isDate() || type.isDateTime());
         return new DateLiteral(this, type);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDateLiteral(this, context);
     }
 
     @Override

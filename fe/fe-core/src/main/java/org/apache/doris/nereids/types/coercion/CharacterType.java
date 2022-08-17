@@ -17,13 +17,16 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.PrimitiveType;
+import org.apache.doris.nereids.types.StringType;
 
 /**
  * Abstract type for all characters type in Nereids.
  */
-public abstract class CharacterType extends PrimitiveType {
+public class CharacterType extends PrimitiveType {
+
+    public static final CharacterType INSTANCE = new CharacterType(-1);
 
     protected final int len;
 
@@ -36,7 +39,17 @@ public abstract class CharacterType extends PrimitiveType {
     }
 
     @Override
+    public Type toCatalogDataType() {
+        throw new RuntimeException("CharacterType is only used for implicit cast.");
+    }
+
+    @Override
     public boolean acceptsType(DataType other) {
         return other instanceof CharacterType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return StringType.INSTANCE;
     }
 }

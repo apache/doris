@@ -49,6 +49,16 @@ public class VarcharType extends CharacterType {
     }
 
     @Override
+    public String simpleString() {
+        return "varchar";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
+
+    @Override
     public String toSql() {
         return "VARCHAR(" + len + ")";
     }

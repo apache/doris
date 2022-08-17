@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
@@ -122,6 +123,11 @@ public class DateTimeLiteral extends DateLiteral {
         }
         //todo other target type cast
         return this;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDateTimeLiteral(this, context);
     }
 
     @Override

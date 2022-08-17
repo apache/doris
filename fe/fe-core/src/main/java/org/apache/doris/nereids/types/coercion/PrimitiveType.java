@@ -15,39 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.types.coercion;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.DataType;
+
+import java.util.Locale;
 
 /**
- * LargeInt type in Nereids.
+ * Primitive data type in Nereids.
  */
-public class LargeIntType extends IntegralType {
-    public static LargeIntType INSTANCE = new LargeIntType();
-
+public abstract class PrimitiveType extends DataType {
     @Override
-    public Type toCatalogDataType() {
-        return Type.LARGEINT;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof LargeIntType;
-    }
-
-    @Override
-    public String simpleString() {
-        return "largeint";
-    }
-
-    @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof LargeIntType;
-    }
-
-    @Override
-    public DataType defaultConcreteType() {
-        return this;
+    public String toSql() {
+        return simpleString().toUpperCase(Locale.ROOT);
     }
 }

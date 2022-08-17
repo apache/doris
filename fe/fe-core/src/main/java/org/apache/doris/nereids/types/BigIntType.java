@@ -32,6 +32,11 @@ public class BigIntType extends IntegralType {
     }
 
     @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof BigIntType;
+    }
+
+    @Override
     public String simpleString() {
         return "bigint";
     }

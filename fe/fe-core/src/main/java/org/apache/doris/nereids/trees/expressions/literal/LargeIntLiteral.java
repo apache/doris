@@ -15,42 +15,45 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.SmallIntType;
+
+import java.math.BigInteger;
+import java.util.Objects;
 
 /**
- * binary arithmetic operator. Such as +, -, *, /.
+ * large int type literal
  */
-public abstract class BinaryArithmetic extends BinaryOperator {
+public class LargeIntLiteral extends Literal {
 
-    private final Operator staleOperator;
+    private final BigInteger value;
 
-    public BinaryArithmetic(Expression left, Expression right, String symbol, Operator staleOperator) {
-        super(left, right, symbol);
-        this.staleOperator = staleOperator;
-    }
-
-    public Operator getStaleOperator() {
-        return staleOperator;
+    public LargeIntLiteral(BigInteger value) {
+        super(SmallIntType.INSTANCE);
+        this.value = Objects.requireNonNull(value);
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        return left().getDataType().promotion();
+    public BigInteger getValue() {
+        return value;
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return child(0).nullable() || child(1).nullable();
-    }
-
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitBinaryArithmetic(this, context);
+        return visitor.visitLargeIntLiteral(this, context);
     }
 
-
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        try {
+            return new org.apache.doris.analysis.LargeIntLiteral(value.toString());
+        } catch (AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Can not convert to legacy literal: " + value, e);
+        }
+    }
 }
