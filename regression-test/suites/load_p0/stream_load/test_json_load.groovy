@@ -65,7 +65,7 @@ suite("test_json_load", "p0") {
     }
     
     def load_json_data = {strip_flag, read_flag, format_flag, exprs, json_paths, 
-                            json_root, where_expr, fuzzy_flag, file_name ->
+                            json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false ->
         // load the json data
         streamLoad {
             table "test_json_load"
@@ -85,6 +85,7 @@ suite("test_json_load", "p0") {
             // if declared a check callback, the default check condition will ignore.
             // So you must check all condition
             check { result, exception, startTime, endTime ->
+		if (ignore_failure) { return }
                 if (exception != null) {
                     throw exception
                 }
@@ -279,6 +280,20 @@ suite("test_json_load", "p0") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+    // case10: invalid json
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_test_table1.call(testTable)
+        
+        load_json_data.call('', 'true', 'json', 'id= id * 10', '',
+                            '$.item', '', 'true', 'invalid_json.json', true)
+
+        qt_select "select * from ${testTable} order by id"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
     
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
@@ -289,7 +304,7 @@ suite("test_json_load", "p0") {
         def hdfs_file_path = uploadToHdfs "stream_load/simple_object_json.json"
         def format = "json" 
 
-        // case10: import json use pre-filter exprs
+        // case11: import json use pre-filter exprs
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             
@@ -304,7 +319,7 @@ suite("test_json_load", "p0") {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
 
-        // case11: import json use pre-filter and where exprs
+        // case12: import json use pre-filter and where exprs
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             
