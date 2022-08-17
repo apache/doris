@@ -25,6 +25,8 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -118,5 +120,9 @@ public class Utils {
     public static List<SlotReference> getOutputSlotReference(Plan plan) {
         return plan.getOutput().stream().map(SlotReference.class::cast)
                 .collect(Collectors.toList());
+    }
+
+    public static <T1, T2, R> Function<T2, R> currying(BiFunction<T1, T2, R> func, T1 t1) {
+        return (T2 t2) -> func.apply(t1, t2);
     }
 }

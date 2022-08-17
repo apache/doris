@@ -18,23 +18,23 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.rewrite.logical.PushDownNotSlotRefExpr;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownNotSlotReferenceExpressionOfOnClause;
 
 import com.google.common.collect.ImmutableList;
 
 /**
  * push down not slot reference expression job
  */
-public class PushDownNotSlotRefExprJob extends BatchRulesJob {
+public class PushDownNotSlotReferenceExpressionOfOnClauseJob extends BatchRulesJob {
 
     /**
      * constructor
      */
-    public PushDownNotSlotRefExprJob(CascadesContext cascadesContext) {
+    public PushDownNotSlotReferenceExpressionOfOnClauseJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(
-                        new PushDownNotSlotRefExpr()
+                        new PushDownNotSlotReferenceExpressionOfOnClause()
                 ))
         ));
     }
