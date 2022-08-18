@@ -800,6 +800,10 @@ public class ShowExecutor {
                 rows.add(row);
             }
         }
+        // sort by table name
+        rows.sort((x, y) -> {
+            return x.get(0).compareTo(y.get(0));
+        });
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
