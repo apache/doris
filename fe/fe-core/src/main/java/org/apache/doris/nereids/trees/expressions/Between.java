@@ -89,7 +89,7 @@ public class Between extends Expression implements TernaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Between withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
         return new Between(children.get(0), children.get(1), children.get(2));
     }

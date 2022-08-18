@@ -63,7 +63,7 @@ public class Substring extends BoundFunction implements TernaryExpression, Impli
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Substring withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
         if (children.size() == 2) {
             return new Substring(children.get(0), children.get(1));

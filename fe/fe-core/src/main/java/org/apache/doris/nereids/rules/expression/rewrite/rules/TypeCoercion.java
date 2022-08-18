@@ -60,72 +60,72 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
         Expression left = rewrite(binaryOperator.left(), context);
         Expression right = rewrite(binaryOperator.right(), context);
-        if (!TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
-            return binaryOperator.withChildren(left, right);
-        }
-        return TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType())
+
+        return Optional.of(TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
+                .filter(Boolean::booleanValue)
+                .map(b -> TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType()))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .filter(ct -> binaryOperator.inputType().acceptsType(ct))
+                .filter(ct -> !left.getDataType().equals(ct) || !right.getDataType().equals(ct))
                 .map(commonType -> {
-                    if (binaryOperator.inputType().acceptsType(commonType) && (
-                            !left.getDataType().equals(commonType) || !right.getDataType().equals(commonType))) {
-                        Expression newLeft = left;
-                        Expression newRight = right;
-                        if (!left.getDataType().equals(commonType)) {
-                            newLeft = new Cast(left, commonType);
-                        }
-                        if (!right.getDataType().equals(commonType)) {
-                            newRight = new Cast(right, commonType);
-                        }
-                        return binaryOperator.withChildren(newLeft, newRight);
-                    } else {
-                        return binaryOperator.withChildren(left, right);
-                    }
+                    Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
+                    Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);;
+                    return binaryOperator.withChildren(newLeft, newRight);
                 })
                 .orElse(binaryOperator.withChildren(left, right));
     }
 
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
-        List<DataType> dataTypesForCoercion = caseWhen.dataTypesForCoercion();
+        List<Expression> rewrittenChildren = caseWhen.children().stream()
+                .map(e -> rewrite(e, context)).collect(Collectors.toList());
+        CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren);
+        List<DataType> dataTypesForCoercion = newCaseWhen.dataTypesForCoercion();
         if (dataTypesForCoercion.size() <= 1) {
-            return caseWhen;
+            return newCaseWhen;
         }
         DataType first = dataTypesForCoercion.get(0);
         if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
-            return caseWhen;
+            return newCaseWhen;
         }
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion);
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren
-                            = caseWhen.getWhenClauses().stream()
+                            = newCaseWhen.getWhenClauses().stream()
                             .map(wc -> wc.withChildren(wc.getOperand(),
                                     TypeCoercionUtils.castIfNotSameType(wc.getResult(), commonType)))
                             .collect(Collectors.toList());
-                    caseWhen.getDefaultValue()
+                    newCaseWhen.getDefaultValue()
                             .map(dv -> TypeCoercionUtils.castIfNotSameType(dv, commonType))
                             .ifPresent(newChildren::add);
-                    return caseWhen.withChildren(newChildren);
+                    return newCaseWhen.withChildren(newChildren);
                 })
-                .orElse(caseWhen);
+                .orElse(newCaseWhen);
     }
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
-        if (inPredicate.getOptions().stream().map(Expression::getDataType)
-                .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
-            return inPredicate;
+        List<Expression> rewrittenChildren = inPredicate.children().stream()
+                .map(e -> rewrite(e, context)).collect(Collectors.toList());
+        InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
+
+        if (newInPredicate.getOptions().stream().map(Expression::getDataType)
+                .allMatch(dt -> dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
+            return newInPredicate;
         }
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(inPredicate.children()
+        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(newInPredicate.children()
                 .stream().map(Expression::getDataType).collect(Collectors.toList()));
 
         return optionalCommonType
                 .map(commonType -> {
-                    List<Expression> newChildren = inPredicate.children().stream()
+                    List<Expression> newChildren = newInPredicate.children().stream()
                             .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
                             .collect(Collectors.toList());
-                    return inPredicate.withChildren(newChildren);
+                    return newInPredicate.withChildren(newChildren);
                 })
-                .orElse(inPredicate);
+                .orElse(newInPredicate);
     }
 
     /**

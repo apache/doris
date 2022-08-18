@@ -69,7 +69,7 @@ public class InSubquery extends SubqueryExpr {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public InSubquery withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(children.get(1) instanceof ListQuery);
         return new InSubquery(children.get(0), (ListQuery) children.get(1));

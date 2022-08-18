@@ -55,7 +55,7 @@ public class Cast extends Expression implements UnaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Cast(children.get(0), getDataType());
     }

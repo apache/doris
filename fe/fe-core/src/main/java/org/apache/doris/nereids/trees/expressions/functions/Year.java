@@ -57,7 +57,7 @@ public class Year extends BoundFunction implements UnaryExpression, ImplicitCast
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Year withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Year(children.get(0));
     }

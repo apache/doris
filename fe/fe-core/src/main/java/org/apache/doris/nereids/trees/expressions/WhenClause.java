@@ -58,7 +58,7 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public WhenClause withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new WhenClause(children.get(0), children.get(1));
     }

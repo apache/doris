@@ -53,7 +53,7 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public UnboundAlias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new UnboundAlias(children.get(0));
     }

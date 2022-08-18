@@ -124,7 +124,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Alias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Alias(exprId, children.get(0), name);
     }

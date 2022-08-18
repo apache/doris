@@ -71,7 +71,7 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public TimestampArithmetic withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new TimestampArithmetic(this.funcName, this.op, children.get(0), children.get(1),
                 this.timeUnit, this.intervalFirst);

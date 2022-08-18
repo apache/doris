@@ -107,7 +107,7 @@ public class CaseWhen extends Expression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public CaseWhen withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1);
         List<WhenClause> whenClauseList = new ArrayList<>();
         Expression defaultValue = null;
