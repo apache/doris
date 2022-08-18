@@ -40,7 +40,7 @@ public abstract class BinaryArithmetic extends BinaryOperator {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return left().getDataType().promotion();
+        return left().getDataType();
     }
 
     @Override

@@ -46,7 +46,6 @@ public abstract class DataType implements AbstractDataType {
             .put(TinyIntType.class, () -> SmallIntType.INSTANCE)
             .put(SmallIntType.class, () -> IntegerType.INSTANCE)
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
-            .put(BigIntType.class, () -> LargeIntType.INSTANCE)
             .put(FloatType.class, () -> DoubleType.INSTANCE)
             .build();
 
