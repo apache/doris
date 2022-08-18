@@ -201,6 +201,11 @@ public class GroupByClause implements ParseNode {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
+        for (Expr groupingExpr : oriGroupingExprs) {
+            if (!groupingExpr.isAnalyzed()) {
+                groupingExpr.analyze(analyzer);
+            }
+        }
 
         if (isGroupByExtension() && groupingExprs != null && groupingExprs.size() > MAX_GROUPING_SETS_NUM) {
             throw new AnalysisException("Too many sets in GROUP BY clause, the max grouping sets item is "
