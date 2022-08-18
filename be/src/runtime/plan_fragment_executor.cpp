@@ -89,8 +89,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             .log("PlanFragmentExecutor::prepare")
             .query_id(_query_id)
             .instance_id(params.fragment_instance_id)
-            .tag("backend_num", std::to_string(request.backend_num))
-            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
+            .tag("backend_num", request.backend_num)
+            .tag("pthread_id", (uintptr_t)pthread_self());
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
@@ -227,11 +227,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->instance_mem_tracker()->limit();
     TAG(LOG(INFO))
-            .log("PlanFragmentExecutor::open, using query memory limit: " +
-                 PrettyPrinter::print(mem_limit, TUnit::BYTES))
+            .log("PlanFragmentExecutor::open")
             .query_id(_query_id)
             .instance_id(_runtime_state->fragment_instance_id())
-            .tag("mem_limit", std::to_string(mem_limit));
+            .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block

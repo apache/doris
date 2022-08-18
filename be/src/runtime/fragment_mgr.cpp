@@ -492,10 +492,10 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     doris::signal::query_id_lo = exec_state->query_id().lo;
 
     TAG(LOG(INFO))
-            .log(std::move(func_name))
+            .log(func_name)
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
-            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
+            .tag("pthread_id", (uintptr_t)pthread_self());
 
     exec_state->execute();
 

@@ -160,21 +160,4 @@ std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch) {
                         tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, usecs);
 }
 
-/// Custom your log format here
-void TaggableLogger::flush() {
-    _stream << _message;
-    Tags* head = _tags;
-    Tags* next;
-    while (head) {
-        next = head->next;
-        _stream << "|" << head->key << "=" << head->value;
-        delete head;
-        head = next;
-    }
-}
-
-/// Modify these tag names to suit your log format and collector.
-const std::string TaggableLogger::QUERY_ID = "query_id";
-const std::string TaggableLogger::INSTANCE_ID = "instance_id";
-
 } // namespace doris
