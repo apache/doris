@@ -582,8 +582,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_seek_timer, stats.block_seek_ns);
     COUNTER_UPDATE(_parent->_block_convert_timer, stats.block_convert_ns);
 
-    COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_r
-    ows_read);
+    COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
