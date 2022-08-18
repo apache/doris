@@ -427,7 +427,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                 runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
                 scanner_filter_apply_marks[i] = true;
                 if (!_runtime_filter_ready_flag[i] && !vexprs.empty()) {
-                    std::unique_lock<std::mutex> l(_rf_lock);
+                    std::lock_guard<std::shared_mutex> l(_rf_lock);
                     if (!_runtime_filter_ready_flag[i]) {
                         // Use all conjuncts and new arrival runtime filters to construct a new
                         // expression tree here.
@@ -444,7 +444,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             scanner->discard_conjuncts();
         }
         {
-            std::unique_lock<std::mutex> l(_rf_lock);
+            std::shared_lock<std::shared_mutex> l(_rf_lock);
             WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                           "Something wrong for runtime filters: ");
         }
