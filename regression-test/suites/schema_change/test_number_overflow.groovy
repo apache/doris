@@ -52,7 +52,6 @@ suite ("test_number_overflow") {
         def configList = parseJson(out.trim())
         assert configList instanceof List
 
-        boolean disableAutoCompaction = true
         for (Object ele in (List) configList) {
             assert ele instanceof List<String>
             if (((List<String>) ele)[0] == "disable_auto_compaction") {
@@ -89,6 +88,6 @@ suite ("test_number_overflow") {
         }
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${tableName}")
+        try_sql("DROP TABLE IF EXISTS test_number_overflow")
     }
 }
