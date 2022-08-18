@@ -585,45 +585,38 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     if (obj.HasMember("fields")) {
         pure_doc_value = true;
     }
-    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
+    const rapidjson::Value& col_values = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
 
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
         auto col_ptr = columns[i].get();
-
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         if (slot_desc->col_name() == FIELD_ID) {
-            // actually this branch will not be reached, this is guaranteed by Doris FE.
-            if (pure_doc_value) {
-                return Status::RuntimeError("obtain `_id` is not supported in doc_values mode");
-            }
-            // obj[FIELD_ID] must not be NULL
-            std::string _id = obj[FIELD_ID].GetString();
-            size_t len = _id.length();
-
-            col_ptr->insert_data(const_cast<const char*>(_id.data()), len);
+                // actually this branch will not be reached, this is guaranteed by Doris FE.
+                if (pure_doc_value) {
+                    return Status::RuntimeError("obtain `_id` is not supported in doc_values mode");
+                }
+                // obj[FIELD_ID] must not be NULL
+                std::string _id = obj[FIELD_ID].GetString();
+                size_t len = _id.length();
+                col_ptr->insert_data(const_cast<const char*>(_id.data()), len);
+                continue;
+        }
+        if (!slot_desc->is_materialized()) {
             continue;
         }
 
         const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
-                                              : slot_desc->col_name().c_str();
-
-        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
-        if (itr == line.MemberEnd() && slot_desc->is_nullable()) {
+                                                              : slot_desc->col_name().c_str();
+        const rapidjson::Value& col = col_values[col_name];
+        rapidjson::Value::ConstMemberIterator itr = col_values.FindMember(col_name);
+        if (itr == col_values.MemberEnd() && slot_desc->is_nullable()) {
             auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
             nullable_column->insert_data(nullptr, 0);
             continue;
-        } else if (itr == line.MemberEnd() && !slot_desc->is_nullable()) {
+        } else if (itr == col_values.MemberEnd() && !slot_desc->is_nullable()) {
             std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }
-
-        const rapidjson::Value& col = line[col_name];
-
-        PrimitiveType type = slot_desc->type().type;
-
         // when the column value is null, the subsequent type casting will report an error
         if (col.IsNull() && slot_desc->is_nullable()) {
             col_ptr->insert_data(nullptr, 0);
@@ -632,6 +625,15 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }
+        fill_column(tuple_desc->slots()[i]->type(), col_ptr, col_name, col, pure_doc_value, slot_desc->is_nullable());
+    }
+
+    *line_eof = false;
+    return Status::OK();
+}
+
+Status ScrollParser::fill_column(const TypeDescriptor type_desc, vectorized::IColumn* col_ptr, const char* col_name, const rapidjson::Value& col, bool pure_doc_value, bool nullable) {
+        PrimitiveType type = type_desc.type;
         switch (type) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -660,39 +662,39 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_TINYINT: {
-            insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value, nullable);
             break;
         }
 
         case TYPE_SMALLINT: {
-            insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value, nullable);
             break;
         }
 
         case TYPE_INT: {
-            insert_int_value<int32>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            insert_int_value<int32>(col, type, col_ptr, pure_doc_value, nullable);
             break;
         }
 
         case TYPE_BIGINT: {
-            insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value, nullable);
             break;
         }
 
         case TYPE_LARGEINT: {
             insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
-                                       slot_desc->is_nullable());
+                                       nullable);
             break;
         }
 
         case TYPE_DOUBLE: {
             insert_float_value<double>(col, type, col_ptr, pure_doc_value,
-                                       slot_desc->is_nullable());
+                                       nullable);
             break;
         }
 
         case TYPE_FLOAT: {
-            insert_float_value<float>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            insert_float_value<float>(col, type, col_ptr, pure_doc_value, nullable);
             break;
         }
 
@@ -785,14 +787,19 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
             break;
         }
+        case TYPE_ARRAY: {
+            const auto& sub_type = type_desc.children[0];
+            LOG(WARNING) << "sub_type: " << sub_type;
+            for (auto& item : col.GetArray()) {
+                RETURN_IF_ERROR(fill_column(sub_type, col_ptr, col_name, item, pure_doc_value, nullable));
+            }
+            break;
+        }
         default: {
             DCHECK(false);
             break;
         }
         }
-    }
-
-    *line_eof = false;
     return Status::OK();
 }
 

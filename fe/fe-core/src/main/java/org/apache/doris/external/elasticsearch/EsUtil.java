@@ -63,6 +63,10 @@ public class EsUtil {
 
     private static final Logger LOG = LogManager.getLogger(EsUtil.class);
 
+    private static final String META = "_meta";
+
+    private static final String DORIS_META = "doris";
+
     /**
      * Analyze partition and distributionDesc.
      **/
@@ -136,14 +140,14 @@ public class EsUtil {
      **/
     public static List<String> getArrayFields(String indexMapping) {
         JSONObject mappings = getMapping(indexMapping);
-        if (!mappings.containsKey("_meta")) {
+        if (!mappings.containsKey(META)) {
             return new ArrayList<>();
         }
-        JSONObject meta = (JSONObject) mappings.get("_meta");
-        if (!meta.containsKey("doris")) {
+        JSONObject meta = (JSONObject) mappings.get(META);
+        if (!meta.containsKey(DORIS_META)) {
             return new ArrayList<>();
         }
-        JSONObject dorisMeta = (JSONObject) meta.get("doris");
+        JSONObject dorisMeta = (JSONObject) meta.get(DORIS_META);
         return (List<String>) dorisMeta.get("array_field");
     }
 
@@ -162,7 +166,13 @@ public class EsUtil {
         // 2. Multi-catalog auto infer
         // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
-            String firstType = (String) mappings.keySet().iterator().next();
+            String firstType = "";
+            for (String mappingKey : (Iterable<String>) mappings.keySet()) {
+                if (!META.equals(mappingKey)) {
+                    firstType = mappingKey;
+                    break;
+                }
+            }
             if (!"properties".equals(firstType)) {
                 // If type is not passed in takes the first type.
                 return (JSONObject) mappings.get(firstType);
