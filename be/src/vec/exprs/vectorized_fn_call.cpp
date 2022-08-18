@@ -19,6 +19,7 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "exprs/anyval_util.h"
 #include "exprs/rpc_fn.h"
 #include "fmt/format.h"
@@ -85,7 +86,7 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
     }
     // call function
