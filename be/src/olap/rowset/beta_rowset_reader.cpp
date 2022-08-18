@@ -59,15 +59,18 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                                  read_context->is_upper_keys_included->at(i));
         }
     }
+
+    bool can_reuse_schema = true;
     // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
     // or predicates when it is not inited.
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), &read_options.delete_conditions,
                 read_options.delete_condition_predicates.get());
+        can_reuse_schema = false;
     }
 
-    if (_context->reuse_input_schema == nullptr) {
+    if (!can_reuse_schema || _context->reuse_input_schema == nullptr) {
         std::vector<uint32_t> read_columns;
         std::set<uint32_t> read_columns_set;
         std::set<uint32_t> delete_columns_set;
@@ -82,9 +85,18 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
             }
         }
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
-        _context->reuse_input_schema = _input_schema;
+
+        if (can_reuse_schema) {
+            _context->reuse_input_schema = _input_schema;
+        }
     }
-    _input_schema = _context->reuse_input_schema;
+
+    // if can reuse schema, context must have reuse_input_schema
+    // if can't reuse schema, context mustn't have reuse_input_schema
+    DCHECK(can_reuse_schema ^ (_context->reuse_input_schema == nullptr));
+    if (_context->reuse_input_schema != nullptr) {
+        _input_schema = _context->reuse_input_schema;
+    }
 
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
@@ -177,11 +189,16 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    if (read_context->reuse_block == nullptr) {
-        read_context->reuse_block.reset(
-                new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
+    if (can_reuse_schema) {
+        if (read_context->reuse_block == nullptr) {
+            read_context->reuse_block.reset(
+                    new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
+        } else {
+            _input_block = read_context->reuse_block;
+        }
+    } else {
+        _input_block.reset(new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
     }
-    _input_block = read_context->reuse_block;
 
     if (!read_context->is_vec) {
         // init input/output block and row
