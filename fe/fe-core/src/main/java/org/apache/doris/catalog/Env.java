@@ -2954,6 +2954,7 @@ public class Env {
                 sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
                 sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
                 sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+                sb.append("\"charest\" = \"").append(odbcTable.getCharset()).append("\",\n");
             } else {
                 sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName())
                         .append("\",\n");
