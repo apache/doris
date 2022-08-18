@@ -589,7 +589,7 @@ void Block::clear_column_data(int column_size) noexcept {
     }
     for (auto& d : data) {
         if (UNLIKELY(d.column->use_count() != 1)) {
-            LOG(INFO) << "Ref count of column is " << d.column->use_count();
+            LOG(WARNING) << "Ref count of column is " << d.column->use_count();
         }
         (*std::move(d.column)).assume_mutable()->clear();
     }
