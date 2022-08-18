@@ -44,7 +44,9 @@ public:
     int get_size();
 
 private:
-    Status fill_column(const TypeDescriptor slot_desc, vectorized::IColumn* col_ptr, const char* col_name, const rapidjson::Value& col, bool pure_doc_value, bool nullable);
+    Status fill_column(const TypeDescriptor slot_desc, vectorized::IColumn* col_ptr,
+                       const char* col_name, const rapidjson::Value& col, bool pure_doc_value,
+                       bool nullable);
     // helper method for processing date/datetime cols with rapidjson::Value
     // type is used for distinguish date and datetime
     // fill date slot with string format date
