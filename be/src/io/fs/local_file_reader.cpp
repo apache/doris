@@ -51,7 +51,7 @@ Status LocalFileReader::close() {
 Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > _file_size) {
-        return Status::IOError("offset exceeds file size(offset: {), file size: {}, path: {})",
+        return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _file_size, _path.native());
     }
     size_t bytes_req = result.size;
