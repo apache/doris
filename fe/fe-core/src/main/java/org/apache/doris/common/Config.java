@@ -1738,4 +1738,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_array_type = false;
+
+    /**
+     * Use new fe generate es dsl.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_new_es_dsl = true;
 }

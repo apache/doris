@@ -66,7 +66,7 @@ public class EsTable extends Table {
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
     public static final String NODES_DISCOVERY = "nodes_discovery";
     public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
-    public static final String ES_DSL = "es_dsl";
+    public static final String QUERY_DSL = "query_dsl";
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
 
     // Solr doc_values vs stored_fields performance-smackdown indicate:
