@@ -28,9 +28,10 @@
 namespace doris::vectorized {
 
 VTupleIsNullPredicate::VTupleIsNullPredicate(const TExprNode& node)
-        : VExpr(node), _expr_name(function_name) {
-    DCHECK(node.tuple_is_null_pred.__isset.null_side);
-    _is_left_null_side = node.tuple_is_null_pred.null_side == TNullSide::LEFT;
+        : VExpr(node), _expr_name(function_name), _is_left_null_side(false) {
+    if (node.tuple_is_null_pred.__isset.null_side) {
+        _is_left_null_side = node.tuple_is_null_pred.null_side == TNullSide::LEFT;
+    }
     _column_to_check = 0;
 }
 

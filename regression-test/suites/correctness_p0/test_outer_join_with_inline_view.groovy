@@ -69,4 +69,8 @@ suite("test_outer_join_with_inline_view") {
         on a.k1 = b.k1
         order by a.v1; 
     """
+
+    qt_select_const_in_inline_view """
+         select * from (select 1 as a) b left join (select 2 as a) c using(a)
+    """
 }

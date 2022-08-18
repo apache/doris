@@ -11,3 +11,5 @@
 3	3	\N	\N
 4	4	\N	\N
 
+-- !select_const_in_inline_view --
+1	\N
