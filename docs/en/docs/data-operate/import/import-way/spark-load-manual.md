@@ -132,7 +132,7 @@ In the existing Doris import process, the data structure of global dictionary is
 
 ## Hive Bitmap UDF
 
-Spark supports loading hive-generated bitmap data directly into Doris
+Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/external-table/hive-bitmap-udf)
 
 ## Basic operation
 
