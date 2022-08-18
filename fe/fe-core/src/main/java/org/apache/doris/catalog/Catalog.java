@@ -3130,8 +3130,11 @@ public class Catalog {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
+                Type resultType = resultExpr.getType();
+                if (resultType.isStringType() && resultType.getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
+                } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
+                    typeDef = new TypeDef(ScalarType.createDecimalV2Type(27, 9));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
