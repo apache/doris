@@ -32,7 +32,6 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -59,6 +58,7 @@ public class TypeCoercionUtils {
 
     /**
      * numeric type precedence for type promotion.
+     * bigger numeric has smaller ordinal
      */
     public static final List<DataType> NUMERIC_PRECEDENCE = ImmutableList.of(
             DoubleType.INSTANCE,
@@ -99,23 +99,24 @@ public class TypeCoercionUtils {
                     .map(Optional::get)
                     .findFirst();
         }
-        if (input.isNullType()) {
+        if (input instanceof NullType) {
             // Cast null type (usually from null literals) into target types
             returnType = expected.defaultConcreteType();
-        } else if (input.isNumericType() && expected instanceof DecimalType) {
+        } else if (input instanceof NumericType && expected instanceof DecimalType) {
             // If input is a numeric type but not decimal, and we expect a decimal type,
             // cast the input to decimal.
             returnType = DecimalType.forType(input);
-        } else if (input.isNumericType() && expected instanceof NumericType) {
+        } else if (input instanceof NumericType && expected instanceof NumericType) {
             // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
-            returnType = (DataType) expected;
-        } else if (input.isStringType()) {
+            returnType = expected.defaultConcreteType();
+        } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalType) {
                 returnType = DecimalType.SYSTEM_DEFAULT;
             } else if (expected instanceof NumericType) {
                 returnType = expected.defaultConcreteType();
             }
-        } else if (input.isPrimitive() && !input.isStringType() && expected instanceof CharacterType) {
+        } else if (input instanceof PrimitiveType
+                && expected instanceof CharacterType) {
             returnType = StringType.INSTANCE;
         }
 
@@ -133,13 +134,21 @@ public class TypeCoercionUtils {
         if (leftType instanceof NullType && rightType instanceof DecimalType) {
             return true;
         }
+        // TODO: add decimal promotion support
         if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
             return true;
         }
         return false;
     }
 
-
+    /**
+     * return ture if datatype has character type in it, cannot use instance of CharacterType because of complex type.
+     */
+    @Developing
+    public static boolean hasCharacterType(DataType dataType) {
+        // TODO: consider complex type
+        return dataType instanceof CharacterType;
+    }
 
     /**
      * find the tightest common type for two type
@@ -170,16 +179,7 @@ public class TypeCoercionUtils {
                 }
             }
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
-            if (left instanceof StringType || right instanceof StringType) {
-                tightestCommonType = StringType.INSTANCE;
-            } else if (left instanceof CharacterType && right instanceof CharacterType) {
-                tightestCommonType = VarcharType.createVarcharType(
-                        Math.max(((CharacterType) left).getLen(), ((CharacterType) right).getLen()));
-            } else if (left instanceof CharacterType) {
-                tightestCommonType = VarcharType.createVarcharType(((CharacterType) left).getLen());
-            } else {
-                tightestCommonType = VarcharType.createVarcharType(((CharacterType) right).getLen());
-            }
+            tightestCommonType = StringType.INSTANCE;
         }
         return Optional.ofNullable(tightestCommonType);
     }
@@ -203,17 +203,6 @@ public class TypeCoercionUtils {
                     }
                 });
     }
-
-
-    /**
-     * return ture if datatype has character type in it, cannot use instance of CharacterType because of complex type.
-     */
-    @Developing
-    public static boolean hasCharacterType(DataType dataType) {
-        // TODO: consider complex type
-        return dataType instanceof CharacterType;
-    }
-
 
     /**
      * find wider common type for two data type.
@@ -241,14 +230,11 @@ public class TypeCoercionUtils {
         DataType commonType = null;
         if (left instanceof DecimalType && right instanceof DecimalType) {
             commonType = DecimalType.widerDecimalType((DecimalType) left, (DecimalType) right);
-        }
-        if (left instanceof IntegralType && right instanceof DecimalType) {
+        } else if (left instanceof IntegralType && right instanceof DecimalType) {
             commonType = DecimalType.widerDecimalType(DecimalType.forType(left), (DecimalType) right);
-        }
-        if (left instanceof DecimalType && right instanceof IntegralType) {
+        } else if (left instanceof DecimalType && right instanceof IntegralType) {
             commonType = DecimalType.widerDecimalType((DecimalType) left, DecimalType.forType(right));
-        }
-        if ((left instanceof FractionalType && right instanceof DecimalType)
+        } else if ((left instanceof FractionalType && right instanceof DecimalType)
                 || (left instanceof DecimalType && right instanceof FractionalType)) {
             commonType = DoubleType.INSTANCE;
         }
@@ -264,7 +250,7 @@ public class TypeCoercionUtils {
         if (left instanceof CharacterType && right instanceof PrimitiveType && !(right instanceof BooleanType)) {
             return Optional.of(StringType.INSTANCE);
         }
-        if (left instanceof PrimitiveType && !(left instanceof BooleanType && right instanceof CharacterType)) {
+        if (left instanceof PrimitiveType && !(left instanceof BooleanType) && right instanceof CharacterType) {
             return Optional.of(StringType.INSTANCE);
         }
         return Optional.empty();

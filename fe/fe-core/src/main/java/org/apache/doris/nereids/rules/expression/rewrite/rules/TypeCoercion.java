@@ -39,9 +39,16 @@ import java.util.stream.Collectors;
 
 /**
  * a rule to add implicit cast for expressions.
+ * This class is inspired by spark's TypeCoercion.
  */
 @Developing
 public class TypeCoercion extends AbstractExpressionRewriteRule {
+
+    // TODO:
+    //  1. add DecimalPrecision Process
+    //  2. Divide process
+    //  3. String promote with numeric in binary arithmetic
+    //  4. Date and DateTime process
 
     public static final TypeCoercion INSTANCE = new TypeCoercion();
 
@@ -70,7 +77,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                 .filter(ct -> !left.getDataType().equals(ct) || !right.getDataType().equals(ct))
                 .map(commonType -> {
                     Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
-                    Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);;
+                    Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
                     return binaryOperator.withChildren(newLeft, newRight);
                 })
                 .orElse(binaryOperator.withChildren(left, right));

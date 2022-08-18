@@ -51,6 +51,4 @@ public abstract class BinaryArithmetic extends BinaryOperator {
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBinaryArithmetic(this, context);
     }
-
-
 }

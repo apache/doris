@@ -40,4 +40,9 @@ public class BigIntType extends IntegralType {
     public String simpleString() {
         return "bigint";
     }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
 }

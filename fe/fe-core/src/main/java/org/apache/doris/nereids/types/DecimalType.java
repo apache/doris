@@ -90,7 +90,7 @@ public class DecimalType extends FractionalType {
 
     private static DecimalType widerDecimalType(int leftPrecision, int rightPrecision, int leftScale, int rightScale) {
         int scale = Math.max(leftScale, rightScale);
-        int range = Math.max(leftPrecision, rightPrecision);
+        int range = Math.max(leftPrecision - leftScale, rightPrecision - rightScale);
         return DecimalType.createDecimalType(range + scale, scale);
     }
 
