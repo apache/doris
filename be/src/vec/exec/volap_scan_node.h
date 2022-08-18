@@ -244,7 +244,7 @@ private:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
     std::vector<bool> _runtime_filter_ready_flag;
-    std::vector<std::unique_ptr<std::mutex>> _rf_locks;
+    std::shared_mutex _rf_lock;
     std::map<int, RuntimeFilterContext*> _conjunctid_to_runtime_filter_ctxs;
 
     std::unique_ptr<RuntimeProfile> _scanner_profile;
