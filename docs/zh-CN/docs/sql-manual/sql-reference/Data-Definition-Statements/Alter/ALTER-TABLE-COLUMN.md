@@ -116,6 +116,7 @@ MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAUL
   - DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
   - FLOAT 转换成 DOUBLE
   - INT 转换成 DATE (如果INT类型数据不合法则转换失败，原始数据不变)
+  - 除DATE与DATETIME以外都可以转换成STRING，但是STRING不能转换任何其他类型
 
 5. 对指定 index 的列进行重新排序
 
