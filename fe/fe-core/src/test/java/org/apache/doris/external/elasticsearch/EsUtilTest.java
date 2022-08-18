@@ -30,10 +30,10 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
 
 import mockit.Expectations;
@@ -256,10 +256,9 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testCastConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
         FloatLiteral floatLiteral = new FloatLiteral(3.14);
-        CastExpr castExpr = new CastExpr(TypeDef.create(PrimitiveType.INT), floatLiteral);
-        BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, k1, castExpr);
+        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral);
+        BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
         List<Expr> notPushDownList = new ArrayList<>();
         Assertions.assertNull(EsUtil.toEsDsl(castPredicate, notPushDownList));
         Assertions.assertEquals(1, notPushDownList.size());
@@ -270,6 +269,14 @@ public class EsUtilTest extends EsTestCase {
         CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, castPredicate,
                 eqPredicate);
         EsUtil.toEsDsl(compoundPredicate, notPushDownList);
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        SlotRef k3 = new SlotRef(null, "k3");
+        k3.setType(Type.FLOAT);
+        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3);
+        BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
+                new FloatLiteral(3.0, Type.DOUBLE));
+        EsUtil.toEsDsl(castDoublePredicate, notPushDownList);
         Assertions.assertEquals(3, notPushDownList.size());
     }
 
