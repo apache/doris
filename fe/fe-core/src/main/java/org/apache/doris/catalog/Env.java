@@ -4050,7 +4050,7 @@ public class Env {
 
         // set table's default replication number.
         Map<String, String> tblProperties = Maps.newHashMap();
-        tblProperties.put("default.replication_allocation", replicaAlloc.toCreateStmt());
+        tblProperties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         table.setReplicaAllocation(tblProperties);
 
         // log
