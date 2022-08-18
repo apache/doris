@@ -156,7 +156,7 @@ public class SortNode extends PlanNode {
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-        for (int i = 0; i < slotDescriptorList.size(); i++) {
+        for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
             if (!slotDescriptorList.get(i).isMaterialized()) {
                 resolvedTupleExprs.remove(i);
             }
