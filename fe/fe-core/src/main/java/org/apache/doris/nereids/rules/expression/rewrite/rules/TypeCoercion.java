@@ -58,10 +58,10 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
-        Expression left = binaryOperator.left();
-        Expression right = binaryOperator.right();
+        Expression left = rewrite(binaryOperator.left(), context);
+        Expression right = rewrite(binaryOperator.right(), context);
         if (!TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
-            return binaryOperator;
+            return binaryOperator.withChildren(left, right);
         }
         return TypeCoercionUtils.findTightestCommonType(left.getDataType(), right.getDataType())
                 .map(commonType -> {
@@ -77,10 +77,10 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                         }
                         return binaryOperator.withChildren(newLeft, newRight);
                     } else {
-                        return binaryOperator;
+                        return binaryOperator.withChildren(left, right);
                     }
                 })
-                .orElse(binaryOperator);
+                .orElse(binaryOperator.withChildren(left, right));
     }
 
     @Override
