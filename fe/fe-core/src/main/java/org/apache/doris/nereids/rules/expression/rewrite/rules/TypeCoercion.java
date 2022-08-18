@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     // TODO:
-    //  1. add DecimalPrecision Process
+    //  1. DecimalPrecision Process
     //  2. Divide process
     //  3. String promote with numeric in binary arithmetic
     //  4. Date and DateTime process
