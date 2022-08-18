@@ -47,7 +47,7 @@ suite("test_keyword", "query,p0") {
     qt_distinct22 "select count(distinct k1) from ${tableName1} having count(k1)>60000"
     qt_distinct23 "select count(distinct k1) from ${tableName1} having count(k1)>70000"
     qt_distinct24 "select count(*), COUNT(distinct 1) from ${tableName1} where false"
-    // qt_distinct25 "select avg(distinct k1), avg(k1) from ${tableName1}"
+    qt_distinct25 "select avg(distinct k1), avg(k1) from ${tableName1}"
     qt_distinct26 "select count(*) from (select count(distinct k1) from ${tableName1} group by k2) v \
 		    order by count(*)"
 

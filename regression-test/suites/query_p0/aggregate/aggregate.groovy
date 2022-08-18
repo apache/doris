@@ -212,4 +212,7 @@ suite("aggregate") {
              (select ${k1}, ${k3}, sum(${k2}) as mysum from baseall 
              group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
              order by t1.${k1}, t1.${k3}, t2.mysum"""
+
+    qt_aggregate_2phase_0"""select avg(distinct k1),avg(k2) from baseall"""
+    qt_aggregate_2phase_1"""select k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1"""
 }

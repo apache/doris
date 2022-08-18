@@ -761,6 +761,17 @@ private:
         return Status::OK();
     }
 
+    // We should call this function only at 1st phase.
+    // 1st phase: is_merge=true, only have one SlotRef.
+    // 2nd phase: is_merge=false, maybe have multiple exprs.
+    int _get_slot_column_id(const AggFnEvaluator* evaluator) {
+        auto ctxs = evaluator->input_exprs_ctxs();
+        CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
+                << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
+                << ctxs[0]->root()->debug_string();
+        return ((VSlotRef*)ctxs[0]->root())->column_id();
+    }
+
     template <bool limit>
     Status _merge_with_serialized_key_helper(Block* block) {
         SCOPED_TIMER(_merge_timer);
@@ -781,11 +792,8 @@ private:
             _find_in_hash_table(places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-                       _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-                int col_id = ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())
-                                     ->column_id();
                 if (_aggregate_evaluators[i]->is_merge()) {
+                    int col_id = _get_slot_column_id(_aggregate_evaluators[i]);
                     auto column = block->get_by_position(col_id).column;
                     if (column->is_nullable()) {
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
@@ -811,11 +819,8 @@ private:
             _emplace_into_hash_table(places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-                       _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-                int col_id = ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())
-                                     ->column_id();
                 if (_aggregate_evaluators[i]->is_merge()) {
+                    int col_id = _get_slot_column_id(_aggregate_evaluators[i]);
                     auto column = block->get_by_position(col_id).column;
                     if (column->is_nullable()) {
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
