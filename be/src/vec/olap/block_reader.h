@@ -107,6 +107,8 @@ private:
                                             bool* eof) = nullptr;
 
     std::vector<RowLocation> _block_row_locations;
+
+    ColumnPtr _delete_filter_column;
 };
 
 } // namespace vectorized
