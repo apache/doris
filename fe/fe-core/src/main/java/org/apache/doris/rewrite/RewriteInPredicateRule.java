@@ -55,6 +55,10 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
         }
         InPredicate inPredicate = (InPredicate) expr;
         SlotRef slotRef;
+        if (!inPredicate.isAnalyzed()) {
+            inPredicate.reset();
+            inPredicate.analyze(analyzer);
+        }
         if (inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren() || inPredicate.isNotIn()
                 || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)
                 || (slotRef = inPredicate.getChild(0).getSrcSlotRef()) == null || slotRef.getColumn() == null) {
