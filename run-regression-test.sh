@@ -19,14 +19,13 @@
 set -eo pipefail
 #set -x
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-DORIS_HOME=${ROOT}
+DORIS_HOME="${ROOT}"
 
 # Check args
 usage() {
-  echo "
+    echo "
 Usage: $0 <shell_options> <framework_options>
   Optional shell_options:
      --clean    clean output of regression test framework
@@ -63,14 +62,14 @@ Usage: $0 <shell_options> <framework_options>
 Log path: \${DORIS_HOME}/output/regression-test/log
 Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
   "
-  exit 1
+    exit 1
 }
 
-CLEAN=
-WRONG_CMD=
-TEAMCITY=
-RUN=
-if [ $# == 0 ] ; then
+CLEAN=0
+WRONG_CMD=0
+TEAMCITY=0
+RUN=0
+if [[ "$#" == 0 ]]; then
     #default
     CLEAN=0
     WRONG_CMD=0
@@ -83,95 +82,103 @@ else
     WRONG_CMD=0
     while true; do
         case "$1" in
-            --clean)      CLEAN=1 ; shift ;;
-            --teamcity)   TEAMCITY=1 ; shift ;;
-            --run)        RUN=1 ; shift ;;
-            *)
-                if [ ${RUN} -eq 0 ] && [ ${CLEAN} -eq 0 ]; then
-                    WRONG_CMD=1
-                fi
-                break ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
+        --teamcity)
+            TEAMCITY=1
+            shift
+            ;;
+        --run)
+            RUN=1
+            shift
+            ;;
+        *)
+            if [[ "${RUN}" -eq 0 ]] && [[ "${CLEAN}" -eq 0 ]]; then
+                WRONG_CMD=1
+            fi
+            break
+            ;;
         esac
     done
 fi
 
-if [ ${WRONG_CMD} -eq 1 ]; then
+if [[ "${WRONG_CMD}" -eq 1 ]]; then
     usage
     exit 1
 fi
 
 # set maven
-MVN_CMD=mvn
-if [[ ! -z ${CUSTOM_MVN} ]]; then
-    MVN_CMD=${CUSTOM_MVN}
+MVN_CMD='mvn'
+if [[ -n "${CUSTOM_MVN}" ]]; then
+    MVN_CMD="${CUSTOM_MVN}"
 fi
-if ! ${MVN_CMD} --version; then
+if ! "${MVN_CMD}" --version; then
     echo "Error: mvn is not found"
     exit 1
 fi
 export MVN_CMD
 
-CONF_DIR=${DORIS_HOME}/regression-test/conf
-CONFIG_FILE=${CONF_DIR}/regression-conf.groovy
-LOG_CONFIG_FILE=${CONF_DIR}/logback.xml
+CONF_DIR="${DORIS_HOME}/regression-test/conf"
+CONFIG_FILE="${CONF_DIR}/regression-conf.groovy"
+LOG_CONFIG_FILE="${CONF_DIR}/logback.xml"
 
-FRAMEWORK_SOURCE_DIR=${DORIS_HOME}/regression-test/framework
-REGRESSION_TEST_BUILD_DIR=${FRAMEWORK_SOURCE_DIR}/target
+FRAMEWORK_SOURCE_DIR="${DORIS_HOME}/regression-test/framework"
+REGRESSION_TEST_BUILD_DIR="${FRAMEWORK_SOURCE_DIR}/target"
 
-OUTPUT_DIR=${DORIS_HOME}/output/regression-test
-LOG_OUTPUT_FILE=${OUTPUT_DIR}/log
-RUN_JAR=${OUTPUT_DIR}/lib/regression-test-*.jar
+OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
+LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
+RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
 
-if [ ${CLEAN} -eq 1 ]; then
-    rm -rf ${REGRESSION_TEST_BUILD_DIR}
-    rm -rf ${OUTPUT_DIR}
+if [[ "${CLEAN}" -eq 1 ]]; then
+    rm -rf "${REGRESSION_TEST_BUILD_DIR}"
+    rm -rf "${OUTPUT_DIR}"
 fi
 
-if [ ${RUN} -ne 1 ]; then
+if [[ "${RUN}" -ne 1 ]]; then
     echo "Finished"
     exit 0
 fi
 
-if [ ! -f ${RUN_JAR} ]; then
+if [[ ! -f ${RUN_JAR} ]]; then
     echo "===== Build Regression Test Framework ====="
-    cd ${DORIS_HOME}/regression-test/framework
-    ${MVN_CMD} package
-    cd ${DORIS_HOME}
+    cd "${DORIS_HOME}/regression-test/framework"
+    "${MVN_CMD}" package
+    cd "${DORIS_HOME}"
 
-    mkdir -p ${OUTPUT_DIR}/{lib,log}
-    cp -r ${REGRESSION_TEST_BUILD_DIR}/regression-test-*.jar ${OUTPUT_DIR}/lib
+    mkdir -p "${OUTPUT_DIR}"/{lib,log}
+    cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
 fi
 
 # check java home
-if [[ -z ${JAVA_HOME} ]]; then
+if [[ -z "${JAVA_HOME}" ]]; then
     echo "Error: JAVA_HOME is not set"
     exit 1
 fi
 
 # check java version
-export JAVA=${JAVA_HOME}/bin/java
+export JAVA="${JAVA_HOME}/bin/java"
 
-
-REGRESSION_OPTIONS_PREFIX=
+REGRESSION_OPTIONS_PREFIX=''
 
 # contains framework options and not start with -
 # it should be suite name
-if [ $# -ne 0 ] && [[ "$1" =~ ^[^-].* ]]; then
+if [[ "$#" -ne 0 ]] && [[ "$1" =~ ^[^-].* ]]; then
     # specify suiteName
     REGRESSION_OPTIONS_PREFIX='-s'
 fi
 
 echo "===== Run Regression Test ====="
 
-JAVA_OPTS=${JAVA_OPTS}
-if [ ${TEAMCITY} -eq 1 ]; then
-  JAVA_OPTS="$JAVA_OPTS -DstdoutAppenderType=teamcity -Xmx2048m"
+if [[ "${TEAMCITY}" -eq 1 ]]; then
+    JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi
 
-$JAVA -DDORIS_HOME=$DORIS_HOME \
-      -DLOG_PATH=$LOG_OUTPUT_FILE \
-      -Dlogback.configurationFile=${LOG_CONFIG_FILE} \
-      ${JAVA_OPTS} \
-      -jar ${RUN_JAR} \
-      -cf ${CONFIG_FILE} \
-      ${REGRESSION_OPTIONS_PREFIX} "$@"
+"${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
+    -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+    -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
+    ${JAVA_OPTS:+${JAVA_OPTS}} \
+    -jar ${RUN_JAR:+${RUN_JAR}} \
+    -cf "${CONFIG_FILE}" \
+    ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"

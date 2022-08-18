@@ -32,14 +32,15 @@
 # GTest result xml files will be in "be/ut_build_ASAN/gtest_output/"
 #####################################################################
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+set -eo pipefail
 
-export DORIS_HOME=${ROOT}
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+export DORIS_HOME="${ROOT}"
 
 # Check args
 usage() {
-  echo "
+    echo "
 Usage: $0 <options>
   Optional options:
      --benchmark        build benchmark-tool
@@ -61,74 +62,92 @@ Usage: $0 <options>
     $0 --clean                                                      clean and build tests
     $0 --clean --run                                                clean, build and run all tests
   "
-  exit 1
+    exit 1
 }
 
-OPTS=$(getopt  -n $0 -o vhj:f: -l benchmark,run,clean,filter: -- "$@")
-if [ "$?" != "0" ]; then
-  usage
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l benchmark,run,clean,filter: -- "$@")"; then
+    usage
 fi
 
-set -eo pipefail
+eval set -- "${OPTS}"
 
-eval set -- "$OPTS"
-
-PARALLEL=$[$(nproc)/5+1]
+PARALLEL="$(($(nproc) / 5 + 1))"
 
 CLEAN=0
 RUN=0
-BUILD_BENCHMARK_TOOL=OFF
+BUILD_BENCHMARK_TOOL='OFF'
 FILTER=""
-if [ $# != 1 ] ; then
-    while true; do 
+if [[ "$#" != 1 ]]; then
+    while true; do
         case "$1" in
-            --clean) CLEAN=1 ; shift ;;
-            --run) RUN=1 ; shift ;;
-            --benchmark) BUILD_BENCHMARK_TOOL=ON ; shift ;;
-            -f | --filter) FILTER="--gtest_filter=$2"; shift 2;;
-            -j) PARALLEL=$2; shift 2 ;;
-            --) shift ;  break ;;
-            *) usage ; exit 0 ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
+        --run)
+            RUN=1
+            shift
+            ;;
+        --benchmark)
+            BUILD_BENCHMARK_TOOL='ON'
+            shift
+            ;;
+        -f | --filter)
+            FILTER="--gtest_filter=$2"
+            shift 2
+            ;;
+        -j)
+            PARALLEL="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            usage
+            exit 0
+            ;;
         esac
     done
 fi
 
-CMAKE_BUILD_TYPE=${BUILD_TYPE:-ASAN}
+CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
 
 echo "Get params:
-    PARALLEL            -- $PARALLEL
-    CLEAN               -- $CLEAN
+    PARALLEL            -- ${PARALLEL}
+    CLEAN               -- ${CLEAN}
 "
 echo "Build Backend UT"
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}/env.sh"
 
-CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
-if [ ${CLEAN} -eq 1 ]; then
-    rm ${CMAKE_BUILD_DIR} -rf
-    rm ${DORIS_HOME}/be/output/ -rf
+CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+if [[ "${CLEAN}" -eq 1 ]]; then
+    rm -rf "${CMAKE_BUILD_DIR}"
+    rm -rf "${DORIS_HOME}/be/output"
 fi
 
-if [ ! -d ${CMAKE_BUILD_DIR} ]; then
-    mkdir -p ${CMAKE_BUILD_DIR}
+if [[ ! -d "${CMAKE_BUILD_DIR}" ]]; then
+    mkdir -p "${CMAKE_BUILD_DIR}"
 fi
 
-if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
-    GLIBC_COMPATIBILITY=ON
+if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
+    GLIBC_COMPATIBILITY='ON'
 fi
 
-if [[ -z ${USE_DWARF} ]]; then
-    USE_DWARF=OFF
+if [[ -z "${USE_DWARF}" ]]; then
+    USE_DWARF='OFF'
 fi
 
 MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
-echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS}"
+echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
 
-cd ${CMAKE_BUILD_DIR}
-${CMAKE_CMD} -G "${GENERATOR}" \
+cd "${CMAKE_BUILD_DIR}"
+"${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
     -DMAKE_TEST=ON \
@@ -136,16 +155,16 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
     -DWITH_MYSQL=OFF \
-    -DUSE_DWARF=${USE_DWARF} \
+    -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_MEM_TRACKER=ON \
     -DUSE_JEMALLOC=OFF \
     -DSTRICT_MEMORY_USE=OFF \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
-    ${CMAKE_USE_CCACHE} \
-    ${DORIS_HOME}/be/
-${BUILD_SYSTEM} -j ${PARALLEL}
+    ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+    "${DORIS_HOME}/be"
+"${BUILD_SYSTEM}" -j "${PARALLEL}"
 
-if [ ${RUN} -ne 1 ]; then
+if [[ "${RUN}" -ne 1 ]]; then
     echo "Finished"
     exit 0
 fi
@@ -154,96 +173,94 @@ echo "******************************"
 echo "   Running Backend Unit Test  "
 echo "******************************"
 
-cd ${DORIS_HOME}
-export DORIS_TEST_BINARY_DIR=${CMAKE_BUILD_DIR}
-export TERM=xterm
-export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
-export LOG_DIR=${DORIS_HOME}/log
-for i in `sed 's/ //g' $DORIS_HOME/conf/be.conf | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`; do
-    eval "export $i";
-done
+cd "${DORIS_HOME}"
+export DORIS_TEST_BINARY_DIR="${CMAKE_BUILD_DIR}"
+export TERM='xterm'
+export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
+export LOG_DIR="${DORIS_HOME}/log"
+while read -r variable; do
+    eval "export ${variable}"
+done < <(sed 's/ //g' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
 
-mkdir -p $LOG_DIR
-mkdir -p ${UDF_RUNTIME_DIR}
-rm -f ${UDF_RUNTIME_DIR}/*
+mkdir -p "${LOG_DIR}"
+mkdir -p "${UDF_RUNTIME_DIR}"
+rm -f "${UDF_RUNTIME_DIR}"/*
 
 # clean all gcda file
+while read -r gcda_file; do
+    rm "${gcda_file}"
+done < <(find "${DORIS_TEST_BINARY_DIR}" -name "*gcda")
 
-gcda_files=`find ${DORIS_TEST_BINARY_DIR} -name "*gcda"`
-for gcda_file in ${gcda_files[@]}
-do
-    rm $gcda_file
-done
-
-export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
+export DORIS_TEST_BINARY_DIR="${DORIS_TEST_BINARY_DIR}/test"
 
 # prepare jvm if needed
 jdk_version() {
     local result
-    local java_cmd=$JAVA_HOME/bin/java
+    local java_cmd="${JAVA_HOME}/bin/java"
     local IFS=$'\n'
-    # remove \r for Cygwin
-    local lines=$("$java_cmd" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
-    if [[ -z $java_cmd ]]
-    then
+
+    if [[ -z "${java_cmd}" ]]; then
         result=no_java
+        return 1
     else
-        for line in $lines; do
-            if [[ (-z $result) && ($line = *"version \""*) ]]
-            then
-                local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
-                # on macOS, sed doesn't support '?'
-                if [[ $ver = "1."* ]]
-                then
-                    result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
-                else
-                    result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
-                fi
-            fi
-        done
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
     fi
-    echo "$result"
+    echo "${result}"
+    return 0
 }
 
 jvm_arch="amd64"
-MACHINE_TYPE=$(uname -m)
+MACHINE_TYPE="$(uname -m)"
 if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
     jvm_arch="aarch64"
 fi
-java_version=$(jdk_version)
-if [[ $java_version -gt 8 ]]; then
-    export LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$JAVA_HOME/lib:$LD_LIBRARY_PATH
+java_version="$(
+    set -e
+    jdk_version
+)"
+if [[ "${java_version}" -gt 8 ]]; then
+    export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
 # JAVA_HOME is jdk
-elif [[ -d "$JAVA_HOME/jre"  ]]; then
-    export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/$jvm_arch/server:$JAVA_HOME/jre/lib/$jvm_arch:$LD_LIBRARY_PATH
+elif [[ -d "${JAVA_HOME}/jre" ]]; then
+    export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
 # JAVA_HOME is jre
 else
-    export LD_LIBRARY_PATH=$JAVA_HOME/lib/$jvm_arch/server:$JAVA_HOME/lib/$jvm_arch:$LD_LIBRARY_PATH
+    export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
 fi
 
 # prepare gtest output dir
-GTEST_OUTPUT_DIR=${CMAKE_BUILD_DIR}/gtest_output
-rm -rf ${GTEST_OUTPUT_DIR} && mkdir ${GTEST_OUTPUT_DIR}
+GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"
+rm -rf "${GTEST_OUTPUT_DIR}"
+mkdir "${GTEST_OUTPUT_DIR}"
 
 # prepare util test_data
-mkdir -p ${DORIS_TEST_BINARY_DIR}/util
-if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
-    rm -rf ${DORIS_TEST_BINARY_DIR}/util/test_data
+mkdir -p "${DORIS_TEST_BINARY_DIR}/util"
+if [[ -d "${DORIS_TEST_BINARY_DIR}/util/test_data" ]]; then
+    rm -rf "${DORIS_TEST_BINARY_DIR}/util/test_data"
 fi
-cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
+cp -r "${DORIS_HOME}/be/test/util/test_data" "${DORIS_TEST_BINARY_DIR}/util"/
 
 # prepare ut temp dir
-UT_TMP_DIR=${DORIS_HOME}/ut_dir
-rm -rf ${UT_TMP_DIR} && mkdir ${UT_TMP_DIR}
-touch ${UT_TMP_DIR}/tmp_file
+UT_TMP_DIR="${DORIS_HOME}/ut_dir"
+rm -rf "${UT_TMP_DIR}"
+mkdir "${UT_TMP_DIR}"
+touch "${UT_TMP_DIR}/tmp_file"
 
 # find all executable test files
 
-test=${DORIS_TEST_BINARY_DIR}doris_be_test
-file_name=${test##*/}
-if [ -f "$test" ]; then
-    $test --gtest_output=xml:${GTEST_OUTPUT_DIR}/${file_name}.xml  --gtest_print_time=true "${FILTER}"
+test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
+file_name="${test##*/}"
+if [[ -f "${test}" ]]; then
+    "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
-else 
-    echo "unit test file: $test does not exist."
+else
+    echo "unit test file: ${test} does not exist."
 fi

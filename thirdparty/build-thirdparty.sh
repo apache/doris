@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=2034
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -26,16 +28,13 @@
 # This script will run *download-thirdparty.sh* once again
 # to check if all thirdparties have been downloaded, unpacked and patched.
 #################################################################################
-set -e
 
-curdir=$(dirname "$0")
-curdir=$(
-    cd "$curdir"
-    pwd
-)
+set -eo pipefail
 
-export DORIS_HOME=$curdir/..
-export TP_DIR=$curdir
+curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+export DORIS_HOME="${curdir}/.."
+export TP_DIR="${curdir}"
 
 # Check args
 usage() {
@@ -47,31 +46,31 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS=$(getopt \
+if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -o 'h' \
     -l 'help' \
     -o 'j:' \
-    -- "$@"); then
+    -- "$@")"; then
     usage
 fi
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
 KERNEL="$(uname -s)"
 
 if [[ "${KERNEL}" == 'Darwin' ]]; then
-    PARALLEL=$(($(sysctl -n hw.logicalcpu) / 4 + 1))
+    PARALLEL="$(($(sysctl -n hw.logicalcpu) / 4 + 1))"
 else
-    PARALLEL=$(($(nproc) / 4 + 1))
+    PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
-if [[ $# -ne 1 ]]; then
+if [[ "$#" -ne 1 ]]; then
     while true; do
         case "$1" in
         -j)
-            PARALLEL=$2
+            PARALLEL="$2"
             shift 2
             ;;
         -h)
@@ -94,28 +93,28 @@ if [[ $# -ne 1 ]]; then
     done
 fi
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
     exit
 fi
 
 echo "Get params:
-    PARALLEL            -- $PARALLEL
+    PARALLEL            -- ${PARALLEL}
 "
 
 # include custom environment variables
-if [[ -f ${DORIS_HOME}/env.sh ]]; then
+if [[ -f "${DORIS_HOME}/env.sh" ]]; then
     export BUILD_THIRDPARTY_WIP=1
     . "${DORIS_HOME}/env.sh"
     export BUILD_THIRDPARTY_WIP=
 fi
 
-if [[ ! -f ${TP_DIR}/download-thirdparty.sh ]]; then
+if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
     echo "Download thirdparty script is missing".
     exit 1
 fi
 
-if [[ ! -f ${TP_DIR}/vars.sh ]]; then
+if [[ ! -f "${TP_DIR}/vars.sh" ]]; then
     echo "vars.sh is missing".
     exit 1
 fi
@@ -127,26 +126,26 @@ cd "${TP_DIR}"
 # Download thirdparties.
 "${TP_DIR}/download-thirdparty.sh"
 
-export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
 # toolchain specific warning options and settings
-if [[ "$CC" == *gcc ]]; then
-    warning_uninitialized=-Wno-maybe-uninitialized
-    warning_stringop_truncation=-Wno-stringop-truncation
-    warning_class_memaccess=-Wno-class-memaccess
-    warning_array_parameter=-Wno-array-parameter
-    boost_toolset=gcc
-elif [[ "$CC" == *clang ]]; then
-    warning_uninitialized=-Wno-uninitialized
-    warning_shadow=-Wno-shadow
-    warning_dangling_gsl=-Wno-dangling-gsl
-    warning_unused_but_set_variable=-Wno-unused-but-set-variable
-    warning_defaulted_function_deleted=-Wno-defaulted-function-deleted
-    warning_reserved_identifier=-Wno-reserved-identifier
-    warning_suggest_override="-Wno-suggest-override -Wno-suggest-destructor-override"
-    warning_option_ignored=-Wno-option-ignored
-    boost_toolset=clang
-    libhdfs_cxx17=-std=c++1z
+if [[ "${CC}" == *gcc ]]; then
+    warning_uninitialized='-Wno-maybe-uninitialized'
+    warning_stringop_truncation='-Wno-stringop-truncation'
+    warning_class_memaccess='-Wno-class-memaccess'
+    warning_array_parameter='-Wno-array-parameter'
+    boost_toolset='gcc'
+elif [[ "${CC}" == *clang ]]; then
+    warning_uninitialized='-Wno-uninitialized'
+    warning_shadow='-Wno-shadow'
+    warning_dangling_gsl='-Wno-dangling-gsl'
+    warning_unused_but_set_variable='-Wno-unused-but-set-variable'
+    warning_defaulted_function_deleted='-Wno-defaulted-function-deleted'
+    warning_reserved_identifier='-Wno-reserved-identifier'
+    warning_suggest_override='-Wno-suggest-override -Wno-suggest-destructor-override'
+    warning_option_ignored='-Wno-option-ignored'
+    boost_toolset='clang'
+    libhdfs_cxx17='-std=c++1z'
 fi
 
 # prepare installed prefix
@@ -156,13 +155,13 @@ ln -sf lib64 lib
 popd
 
 check_prerequest() {
-    local CMD=$1
-    local NAME=$2
-    if ! $CMD; then
-        echo "$NAME is missing"
+    local CMD="$1"
+    local NAME="$2"
+    if ! ${CMD}; then
+        echo "${NAME} is missing"
         exit 1
     else
-        echo "$NAME is found"
+        echo "${NAME} is found"
     fi
 }
 
@@ -222,8 +221,8 @@ check_if_source_exist() {
         exit 1
     fi
 
-    if [[ ! -d $TP_SOURCE_DIR/$1 ]]; then
-        echo "$TP_SOURCE_DIR/$1 does not exist."
+    if [[ ! -d "${TP_SOURCE_DIR}/$1" ]]; then
+        echo "${TP_SOURCE_DIR}/$1 does not exist."
         exit 1
     fi
     echo "===== begin build $1"
@@ -235,8 +234,8 @@ check_if_archieve_exist() {
         exit 1
     fi
 
-    if [[ ! -f $TP_SOURCE_DIR/$1 ]]; then
-        echo "$TP_SOURCE_DIR/$1 does not exist."
+    if [[ ! -f "${TP_SOURCE_DIR}/$1" ]]; then
+        echo "${TP_SOURCE_DIR}/$1 does not exist."
         exit 1
     fi
 }
@@ -374,7 +373,7 @@ build_protobuf() {
     #       This will casue protoc cannot run
     #       If you really need to dynamically link protoc, please set the environment variable DYN_LINK_PROTOC=1
 
-    if [[ "${DYN_LINK_PROTOC}" == "1" || "${KERNEL}" == 'Darwin' ]]; then
+    if [[ "${DYN_LINK_PROTOC:-0}" == "1" || "${KERNEL}" == 'Darwin' ]]; then
         echo "link protoc dynamiclly"
     else
         cd src
@@ -940,22 +939,22 @@ build_bitshuffle() {
     # we still need to support non-AVX2-capable hardware. So, we build it twice,
     # once with the flag and once without, and use some linker tricks to
     # suffix the AVX2 symbols with '_avx2'.
-    arches="default avx2"
+    arches=('default' 'avx2')
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        arches="default"
+        arches=('default')
     fi
 
     to_link=""
-    for arch in $arches; do
+    for arch in "${arches[@]}"; do
         arch_flag=""
         if [[ "${arch}" == "avx2" ]]; then
             arch_flag="-mavx2"
         fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
-        "${CC}" ${EXTRA_CFLAGS} ${arch_flag} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
+        "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
             "src/bitshuffle_core.c" \
             "src/bitshuffle.c" \
             "src/iochain.c"
@@ -964,7 +963,7 @@ build_bitshuffle() {
         # For the AVX2 symbols, suffix them.
         if [[ "${arch}" == "avx2" ]]; then
             # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
-            "${DORIS_BIN_UTILS}/nm" --defined-only --extern-only "${tmp_obj}" | while read addr type sym; do
+            "${DORIS_BIN_UTILS}/nm" --defined-only --extern-only "${tmp_obj}" | while read -r addr type sym; do
                 echo "${sym} ${sym}_${arch}"
             done >renames.txt
             "${DORIS_BIN_UTILS}/objcopy" --redefine-syms=renames.txt "${tmp_obj}" "${dst_obj}"
@@ -973,17 +972,19 @@ build_bitshuffle() {
         fi
         to_link="${to_link} ${dst_obj}"
     done
+    local links
+    read -r -a links <<<"${to_link}"
     rm -f libbitshuffle.a
-    "${DORIS_BIN_UTILS}/ar" rs libbitshuffle.a ${to_link}
+    "${DORIS_BIN_UTILS}/ar" rs libbitshuffle.a "${links[@]}"
     mkdir -p "${PREFIX}/include/bitshuffle"
     cp libbitshuffle.a "${PREFIX}"/lib/
-    cp "${TP_SOURCE_DIR}/$BITSHUFFLE_SOURCE/src/bitshuffle.h" "${PREFIX}/include/bitshuffle/bitshuffle.h"
-    cp "${TP_SOURCE_DIR}/$BITSHUFFLE_SOURCE/src/bitshuffle_core.h" "${PREFIX}/include/bitshuffle/bitshuffle_core.h"
+    cp "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}/src/bitshuffle.h" "${PREFIX}/include/bitshuffle/bitshuffle.h"
+    cp "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}/src/bitshuffle_core.h" "${PREFIX}/include/bitshuffle/bitshuffle_core.h"
 }
 
 # croaring bitmap
 build_croaringbitmap() {
-    avx_flag=
+    avx_flag=''
     if [[ -n "${USE_AVX2}" && "${USE_AVX2}" -eq 0 ]]; then
         echo "set USE_AVX2=${USE_AVX2} to FORCE disable AVX2 in croaringbitmap"
         avx_flag="-DROARING_DISABLE_AVX=ON"
@@ -1005,7 +1006,7 @@ build_croaringbitmap() {
 
     CXXFLAGS="-O3" \
         LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" ${avx_flag} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" ${avx_flag:+${avx_flag}} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DENABLE_ROARING_TESTS=OFF ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1230,7 +1231,7 @@ build_krb5() {
     fi
 
     CFLAGS="-fcommon -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
-        ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static ${with_crypto_impl}
+        ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static ${with_crypto_impl:+${with_crypto_impl}}
 
     make -j "${PARALLEL}"
     make install
@@ -1262,7 +1263,7 @@ build_benchmark() {
 
     cmake -E make_directory "build"
 
-    if [[ "$KERNEL" != 'Darwin' ]]; then
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
         cxxflags='-lresolv -pthread -lrt'
     else
         cxxflags='-lresolv -pthread'
@@ -1288,8 +1289,8 @@ build_simdjson() {
 
     CXXFLAGS="-O3" \
         CFLAGS="-O3" \
-        $CMAKE_CMD ..
-    $CMAKE_CMD --build .
+        "${CMAKE_CMD}" ..
+    "${CMAKE_CMD}" --build .
 
     cp "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/${BUILD_DIR}/libsimdjson.a" "${TP_INSTALL_DIR}/lib64"
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
