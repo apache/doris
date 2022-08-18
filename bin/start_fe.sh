@@ -16,28 +16,26 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=$(dirname "$0")
-curdir=$(
-    cd "$curdir"
-    pwd
-)
+set -eo pipefail
 
-OPTS=$(getopt \
-    -n $0 \
+curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+OPTS="$(getopt \
+    -n "$0" \
     -o '' \
     -l 'daemon' \
     -l 'helper:' \
     -l 'image:' \
     -l 'version' \
-    -- "$@")
+    -- "$@")"
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
 RUN_DAEMON=0
-HELPER=
-IMAGE_PATH=
-IMAGE_TOOL=
-OPT_VERSION=
+HELPER=''
+IMAGE_PATH=''
+IMAGE_TOOL=''
+OPT_VERSION=''
 while true; do
     case "$1" in
     --daemon)
@@ -49,12 +47,12 @@ while true; do
         shift
         ;;
     --helper)
-        HELPER=$2
+        HELPER="$2"
         shift 2
         ;;
     --image)
         IMAGE_TOOL=1
-        IMAGE_PATH=$2
+        IMAGE_PATH="$2"
         shift 2
         ;;
     --)
@@ -68,10 +66,11 @@ while true; do
     esac
 done
 
-export DORIS_HOME=$(
-    cd "$curdir/.."
+DORIS_HOME="$(
+    cd "${curdir}/.."
     pwd
-)
+)"
+export DORIS_HOME
 
 # export env variables from fe.conf
 #
@@ -79,31 +78,37 @@ export DORIS_HOME=$(
 # LOG_DIR
 # PID_DIR
 export JAVA_OPTS="-Xmx1024m"
-export LOG_DIR="$DORIS_HOME/log"
-export PID_DIR=$(
-    cd "$curdir"
+export LOG_DIR="${DORIS_HOME}/log"
+PID_DIR="$(
+    cd "${curdir}"
     pwd
-)
+)"
+export PID_DIR
 
-while read line; do
-    envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
-    envline=$(eval "echo $envline")
-    if [[ $envline == *"="* ]]; then
-        eval 'export "$envline"'
+while read -r line; do
+    envline="$(echo "${line}" |
+        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+        sed 's/^[[:blank:]]*//g' |
+        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+        true)"
+    envline="$(eval "echo ${envline}")"
+    if [[ "${envline}" == *"="* ]]; then
+        eval 'export "${envline}"'
     fi
-done <$DORIS_HOME/conf/fe.conf
+done <"${DORIS_HOME}/conf/fe.conf"
 
-if [ -e $DORIS_HOME/bin/palo_env.sh ]; then
-    source $DORIS_HOME/bin/palo_env.sh
+if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
+    # shellcheck disable=1091
+    source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
-if [ -z "$JAVA_HOME" ]; then
-    JAVA=$(which java)
+if [[ -z "${JAVA_HOME}" ]]; then
+    JAVA="$(which java)"
 else
-    JAVA="$JAVA_HOME/bin/java"
+    JAVA="${JAVA_HOME}/bin/java"
 fi
 
-if [ ! -x "$JAVA" ]; then
+if [[ ! -x "${JAVA}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"
     echo "This environment variable is needed to run this program"
     echo "NB: JAVA_HOME should point to a JDK not a JRE"
@@ -114,80 +119,87 @@ fi
 # 1.8 => 8, 13.0 => 13
 jdk_version() {
     local result
+    local java_cmd="${JAVA_HOME:-.}/bin/java"
     local IFS=$'\n'
-    # remove \r for Cygwin
-    local lines=$("$JAVA" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
-    for line in $lines; do
-        if [[ (-z $result) && ($line = *"version \""*) ]]; then
-            local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
-            # on macOS, sed doesn't support '?'
-            if [[ $ver = "1."* ]]; then
-                result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
-            else
-                result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
-            fi
+
+    if [[ -z "${java_cmd}" ]]; then
+        result=no_java
+        return 1
+    else
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
         fi
-    done
-    echo "$result"
+    fi
+    echo "${result}"
+    return 0
 }
 
 # need check and create if the log directory existed before outing message to the log file.
-if [ ! -d $LOG_DIR ]; then
-    mkdir -p $LOG_DIR
+if [[ ! -d "${LOG_DIR}" ]]; then
+    mkdir -p "${LOG_DIR}"
 fi
 
 # check java version and choose correct JAVA_OPTS
-java_version=$(jdk_version)
-final_java_opt=$JAVA_OPTS
-if [ $java_version -gt 8 ]; then
-    if [ -z "$JAVA_OPTS_FOR_JDK_9" ]; then
-        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>$LOG_DIR/fe.out
+java_version="$(
+    set -e
+    jdk_version
+)"
+final_java_opt="${JAVA_OPTS}"
+if [[ "${java_version}" -gt 8 ]]; then
+    if [[ -z "${JAVA_OPTS_FOR_JDK_9}" ]]; then
+        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
         exit 1
     fi
-    final_java_opt=$JAVA_OPTS_FOR_JDK_9
+    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 fi
-echo "using java version $java_version" >>$LOG_DIR/fe.out
-echo $final_java_opt >>$LOG_DIR/fe.out
+echo "using java version ${java_version}" >>"${LOG_DIR}/fe.out"
+echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
 
 # add libs to CLASSPATH
-for f in $DORIS_HOME/lib/*.jar; do
-    CLASSPATH=$f:${CLASSPATH}
+for f in "${DORIS_HOME}/lib"/*.jar; do
+    CLASSPATH="${f}:${CLASSPATH}"
 done
-export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib:${DORIS_HOME}/conf
+export CLASSPATH="${CLASSPATH}:${DORIS_HOME}/lib:${DORIS_HOME}/conf"
 
-pidfile=$PID_DIR/fe.pid
+pidfile="${PID_DIR}/fe.pid"
 
-if [ -f $pidfile ]; then
-    if kill -0 $(cat $pidfile) >/dev/null 2>&1; then
-        echo Frontend running as process $(cat $pidfile). Stop it first.
+if [[ -f "${pidfile}" ]]; then
+    if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
+        echo "Frontend running as process $(cat "${pidfile}"). Stop it first."
         exit 1
     fi
 fi
 
-if [ ! -f /bin/limit ]; then
-    LIMIT=
+if [[ ! -f "/bin/limit" ]]; then
+    LIMIT=''
 else
     LIMIT=/bin/limit
 fi
 
-echo $(date) >>$LOG_DIR/fe.out
+date >>"${LOG_DIR}/fe.out"
 
-if [ x"$HELPER" != x"" ]; then
+if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend
-    HELPER="-helper $HELPER"
+    HELPER="-helper ${HELPER}"
 fi
 
-if [[ ${IMAGE_TOOL} -eq 1 ]]; then
-    if [ ! -z ${IMAGE_PATH} ]; then
-        $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe -i ${IMAGE_PATH}
+if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
+    if [[ -n "${IMAGE_PATH}" ]]; then
+        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} org.apache.doris.PaloFe -i "${IMAGE_PATH}"
     else
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
-elif [[ ${RUN_DAEMON} -eq 1 ]]; then
-    nohup $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} "$@" >>$LOG_DIR/fe.out 2>&1 </dev/null &
+elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
 else
     export DORIS_LOG_TO_STDERR=1
-    $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} ${OPT_VERSION} "$@" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" </dev/null
 fi
 
-echo $! >$pidfile
+echo $! >"${pidfile}"

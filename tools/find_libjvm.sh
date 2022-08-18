@@ -18,43 +18,40 @@
 
 jdk_version() {
     local result
-    local java_cmd=$JAVA_HOME/bin/java
+    local java_cmd="${JAVA_HOME:-.}/bin/java"
     local IFS=$'\n'
-    # remove \r for Cygwin
-    local lines=$("$java_cmd" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
-    if [[ -z $java_cmd ]]
-    then
+
+    if [[ -z "${java_cmd}" ]]; then
         result=no_java
+        return 1
     else
-        for line in $lines; do
-            if [[ (-z $result) && ($line = *"version \""*) ]]
-            then
-                local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
-                # on macOS, sed doesn't support '?'
-                if [[ $ver = "1."* ]]
-                then
-                    result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
-                else
-                    result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
-                fi
-            fi
-        done
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
     fi
-    echo "$result"
+    echo "${result}"
+    return 0
 }
+
 java_version=$(jdk_version)
 MACHINE_TYPE=$(uname -m)
 jvm_arch="amd64"
 if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
     jvm_arch="aarch64"
 fi
-if [[ $java_version -gt 8 ]]; then
-    export LIBJVM_PATH=$JAVA_HOME/lib
+if [[ "${java_version}" -gt 8 ]]; then
+    export LIBJVM_PATH="${JAVA_HOME}/lib"
 # JAVA_HOME is jdk
-elif [[ -d "$JAVA_HOME/jre"  ]]; then
-    export LIBJVM_PATH=$JAVA_HOME/jre/lib/$jvm_arch
+elif [[ -d "${JAVA_HOME}/jre" ]]; then
+    export LIBJVM_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}"
 # JAVA_HOME is jre
 else
-    export LIBJVM_PATH=$JAVA_HOME/lib/$jvm_arch
+    export LIBJVM_PATH="${JAVA_HOME}/lib/${jvm_arch}"
 fi
-echo ${LIBJVM_PATH}/*/libjvm.so
+echo "${LIBJVM_PATH}"/*/libjvm.so

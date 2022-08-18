@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,23 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -eo pipefail
+source-path=SCRIPTDIR
+source-path=SCRIPTDIR/..
+source-path=SCRIPTDIR/../..
+source-path=thirdparty
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+external-sources=true
 
-export DORIS_HOME="${ROOT}/../.."
-
-. "${DORIS_HOME}/env.sh"
-
-export AUDITLOADER_HOME="${ROOT}"
-
-"${MVN_CMD}" clean package -DskipTests
-
-echo "Install auditloader..."
-
-AUDITLOADER_OUTPUT="${AUDITLOADER_HOME}/output"
-rm -rf "${AUDITLOADER_OUTPUT}"
-mkdir "${AUDITLOADER_OUTPUT}"
-cp "${AUDITLOADER_HOME}/target/auditloader.zip" "${AUDITLOADER_HOME}/output"/
-
-echo "Build Auditloader Finished"
+enable=all
+disable=SC2310
+disable=SC2312
