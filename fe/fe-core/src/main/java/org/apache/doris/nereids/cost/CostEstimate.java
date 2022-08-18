@@ -35,6 +35,16 @@ public final class CostEstimate {
      * Constructor of CostEstimate.
      */
     public CostEstimate(double cpuCost, double memoryCost, double networkCost) {
+        // TODO: remove them after finish statistics.
+        if (cpuCost < 0) {
+            cpuCost = 0;
+        }
+        if (memoryCost < 0) {
+            memoryCost = 0;
+        }
+        if (networkCost < 0) {
+            networkCost = 0;
+        }
         Preconditions.checkArgument(!(cpuCost < 0), "cpuCost cannot be negative: %s", cpuCost);
         Preconditions.checkArgument(!(memoryCost < 0), "memoryCost cannot be negative: %s", memoryCost);
         Preconditions.checkArgument(!(networkCost < 0), "networkCost cannot be negative: %s", networkCost);

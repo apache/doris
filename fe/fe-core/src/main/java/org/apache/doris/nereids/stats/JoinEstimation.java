@@ -129,6 +129,7 @@ public class JoinEstimation {
         if (lhsCard == -1 || rhsCard == -1) {
             return lhsCard;
         }
+
         long result = -1;
         for (Expression eqJoinConjunct : eqConjunctList) {
             Expression left = eqJoinConjunct.child(0);
@@ -160,6 +161,7 @@ public class JoinEstimation {
                 result = Math.min(result, joinCard);
             }
         }
+
         return result;
     }
 }
