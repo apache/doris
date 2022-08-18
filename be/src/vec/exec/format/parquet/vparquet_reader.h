@@ -53,11 +53,11 @@ class ParquetReadColumn {
 public:
     friend class ParquetReader;
     friend class RowGroupReader;
+    ParquetReadColumn(SlotDescriptor* slot_desc) : _slot_desc(slot_desc) {};
+    ~ParquetReadColumn() = default;
 
 private:
-    SlotDescriptor* slot_desc;
-    int parquet_column_id;
-    tparquet::Type::type parquet_type;
+    SlotDescriptor* _slot_desc;
     //    int64_t start_offset;
     //    int64_t chunk_size;
 };

@@ -37,7 +37,6 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
     if (field->type.type == TYPE_ARRAY) {
         return Status::Corruption("not supported array type yet");
     } else {
-        VLOG_DEBUG << "field->physical_column_index: " << field->physical_column_index;
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
         scalar_reader->init_column_metadata(chunk);
@@ -60,23 +59,27 @@ void ParquetColumnReader::_skipped_pages() {}
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                                 std::vector<RowRange>& row_ranges) {
-    BufferedFileStreamReader stream_reader(file, _metadata->start_offset(), _metadata->size());
-    _row_ranges.reset(&row_ranges);
-    _chunk_reader.reset(new ColumnChunkReader(&stream_reader, chunk, field));
-    _chunk_reader->init();
+    _stream_reader =
+            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
+    _row_ranges = &row_ranges;
+    _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field));
+    RETURN_IF_ERROR(_chunk_reader->init());
+    RETURN_IF_ERROR(_chunk_reader->next_page());
+    if (_row_ranges->size() != 0) {
+        _skipped_pages();
+    }
+    RETURN_IF_ERROR(_chunk_reader->load_page_data());
     return Status::OK();
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, size_t* read_rows, bool* eof) {
     if (_chunk_reader->remaining_num_values() <= 0) {
-        // seek to next page header
-        _chunk_reader->next_page();
+        RETURN_IF_ERROR(_chunk_reader->next_page());
         if (_row_ranges->size() != 0) {
             _skipped_pages();
         }
-        // load data to decoder
-        _chunk_reader->load_page_data();
+        RETURN_IF_ERROR(_chunk_reader->load_page_data());
     }
     size_t read_values = _chunk_reader->remaining_num_values() < batch_size
                                  ? _chunk_reader->remaining_num_values()
@@ -84,12 +87,12 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     *read_rows = read_values;
     WhichDataType which_type(type);
     switch (_metadata->t_metadata().type) {
-    case tparquet::Type::INT32: {
+    case tparquet::Type::INT32:
+    case tparquet::Type::INT64:
+    case tparquet::Type::FLOAT:
+    case tparquet::Type::DOUBLE:
+    case tparquet::Type::BOOLEAN: {
         _chunk_reader->decode_values(doris_column, type, read_values);
-        return Status::OK();
-    }
-    case tparquet::Type::INT64: {
-        // todo: test int64
         return Status::OK();
     }
     default:
