@@ -26,16 +26,13 @@ namespace doris::vectorized {
 using doris::Status;
 using doris::SlotDescriptor;
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node),
-          _slot_id(node.slot_ref.slot_id),
-          _column_id(-1),
-          _column_name(nullptr) {
-            if (node.__isset.is_nullable) {
-              _is_nullable = node.is_nullable;
-            } else {
-              _is_nullable = true;
-            }
-        }
+        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_name(nullptr) {
+    if (node.__isset.is_nullable) {
+        _is_nullable = node.is_nullable;
+    } else {
+        _is_nullable = true;
+    }
+}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
@@ -60,7 +57,11 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    CHECK_GE(_column_id, 0) << ", " << debug_string() << ", " << get_stack_trace();
+    // comment DCHECK temporarily to make fuzzy test run smoothly
+    // DCHECK_GE(_column_id, 0);
+    if (_column_id < 0) {
+        return Status::InternalError("invalid column id {}", _column_id);
+    }
     *result_column_id = _column_id;
     return Status::OK();
 }
@@ -70,7 +71,8 @@ const std::string& VSlotRef::expr_name() const {
 }
 std::string VSlotRef::debug_string() const {
     std::stringstream out;
-    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ") column id: " << _column_id << ", name: " << *_column_name << ", is nulable: " << _is_nullable;
+    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ") column id: " << _column_id
+        << ", name: " << *_column_name << ", is nulable: " << _is_nullable;
     return out.str();
 }
 } // namespace doris::vectorized

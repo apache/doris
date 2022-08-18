@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vcase_expr.h"
 
+#include "common/status.h"
 #include "vec/columns/column_nullable.h"
 
 namespace doris::vectorized {
@@ -94,7 +95,7 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
 
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
 
         block->replace_by_position_if_const(column_id);
