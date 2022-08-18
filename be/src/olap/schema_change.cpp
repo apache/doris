@@ -17,8 +17,6 @@
 
 #include "olap/schema_change.h"
 
-#include <vector>
-
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/merger.h"
@@ -829,7 +827,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                     << ", expect=" << row_size
                     << ", real=" << ref_block->get_by_position(result_column_id).column->size();
 
-            if (_schema_mapping[idx].expr->nodes[0].node_type == TExprNodeType::CAST_EXPR) {
+            if (ctx->root()->node_type() == TExprNodeType::CAST_EXPR) {
                 RETURN_IF_ERROR(
                         _check_cast_valid(ref_block->get_by_position(ref_idx).column,
                                           ref_block->get_by_position(result_column_id).column));
@@ -849,10 +847,28 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     return Status::OK();
 }
 
+// This check is to prevent schema-change from causing data loss
 Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                           vectorized::ColumnPtr new_column) const {
-    // TODO: rethink this check
-    // This check is to prevent schema-change from causing data loss,
+    if (ref_column->is_nullable() != new_column->is_nullable()) {
+        if (ref_column->is_nullable()) {
+            return Status::DataQualityError("Can not change nullable column to not nullable");
+        } else {
+            auto* new_null_map =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                            ->get_null_map_column()
+                            .get_data()
+                            .data();
+
+            bool is_changed = false;
+            for (size_t i = 0; i < ref_column->size(); i++) {
+                is_changed |= new_null_map[i];
+            }
+            if (is_changed) {
+                return Status::DataQualityError("is_null of data is changed!");
+            }
+        }
+    }
 
     if (ref_column->is_nullable() && new_column->is_nullable()) {
         auto* ref_null_map =
