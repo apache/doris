@@ -68,6 +68,13 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
         }
     }
 
+    /**
+     * key : slotReference of a arithmetic expression
+     * value : {
+     *     key : arithmetic expression
+     *     value : aliased arithmetic expression
+     * }
+     */
     private final Map<SlotReference, Map<Expression, Expression>> exprMap = new HashMap<>();
 
     /**
@@ -135,7 +142,7 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
                 Map<Expression, Expression> map = context.get(ref);
                 if (map == null) {
                     Map<Expression, Expression> newMap = new HashMap<>();
-                    newMap.put(expr, new Alias(expr, expr.toString()));
+                    newMap.put(expr, new Alias(expr, expr.toSql()));
                     context.put(ref, newMap);
                 } else {
                     map.put(expr, new Alias(expr, expr.toString()));
