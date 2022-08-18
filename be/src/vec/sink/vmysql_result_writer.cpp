@@ -235,7 +235,6 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
             }
             if constexpr (type == TYPE_DATETIMEV2) {
-                // TODO: use correct scale here
                 char buf[64];
                 auto time_num = data[i];
                 doris::vectorized::DateV2Value<DateTimeV2ValueType> date_val;

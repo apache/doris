@@ -26,7 +26,10 @@ suite("test_dup_tab_datetime_nullable") {
   `siteid` int(11) NULL COMMENT "",
   `datetime1` datetime NULL COMMENT "",
   `datetime2` datetime NULL COMMENT "",
-  `datetime3` datetime NULL COMMENT ""
+  `datetime3` datetime NULL COMMENT "",
+  `datetime4` datetimev2 NULL COMMENT "",
+  `datetime5` datetimev2(3) NULL COMMENT "",
+  `datetime6` datetimev2(6) NULL COMMENT ""
 ) ENGINE=OLAP
 DUPLICATE KEY(`siteid`)
 COMMENT "OLAP"
@@ -39,18 +42,16 @@ PROPERTIES (
 
     """
 
-    sql "set enable_vectorized_engine = false"
+    sql "set enable_vectorized_engine = true"
 
     sql """insert into ${table1} values
-        (1,'2021-01-01 23:10:01','2021-01-02 23:10:04','2021-01-02 22:10:04'),
-        (2,'2021-02-01 23:10:01','2021-02-02 23:10:04','2021-03-02 22:10:04'),
-        (3,'2021-03-01 23:10:01','2021-03-02 23:10:04','2021-04-02 22:10:04'),
-        (4,'2021-04-01 23:10:01','2021-04-02 23:10:04','2021-05-02 22:10:04'),
-        (5,'2021-05-01 23:10:01','2021-05-02 23:10:04','2021-06-02 22:10:04'),
-        (null,'2021-06-01 23:10:01',null,'2021-06-02 22:10:04')
-"""
-
-    sql "set enable_vectorized_engine = true"
+        (1,'2021-01-01 23:10:01','2021-01-02 23:10:04','2021-01-02 22:10:04','2021-01-01 23:10:01.111111','2021-01-02 23:10:04.111111','2021-01-02 22:10:04.111111'),
+        (2,'2021-02-01 23:10:01','2021-02-02 23:10:04','2021-03-02 22:10:04','2021-02-01 23:10:01.111111','2021-02-02 23:10:04.111111','2021-03-02 22:10:04.111111'),
+        (3,'2021-03-01 23:10:01','2021-03-02 23:10:04','2021-04-02 22:10:04','2021-03-01 23:10:01.111111','2021-03-02 23:10:04.111111','2021-04-02 22:10:04.111111'),
+        (4,'2021-04-01 23:10:01','2021-04-02 23:10:04','2021-05-02 22:10:04','2021-04-01 23:10:01.111111','2021-04-02 23:10:04.111111','2021-05-02 22:10:04.111111'),
+        (5,'2021-05-01 23:10:01','2021-05-02 23:10:04','2021-06-02 22:10:04','2021-05-01 23:10:01.111111','2021-05-02 23:10:04.111111','2021-06-02 22:10:04.111111'),
+        (null,'2021-06-01 23:10:01',null,'2021-06-02 22:10:04','2021-06-01 23:10:01.111111',null,'2021-06-02 22:10:04.111111')
+    """
 
     qt_read_single_column_1 "select datetime1 from ${table1}"
     qt_read_single_column_2 "select siteid from ${table1}"
@@ -65,6 +66,34 @@ PROPERTIES (
     qt_key_is_not_null "select * from ${table1} where siteid is not null"
     qt_non_key_is_null "select * from ${table1} where datetime2 is null"
     qt_non_key_is_not_null "select * from ${table1} where datetime2 is not null"
+
+    qt_non_key_is_null "select * from ${table1} where datetime5 is null"
+    qt_non_key_is_not_null "select * from ${table1} where datetime5 is not null"
+
+    qt_read_single_column_1 "select datetime4 from ${table1}"
+
+    qt_datetime_as_pred_1 "select datetime4 from ${table1} where datetime4='2021-05-01 23:10:01'"
+    qt_datetime_as_pred_2 "select datetime4 from ${table1} where datetime4!='2021-05-01 23:10:01'"
+    qt_datetime_as_pred_3 "select datetime4 from ${table1} where datetime4='2021-05-01 23:10:01.111111'"
+    qt_datetime_as_pred_4 "select datetime4 from ${table1} where datetime4!='2021-05-01 23:10:01.111111'"
+    qt_datetime_as_pred_5 "select datetime4 from ${table1} where datetime4 < '2021-05-01 23:10:01.111111'"
+    qt_datetime_as_pred_6 "select datetime4 from ${table1} where datetime4 < '2021-05-01 23:10:01.011111'"
+
+    qt_read_single_column_1 "select datetime5 from ${table1}"
+
+    qt_datetime_as_pred_1 "select datetime5 from ${table1} where datetime5='2021-05-02 23:10:04.111'"
+    qt_datetime_as_pred_2 "select datetime5 from ${table1} where datetime5!='2021-05-02 23:10:04.111'"
+    qt_datetime_as_pred_3 "select datetime5 from ${table1} where datetime5='2021-05-02 23:10:04.111111'"
+    qt_datetime_as_pred_4 "select datetime5 from ${table1} where datetime5!='2021-05-02 23:10:04.111111'"
+    qt_datetime_as_pred_5 "select datetime5 from ${table1} where datetime5<'2021-05-02 23:10:04.111111'"
+    qt_datetime_as_pred_6 "select datetime5 from ${table1} where datetime5<'2021-05-02 23:10:04.011111'"
+
+    qt_read_single_column_1 "select datetime6 from ${table1}"
+
+    qt_datetime_as_pred_1 "select datetime6 from ${table1} where datetime6='2021-05-02 22:10:04.111111'"
+    qt_datetime_as_pred_2 "select datetime6 from ${table1} where datetime6!='2021-05-02 22:10:04.111111'"
+    qt_datetime_as_pred_3 "select datetime6 from ${table1} where datetime6<'2021-05-02 22:10:04.111111'"
+    qt_datetime_as_pred_4 "select datetime6 from ${table1} where datetime6<='2021-05-02 22:10:04.111111'"
 
     sql "drop table if exists ${table1}"
 
