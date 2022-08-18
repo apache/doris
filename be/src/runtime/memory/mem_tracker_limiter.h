@@ -124,13 +124,15 @@ public:
     Status try_gc_memory(int64_t bytes);
 
 public:
+    // up to (but not including) end_tracker.
+    // This happens when we want to update tracking on a particular mem tracker but the consumption
+    // against the limit recorded in one of its ancestors already happened.
     // It is used for revise mem tracker consumption.
     // If the location of memory alloc and free is different, the consumption value of mem tracker will be inaccurate.
     // But the consumption value of the process mem tracker is not affecte
-    void consumption_revise(int64_t bytes) {
-        DCHECK(_label != "Process");
-        _consumption->add(bytes);
-    }
+    void consume_local(int64_t bytes, MemTrackerLimiter* end_tracker);
+
+    void enable_print_log_usage() { _print_log_usage = true; }
 
     // Logs the usage of this tracker limiter and optionally its children (recursively).
     // If 'logged_consumption' is non-nullptr, sets the consumption value logged.
@@ -145,9 +147,11 @@ public:
     // If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     // 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     // If 'state' is non-nullptr, logs the error to 'state'.
-    Status mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size);
-    Status mem_limit_exceeded(RuntimeState* state, const std::string& msg = std::string(),
-                              int64_t failed_consume_size = -1);
+    Status mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size = 0);
+    Status mem_limit_exceeded(const std::string& msg, MemTrackerLimiter* failed_tracker,
+                              Status failed_try_consume_st);
+    Status mem_limit_exceeded(RuntimeState* state, const std::string& msg,
+                              int64_t failed_consume_size = 0);
 
     std::string debug_string() {
         std::stringstream msg;
@@ -187,6 +191,8 @@ private:
     static std::string log_usage(int max_recursive_depth,
                                  const std::list<MemTrackerLimiter*>& trackers,
                                  int64_t* logged_consumption);
+
+    Status mem_limit_exceeded_log(const std::string& msg);
 
 private:
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit. Used in log_usage。
@@ -252,6 +258,15 @@ inline void MemTrackerLimiter::consume_cache(int64_t bytes) {
     int64_t consume_bytes = add_untracked_mem(bytes);
     if (consume_bytes != 0) {
         consume(consume_bytes);
+    }
+}
+
+inline void MemTrackerLimiter::consume_local(int64_t bytes, MemTrackerLimiter* end_tracker) {
+    DCHECK(end_tracker);
+    if (bytes == 0) return;
+    for (auto& tracker : _all_ancestors) {
+        if (tracker->label() == end_tracker->label()) return;
+        tracker->_consumption->add(bytes);
     }
 }
 

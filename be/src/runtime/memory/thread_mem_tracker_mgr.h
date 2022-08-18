@@ -67,6 +67,9 @@ public:
     // So for performance, add tracker as early as possible, and then call update_tracker<Existed>.
     void push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
+    std::string last_consumer_tracker() {
+        return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack[-1]->label();
+    }
 
     void set_exceed_call_back(ExceedCallBack cb_func) { _cb_func = cb_func; }
 
@@ -112,7 +115,7 @@ private:
     // If tryConsume fails due to task mem tracker exceeding the limit, the task must be canceled
     void exceeded_cancel_task(const std::string& cancel_details);
 
-    void exceeded(int64_t failed_consume_size);
+    void exceeded(Status failed_try_consume_st);
 
 private:
     // Cache untracked mem, only update to _untracked_mems when switching mem tracker.
@@ -191,7 +194,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
             // The memory has been allocated, so when TryConsume fails, need to continue to complete
             // the consume to ensure the accuracy of the statistics.
             _limiter_tracker->consume(_untracked_mem);
-            exceeded(_untracked_mem);
+            exceeded(st);
         }
     } else {
         _limiter_tracker->consume(_untracked_mem);

@@ -260,8 +260,14 @@ public:
     doris::thread_context()->_thread_mem_tracker_mgr->transfer_to(size, tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
     doris::thread_context()->_thread_mem_tracker_mgr->transfer_from(size, tracker)
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...)               \
-    return doris::thread_context()                           \
-            ->_thread_mem_tracker_mgr->limiter_mem_tracker() \
-            ->mem_limit_exceeded(state, msg, ##__VA_ARGS__);
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                              \
+    return doris::thread_context()                                                          \
+            ->_thread_mem_tracker_mgr->limiter_mem_tracker()                                \
+            ->mem_limit_exceeded(                                                           \
+                    state,                                                                  \
+                    fmt::format("exec node:<{}>, {}",                                       \
+                                doris::thread_context()                                     \
+                                        ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
+                                msg),                                                       \
+                    ##__VA_ARGS__);
 } // namespace doris

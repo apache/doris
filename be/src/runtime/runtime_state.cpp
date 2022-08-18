@@ -245,8 +245,8 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     }
 
     _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            bytes_limit, "RuntimeState:instance:" + print_id(_fragment_instance_id),
-            _query_mem_tracker, &_profile);
+            -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
+            &_profile);
 
     RETURN_IF_ERROR(init_buffer_poolstate());
 
