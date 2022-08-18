@@ -4740,12 +4740,16 @@ order_by_elements ::=
   order_by_element:e
   {:
     ArrayList<OrderByElement> list = new ArrayList<OrderByElement>();
-    list.add(e);
+    if (!(e.getExpr() instanceof NullLiteral)) {
+        list.add(e);
+    }
     RESULT = list;
   :}
   | order_by_elements:list COMMA order_by_element:e
   {:
-    list.add(e);
+    if (!(e.getExpr() instanceof NullLiteral)) {
+        list.add(e);
+    }
     RESULT = list;
   :}
   ;
