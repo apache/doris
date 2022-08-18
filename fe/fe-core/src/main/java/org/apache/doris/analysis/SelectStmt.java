@@ -1879,6 +1879,9 @@ public class SelectStmt extends QueryStmt {
         // substitute group by
         if (groupByClause != null) {
             substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+            if (groupByClause.getOriGroupingExprs() != null) {
+                substituteOrdinalsAliases(groupByClause.getOriGroupingExprs(), "GROUP BY", analyzer);
+            }
         }
         // substitute having
         if (havingClause != null) {

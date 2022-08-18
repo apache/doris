@@ -201,9 +201,11 @@ public class GroupByClause implements ParseNode {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
-        for (Expr groupingExpr : oriGroupingExprs) {
-            if (!groupingExpr.isAnalyzed()) {
-                groupingExpr.analyze(analyzer);
+        if (oriGroupingExprs != null) {
+            for (Expr groupingExpr : oriGroupingExprs) {
+                if (!groupingExpr.isAnalyzed()) {
+                    groupingExpr.analyze(analyzer);
+                }
             }
         }
 
