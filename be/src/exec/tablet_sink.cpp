@@ -330,12 +330,12 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 }
 
 void NodeChannel::_sleep_if_memory_exceed() {
-    size_t begin_us = _mem_exceeded_block_ns;
+    size_t begin_us = _mem_exceeded_block_ns / 1000;
     while (!_cancelled && _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
-        if (_mem_exceeded_block_ns - begin_us > 5000000) {
-            begin_us = _mem_exceeded_block_ns;
+        if (_mem_exceeded_block_ns / 1000 - begin_us > 5000000) {
+            begin_us = _mem_exceeded_block_ns / 1000;
             LOG(INFO) << "sink sleeps too long, pending_batches_bytes = " << _pending_batches_bytes
                       << ", max_pending_batches_bytes = " << _max_pending_batches_bytes
                       << ", is_packet_in_flight = " << _add_batch_closure->is_packet_in_flight()
