@@ -33,10 +33,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -129,28 +127,23 @@ public class TableTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./tableFamilyGroup");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("tableFamilyGroup", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
-        List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
-        columns.add(column2);
-        columns.add(new Column("column3",
-                ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4",
-                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5",
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6",
-                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7",
-                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
-        columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
-        columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
-        columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
+        ImmutableList<Column> columns = ImmutableList.<Column>builder()
+                .add(column2)
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column8", ScalarType.createChar(10), true, null, "", ""))
+                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .build();
 
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
                 new SinglePartitionInfo(), new RandomDistributionInfo(10));
@@ -167,7 +160,7 @@ public class TableTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Table rFamily1 = Table.read(dis);
         Assert.assertTrue(table1.equals(rFamily1));
@@ -176,6 +169,6 @@ public class TableTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.delete(path);
     }
 }
