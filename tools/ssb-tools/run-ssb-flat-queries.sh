@@ -97,7 +97,7 @@ echo "DB: $DB"
 
 pre_set() {
     echo $@
-    mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+    mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
 pre_set "set global enable_vectorized_engine=1;"
@@ -110,9 +110,9 @@ echo '============================================'
 
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
     # First run to prevent the affect of cold start
-    mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D $DB <$QUERIES_DIR/q${i}.sql >/dev/null 2>&1
+    mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D $DB <$QUERIES_DIR/q${i}.sql >/dev/null 2>&1
     # Then run 3 times and takes the average time
-    res=$(mysqlslap -h$FE_HOST -u$USER -P$FE_QUERY_PORT --create-schema=$DB --query=$QUERIES_DIR/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
+    res=$(mysqlslap -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT --create-schema=$DB --query=$QUERIES_DIR/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
     echo "q$i: $res"
     sleep 1
 done

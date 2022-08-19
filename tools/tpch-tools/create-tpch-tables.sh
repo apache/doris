@@ -93,7 +93,7 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
 
 echo "Run SQLs from $CURDIR/create-tpch-tables.sql"
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/create-tpch-tables.sql
+mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB <$CURDIR/create-tpch-tables.sql
