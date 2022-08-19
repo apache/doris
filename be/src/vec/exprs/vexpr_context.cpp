@@ -17,7 +17,6 @@
 
 #include "vec/exprs/vexpr_context.h"
 
-#include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
 #include "vec/exprs/vexpr.h"
 
@@ -32,7 +31,7 @@ VExprContext::VExprContext(VExpr* expr)
           _stale(false) {}
 
 VExprContext::~VExprContext() {
-    DCHECK(!_prepared || _closed);
+    DCHECK(_closed);
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         delete _fn_contexts[i];
