@@ -202,6 +202,8 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
             _seeked = true;
             *exact_match = false;
             _current_ordinal = _data_page.first_ordinal + _data_page.num_rows;
+            // move offset to the end of the page
+            _data_page.offset_in_page = _data_page.num_rows;
             return Status::OK();
         }
     }
