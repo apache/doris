@@ -357,6 +357,10 @@ public:
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
+    bool agg_as_duplicate() const {
+        return _query_options.agg_as_duplicate;
+    }
+
     // the following getters are only valid after Prepare()
     InitialReservations* initial_reservations() const { return _initial_reservations; }
 

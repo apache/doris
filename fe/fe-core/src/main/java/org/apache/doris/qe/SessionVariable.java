@@ -189,6 +189,8 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String SESSION_CONTEXT = "session_context";
 
+    static final String AGG_AS_DUPLICATE = "agg_as_duplicate";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -462,6 +464,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
+
+    /**
+     * For debugg purpose, dont' merge unique key and agg key when reading data.
+     */
+    @VariableMgr.VarAttr(name = AGG_AS_DUPLICATE)
+    private boolean aggAsDuplicate = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -969,6 +977,8 @@ public class SessionVariable implements Serializable, Writable {
             resourceLimit.setCpuLimit(cpuResourceLimit);
             tResult.setResourceLimit(resourceLimit);
         }
+
+        tResult.setAggAsDuplicate(aggAsDuplicate);
 
         return tResult;
     }
