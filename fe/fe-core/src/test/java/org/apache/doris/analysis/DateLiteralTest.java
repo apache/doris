@@ -57,6 +57,7 @@ public class DateLiteralTest {
             e.printStackTrace();
             hasException = true;
         }
+        Assert.assertFalse(hasException);
     }
 
     @Test
@@ -165,7 +166,6 @@ public class DateLiteralTest {
             hasException = true;
         }
         Assert.assertFalse(hasException);
-
         try {
             DateLiteral literal = new DateLiteral("10000-10-07", Type.DATE);
             Assert.assertEquals(10000, literal.getYear());
