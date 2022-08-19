@@ -540,6 +540,7 @@ struct TStreamLoadPutRequest {
     36: optional double max_filter_ratio
     37: optional bool load_to_single_tablet
     38: optional string header_type
+    39: optional string hidden_columns
 }
 
 struct TStreamLoadPutResult {
