@@ -630,7 +630,9 @@ public class AnalyticExpr extends Expr {
                 && window != null
                 && window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
             if (window.getLeftBoundary().getType() != BoundaryType.PRECEDING) {
-                window = new AnalyticWindow(window.getType(), window.getLeftBoundary(),
+                // Here left bound can only be CURRENT_ROW and the function is last_value,
+                // so the type is changed to rows
+                window = new AnalyticWindow(AnalyticWindow.Type.ROWS, window.getLeftBoundary(),
                                             window.getLeftBoundary());
                 fnCall = new FunctionCallExpr(new FunctionName(LASTVALUE),
                                               getFnCall().getParams());
