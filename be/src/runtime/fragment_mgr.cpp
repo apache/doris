@@ -304,7 +304,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        ss << "couldn't get a client for " << _coord_addr;
+        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
+        LOG(WARNING) << "query_id: " << _query_id << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
     }
@@ -391,8 +392,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     TReportExecStatusResult res;
     Status rpc_status;
 
-    VLOG_ROW << "debug: reportExecStatus params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
+    VLOG_DEBUG << "reportExecStatus params is "
+               << apache::thrift::ThriftDebugString(params).c_str();
     try {
         try {
             coord->reportExecStatus(res, params);
