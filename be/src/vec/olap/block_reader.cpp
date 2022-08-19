@@ -280,7 +280,9 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
 
     // do filter detete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
-        DCHECK_EQ(block->get_by_position(target_columns.size() - 1).name, DELETE_SIGN);
+        int delete_sign_idx =
+                (_sequence_col_idx == -1) ? target_columns.size() : target_columns.size() - 1;
+        DCHECK(delete_sign_idx > 0);
         MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
@@ -295,7 +297,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         ColumnWithTypeAndName column_with_type_and_name {
                 _delete_filter_column, std::make_shared<DataTypeUInt8>(), "filter"};
         block->insert(column_with_type_and_name);
-        Block::filter_block(block, target_columns.size(), target_columns.size());
+        Block::filter_block(block, delete_sign_idx, target_columns.size());
         _stats.rows_del_filtered += target_block_row - block->rows();
     }
     return Status::OK();
