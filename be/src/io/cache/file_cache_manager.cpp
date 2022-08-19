@@ -62,6 +62,86 @@ void FileCacheManager::clean_timeout_caches() {
     }
 }
 
+void clean_timeout_file_not_in_mem(const Path& cache_path) {
+    std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+    // Deal with caches not in _file_cache_map
+    if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
+        std::vector<Path> cache_file_names;
+        if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()) {
+            std::map<std::string, bool> cache_names;
+            std::list<std::string> done_names;
+            for (Path cache_file_name : cache_file_names) {
+                std::string filename = cache_file_name.native();
+                if (filename.find("_DONE") == std::string::npos) {
+                    cache_names[filename] = true;
+                    continue;
+                }
+                done_names.push_back(filename);
+                std::stringstream file_ss;
+                file_ss << cache_path << "/" << filename;
+                std::string done_file_path = file_ss.str();
+                time_t m_time;
+                if (!FileUtils::mtime(done_file_path, &m_time).ok()) {
+                    continue;
+                }
+                if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
+                    continue;
+                }
+                std::string cache_file_path = StringReplace(
+                        done_file_path, "_DONE", "", true);
+                LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path
+                          << ", cache_file_path: " << cache_file_path
+                          << ", m_time: " << m_time;
+                if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
+                    LOG(ERROR) << "delete_file failed: " << done_file_path;
+                    continue;
+                }
+                if (!io::global_local_filesystem()->delete_file(cache_file_path).ok()) {
+                    LOG(ERROR) << "delete_file failed: " << cache_file_path;
+                    continue;
+                }
+            }
+            // find cache file without done file.
+            for (std::list<std::string>::iterator itr = done_names.begin();
+                 itr != done_names.end(); ++itr) {
+                std::string cache_filename = StringReplace(*itr, "_DONE", "", true);
+                if (cache_names.find(cache_filename) != cache_names.end()) {
+                    cache_names.erase(cache_filename);
+                }
+            }
+            // remove cache file without done file
+            for (std::map<std::string, bool>::iterator itr = cache_names.begin();
+                 itr != cache_names.end(); ++itr) {
+                std::stringstream file_ss;
+                file_ss << cache_path << "/" << itr->first;
+                std::string cache_file_path = file_ss.str();
+                time_t m_time;
+                if (!FileUtils::mtime(cache_file_path, &m_time).ok()) {
+                    continue;
+                }
+                if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
+                    continue;
+                }
+                LOG(INFO) << "delete cache file without done file: " << cache_file_path;
+                if (!io::global_local_filesystem()->delete_file(cache_file_path).ok()) {
+                    LOG(ERROR) << "delete_file failed: " << cache_file_path;
+                }
+            }
+        }
+
+
+        bool cache_dir_exist = false;
+        if (global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
+            if (cache_dir_exist) {
+                Status st = global_local_filesystem()->delete_directory(cache_path);
+                if (!st.ok()) {
+                    LOG(WARNING) << st.to_string();
+                }
+            }
+        }
+    }
+}
+
 FileCachePtr FileCacheManager::new_file_cache(const Path& cache_dir, int64_t alive_time_sec,
                                               io::FileReaderSPtr remote_file_reader,
                                               const std::string& file_cache_type) {

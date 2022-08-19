@@ -39,6 +39,8 @@ public:
 
     void clean_timeout_caches();
 
+    void clean_timeout_file_not_in_mem(const Path& cache_path);
+
     FileCachePtr new_file_cache(const Path& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
                                 const std::string& file_cache_type);
