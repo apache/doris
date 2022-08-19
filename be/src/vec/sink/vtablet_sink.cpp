@@ -182,7 +182,7 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
            (_pending_batches_bytes > _max_pending_batches_bytes ||
             thread_context()
                     ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                    ->any_limit_exceeded()) &&
+                    ->any_limit_exceeded<true>()) &&
            _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));

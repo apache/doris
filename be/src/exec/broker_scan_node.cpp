@@ -351,7 +351,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
                    (_batch_queue.size() >= _max_buffered_batches ||
                     (thread_context()
                              ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                             ->any_limit_exceeded() &&
+                             ->any_limit_exceeded<true>() &&
                      !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }

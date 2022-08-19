@@ -87,11 +87,16 @@ public:
         _limit = limit;
     }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
+    // means that the memory usage of the query has exceeded 90% of the mem limit.
+    // It is expected to wait for the memory to be released to continue. Otherwise,
+    // the exceeded mem limit may occur, and the query will be canceled.
+    bool soft_limit_exceeded() const { return _limit >= 0 && _limit * 0.9 < consumption(); }
 
     // Returns true if a valid limit of this tracker limiter or one of its ancestors is exceeded.
-    bool any_limit_exceeded() const {
+    template <bool SOFT>
+    bool any_limit_exceeded() {
         for (const auto& tracker : _limited_ancestors) {
-            if (tracker->limit_exceeded()) {
+            if (SOFT ? tracker->soft_limit_exceeded() : tracker->limit_exceeded()) {
                 return true;
             }
         }
@@ -322,4 +327,6 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     return Status::OK();
 }
 
+template bool MemTrackerLimiter::any_limit_exceeded<false>();
+template bool MemTrackerLimiter::any_limit_exceeded<true>();
 } // namespace doris
