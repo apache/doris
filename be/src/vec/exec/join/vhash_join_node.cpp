@@ -22,7 +22,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
-#include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -1475,7 +1474,9 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
             }
         }
 
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
+        if (!is_mem_reuse) {
+            output_block->swap(mutable_block.to_block());
+        }
         DCHECK(output_block->rows() == rows);
     }
 
