@@ -17,9 +17,11 @@
 
 #include "io/cache/file_cache_manager.h"
 
+#include "gutil/strings/util.h"
 #include "io/cache/sub_file_cache.h"
 #include "io/cache/whole_file_cache.h"
 #include "io/fs/local_file_system.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace io {
@@ -62,7 +64,7 @@ void FileCacheManager::clean_timeout_caches() {
     }
 }
 
-void clean_timeout_file_not_in_mem(const Path& cache_path) {
+void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     // Deal with caches not in _file_cache_map
     if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
