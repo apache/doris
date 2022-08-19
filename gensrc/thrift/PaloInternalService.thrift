@@ -164,7 +164,7 @@ struct TQueryOptions {
   // trim tailing spaces while querying external table and stream load
   44: optional bool trim_tailing_spaces_for_external_table_query = false
 
-  // For debugg purpose, dont' merge unique key and agg key when reading data.
+  // For debug purpose, dont' merge unique key and agg key when reading data.
   45: optional bool agg_as_duplicate = false
 }
     
