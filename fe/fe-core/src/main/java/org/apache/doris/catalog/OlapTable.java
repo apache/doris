@@ -433,7 +433,8 @@ public class OlapTable extends Table {
         setColocateGroup(null);
     }
 
-    public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc) {
+    public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
+                                     boolean reserveReplica) {
         // table id
         id = env.getNextId();
 
@@ -464,14 +465,24 @@ public class OlapTable extends Table {
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 long newPartId = env.getNextId();
-                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, false);
+                if (reserveReplica) {
+                    ReplicaAllocation originReplicaAlloc = partitionInfo.getReplicaAllocation(entry.getValue());
+                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), originReplicaAlloc, false);
+                } else {
+                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, false);
+                }
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
             // Single partitioned
             long newPartId = env.getNextId();
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, true);
+                if (reserveReplica) {
+                    ReplicaAllocation originReplicaAlloc = partitionInfo.getReplicaAllocation(entry.getValue());
+                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), originReplicaAlloc, true);
+                } else {
+                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, true);
+                }
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }

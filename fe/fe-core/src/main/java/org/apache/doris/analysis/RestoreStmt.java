@@ -36,11 +36,13 @@ public class RestoreStmt extends AbstractBackupStmt {
     private static final String PROP_REPLICATION_NUM = "replication_num";
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
+    private static final String PROP_RESERVE_REPLICA = "reserve_replica";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
     private int metaVersion = -1;
+    private boolean reserveReplica = false;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
                        Map<String, String> properties) {
@@ -61,6 +63,10 @@ public class RestoreStmt extends AbstractBackupStmt {
 
     public int getMetaVersion() {
         return metaVersion;
+    }
+
+    public boolean reserveReplica() {
+        return reserveReplica;
     }
 
     @Override
@@ -105,6 +111,18 @@ public class RestoreStmt extends AbstractBackupStmt {
         this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "");
         if (this.replicaAlloc.isNotSet()) {
             this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        }
+        // reserve replica
+        if (copiedProperties.containsKey(PROP_RESERVE_REPLICA)) {
+            if (copiedProperties.get(PROP_RESERVE_REPLICA).equalsIgnoreCase("true")) {
+                reserveReplica = true;
+            } else if (copiedProperties.get(PROP_RESERVE_REPLICA).equalsIgnoreCase("false")) {
+                reserveReplica = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve replica value: " + copiedProperties.get(PROP_RESERVE_REPLICA));
+            }
+            copiedProperties.remove(PROP_RESERVE_REPLICA);
         }
         // backup timestamp
         if (copiedProperties.containsKey(PROP_BACKUP_TIMESTAMP)) {
