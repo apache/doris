@@ -431,6 +431,10 @@ public class DateLiteral extends LiteralExpr {
             minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
+            if (microsecond != 0 && type.isDatetime()) {
+                LOG.warn("Microseconds is not supported by Datetime type and hence is ignored."
+                        + "Please change to Datetimev2 to use it.");
+            }
             this.type = type;
             if (checkRange() || checkDate()) {
                 throw new AnalysisException("Datetime value is out of range");
