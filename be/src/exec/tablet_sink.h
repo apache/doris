@@ -233,6 +233,7 @@ public:
 
 private:
     void _cancel_with_msg(const std::string& msg);
+    void _sleep_if_memory_exceed();
 
 private:
     OlapTableSink* _parent = nullptr;
