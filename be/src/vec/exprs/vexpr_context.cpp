@@ -31,7 +31,7 @@ VExprContext::VExprContext(VExpr* expr)
           _stale(false) {}
 
 VExprContext::~VExprContext() {
-    DCHECK(_closed);
+    DCHECK(!_prepared || _closed);
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         delete _fn_contexts[i];
