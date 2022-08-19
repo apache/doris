@@ -141,7 +141,7 @@ if [[ "${RUN}" -ne 1 ]]; then
     exit 0
 fi
 
-if [[ ! -f ${RUN_JAR} ]]; then
+if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
     cd "${DORIS_HOME}/regression-test/framework"
     "${MVN_CMD}" package
