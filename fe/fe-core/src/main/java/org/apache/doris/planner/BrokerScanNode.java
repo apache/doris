@@ -286,7 +286,7 @@ public class BrokerScanNode extends LoadScanNode {
             Load.initColumns(targetTable, columnDescs,
                     context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
                     context.srcTupleDescriptor, context.slotDescByName, context.params,
-                    formatType(context.fileGroup.getFileFormat(), ""), VectorizedUtil.isVectorized());
+                    formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
         }
     }
 
