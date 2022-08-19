@@ -186,9 +186,6 @@ public:
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
 private:
-    // Only for unit test.
-    void init_field_index_for_test();
-
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 

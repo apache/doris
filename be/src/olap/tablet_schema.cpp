@@ -686,13 +686,6 @@ const TabletColumn& TabletSchema::column(const std::string& field_name) const {
     return _cols[found->second];
 }
 
-void TabletSchema::init_field_index_for_test() {
-    _field_name_to_index.clear();
-    for (int i = 0; i < _cols.size(); ++i) {
-        _field_name_to_index[_cols[i].name()] = i;
-    }
-}
-
 vectorized::Block TabletSchema::create_block(
         const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {

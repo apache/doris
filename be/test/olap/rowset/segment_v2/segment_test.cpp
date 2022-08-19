@@ -104,19 +104,13 @@ protected:
     TabletSchemaSPtr create_schema(const std::vector<TabletColumn>& columns,
                                    KeysType keys_type = DUP_KEYS, int num_custom_key_columns = -1) {
         TabletSchemaSPtr res = std::make_shared<TabletSchema>();
-        int num_key_columns = 0;
+
         for (auto& col : columns) {
-            if (col.is_key()) {
-                num_key_columns++;
-            }
-            res->_cols.push_back(col);
+            res->append_column(col);
         }
-        res->_num_columns = columns.size();
-        res->_num_key_columns = num_key_columns;
         res->_num_short_key_columns =
-                num_custom_key_columns != -1 ? num_custom_key_columns : num_key_columns;
+                num_custom_key_columns != -1 ? num_custom_key_columns : res->num_key_columns();
         res->_keys_type = keys_type;
-        res->init_field_index_for_test();
         return res;
     }
 
@@ -572,6 +566,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             std::vector<std::string> vals = {"2"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
@@ -595,6 +591,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             std::vector<std::string> vals = {"100"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
@@ -644,6 +642,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             std::vector<std::string> vals = {"165000"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             // the second page read will be pruned by the following delete predicate
@@ -653,6 +653,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             std::vector<std::string> vals2 = {"164001"};
             delete_condition.__set_condition_values(vals2);
             std::shared_ptr<Conditions> delete_conditions(new Conditions(tablet_schema));
+            delete_condition.__set_column_unique_id(
+                    tablet_schema->column(delete_condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), delete_conditions->append_condition(delete_condition));
 
             StorageReadOptions read_opts;
@@ -707,6 +709,10 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             std::vector<std::string> vals = {"102"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
             read_opts.conditions = conditions.get();
             std::unique_ptr<RowwiseIterator> iter;
@@ -890,15 +896,12 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     MemPool pool;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
-    tablet_schema->_num_columns = 4;
-    tablet_schema->_num_key_columns = 3;
     tablet_schema->_num_short_key_columns = 2;
     tablet_schema->_num_rows_per_row_block = num_rows_per_block;
-    tablet_schema->_cols.push_back(create_char_key(1));
-    tablet_schema->_cols.push_back(create_char_key(2));
-    tablet_schema->_cols.push_back(create_varchar_key(3));
-    tablet_schema->_cols.push_back(create_varchar_key(4));
-    tablet_schema->init_field_index_for_test();
+    tablet_schema->append_column(create_char_key(1));
+    tablet_schema->append_column(create_char_key(2));
+    tablet_schema->append_column(create_varchar_key(3));
+    tablet_schema->append_column(create_varchar_key(4));
 
     SegmentWriterOptions opts;
     opts.num_rows_per_block = num_rows_per_block;
@@ -1057,6 +1060,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             std::vector<std::string> vals = {"100"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
@@ -1114,6 +1119,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             std::vector<std::string> vals = {"-2"};
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions(tablet_schema));
+            condition.__set_column_unique_id(
+                    tablet_schema->column(condition.column_name).unique_id());
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
