@@ -282,8 +282,8 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
                 // Reserve the memory for 'serialize_stream_' so we don't need to scrounge up
                 // another buffer during spilling.
                 RETURN_IF_ERROR(serialize_stream_->PrepareForWrite(&got_buffer));
-                DCHECK(got_buffer)
-                        << "Accounted in min reservation" << _buffer_pool_client.DebugString();
+                // DCHECK(got_buffer)
+                //         << "Accounted in min reservation" << _buffer_pool_client.DebugString();
                 DCHECK(serialize_stream_->has_write_iterator());
             }
         }
@@ -830,7 +830,7 @@ Status PartitionedAggregationNode::Partition::SerializeStreamForSpilling() {
         if (status.ok()) {
             bool got_buffer;
             status = parent->serialize_stream_->PrepareForWrite(&got_buffer);
-            DCHECK(!status.ok() || got_buffer) << "Accounted in min reservation";
+            // DCHECK(!status.ok() || got_buffer) << "Accounted in min reservation";
         }
         if (!status.ok()) {
             hash_tbl->Close();
@@ -875,8 +875,8 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
         //    aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL);
         bool got_buffer;
         RETURN_IF_ERROR(unaggregated_row_stream->PrepareForWrite(&got_buffer));
-        DCHECK(got_buffer) << "Accounted in min reservation"
-                           << parent->_buffer_pool_client.DebugString();
+        // DCHECK(got_buffer) << "Accounted in min reservation"
+        //                    << parent->_buffer_pool_client.DebugString();
     }
 
     COUNTER_UPDATE(parent->num_spilled_partitions_, 1);
@@ -1317,7 +1317,7 @@ Status PartitionedAggregationNode::RepartitionSpilledPartition() {
         //    hash_partition->aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL);
         bool got_buffer;
         RETURN_IF_ERROR(hash_partition->unaggregated_row_stream->PrepareForWrite(&got_buffer));
-        DCHECK(got_buffer) << "Accounted in min reservation" << _buffer_pool_client.DebugString();
+        // DCHECK(got_buffer) << "Accounted in min reservation" << _buffer_pool_client.DebugString();
     }
     RETURN_IF_ERROR(ProcessStream<false>(partition->unaggregated_row_stream.get()));
 
