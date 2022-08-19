@@ -67,7 +67,7 @@ void FileCacheManager::clean_timeout_caches() {
 void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     // Deal with caches not in _file_cache_map
-    if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
+    if (_file_cache_map.find(cache_path.native()) == _file_cache_map.end()) {
         std::vector<Path> cache_file_names;
         if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()) {
             std::map<std::string, bool> cache_names;
@@ -79,9 +79,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
                     continue;
                 }
                 done_names.push_back(filename);
-                std::stringstream file_ss;
-                file_ss << cache_path << "/" << filename;
-                std::string done_file_path = file_ss.str();
+                std::string done_file_path = (cache_path / filename).native();
                 time_t m_time;
                 if (!FileUtils::mtime(done_file_path, &m_time).ok()) {
                     continue;
@@ -114,9 +112,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
             // remove cache file without done file
             for (std::map<std::string, bool>::iterator itr = cache_names.begin();
                  itr != cache_names.end(); ++itr) {
-                std::stringstream file_ss;
-                file_ss << cache_path << "/" << itr->first;
-                std::string cache_file_path = file_ss.str();
+                std::string cache_file_path = (cache_path / itr->first).native();
                 time_t m_time;
                 if (!FileUtils::mtime(cache_file_path, &m_time).ok()) {
                     continue;
