@@ -136,6 +136,15 @@ Parameter introduction:
 
 21. send_batch_parallelism: Integer, used to set the parallelism of sending batch data. If the value of parallelism exceeds `max_send_batch_parallelism_per_job` in the BE configuration, the BE as a coordination point will use the value of `max_send_batch_parallelism_per_job`.
 
+22. hidden_columns: Specify hidden column when no `columns` in Headers，multi hidden column shoud be
+separated by commas.
+
+       ```
+           hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
+           The system will use the order specified by user. in case above, data should be ended
+           with __DORIS_SEQUENCE_COL__.
+       ```
+
     RETURN VALUES
         After the import is complete, the related content of this import will be returned in Json format. Currently includes the following fields
         Status: Import the last status.

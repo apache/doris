@@ -555,6 +555,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
 
+    if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
+        request.__set_hidden_columns(http_req->header(HTTP_HIDDEN_COLUMNS));
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
