@@ -100,6 +100,20 @@ protected:
         column_2->set_is_nullable(false);
         column_2->set_is_bf_column(false);
 
+        // unique table must contains the DELETE_SIGN column
+        if (keys_type == UNIQUE_KEYS) {
+            ColumnPB* column_3 = tablet_schema_pb.add_column();
+            column_3->set_unique_id(3);
+            column_3->set_name(DELETE_SIGN);
+            column_3->set_type("TINYINT");
+            column_3->set_length(1);
+            column_3->set_index_length(1);
+            column_3->set_is_nullable(false);
+            column_3->set_is_key(false);
+            column_3->set_is_nullable(false);
+            column_3->set_is_bf_column(false);
+        }
+
         tablet_schema->init_from_pb(tablet_schema_pb);
         return tablet_schema;
     }
@@ -163,6 +177,10 @@ protected:
                 uint32_t c2 = std::get<1>(rowset_data[i][rid]);
                 input_row.set_field_content(0, reinterpret_cast<char*>(&c1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&c2), &mem_pool);
+                if (tablet_schema->keys_type() == UNIQUE_KEYS) {
+                    uint8_t num = 0;
+                    input_row.set_field_content(2, reinterpret_cast<char*>(&num), &mem_pool);
+                }
                 s = rowset_writer->add_row(input_row);
                 EXPECT_TRUE(s.ok());
                 num_rows++;

@@ -44,8 +44,9 @@ public:
     };
 
     // Creates and adds the tracker to the mem_tracker_pool.
-    MemTracker(const std::string& label = std::string(), RuntimeProfile* profile = nullptr,
-               bool is_limiter = false);
+    MemTracker(const std::string& label, RuntimeProfile* profile = nullptr);
+    // For MemTrackerLimiter
+    MemTracker() { _bind_group_num = -1; }
 
     ~MemTracker();
 
@@ -98,9 +99,6 @@ protected:
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _bind_group_num;
-
-    // Whether is a MemTrackerLimiter
-    bool _is_limiter;
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;

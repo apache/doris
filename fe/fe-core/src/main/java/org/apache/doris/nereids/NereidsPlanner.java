@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -112,10 +111,7 @@ public class NereidsPlanner extends Planner {
         // rule-based optimize
         rewrite();
 
-        // TODO: remove this condition, when stats collector is fully developed.
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
-            deriveStats();
-        }
+        deriveStats();
 
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
@@ -154,7 +150,9 @@ public class NereidsPlanner extends Planner {
     }
 
     private void deriveStats() {
-        new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()).execute();
+        cascadesContext
+                .pushJob(new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
     /**

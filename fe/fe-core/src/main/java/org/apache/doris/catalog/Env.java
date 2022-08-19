@@ -2954,6 +2954,7 @@ public class Env {
                 sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
                 sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
                 sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+                sb.append("\"charest\" = \"").append(odbcTable.getCharset()).append("\",\n");
             } else {
                 sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName())
                         .append("\",\n");
@@ -4049,7 +4050,7 @@ public class Env {
 
         // set table's default replication number.
         Map<String, String> tblProperties = Maps.newHashMap();
-        tblProperties.put("default.replication_allocation", replicaAlloc.toCreateStmt());
+        tblProperties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         table.setReplicaAllocation(tblProperties);
 
         // log

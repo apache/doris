@@ -1754,7 +1754,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
 
     int field_idx = 0;
     int field_len = year_len;
-    while (ptr < end && isdigit(*ptr) && field_idx <= MAX_DATE_PARTS) {
+    while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
         int temp_val = 0;
         bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
@@ -1767,6 +1767,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
             if constexpr (is_datetime) {
                 if (scale >= 0) {
                     temp_val /= std::pow(10, 6 - scale);
+                    temp_val *= std::pow(10, 6 - scale);
                 }
             }
         }
@@ -1785,7 +1786,6 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
-            field_idx++;
             continue;
         }
 
@@ -2301,11 +2301,20 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
         /* Second */
         *buffer++ = (char)('0' + (date_v2_value_.second_ / 10));
         *buffer++ = (char)('0' + (date_v2_value_.second_ % 10));
-        if (scale != 0 && date_v2_value_.microsecond_ > 0) {
+        if (scale < 0 && date_v2_value_.microsecond_ > 0) {
             *buffer++ = '.';
             /* Microsecond */
             uint32_t ms = date_v2_value_.microsecond_;
             int ms_width = scale == -1 ? 6 : std::min(6, scale);
+            for (int i = 0; i < ms_width; i++) {
+                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
+                ms %= (uint32_t)std::pow(10, 5 - i);
+            }
+        } else if (scale > 0) {
+            *buffer++ = '.';
+            /* Microsecond */
+            uint32_t ms = date_v2_value_.microsecond_;
+            int ms_width = std::min(6, scale);
             for (int i = 0; i < ms_width; i++) {
                 *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
                 ms %= (uint32_t)std::pow(10, 5 - i);

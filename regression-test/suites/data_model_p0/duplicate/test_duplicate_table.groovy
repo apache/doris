@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_duplicate_table", "data_model") {
+suite("test_duplicate_table") {
     def dbName = "test_duplicate_db"
     List<List<Object>> db = sql "show databases like '${dbName}'"
     if (db.size() == 0) {
@@ -31,14 +31,18 @@ suite("test_duplicate_table", "data_model") {
                 k int,
                 int_value int,
                 char_value char(10),
-                date_value date
+                date_value date,
+                date_value2 datev2,
+                date_value3 datetimev2,
+                date_value4 datetimev2(3),
+                date_value5 datetimev2(6)
             )
             DUPLICATE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1")
         """
-    sql "insert into ${tbName} values(0, 1, 'test char', '2000-01-01')"
-    sql "insert into ${tbName} values(0, 2, 'test int', '2000-02-02')"
-    sql "insert into ${tbName} values(0, null, null, null)"
+    sql "insert into ${tbName} values(0, 1, 'test char', '2000-01-01', '2000-01-01', '2000-01-01 11:00:11.111111', '2000-01-01 11:00:11.111111', '2000-01-01 11:00:11.111111')"
+    sql "insert into ${tbName} values(0, 2, 'test int', '2000-02-02', '2000-02-02', '2000-02-02 11:00:11.111111', '2000-02-02 11:00:11.111111', '2000-02-02 11:00:11.111111')"
+    sql "insert into ${tbName} values(0, null, null, null, null, null, null, null)"
     order_qt_select_dup_table "select * from ${tbName}"
     qt_desc_dup_table "desc ${tbName}"
     sql "DROP TABLE ${tbName}"

@@ -55,7 +55,11 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    DCHECK_GE(_column_id, 0);
+    // comment DCHECK temporarily to make fuzzy test run smoothly
+    // DCHECK_GE(_column_id, 0);
+    if (_column_id < 0) {
+        return Status::InternalError("invalid column id {}", _column_id);
+    }
     *result_column_id = _column_id;
     return Status::OK();
 }

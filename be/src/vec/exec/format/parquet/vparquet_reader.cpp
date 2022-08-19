@@ -62,7 +62,6 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
     }
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < _file_metadata->num_columns(); ++i) {
-        // for test
         VLOG_DEBUG << schema_desc.debug_string();
         // Get the Column Reader for the boolean column
         _map_column.emplace(schema_desc.get_column(i)->name, i);
@@ -89,11 +88,7 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
             VLOG_DEBUG << str_error.str();
             return Status::InvalidArgument(str_error.str());
         }
-        ParquetReadColumn column;
-        column.slot_desc = slot_desc;
-        column.parquet_column_id = parquet_col_id;
-        auto physical_type = _file_metadata->schema().get_column(parquet_col_id)->physical_type;
-        column.parquet_type = physical_type;
+        ParquetReadColumn column(slot_desc);
         _read_columns.emplace_back(column);
         VLOG_DEBUG << "slot_desc " << slot_desc->debug_string();
     }
