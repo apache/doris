@@ -194,9 +194,6 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         return null;
     }
 
-    //TODO: add a rule to push filter condition down to join if acceptable.
-    // We can not simply add filter predicates into join conditions for outer/anti join.
-    // It is better to add another rule to push down acceptable filter conditions to join.
     @Override
     public Void visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
         Plan child = filter.child();

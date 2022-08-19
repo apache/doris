@@ -42,7 +42,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -96,7 +95,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Optional<Expression> cond = join.getOtherJoinCondition()
                             .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
                     return new LogicalJoin<>(join.getJoinType(),
-                            new ArrayList<Expression>(), cond, join.left(), join.right());
+                            ImmutableList.of(), cond, join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(

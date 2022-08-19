@@ -370,11 +370,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
-            //TODO: after we apply rule FindHashConditionForJoin,
-            // we could get execEqConjunctList by hashjoin.getJoinPredicates() directly
             List<Expr> execEqConjunctList = new ArrayList<>();
             if (hashJoin.getOnClauseCondition().isPresent()) {
-                execEqConjunctList = ExpressionUtils.extractConjunction(hashJoin.getOnClauseCondition().get()).stream()
+                execEqConjunctList = hashJoin.getHashJoinPredicates().stream()
                         .map(EqualTo.class::cast)
                         .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
                         .map(e -> ExpressionTranslator.translate(e, context))

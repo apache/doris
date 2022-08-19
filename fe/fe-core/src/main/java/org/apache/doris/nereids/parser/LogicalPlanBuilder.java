@@ -637,7 +637,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 left = (left == null) ? right :
                         new LogicalJoin<>(
                                 JoinType.CROSS_JOIN,
-                                new ArrayList<>(),
+                                ImmutableList.of(),
                                 Optional.empty(),
                                 left,
                                 right);
