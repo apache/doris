@@ -134,8 +134,6 @@ void MemTable::_aggregate_two_row_with_sequence(const ContiguousRow& src_row,
 }
 
 OLAPStatus MemTable::flush() {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
-                  << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -157,8 +155,8 @@ OLAPStatus MemTable::flush() {
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
-                  << ", flushsize: " << _flush_size;
+    LOG(INFO) << "flush memtable, tablet: " << _tablet_id << ", memsize: " << memory_usage()
+              << ", rows: " << _rows << ", flushsize: " << _flush_size << ", duration_us: " << duration_ns / 1000;
     return OLAP_SUCCESS;
 }
 
