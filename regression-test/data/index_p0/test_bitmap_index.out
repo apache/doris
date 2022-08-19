@@ -11,6 +11,10 @@ k8	DATETIME	Yes	false	\N	NONE
 k9	LARGEINT	Yes	false	\N	NONE
 k10	DECIMAL(9,0)	Yes	false	\N	NONE
 k11	BOOLEAN	Yes	false	\N	NONE
+k12	DATEV2	Yes	false	\N	NONE
+k13	DATETIMEV2(0)	Yes	false	\N	NONE
+k14	DATETIMEV2(3)	Yes	false	\N	NONE
+k15	DATETIMEV2(6)	Yes	false	\N	NONE
 
 -- !sql --
 default_cluster:regression_test_index_p0.test_bitmap_index_dup		index1		k1						BITMAP	
@@ -24,9 +28,13 @@ default_cluster:regression_test_index_p0.test_bitmap_index_dup		index8		k8						
 default_cluster:regression_test_index_p0.test_bitmap_index_dup		index9		k9						BITMAP	
 default_cluster:regression_test_index_p0.test_bitmap_index_dup		index10		k10						BITMAP	
 default_cluster:regression_test_index_p0.test_bitmap_index_dup		index11		k11						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_dup		index12		k12						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_dup		index13		k13						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_dup		index14		k14						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_dup		index15		k15						BITMAP	
 
 -- !sql --
-1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true
+1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111
 
 -- !sql --
 k1	TINYINT	Yes	true	\N	
@@ -40,6 +48,10 @@ k8	DATETIME	Yes	true	\N
 k9	LARGEINT	Yes	true	\N	
 k10	DECIMAL(9,0)	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
+k12	DATEV2	Yes	true	\N	
+k13	DATETIMEV2(0)	Yes	true	\N	
+k14	DATETIMEV2(3)	Yes	true	\N	
+k15	DATETIMEV2(6)	Yes	true	\N	
 v1	INT	Yes	false	\N	SUM
 
 -- !sql --
@@ -54,9 +66,13 @@ default_cluster:regression_test_index_p0.test_bitmap_index_agg		index8		k8						
 default_cluster:regression_test_index_p0.test_bitmap_index_agg		index9		k9						BITMAP	
 default_cluster:regression_test_index_p0.test_bitmap_index_agg		index10		k10						BITMAP	
 default_cluster:regression_test_index_p0.test_bitmap_index_agg		index11		k11						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_agg		index12		k12						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_agg		index13		k13						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_agg		index14		k14						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_agg		index15		k15						BITMAP	
 
 -- !sql --
-1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	1
+1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111	1
 
 -- !sql --
 k1	TINYINT	Yes	true	\N	
@@ -70,6 +86,10 @@ k8	DATETIME	Yes	true	\N
 k9	LARGEINT	Yes	true	\N	
 k10	DECIMAL(9,0)	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
+k12	DATEV2	Yes	false	\N	REPLACE
+k13	DATETIMEV2(0)	Yes	false	\N	REPLACE
+k14	DATETIMEV2(3)	Yes	false	\N	REPLACE
+k15	DATETIMEV2(6)	Yes	false	\N	REPLACE
 v1	INT	Yes	false	\N	REPLACE
 
 -- !sql --
@@ -84,8 +104,12 @@ default_cluster:regression_test_index_p0.test_bitmap_index_unique		index8		k8			
 default_cluster:regression_test_index_p0.test_bitmap_index_unique		index9		k9						BITMAP	
 default_cluster:regression_test_index_p0.test_bitmap_index_unique		index10		k10						BITMAP	
 default_cluster:regression_test_index_p0.test_bitmap_index_unique		index11		k11						BITMAP	
-default_cluster:regression_test_index_p0.test_bitmap_index_unique		index12		v1						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_unique		index12		k12						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_unique		index13		k13						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_unique		index14		k14						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_unique		index15		k15						BITMAP	
+default_cluster:regression_test_index_p0.test_bitmap_index_unique		index16		v1						BITMAP	
 
 -- !sql --
-1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	1
+1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111	1
 
