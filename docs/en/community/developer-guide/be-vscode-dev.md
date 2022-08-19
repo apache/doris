@@ -91,7 +91,7 @@ Note: This compilation has the following instructions:
 
 If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/workspace/doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
 
-## Deployment and debugging
+## Deployment and debugging(GDB)
 
 1. Authorize be compilation result files
 
@@ -280,3 +280,16 @@ An example of a complete launch.json is as follows:
 
 ![](/images/image-20210618091006146.png)
 
+## Debugging(LLDB)
+
+lldb的attach比gdb更快，使用方式和gdb类似，vscode需要安装的插件改为`CodeLLDB`，然后在launch中加入如下配置:
+```json
+        {
+            "name": "CodeLLDB attach",
+            "type": "lldb",
+            "request": "attach",
+            "program": "${workspaceFolder}/output/be/lib/doris_be",
+            "pid":"${command:pickMyProcess}"
+        }
+```
+需要注意的是，此方式要求系统`glibc`版本为2.18+。如果没有则可以参考 [如何使CodeLLDB在CentOS7下工作](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) 安装并使插件链接到高版本glibc。
