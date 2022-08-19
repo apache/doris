@@ -166,9 +166,9 @@ public class ConnectProcessor {
 
         // audit error msg
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-            ctx.getAuditEventBuilder().setErrType(ctx.getState().getErrType().name())
-                .setErrCode(ctx.getState().getErrorCode().name())
-                .setErrMsg(ctx.getState().getErrorMessage());
+            ctx.getAuditEventBuilder().setErrMsg(ctx.getState().getErrorMessage())
+                .setErrType(ctx.getState().getErrType() == null ? "" : ctx.getState().getErrType().name())
+                .setErrCode(ctx.getState().getErrorCode() == null ? "" : ctx.getState().getErrorCode().name());
         }
 
         if (ctx.getState().isQuery()) {
