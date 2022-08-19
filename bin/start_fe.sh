@@ -118,8 +118,8 @@ fi
 # get jdk version, return version as an Integer.
 # 1.8 => 8, 13.0 => 13
 jdk_version() {
+    local java_cmd="${1}"
     local result
-    local java_cmd="${JAVA_HOME:-.}/bin/java"
     local IFS=$'\n'
 
     if [[ -z "${java_cmd}" ]]; then
@@ -148,7 +148,7 @@ fi
 # check java version and choose correct JAVA_OPTS
 java_version="$(
     set -e
-    jdk_version
+    jdk_version "${JAVA}"
 )"
 final_java_opt="${JAVA_OPTS}"
 if [[ "${java_version}" -gt 8 ]]; then
