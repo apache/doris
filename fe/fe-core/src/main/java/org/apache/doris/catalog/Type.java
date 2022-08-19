@@ -547,29 +547,39 @@ public abstract class Type {
     }
 
     /**
-     * Returns true if expr is StringLiteral and can parse to valid BigInt, false otherwise.
+     * Returns true if expr is StringLiteral and can parse to valid type, false
+     * otherwise.
+     * This function only support LargeInt and BigInt now.
      */
-    public static boolean canParseToBigInt(Expr expr) {
+    public static boolean canParseTo(Expr expr, PrimitiveType type) {
         if (expr instanceof StringLiteral) {
-            String value = ((StringLiteral) expr).getValue();
-            return Longs.tryParse(value) != null;
+            if (type == PrimitiveType.BIGINT) {
+                return canParseToBigInt((StringLiteral) expr);
+            } else if (type == PrimitiveType.LARGEINT) {
+                return canParseToLargeInt((StringLiteral) expr);
+            }
         }
         return false;
     }
 
     /**
-     * Returns true if expr is StringLiteral and can parse to valid LargeInt, false otherwise.
+     * Returns true if expr can parse to valid BigInt, false otherwise.
      */
-    public static boolean canParseToLargeInt(Expr expr) {
-        if (expr instanceof StringLiteral) {
-            try {
-                new LargeIntLiteral(((StringLiteral) expr).getValue());
-            } catch (AnalysisException e) {
-                return false;
-            }
-            return true;
+    private static boolean canParseToBigInt(StringLiteral expr) {
+        String value = ((StringLiteral) expr).getValue();
+        return Longs.tryParse(value) != null;
+    }
+
+    /**
+     * Returns true if expr can parse to valid LargeInt, false otherwise.
+     */
+    private static boolean canParseToLargeInt(Expr expr) {
+        try {
+            new LargeIntLiteral(((StringLiteral) expr).getValue());
+        } catch (AnalysisException e) {
+            return false;
         }
-        return false;
+        return true;
     }
 
     /**

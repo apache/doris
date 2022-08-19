@@ -377,14 +377,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         // So it is also compatible with Mysql.
 
         if (t1.isStringType() || t2.isStringType()) {
-            if (t1 == PrimitiveType.BIGINT && Type.canParseToBigInt(getChild(1))
-                    || t2 == PrimitiveType.BIGINT && Type.canParseToBigInt(getChild(0))) {
-                return Type.BIGINT;
+            if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT) && Type.canParseTo(getChild(1), t1)) {
+                return Type.fromPrimitiveType(t1);
             }
-
-            if (t1 == PrimitiveType.LARGEINT && Type.canParseToLargeInt(getChild(1))
-                    || t2 == PrimitiveType.LARGEINT && Type.canParseToLargeInt(getChild(0))) {
-                return Type.LARGEINT;
+            if ((t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT) && Type.canParseTo(getChild(0), t2)) {
+                return Type.fromPrimitiveType(t2);
             }
         }
 
