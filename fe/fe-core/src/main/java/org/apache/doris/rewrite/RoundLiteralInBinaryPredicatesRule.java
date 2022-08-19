@@ -99,44 +99,41 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
         Expr expr1 = expr.getChild(1);
         if (expr0.getType().isDatetimeV2() && expr1 instanceof DateLiteral && expr1.getType().isDatetimeV2()) {
             DateLiteral literal = (DateLiteral) expr1;
-            if (((ScalarType) expr0.getType()).getScalarScale()
-                    < ((ScalarType) expr1.getType()).getScalarScale()) {
-                switch (op) {
-                    case EQ: {
-                        long originValue = literal.getMicrosecond();
-                        literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                        if (literal.getMicrosecond() == originValue) {
-                            expr.setChild(1, literal);
-                            return expr;
-                        } else {
-                            return new BoolLiteral(false);
-                        }
-                    }
-                    case NE: {
-                        long originValue = literal.getMicrosecond();
-                        literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                        if (literal.getMicrosecond() == originValue) {
-                            expr.setChild(1, literal);
-                            return expr;
-                        } else {
-                            return new BoolLiteral(true);
-                        }
-                    }
-                    case GT:
-                    case LE: {
-                        literal.roundFloor(((ScalarType) expr0.getType()).getScalarScale());
+            switch (op) {
+                case EQ: {
+                    long originValue = literal.getMicrosecond();
+                    literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
+                    if (literal.getMicrosecond() == originValue) {
                         expr.setChild(1, literal);
                         return expr;
+                    } else {
+                        return new BoolLiteral(false);
                     }
-                    case LT:
-                    case GE: {
-                        literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                        expr.setChild(1, literal);
-                        return expr;
-                    }
-                    default:
-                        return expr;
                 }
+                case NE: {
+                    long originValue = literal.getMicrosecond();
+                    literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
+                    if (literal.getMicrosecond() == originValue) {
+                        expr.setChild(1, literal);
+                        return expr;
+                    } else {
+                        return new BoolLiteral(true);
+                    }
+                }
+                case GT:
+                case LE: {
+                    literal.roundFloor(((ScalarType) expr0.getType()).getScalarScale());
+                    expr.setChild(1, literal);
+                    return expr;
+                }
+                case LT:
+                case GE: {
+                    literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
+                    expr.setChild(1, literal);
+                    return expr;
+                }
+                default:
+                    return expr;
             }
         }
         return expr;
