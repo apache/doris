@@ -64,7 +64,7 @@ public:
     void check_serialize_and_deserialize(MutableColumnPtr& col) {
         auto column = assert_cast<ColumnBitmap*>(col.get());
         auto size = _bitmap_type.get_uncompressed_serialized_bytes(*column);
-        std::unique_ptr<char> buf = std::make_unique<char>(size);
+        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
         auto result = _bitmap_type.serialize(*column, buf.get());
         ASSERT_EQ(result, buf.get() + size);
 
