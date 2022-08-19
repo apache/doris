@@ -20,9 +20,9 @@ suite("test_window_function") {
 
     def windowFunctionTable1 = "test_window_function1"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable1} """
-    sql """ create table ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime not null) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """
+    sql """ create table ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime not null, closing_date1 datetimev2 not null, closing_date2 datetimev2(3) not null, closing_date3 datetimev2(6) not null) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """
 
-    sql """ INSERT INTO ${windowFunctionTable1} VALUES ('JDR',12.86,'2014-10-02 00:00:00'),('JDR',12.89,'2014-10-03 00:00:00'),('JDR',12.94,'2014-10-04 00:00:00'),('JDR',12.55,'2014-10-05 00:00:00'),('JDR',14.03,'2014-10-06 00:00:00'),('JDR',14.75,'2014-10-07 00:00:00'),('JDR',13.98,'2014-10-08 00:00:00') """
+    sql """ INSERT INTO ${windowFunctionTable1} VALUES ('JDR',12.86,'2014-10-02 00:00:00','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111'),('JDR',12.89,'2014-10-03 00:00:00','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111'),('JDR',12.94,'2014-10-04 00:00:00','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111'),('JDR',12.55,'2014-10-05 00:00:00','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111'),('JDR',14.03,'2014-10-06 00:00:00','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111'),('JDR',14.75,'2014-10-07 00:00:00','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111'),('JDR',13.98,'2014-10-08 00:00:00','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111') """
 
     qt_sql """
             SELECT
@@ -68,6 +68,144 @@ suite("test_window_function") {
                 ${windowFunctionTable1}  
              ORDER BY
                 closing_date;
+            """
+
+    qt_sql """
+            SELECT
+                stock_symbol,
+                closing_date1,
+                closing_price,
+                avg( closing_price ) over ( PARTITION BY stock_symbol ORDER BY closing_date1 rows BETWEEN 1 preceding AND 1 following ) AS moving_average
+            FROM
+                ${windowFunctionTable1}
+            ORDER BY
+                stock_symbol,
+                closing_date1,
+                closing_price
+           """
+    // LEAD
+    qt_sql """
+             SELECT
+                stock_symbol,
+                closing_date1,
+                closing_price,
+                CASE ( lead( closing_price, 1, 0 ) over ( PARTITION BY stock_symbol ORDER BY closing_date1 )- closing_price ) > 0
+                WHEN TRUE THEN  "higher"
+                WHEN FALSE THEN "flat or lower" END AS "trending"
+             FROM
+                ${windowFunctionTable1}
+             ORDER BY
+                closing_date1;
+            """
+
+    // LEAD not nullable coredump
+    qt_sql """
+           select t1.new_time from (select closing_date1, lead(closing_date1, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date1 = t1.closing_date1 order by t1.new_time desc;
+           """
+
+    // LAG
+    qt_sql """
+             SELECT
+                stock_symbol,
+                closing_date1,
+                closing_price,
+                lag( closing_price, 1, 0 ) over ( PARTITION BY stock_symbol ORDER BY closing_date1 ) AS "yesterday closing"
+             FROM
+                ${windowFunctionTable1}
+             ORDER BY
+                closing_date1;
+            """
+
+    qt_sql """
+            SELECT
+                stock_symbol,
+                closing_date2,
+                closing_price,
+                avg( closing_price ) over ( PARTITION BY stock_symbol ORDER BY closing_date2 rows BETWEEN 1 preceding AND 1 following ) AS moving_average
+            FROM
+                ${windowFunctionTable1}
+            ORDER BY
+                stock_symbol,
+                closing_date2,
+                closing_price
+           """
+    // LEAD
+    qt_sql """
+             SELECT
+                stock_symbol,
+                closing_date2,
+                closing_price,
+                CASE ( lead( closing_price, 1, 0 ) over ( PARTITION BY stock_symbol ORDER BY closing_date2 )- closing_price ) > 0
+                WHEN TRUE THEN  "higher"
+                WHEN FALSE THEN "flat or lower" END AS "trending"
+             FROM
+                ${windowFunctionTable1}
+             ORDER BY
+                closing_date2;
+            """
+
+    // LEAD not nullable coredump
+    qt_sql """
+           select t1.new_time from (select closing_date2, lead(closing_date2, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date2 = t1.closing_date2 order by t1.new_time desc;
+           """
+
+    // LAG
+    qt_sql """
+             SELECT
+                stock_symbol,
+                closing_date2,
+                closing_price,
+                lag( closing_price, 1, 0 ) over ( PARTITION BY stock_symbol ORDER BY closing_date2 ) AS "yesterday closing"
+             FROM
+                ${windowFunctionTable1}
+             ORDER BY
+                closing_date2;
+            """
+
+    qt_sql """
+            SELECT
+                stock_symbol,
+                closing_date3,
+                closing_price,
+                avg( closing_price ) over ( PARTITION BY stock_symbol ORDER BY closing_date3 rows BETWEEN 1 preceding AND 1 following ) AS moving_average
+            FROM
+                ${windowFunctionTable1}
+            ORDER BY
+                stock_symbol,
+                closing_date3,
+                closing_price
+           """
+    // LEAD
+    qt_sql """
+             SELECT
+                stock_symbol,
+                closing_date3,
+                closing_price,
+                CASE ( lead( closing_price, 1, 0 ) over ( PARTITION BY stock_symbol ORDER BY closing_date3 )- closing_price ) > 0
+                WHEN TRUE THEN  "higher"
+                WHEN FALSE THEN "flat or lower" END AS "trending"
+             FROM
+                ${windowFunctionTable1}
+             ORDER BY
+                closing_date3;
+            """
+
+    // LEAD not nullable coredump
+    qt_sql """
+           select t1.new_time from (select closing_date3, lead(closing_date3, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date3 = t1.closing_date3 order by t1.new_time desc;
+           """
+
+    // LAG
+    qt_sql """
+             SELECT
+                stock_symbol,
+                closing_date3,
+                closing_price,
+                lag( closing_price, 1, 0 ) over ( PARTITION BY stock_symbol ORDER BY closing_date3 ) AS "yesterday closing"
+             FROM
+                ${windowFunctionTable1}
+             ORDER BY
+                closing_date3;
             """
     sql """ drop table   ${windowFunctionTable1} """
 

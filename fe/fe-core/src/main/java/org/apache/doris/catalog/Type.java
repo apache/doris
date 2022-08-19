@@ -1547,6 +1547,8 @@ public abstract class Type {
             return t1;
         } else if (t2.isDatetimeV2()) {
             return t2;
+        } else if (t2.isDateV2() || t1.isDateV2()) {
+            return Type.DATETIMEV2;
         } else {
             return ScalarType.getDefaultDateType(Type.DATETIME);
         }

@@ -57,6 +57,10 @@ suite("test_outfile") {
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
             `date` DATE NOT NULL COMMENT "数据灌入日期时间",
             `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
+            `date_1` DATEV2 NOT NULL COMMENT "",
+            `datetime_1` DATETIMEV2 NOT NULL COMMENT "",
+            `datetime_2` DATETIMEV2(3) NOT NULL COMMENT "",
+            `datetime_3` DATETIMEV2(6) NOT NULL COMMENT "",
             `city` VARCHAR(20) COMMENT "用户所在城市",
             `age` SMALLINT COMMENT "用户年龄",
             `sex` TINYINT COMMENT "用户性别",
@@ -75,11 +79,11 @@ suite("test_outfile") {
         int i = 1
         for (; i < 1000; i ++) {
             sb.append("""
-                (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}),
+                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}),
             """)
         }
         sb.append("""
-                (${i}, '2017-10-01', '2017-10-01 00:00:00', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+                (${i}, '2017-10-01', '2017-10-01 00:00:00', '2017-10-01', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', '2017-10-01 00:00:00.111111', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
             """)
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}

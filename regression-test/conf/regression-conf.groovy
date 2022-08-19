@@ -48,7 +48,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_create_table_with_bloom_filter"
+excludeSuites = ""
 // this directories will not be executed
 excludeDirectories = ""
 

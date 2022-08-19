@@ -80,12 +80,16 @@ suite("test_csv_with_header") {
     def result1 = sql """
             CREATE TABLE `${testTable}` (
                 `event_day` date NULL COMMENT "",
+                `event_day1` datev2 NULL COMMENT "",
+                `event_day2` datetimev2 NULL COMMENT "",
+                `event_day3` datetimev2(3) NULL COMMENT "",
+                `event_day4` datetimev2(6) NULL COMMENT "",
                 `siteid` int(11) NULL DEFAULT "10" COMMENT "",
                 `citycode` smallint(6) NULL COMMENT "",
                 `username` varchar(32) NULL DEFAULT "" COMMENT "",
                 `pv` bigint(20) NULL DEFAULT "0" COMMENT ""
                 ) ENGINE=OLAP
-                DUPLICATE KEY(`event_day`, `siteid`, `citycode`)
+                DUPLICATE KEY(`event_day`, `event_day1`, `event_day2`, `event_day3`, `event_day4`, `siteid`, `citycode`)
                 COMMENT "OLAP"
                 DISTRIBUTED BY HASH(`siteid`) BUCKETS 10
                 PROPERTIES (
