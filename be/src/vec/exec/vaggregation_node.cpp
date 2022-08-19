@@ -982,9 +982,11 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
         }
     }
     MutableColumns value_columns;
-    for (int i = key_size; i < column_withschema.size(); ++i) {
+    std::vector<DataTypePtr> agg_return_data_types(_aggregate_evaluators.size());
+    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         if (!mem_reuse) {
-            value_columns.emplace_back(column_withschema[i].type->create_column());
+            agg_return_data_types[i] = _aggregate_evaluators[i]->function()->get_return_type();
+            value_columns.emplace_back(agg_return_data_types[i]->create_column());
         } else {
             value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
         }
@@ -1034,6 +1036,25 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
                         }
                     } else {
                         *eos = true;
+                    }
+                }
+
+                // copy codes from _get_without_key_result
+                // column type maybe NOT NULL, but after aggregate the result type maybe need NULL
+                for (int i = 0; i < value_columns.size(); ++i) {
+                    const auto column_type = column_withschema[i + key_size].type;
+                    if (!column_type->equals(*agg_return_data_types[i])) {
+                        if (!is_array(remove_nullable(column_type))) {
+                            DCHECK(column_type->is_nullable());
+                            DCHECK(!agg_return_data_types[i]->is_nullable());
+                            DCHECK(remove_nullable(column_type)->equals(*agg_return_data_types[i]));
+                        }
+
+                        ColumnPtr ptr = std::move(value_columns[i]);
+                        // unless `count`, other aggregate function dispose empty set should be null
+                        // so here check the children row return
+                        ptr = make_nullable(ptr, _children[0]->rows_returned() == 0);
+                        value_columns[i] = std::move(*ptr).mutate();
                     }
                 }
             },
