@@ -27,11 +27,15 @@ suite("test_list_partition") {
             k5 decimal(9, 3) NOT NULL, 
             k6 char(5) NOT NULL, 
             k10 date NOT NULL, 
-            k11 datetime NOT NULL, 
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
             k7 varchar(20) NOT NULL, 
             k8 double max NOT NULL, 
             k9 float sum NOT NULL ) 
-        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k7) 
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
         PARTITION BY LIST(k1) ( 
             PARTITION p1 VALUES IN ("1","2","3","4"), 
             PARTITION p2 VALUES IN ("5","6","7","8","9","10","11","12","13","14"), 

@@ -319,7 +319,7 @@ public class Column implements Writable {
             return defaultValueLiteral;
         }
         if (defaultValueExprDef != null) {
-            return defaultValueExprDef.getExpr();
+            return defaultValueExprDef.getExpr(type);
         }
         Expr result = defaultValueLiteral.castTo(getType());
         result.checkValueValid();

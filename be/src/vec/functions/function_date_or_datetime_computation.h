@@ -469,9 +469,9 @@ public:
                         arguments[0].type->get_name(), get_name());
             }
         } else {
-            if (!WhichDataType(arguments[0].type).is_date_time() ||
-                !WhichDataType(arguments[0].type).is_date_time_v2() ||
-                !WhichDataType(arguments[2].type).is_string()) {
+            if (!WhichDataType(remove_nullable(arguments[0].type)).is_date_time() ||
+                !WhichDataType(remove_nullable(arguments[0].type)).is_date_time_v2() ||
+                !WhichDataType(remove_nullable(arguments[2].type)).is_string()) {
                 LOG(FATAL) << fmt::format(
                         "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument must be number. The 3rd argument "
@@ -487,10 +487,10 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const IDataType* first_arg_type = block.get_by_position(arguments[0]).type.get();
-        const IDataType* second_arg_type = block.get_by_position(arguments[1]).type.get();
-        WhichDataType which1(first_arg_type);
-        WhichDataType which2(second_arg_type);
+        const auto& first_arg_type = block.get_by_position(arguments[0]).type;
+        const auto& second_arg_type = block.get_by_position(arguments[1]).type;
+        WhichDataType which1(remove_nullable(first_arg_type));
+        WhichDataType which2(remove_nullable(second_arg_type));
 
         if (which1.is_date() && which2.is_date()) {
             return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
@@ -603,7 +603,7 @@ struct CurrentDateTimeImpl {
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, size_t result,
                           size_t input_rows_count) {
-        WhichDataType which(block.get_by_position(result).type);
+        WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
             return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
                                                                          input_rows_count);
@@ -721,7 +721,7 @@ struct UtcTimestampImpl {
     static constexpr auto name = "utc_timestamp";
     static Status execute(FunctionContext* context, Block& block, size_t result,
                           size_t input_rows_count) {
-        WhichDataType which(block.get_by_position(result).type);
+        WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
             return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
                                                                          input_rows_count);

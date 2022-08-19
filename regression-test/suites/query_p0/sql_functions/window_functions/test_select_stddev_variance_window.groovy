@@ -28,11 +28,15 @@ suite("test_select_stddev_variance_window") {
             `k6` char(5) NULL COMMENT "",
             `k10` date NULL COMMENT "",
             `k11` datetime NULL COMMENT "",
+            `k12` datev2 NULL COMMENT "",
+            `k13` datetimev2 NULL COMMENT "",
+            `k14` datetimev2(3) NULL COMMENT "",
+            `k15` datetimev2(6) NULL COMMENT "",
             `k7` varchar(20) NULL COMMENT "",
             `k8` double NULL COMMENT "",
             `k9` float NULL COMMENT ""
             ) ENGINE=OLAP
-            DUPLICATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)
+            DUPLICATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k12`, `k13`, `k14`, `k15`, `k7`)
             COMMENT "OLAP"
             DISTRIBUTED BY HASH(`k1`) BUCKETS 5
             PROPERTIES (

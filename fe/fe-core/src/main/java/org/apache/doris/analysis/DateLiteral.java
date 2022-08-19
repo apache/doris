@@ -431,9 +431,6 @@ public class DateLiteral extends LiteralExpr {
             minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
-            if (type.isDatetimeV2()) {
-                this.roundFloor(((ScalarType) type).getScalarScale());
-            }
             this.type = type;
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
@@ -526,12 +523,14 @@ public class DateLiteral extends LiteralExpr {
         if (type.isDate() || type.isDateV2()) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type.isDatetimeV2()) {
+            long ms = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))
+                    * (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))).longValue();
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
                     year, month, day, hour, minute, second);
-            if (microsecond == 0) {
+            if (ms == 0) {
                 return tmp;
             }
-            return tmp + String.format(".%06d", microsecond);
+            return tmp + String.format(".%06d", ms);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
@@ -542,13 +541,23 @@ public class DateLiteral extends LiteralExpr {
         long remain = Double.valueOf(microsecond % (Math.pow(10, 6 - newScale))).longValue();
         if (remain != 0) {
             microsecond = Double.valueOf((microsecond + (Math.pow(10, 6 - newScale)))
-                    / (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale))).longValue();
+                    / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale))).longValue();
+        }
+        if (microsecond > MAX_MICROSECOND) {
+            microsecond %= microsecond;
+            DateLiteral result = this.plusSeconds(1);
+            this.second = result.second;
+            this.minute = result.minute;
+            this.hour = result.hour;
+            this.day = result.day;
+            this.month = result.month;
+            this.year = result.year;
         }
         type = ScalarType.createDatetimeV2Type(newScale);
     }
 
     public void roundFloor(int newScale) {
-        microsecond = Double.valueOf(microsecond / (Math.pow(10, 6 - newScale))
+        microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - newScale))
                 * (Math.pow(10, 6 - newScale))).longValue();
         type = ScalarType.createDatetimeV2Type(newScale);
     }
@@ -580,6 +589,9 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
+        if (type.isDatetimeV2()) {
+            this.roundFloor(((ScalarType) type).getScalarScale());
+        }
         msg.node_type = TExprNodeType.DATE_LITERAL;
         msg.date_literal = new TDateLiteral(getStringValue());
     }
@@ -870,11 +882,11 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(getTimeFormatter().plusHours(hour), type);
     }
 
-    public DateLiteral plusMinutes(int minute) throws AnalysisException {
+    public DateLiteral plusMinutes(int minute) {
         return new DateLiteral(getTimeFormatter().plusMinutes(minute), type);
     }
 
-    public DateLiteral plusSeconds(int second) throws AnalysisException {
+    public DateLiteral plusSeconds(int second) {
         return new DateLiteral(getTimeFormatter().plusSeconds(second), type);
     }
 

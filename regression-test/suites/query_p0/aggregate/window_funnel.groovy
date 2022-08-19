@@ -60,4 +60,46 @@ suite("window_funnel") {
                              ) AS level
                         from ${tableName} t;
                  """
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            xwho varchar(50) NULL COMMENT 'xwho',
+            xwhen datetimev2(3) COMMENT 'xwhen',
+            xwhat int NULL COMMENT 'xwhat'
+        )
+        DUPLICATE KEY(xwho)
+        DISTRIBUTED BY HASH(xwho) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql "INSERT into ${tableName} (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:41:00.111111', 1)"
+    sql "INSERT INTO ${tableName} (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 13:28:02.111111', 2)"
+    sql "INSERT INTO ${tableName} (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 16:15:01.111111', 3)"
+    sql "INSERT INTO ${tableName} (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 19:05:04.111111', 4)"
+
+    qt_window_funnel """
+        select
+            window_funnel(
+                1,
+                'default',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2
+                ) AS level
+        from ${tableName} t;
+    """
+    qt_window_funnel """
+        select
+            window_funnel(
+                20000,
+                'default',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2
+            ) AS level
+        from ${tableName} t;
+    """
+    sql """ DROP TABLE IF EXISTS ${tableName} """
 }

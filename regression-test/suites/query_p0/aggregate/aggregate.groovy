@@ -30,6 +30,10 @@ suite("aggregate") {
                 c_string string,
                 c_date date,
                 c_timestamp datetime,
+                c_date_1 datev2,
+                c_timestamp_1 datetimev2,
+                c_timestamp_2 datetimev2(3),
+                c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
                 c_long_decimal decimal(27,9)
@@ -82,6 +86,10 @@ suite("aggregate") {
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date),count(distinct c_timestamp),count(distinct c_boolean) from ${tableName} """
     qt_aggregate """ select max(c_bigint), max(c_double),max(c_string), max(c_date), max(c_timestamp) from ${tableName} """
     qt_aggregate """ select min(c_bigint), min(c_double), min(c_string), min(c_date), min(c_timestamp) from ${tableName} """
+    qt_aggregate """ select count(c_bigint),count(c_double),count(c_string),count(c_date_1),count(c_timestamp_1),count(c_timestamp_2),count(c_timestamp_3),count(c_boolean) from ${tableName} """
+    qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from ${tableName} """
+    qt_aggregate """ select max(c_bigint), max(c_double),max(c_string), max(c_date_1), max(c_timestamp_1), max(c_timestamp_2), max(c_timestamp_3) from ${tableName} """
+    qt_aggregate """ select min(c_bigint), min(c_double), min(c_string), min(c_date_1), min(c_timestamp_1), min(c_timestamp_2), min(c_timestamp_3) from ${tableName} """
     qt_aggregate """ select count(c_string), max(c_double), avg(c_bigint) from ${tableName} """
     qt_aggregate """ select stddev_pop(c_bigint), stddev_pop(c_double) from ${tableName} """
     qt_aggregate """ select stddev_pop(distinct c_bigint), stddev_pop(c_double) from ${tableName} """

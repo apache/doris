@@ -26,6 +26,10 @@ suite("test_nullif") {
                 c_string string,
                 c_date date,
                 c_timestamp datetime,
+                c_date_1 datev2,
+                c_timestamp_1 datetimev2,
+                c_timestamp_2 datetimev2(3),
+                c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
                 c_long_decimal decimal(27,9)
@@ -72,7 +76,10 @@ suite("test_nullif") {
     }
 
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
-    qt_select "select if(c_date is null,c_timestamp,c_date) from datetype where c_date is null and c_timestamp is not null"
+    qt_select "select if(c_date is null,c_timestamp,c_date) from ${tableName} where c_date is null and c_timestamp is not null"
+    qt_select "select if(c_date_1 is null,c_timestamp_1,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_1 is not null"
+    qt_select "select if(c_date_1 is null,c_timestamp_2,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_2 is not null"
+    qt_select "select if(c_date_1 is null,c_timestamp_3,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_3 is not null"
 
     sql "use test_query_db"
     def tableName1 = "test"

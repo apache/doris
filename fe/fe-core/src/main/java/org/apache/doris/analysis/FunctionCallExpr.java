@@ -827,9 +827,10 @@ public class FunctionCallExpr extends Expr {
      * to generate a builtinFunction.
      * @throws AnalysisException
      */
-    public void analyzeImplForDefaultValue() throws AnalysisException {
+    public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
         fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        type = ScalarType.getDefaultDateType(fn.getReturnType());
+        fn.setReturnType(type);
+        this.type = type;
         for (int i = 0; i < children.size(); ++i) {
             if (getChild(i).getType().isNull()) {
                 uncheckedCastChild(Type.BOOLEAN, i);
@@ -936,6 +937,9 @@ public class FunctionCallExpr extends Expr {
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (assignmentCompatibleType.isDatetimeV2()) {
+                fn.setReturnType(assignmentCompatibleType);
+            }
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
@@ -993,6 +997,15 @@ public class FunctionCallExpr extends Expr {
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+        }
+
+        if (fn.getArgs().length == children.size() && fn.getArgs().length == 1) {
+            if (fn.getArgs()[0].isDatetimeV2() && children.get(0).getType().isDatetimeV2()) {
+                fn.setArgType(children.get(0).getType(), 0);
+                if (fn.getReturnType().isDatetimeV2()) {
+                    fn.setReturnType(children.get(0).getType());
+                }
+            }
         }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
