@@ -416,7 +416,7 @@ public final class SparkDpp implements java.io.Serializable {
                             etlColumn.columnName, row.toString(), strDataSize));
                     return false;
                 }
-                break;                               
+                break;
             default:
                 return true;
         }

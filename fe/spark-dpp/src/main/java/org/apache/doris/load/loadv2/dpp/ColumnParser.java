@@ -64,7 +64,7 @@ public abstract class ColumnParser implements Serializable {
             return new DatetimeParser();
         } else if (columnType.equalsIgnoreCase("STRING")
                 || columnType.equalsIgnoreCase("TEXT")) {
-            return new StringTypeParser(etlColumn);            
+            return new StringTypeParser(etlColumn);
         } else if (columnType.equalsIgnoreCase("VARCHAR")
                 || columnType.equalsIgnoreCase("CHAR")
                 || columnType.equalsIgnoreCase("BITMAP")
