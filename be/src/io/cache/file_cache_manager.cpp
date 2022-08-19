@@ -91,7 +91,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
                 }
                 std::string cache_file_path = StringReplace(
                         done_file_path, "_DONE", "", true);
-                LOG(INFO) << "Remove timeout done_cache_path: " << done_file_path
+                LOG(INFO) << "Delete timeout done_cache_path: " << done_file_path
                           << ", cache_file_path: " << cache_file_path
                           << ", m_time: " << m_time;
                 if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
@@ -124,20 +124,15 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
                 if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
                     continue;
                 }
-                LOG(INFO) << "delete cache file without done file: " << cache_file_path;
+                LOG(INFO) << "Delete cache file without done file: " << cache_file_path;
                 if (!io::global_local_filesystem()->delete_file(cache_file_path).ok()) {
                     LOG(ERROR) << "delete_file failed: " << cache_file_path;
                 }
             }
-        }
-
-
-        bool cache_dir_exist = false;
-        if (global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
-            if (cache_dir_exist) {
-                Status st = global_local_filesystem()->delete_directory(cache_path);
-                if (!st.ok()) {
-                    LOG(WARNING) << st.to_string();
+            if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()
+                && cache_file_names.size() == 0) {
+                if (global_local_filesystem()->delete_directory(cache_path).ok()) {
+                    LOG(INFO) << "Delete empty dir: " << cache_path;
                 }
             }
         }
