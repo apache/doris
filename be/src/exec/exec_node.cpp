@@ -272,7 +272,9 @@ Status ExecNode::close(RuntimeState* state) {
         }
     }
 
-    if (_vconjunct_ctx_ptr) (*_vconjunct_ctx_ptr)->close(state);
+    if (_vconjunct_ctx_ptr) {
+        (*_vconjunct_ctx_ptr)->close(state);
+    }
     if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
         Expr::close(_conjunct_ctxs, state);
     }
@@ -428,8 +430,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
-        } else
+        } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
