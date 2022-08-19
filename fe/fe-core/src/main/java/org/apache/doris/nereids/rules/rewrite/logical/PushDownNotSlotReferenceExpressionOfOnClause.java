@@ -100,7 +100,7 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
                             new TreeCollectVisitor(),
                             exprMap);
 
-                    List<Plan> childs = join.children().stream()
+                    List<Plan> children = join.children().stream()
                             .map(GroupPlan.class::cast)
                             .map(p -> {
                                 List<NamedExpression> slots = p.getOutput()
@@ -111,11 +111,11 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
                                                 .flatMap(Collection::stream)
                                                 .map(NamedExpression.class::cast)
                                                 .collect(Collectors.toList());
-                                return new LogicalProject<>(slots, p.getGroup().getLogicalExpression().getPlan());
+                                return new LogicalProject<>(slots, p);
                             })
                             .collect(Collectors.toList());
 
-                    LogicalJoin<Plan, Plan> joinAddProjects = (LogicalJoin<Plan, Plan>) join.withChildren(childs);
+                    LogicalJoin<Plan, Plan> joinAddProjects = (LogicalJoin<Plan, Plan>) join.withChildren(children);
 
                     return joinAddProjects
                             .withCondition(Optional.of(join.getCondition().get().accept(
@@ -138,15 +138,8 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
                 Map<SlotReference, Map<Expression, Expression>> context) {
             Set<SlotReference> set = new HashSet<>(expr.collect(SlotReference.class::isInstance));
             if (set.size() == 1) {
-                SlotReference ref = set.stream().findFirst().get();
-                Map<Expression, Expression> map = context.get(ref);
-                if (map == null) {
-                    Map<Expression, Expression> newMap = new HashMap<>();
-                    newMap.put(expr, new Alias(expr, expr.toSql()));
-                    context.put(ref, newMap);
-                } else {
-                    map.put(expr, new Alias(expr, expr.toString()));
-                }
+                SlotReference ref = set.iterator().next();
+                context.computeIfAbsent(ref, key -> new HashMap<>()).put(expr, new Alias(expr, expr.toString()));
             }
             return expr;
         }
