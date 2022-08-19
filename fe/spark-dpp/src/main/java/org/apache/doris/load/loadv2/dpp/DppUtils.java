@@ -94,6 +94,8 @@ public class DppUtils {
             case "HLL":
             case "CHAR":
             case "VARCHAR":
+            case "STRING":
+            case "TEXT":
             case "BITMAP":
             case "OBJECT":
                 return String.class;
@@ -142,6 +144,8 @@ public class DppUtils {
                 break;
             case "CHAR":
             case "VARCHAR":
+            case "STRING":
+            case "TEXT":
             case "OBJECT":
                 dataType = DataTypes.StringType;
                 break;

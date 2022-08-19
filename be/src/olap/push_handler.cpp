@@ -905,6 +905,7 @@ Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, boo
     case OLAP_FIELD_TYPE_DOUBLE:
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_STRING:
     case OLAP_FIELD_TYPE_HLL:
     case OLAP_FIELD_TYPE_OBJECT: {
         dst->set_is_null(src_null);
