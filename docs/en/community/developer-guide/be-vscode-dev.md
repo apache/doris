@@ -282,14 +282,15 @@ An example of a complete launch.json is as follows:
 
 ## Debugging(LLDB)
 
-lldb的attach比gdb更快，使用方式和gdb类似，vscode需要安装的插件改为`CodeLLDB`，然后在launch中加入如下配置:
+lldb's attach mode is fast than gdb，and the usage is similar to gdb. we should install plugin `CodeLLDB`, then add config to launch:
 ```json
-        {
-            "name": "CodeLLDB attach",
-            "type": "lldb",
-            "request": "attach",
-            "program": "${workspaceFolder}/output/be/lib/doris_be",
-            "pid":"${command:pickMyProcess}"
-        }
+{
+    "name": "CodeLLDB attach",
+    "type": "lldb",
+    "request": "attach",
+    "program": "${workspaceFolder}/output/be/lib/doris_be",
+    "pid":"${command:pickMyProcess}"
+}
 ```
-需要注意的是，此方式要求系统`glibc`版本为2.18+。如果没有则可以参考 [如何使CodeLLDB在CentOS7下工作](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) 安装并使插件链接到高版本glibc。
+
+It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work。
