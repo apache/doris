@@ -39,9 +39,9 @@ public class PhysicalNestedLoopJoin<
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinPredicates, Optional<Expression> condition,
+            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinPredicates, condition,
+        this(joinType, hashJoinConjuncts, condition,
                 Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
@@ -52,10 +52,10 @@ public class PhysicalNestedLoopJoin<
      * @param condition join condition.
      */
     public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinPredicates, Optional<Expression> condition,
+            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinPredicates, condition,
+        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, condition,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -80,19 +80,19 @@ public class PhysicalNestedLoopJoin<
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinPredicates, otherJoinCondition, logicalProperties, children.get(0), children.get(1));
+                hashJoinConjuncts, otherJoinCondition, logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinPredicates, otherJoinCondition, groupExpression, logicalProperties, left(), right());
+                hashJoinConjuncts, otherJoinCondition, groupExpression, logicalProperties, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinPredicates, otherJoinCondition, Optional.empty(),
+                hashJoinConjuncts, otherJoinCondition, Optional.empty(),
                 logicalProperties.get(), left(), right());
     }
 }

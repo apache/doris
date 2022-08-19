@@ -190,8 +190,8 @@ public class PushDownPredicateTest {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3,
                 whereCondition4);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.empty(), rStudent, rScore);
-        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.empty(), join, rCourse);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, ImmutableList.of(), Optional.empty(), rStudent, rScore);
+        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, ImmutableList.of(), Optional.empty(), join, rCourse);
         Plan filter = new LogicalFilter(whereCondition, join1);
 
         Plan root = new LogicalProject(

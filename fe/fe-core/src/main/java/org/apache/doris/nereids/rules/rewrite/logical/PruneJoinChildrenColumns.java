@@ -69,7 +69,7 @@ public class PruneJoinChildrenColumns
         if (joinPlan.getOtherJoinCondition().isPresent()) {
             references.addAll(SlotExtractor.extractSlot(joinPlan.getOtherJoinCondition().get()));
         }
-        for (Expression expr : joinPlan.getHashJoinPredicates()) {
+        for (Expression expr : joinPlan.getHashJoinConjuncts()) {
             references.addAll(SlotExtractor.extractSlot(expr));
         }
         Set<ExprId> exprIds = references.stream().map(NamedExpression::getExprId).collect(Collectors.toSet());

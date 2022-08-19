@@ -370,14 +370,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
-            List<Expr> execEqConjunctList = new ArrayList<>();
-            if (hashJoin.getOnClauseCondition().isPresent()) {
-                execEqConjunctList = hashJoin.getHashJoinPredicates().stream()
-                        .map(EqualTo.class::cast)
-                        .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
-                        .map(e -> ExpressionTranslator.translate(e, context))
-                        .collect(Collectors.toList());
-            }
+            List<Expr> execEqConjunctList = hashJoin.getHashJoinConjuncts().stream()
+                    .map(EqualTo.class::cast)
+                    .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
             TupleDescriptor outputDescriptor = context.generateTupleDesc();
             List<Expr> srcToOutput = hashJoin.getOutput().stream()
                     .map(SlotReference.class::cast)

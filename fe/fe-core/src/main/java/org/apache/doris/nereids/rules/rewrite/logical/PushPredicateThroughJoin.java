@@ -130,7 +130,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             rightPlan = new LogicalFilter(right, rightPlan);
         }
 
-        return new LogicalJoin<>(joinPlan.getJoinType(), joinPlan.getHashJoinPredicates(),
+        return new LogicalJoin<>(joinPlan.getJoinType(), joinPlan.getHashJoinConjuncts(),
                 Optional.of(ExpressionUtils.and(joinConditions)), leftPlan, rightPlan);
     }
 

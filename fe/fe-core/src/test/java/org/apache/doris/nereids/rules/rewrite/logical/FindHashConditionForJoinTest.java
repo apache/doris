@@ -46,34 +46,34 @@ import java.util.Optional;
 /**
  * initial plan:
  *     join
- *        -hashJoinPredicates={}
+ *        -hashJoinConjuncts={}
  *        -otherJoinCondition=
  *          "A.x=B.x and A.y+1=B.y and A.x=1 and (A.y=B.y or B.x=A.x) and A.x>B.x"
  * after transform
  *    join
- *       -hashJoinPredicates={A.x=B.x, A.y+1=B.y}
+ *       -hashJoinConjuncts={A.x=B.x, A.y+1=B.y}
  *       -otherJoinCondition="A.x=1 and (A.x=1 or B.x=A.x) and A.x>B.x"
  */
 class FindHashConditionForJoinTest {
     @Test
     public void testFindHashCondition() {
-        Plan student = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("std"));
-        Plan score = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of("std"));
+        Plan student = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        Plan score = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of("score"));
 
-        Slot stdId = student.getOutput().get(0);
+        Slot studentId = student.getOutput().get(0);
         Slot gender = student.getOutput().get(1);
         Slot scoreId = score.getOutput().get(0);
         Slot cid = score.getOutput().get(1);
 
-        Expression eq1 = new EqualTo(stdId, scoreId); //a=b
-        Expression eq2 = new EqualTo(stdId, new IntegerLiteral(1)); //a=1
+        Expression eq1 = new EqualTo(studentId, scoreId); //a=b
+        Expression eq2 = new EqualTo(studentId, new IntegerLiteral(1)); //a=1
         Expression eq3 = new EqualTo(
-                new Add(stdId, new IntegerLiteral(1)),
+                new Add(studentId, new IntegerLiteral(1)),
                 cid);
         Expression or = new Or(
-                new EqualTo(scoreId, stdId),
+                new EqualTo(scoreId, studentId),
                 new EqualTo(gender, cid));
-        Expression less = new LessThan(scoreId, stdId);
+        Expression less = new LessThan(scoreId, studentId);
         Expression expr = ExpressionUtils.and(eq1, eq2, eq3, or, less);
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(),
                 Optional.of(expr), student, score);
@@ -83,16 +83,14 @@ class FindHashConditionForJoinTest {
         context.topDownRewrite(rules);
         Plan plan = context.getMemo().copyOut();
         LogicalJoin after = (LogicalJoin) plan;
-        Assertions.assertEquals(after.getHashJoinPredicates().size(), 2);
-        Assertions.assertTrue(after.getHashJoinPredicates().contains(eq1));
-        Assertions.assertTrue(after.getHashJoinPredicates().contains(eq3));
+        Assertions.assertEquals(after.getHashJoinConjuncts().size(), 2);
+        Assertions.assertTrue(after.getHashJoinConjuncts().contains(eq1));
+        Assertions.assertTrue(after.getHashJoinConjuncts().contains(eq3));
         List<Expression> others = ExpressionUtils.extractConjunction((Expression) after.getOtherJoinCondition().get());
         Assertions.assertEquals(others.size(), 3);
         Assertions.assertTrue(others.contains(less));
         Assertions.assertTrue(others.contains(eq2));
         Assertions.assertTrue(others.contains(less));
-
-
     }
 
 }

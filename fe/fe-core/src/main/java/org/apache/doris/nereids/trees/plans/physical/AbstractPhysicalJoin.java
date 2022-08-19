@@ -41,7 +41,7 @@ public abstract class AbstractPhysicalJoin<
         extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
     protected final JoinType joinType;
 
-    protected final List<Expression> hashJoinPredicates;
+    protected final List<Expression> hashJoinConjuncts;
 
     protected final Optional<Expression> otherJoinCondition;
 
@@ -51,18 +51,18 @@ public abstract class AbstractPhysicalJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public AbstractPhysicalJoin(PlanType type, JoinType joinType, List<Expression> hashJoinPredicates,
+    public AbstractPhysicalJoin(PlanType type, JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinPredicates = hashJoinPredicates;
+        this.hashJoinConjuncts = hashJoinConjuncts;
         this.otherJoinCondition = Objects.requireNonNull(condition, "condition can not be null");
     }
 
-    public List<Expression> getHashJoinPredicates() {
-        return hashJoinPredicates;
+    public List<Expression> getHashJoinConjuncts() {
+        return hashJoinConjuncts;
     }
 
     public JoinType getJoinType() {
@@ -99,15 +99,15 @@ public abstract class AbstractPhysicalJoin<
     }
 
     /**
-     * hashJoinPredicates and otherJoinCondition
-     * @return the combination of hashJoinPredicates and otherJoinCondition
+     * hashJoinConjuncts and otherJoinCondition
+     * @return the combination of hashJoinConjuncts and otherJoinCondition
      */
     public Optional<Expression> getOnClauseCondition() {
-        if (hashJoinPredicates.isEmpty()) {
+        if (hashJoinConjuncts.isEmpty()) {
             return otherJoinCondition;
         }
 
-        Expression onClauseCondition = ExpressionUtils.and(hashJoinPredicates);
+        Expression onClauseCondition = ExpressionUtils.and(hashJoinConjuncts);
         if (otherJoinCondition.isPresent()) {
             onClauseCondition = ExpressionUtils.and(onClauseCondition, otherJoinCondition.get());
         }

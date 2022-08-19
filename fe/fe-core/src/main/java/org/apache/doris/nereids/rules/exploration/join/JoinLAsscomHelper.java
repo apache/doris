@@ -74,12 +74,12 @@ public class JoinLAsscomHelper {
         b = bottomJoin.right();
         c = topJoin.right();
 
-        Preconditions.checkArgument(!topJoin.getHashJoinPredicates().isEmpty(),
-                "topJoin hashJoinPredicates must exist.");
-        topJoinOnClause = topJoin.getHashJoinPredicates();
-        Preconditions.checkArgument(!bottomJoin.getHashJoinPredicates().isEmpty(),
+        Preconditions.checkArgument(!topJoin.getHashJoinConjuncts().isEmpty(),
+                "topJoin hashJoinConjuncts must exist.");
+        topJoinOnClause = topJoin.getHashJoinConjuncts();
+        Preconditions.checkArgument(!bottomJoin.getHashJoinConjuncts().isEmpty(),
                 "bottomJoin onClause must exist.");
-        bottomJoinOnClause = bottomJoin.getHashJoinPredicates();
+        bottomJoinOnClause = bottomJoin.getHashJoinConjuncts();
 
         aOutputSlots = Utils.getOutputSlotReference(a);
         bOutputSlots = Utils.getOutputSlotReference(b);
@@ -166,8 +166,8 @@ public class JoinLAsscomHelper {
     private LogicalJoin<GroupPlan, GroupPlan> newBottomJoin() {
         return new LogicalJoin(
                 bottomJoin.getJoinType(),
-                bottomJoin.getHashJoinPredicates(),
-                Optional.of(ExpressionUtils.and(newBottomJoinOnCondition)),
+                newBottomJoinOnCondition,
+                Optional.empty(),
                 a, c);
     }
 
@@ -193,8 +193,8 @@ public class JoinLAsscomHelper {
 
         return new LogicalJoin<>(
                 topJoin.getJoinType(),
-                topJoin.getHashJoinPredicates(),
-                Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                newTopJoinOnCondition,
+                Optional.empty(),
                 left, right);
     }
 
@@ -209,8 +209,8 @@ public class JoinLAsscomHelper {
 
         return new LogicalJoin(
                 topJoin.getJoinType(),
-                topJoin.getHashJoinPredicates(),
-                Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                newTopJoinOnCondition,
+                Optional.empty(),
                 newBottomJoin(), b);
     }
 

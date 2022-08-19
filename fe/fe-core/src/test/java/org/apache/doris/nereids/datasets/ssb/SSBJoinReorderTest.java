@@ -113,7 +113,6 @@ public class SSBJoinReorderTest extends SSBTestBase {
 
             // check join conditions
             List<String> actualJoinConditions = joins.stream().map(j -> {
-
                 Optional<Expression> condition = j.getOnClauseCondition();
                 return condition.map(Expression::toSql).orElse("");
             }).collect(Collectors.toList());

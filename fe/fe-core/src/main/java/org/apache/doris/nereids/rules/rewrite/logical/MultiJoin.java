@@ -61,16 +61,14 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
      */
     public Optional<Plan> reorderJoinsAccordingToConditions() {
         if (joinInputs.size() >= 2) {
-            Plan joinRoot = reorderJoinsAccordingToConditions(joinInputs, conjunctsForAllHashJoins);
+            Plan root = reorderJoinsAccordingToConditions(joinInputs, conjunctsForAllHashJoins);
             if (!conjunctsKeepInFilter.isEmpty()) {
-                LogicalFilter filter = new LogicalFilter(
+                root = new LogicalFilter(
                         ExpressionUtils.and(conjunctsKeepInFilter),
-                        joinRoot
+                        root
                 );
-                return Optional.of(filter);
-            } else {
-                return Optional.of(joinRoot);
             }
+            return Optional.of(root);
         }
         return Optional.empty();
     }
@@ -214,7 +212,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         join.left().accept(this, context);
         join.right().accept(this, context);
 
-        conjunctsForAllHashJoins.addAll(join.getHashJoinPredicates());
+        conjunctsForAllHashJoins.addAll(join.getHashJoinConjuncts());
         if (join.getOtherJoinCondition().isPresent()) {
             conjunctsForAllHashJoins.addAll(ExpressionUtils.extractConjunction(join.getOtherJoinCondition().get()));
         }

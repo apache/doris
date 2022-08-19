@@ -101,8 +101,6 @@ public class PlanEqualsTest {
         );
         LogicalJoin innerJoin1 = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(condition1),
                 Optional.empty(), left, right);
-        boolean bool = innerJoin1.equals(innerJoin);
-        System.out.println(bool);
         Assertions.assertNotEquals(innerJoin, innerJoin1);
 
         Expression condition2 = new EqualTo(

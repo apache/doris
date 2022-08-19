@@ -33,7 +33,7 @@ import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -99,9 +99,9 @@ public class JoinUtils {
 
         JoinSlotCoverageChecker(List<SlotReference> left, List<SlotReference> right) {
             this.left = new HashSet<>(left);
-            leftExprIds = new HashSet<>(left.stream().map(SlotReference::getExprId).collect(Collectors.toList()));
+            leftExprIds = (HashSet<ExprId>) left.stream().map(SlotReference::getExprId).collect(Collectors.toSet());
             this.right = new HashSet<>(right);
-            rightExprIds = new HashSet<>(right.stream().map(SlotReference::getExprId).collect(Collectors.toList()));
+            rightExprIds = (HashSet<ExprId>) right.stream().map(SlotReference::getExprId).collect(Collectors.toSet());
         }
 
         boolean isCoveredByLeftSlots(List<SlotReference> slots) {
@@ -109,9 +109,8 @@ public class JoinUtils {
             if (covered) {
                 return true;
             }
-            List<ExprId> slotsExprIds = slots.stream()
-                    .map(SlotReference::getExprId).collect(Collectors.toList());
-            return leftExprIds.containsAll(slotsExprIds);
+            return slots.stream().map(SlotReference::getExprId)
+                    .allMatch(leftExprIds::contains);
         }
 
         boolean isCoveredByRightSlots(List<SlotReference> slots) {
@@ -119,9 +118,9 @@ public class JoinUtils {
             if (covered) {
                 return true;
             }
-            List<ExprId> slotsExprIds = slots.stream()
-                    .map(SlotReference::getExprId).collect(Collectors.toList());
-            return rightExprIds.containsAll(slotsExprIds);
+            return slots.stream()
+                    .map(SlotReference::getExprId)
+                    .allMatch(rightExprIds::contains);
         }
 
         /**
@@ -162,12 +161,12 @@ public class JoinUtils {
      * @param join join node
      * @return pair of expressions, for hash table or not.
      */
-    public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(LogicalJoin join,
-            Optional<Expression> onConditions) {
-        if (onConditions.isPresent()) {
-            List<Expression> onExprs = ExpressionUtils.extractConjunction(onConditions.get());
-            List<SlotReference> leftSlots = Utils.getOutputSlotReference((Plan) (join.left()));
-            List<SlotReference> rightSlots = Utils.getOutputSlotReference((Plan) (join.right()));
+    public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(LogicalJoin join) {
+        if (join.getOtherJoinCondition().isPresent()) {
+            List<Expression> onExprs = ExpressionUtils.extractConjunction(
+                    (Expression) join.getOtherJoinCondition().get());
+            List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
+            List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
             return extractExpressionForHashTable(leftSlots, rightSlots, onExprs);
         }
         return new Pair<>(Lists.newArrayList(), Lists.newArrayList());
@@ -186,17 +185,11 @@ public class JoinUtils {
 
         Pair<List<Expression>, List<Expression>> pair = new Pair<>(Lists.newArrayList(), Lists.newArrayList());
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
-        for (Expression expr : onConditions) {
-            if (expr instanceof EqualTo) {
-                if (checker.isHashJoinCondition((EqualTo) expr)) {
-                    pair.first.add(expr);
-                } else {
-                    pair.second.add(expr);
-                }
-            } else {
-                pair.second.add(expr);
-            }
-        }
+        Map<Boolean, List<Expression>> mapper = onConditions.stream()
+                .filter(expr -> expr instanceof EqualTo)
+                .collect(Collectors.groupingBy(eq -> checker.isHashJoinCondition((EqualTo) eq)));
+        pair.first = mapper.get(true);
+        pair.second = mapper.get(false);
         return pair;
     }
 
@@ -213,7 +206,7 @@ public class JoinUtils {
 
         List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
         List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
-        List<EqualTo> equalToList = join.getHashJoinPredicates().stream()
+        List<EqualTo> equalToList = join.getHashJoinConjuncts().stream()
                 .map(e -> (EqualTo) e).collect(Collectors.toList());
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
         for (EqualTo equalTo : equalToList) {
@@ -240,7 +233,6 @@ public class JoinUtils {
 
     public static boolean shouldNestedLoopJoin(Join join) {
         JoinType joinType = join.getJoinType();
-        //return (joinType.isInnerJoin() && !join.getOnClauseCondition().isPresent()) || joinType.isCrossJoin();
-        return (joinType.isInnerJoin() && join.getHashJoinPredicates().isEmpty()) || joinType.isCrossJoin();
+        return (joinType.isInnerJoin() && join.getHashJoinConjuncts().isEmpty()) || joinType.isCrossJoin();
     }
 }

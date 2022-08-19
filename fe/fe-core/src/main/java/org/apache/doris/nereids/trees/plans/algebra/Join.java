@@ -29,7 +29,7 @@ import java.util.Optional;
 public interface Join {
     JoinType getJoinType();
 
-    List<Expression> getHashJoinPredicates();
+    List<Expression> getHashJoinConjuncts();
 
     Optional<Expression> getOtherJoinCondition();
 

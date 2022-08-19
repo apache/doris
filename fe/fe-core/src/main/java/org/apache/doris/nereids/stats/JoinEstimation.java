@@ -44,7 +44,7 @@ public class JoinEstimation {
         JoinType joinType = join.getJoinType();
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
-        List<Expression> eqConjunctList = join.getHashJoinPredicates();
+        List<Expression> eqConjunctList = join.getHashJoinConjuncts();
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
             rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);

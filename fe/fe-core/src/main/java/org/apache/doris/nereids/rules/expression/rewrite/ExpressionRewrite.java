@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -107,24 +107,24 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalJoin().then(join -> {
-                List<Expression> hashJoinPredicates = join.getHashJoinPredicates();
+                List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
                 Optional<Expression> otherJoinCondition = join.getOtherJoinCondition();
-                if (!otherJoinCondition.isPresent() && hashJoinPredicates.isEmpty()) {
+                if (!otherJoinCondition.isPresent() && hashJoinConjuncts.isEmpty()) {
                     return join;
                 }
-                List<Expression> rewriteHashJoinPredicates = new ArrayList<>();
-                boolean joinPredicatesChanged = false;
-                for (Expression expr : hashJoinPredicates) {
+                List<Expression> rewriteHashJoinConjuncts = Lists.newArrayList();
+                boolean joinConjunctsChanged = false;
+                for (Expression expr : hashJoinConjuncts) {
                     Expression newExpr = rewriter.rewrite(expr);
-                    joinPredicatesChanged = joinPredicatesChanged || newExpr.equals(expr);
-                    rewriteHashJoinPredicates.add(newExpr);
+                    joinConjunctsChanged = joinConjunctsChanged || !newExpr.equals(expr);
+                    rewriteHashJoinConjuncts.add(newExpr);
                 }
 
                 Expression newOtherJoinCondition = rewriter.rewrite(otherJoinCondition.get());
-                if (!joinPredicatesChanged && newOtherJoinCondition.equals(otherJoinCondition.get())) {
+                if (!joinConjunctsChanged && newOtherJoinCondition.equals(otherJoinCondition.get())) {
                     return join;
                 }
-                return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinPredicates,
+                return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
                         Optional.of(newOtherJoinCondition), join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }

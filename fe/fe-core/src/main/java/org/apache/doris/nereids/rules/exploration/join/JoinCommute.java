@@ -57,7 +57,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
         return innerLogicalJoin().when(this::check).then(join -> {
             LogicalJoin newJoin = new LogicalJoin(
                     join.getJoinType(),
-                    join.getHashJoinPredicates(),
+                    join.getHashJoinConjuncts(),
                     join.getOtherJoinCondition(),
                     join.right(), join.left(),
                     join.getJoinReorderContext());
