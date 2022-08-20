@@ -29,6 +29,8 @@ import java.math.BigInteger;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 
+import static org.apache.doris.load.loadv2.dpp.DppUtils.STRING_LENGTH_LIMIT;
+
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
 
@@ -222,7 +224,7 @@ class StringTypeParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            return value.getBytes("UTF-8").length <= 1048576;
+            return value.getBytes("UTF-8").length <= STRING_LENGTH_LIMIT;
         } catch (Exception e) {
             throw new RuntimeException("string check failed ", e);
         }
