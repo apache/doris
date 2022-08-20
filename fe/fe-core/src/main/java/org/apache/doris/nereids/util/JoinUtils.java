@@ -186,10 +186,14 @@ public class JoinUtils {
         Pair<List<Expression>, List<Expression>> pair = new Pair<>(Lists.newArrayList(), Lists.newArrayList());
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
         Map<Boolean, List<Expression>> mapper = onConditions.stream()
-                .filter(expr -> expr instanceof EqualTo)
-                .collect(Collectors.groupingBy(eq -> checker.isHashJoinCondition((EqualTo) eq)));
-        pair.first = mapper.get(true);
-        pair.second = mapper.get(false);
+                .collect(Collectors.groupingBy(
+                        expr -> (expr instanceof EqualTo) && checker.isHashJoinCondition((EqualTo) expr)));
+        if (mapper.containsKey(true)) {
+            pair.first = mapper.get(true);
+        }
+        if (mapper.containsKey(false)) {
+            pair.second = mapper.get(false);
+        }
         return pair;
     }
 

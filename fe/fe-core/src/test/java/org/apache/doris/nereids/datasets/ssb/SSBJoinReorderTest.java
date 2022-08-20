@@ -83,6 +83,7 @@ public class SSBJoinReorderTest extends SSBTestBase {
     private void test(String sql, List<String> expectJoinConditions, List<String> expectFilterPredicates) {
         LogicalPlan analyzed = analyze(sql);
         LogicalPlan plan = testJoinReorder(analyzed);
+        System.out.println(plan.treeString());
         new PlanChecker(expectJoinConditions, expectFilterPredicates).check(plan);
     }
 
