@@ -39,8 +39,7 @@ class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask {
 public:
-    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
-                        int64_t signature, Status* res_status);
+    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos);
     virtual ~EngineBatchLoadTask();
 
     virtual Status execute();
@@ -71,9 +70,6 @@ private:
     bool _is_init = false;
     TPushReq& _push_req;
     std::vector<TTabletInfo>* _tablet_infos;
-    int64_t _signature;
-    Status _download_status;
-    Status* _res_status;
     std::string _remote_file_path;
     std::string _local_file_path;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

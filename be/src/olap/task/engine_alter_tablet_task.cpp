@@ -38,22 +38,10 @@ Status EngineAlterTabletTask::execute() {
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
 
     Status res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
-
     if (!res.ok()) {
-        LOG(WARNING) << "failed to do alter task. res=" << res
-                     << " base_tablet_id=" << _alter_tablet_req.base_tablet_id
-                     << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash
-                     << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id
-                     << ", new_schema_hash=" << _alter_tablet_req.new_schema_hash;
         DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
         return res;
     }
-
-    LOG(INFO) << "success to create new alter tablet. res=" << res
-              << " base_tablet_id=" << _alter_tablet_req.base_tablet_id
-              << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash
-              << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id
-              << ", new_schema_hash=" << _alter_tablet_req.new_schema_hash;
     return res;
 } // execute
 
