@@ -413,7 +413,7 @@ public final class SparkDpp implements java.io.Serializable {
                         > DppUtils.STRING_LENGTH_LIMIT) {
                     LOG.warn(String.format("The string type is limited to a maximum of %s bytes."
                                     + " column_name:%s,input_str[%s],actual length:%s",
-                        DppUtils.STRING_LENGTH_LIMIT, etlColumn.columnName, row.toString(), strDataSize));
+                            DppUtils.STRING_LENGTH_LIMIT, etlColumn.columnName, row.toString(), strDataSize));
                     return false;
                 }
                 break;
