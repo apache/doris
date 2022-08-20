@@ -497,3 +497,6 @@ Translated with www.DeepL.com/Translator (free version)
   SM4_128_OFB,
   SM4_128_CTR,
 ```
+
+* `agg_as_duplicate`
+  For debugging purpose. In case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
