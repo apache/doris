@@ -24,6 +24,7 @@
 #include <sstream>
 
 #include "gen_cpp/Exprs_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
