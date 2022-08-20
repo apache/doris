@@ -18,7 +18,9 @@
 #pragma once
 
 #include <sys/_types/_size_t.h>
+
 #include <cstddef>
+
 #include "vec/common/allocator.h"
 #include "vec/common/hash_table/hash_table.h"
 
@@ -154,11 +156,11 @@ struct JoinHashTableFixedGrower {
 
 template <typename Key, typename Cell, typename Hash, typename Grower, typename Allocator>
 class JoinHashTable : private boost::noncopyable,
-                  protected Hash,
-                  protected Allocator,
-                  protected Cell::State,
-                  protected ZeroValueStorage<Cell::need_zero_value_storage,
-                                             Cell> /// empty base optimization
+                      protected Hash,
+                      protected Allocator,
+                      protected Cell::State,
+                      protected ZeroValueStorage<Cell::need_zero_value_storage,
+                                                 Cell> /// empty base optimization
 {
 protected:
     friend class const_iterator;
@@ -175,18 +177,18 @@ protected:
     using Self = JoinHashTable;
     using cell_type = Cell;
 
-    size_t m_size = 0; /// Amount of elements
+    size_t m_size = 0;         /// Amount of elements
     size_t m_no_zero_size = 0; /// Amount of elements except the element with zero key.
-    Cell* buf;         /// A piece of memory for all elements except the element with zero key.
+    Cell* buf; /// A piece of memory for all elements except the element with zero key.
 
     // bucket-chained hash table
     // "first" is the buckets of the hash map, and it holds the index of the first key value saved in each bucket,
     // while other keys can be found by following the indices saved in
     // "next". "next[0]" represents the end of the list of keys in a bucket.
     // https://dare.uva.nl/search?identifier=5ccbb60a-38b8-4eeb-858a-e7735dd37487
-    size_t* first;     
+    size_t* first;
     size_t* next;
-              
+
     Grower grower;
     int64_t _resize_timer_ns;
 
@@ -236,15 +238,17 @@ protected:
 
     void alloc(const Grower& new_grower) {
         buf = reinterpret_cast<Cell*>(Allocator::alloc(new_grower.buf_size() * sizeof(Cell)));
-        first = reinterpret_cast<size_t*>(Allocator::alloc(new_grower.bucket_size() * sizeof(size_t)));
-        next = reinterpret_cast<size_t*>(Allocator::alloc((new_grower.buf_size() + 1) * sizeof(size_t)));
+        first = reinterpret_cast<size_t*>(
+                Allocator::alloc(new_grower.bucket_size() * sizeof(size_t)));
+        next = reinterpret_cast<size_t*>(
+                Allocator::alloc((new_grower.buf_size() + 1) * sizeof(size_t)));
         grower = new_grower;
     }
 
     void free() {
         if (buf) {
-            Allocator::free(buf, get_buffer_size_in_bytes());        
-            buf = nullptr;            
+            Allocator::free(buf, get_buffer_size_in_bytes());
+            buf = nullptr;
         }
         if (first) {
             Allocator::free(first, grower.bucket_size() * sizeof(size_t));
@@ -254,7 +258,7 @@ protected:
             Allocator::free(next, (grower.buf_size() + 1) * sizeof(size_t));
             next = nullptr;
         }
-    }   
+    }
 
     /// Increase the size of the buffer.
     void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
@@ -283,10 +287,10 @@ protected:
         /// Expand the space.
         buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
                                                          new_grower.buf_size() * sizeof(Cell)));
-        first = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_bucket_size_in_bytes(),
-                                                         new_grower.bucket_size() * sizeof(size_t)));
-        next = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
-                                                         (new_grower.buf_size() + 1) * sizeof(size_t)));                                                
+        first = reinterpret_cast<Cell*>(Allocator::realloc(
+                buf, get_bucket_size_in_bytes(), new_grower.bucket_size() * sizeof(size_t)));
+        next = reinterpret_cast<Cell*>(Allocator::realloc(
+                buf, get_buffer_size_in_bytes(), (new_grower.buf_size() + 1) * sizeof(size_t)));
         grower = new_grower;
 
         /** Now some items may need to be moved to a new location.
@@ -295,8 +299,7 @@ protected:
           */
         size_t i = 0;
         for (; i < m_no_zero_size; ++i)
-            if (!buf[i].is_zero(*this))
-                reinsert(i, buf[i], buf[i].get_hash(*this));
+            if (!buf[i].is_zero(*this)) reinsert(i, buf[i], buf[i].get_hash(*this));
 
 #ifdef DBMS_HASH_MAP_DEBUG_RESIZES
         watch.stop();
@@ -357,7 +360,7 @@ protected:
         auto get_ptr() const { return ptr; }
         size_t get_hash() const { return ptr->get_hash(*container); }
 
-        size_t get_collision_chain_length() const {  ////////////// ?????????
+        size_t get_collision_chain_length() const { ////////////// ?????????
             return container->grower.place((ptr - container->buf) -
                                            container->grower.place(get_hash()));
         }
@@ -621,7 +624,7 @@ public:
         if (Cell::is_zero(x, *this)) return this->get_has_zero() ? this->zero_value() : nullptr;
 
         size_t place_value = find_cell(x, hash_value, first[grower.place(hash_value)]);
-        
+
         if (!place_value) return nullptr;
 
         return !buf[place_value - 1].is_zero(*this) ? &buf[place_value - 1] : nullptr;
