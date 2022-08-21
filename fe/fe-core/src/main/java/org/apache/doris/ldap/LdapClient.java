@@ -43,7 +43,7 @@ import java.util.List;
 public class LdapClient {
     private static final Logger LOG = LogManager.getLogger(LdapClient.class);
 
-    private static volatile ClientInfo clientInfo;
+    private volatile ClientInfo clientInfo;
 
     @Data
     private static class ClientInfo {
@@ -85,15 +85,15 @@ public class LdapClient {
             PoolingContextSource poolingContextSource = new PoolingContextSource();
             poolingContextSource.setDirContextValidator(new DefaultDirContextValidator());
             poolingContextSource.setContextSource(contextSource);
-            poolingContextSource.setMaxActive(LdapConfig.max_active);
-            poolingContextSource.setMaxTotal(LdapConfig.max_total);
-            poolingContextSource.setMaxIdle(LdapConfig.max_idle);
-            poolingContextSource.setMaxWait(LdapConfig.max_wait);
-            poolingContextSource.setMinIdle(LdapConfig.min_idle);
-            poolingContextSource.setWhenExhaustedAction(LdapConfig.when_exhausted);
-            poolingContextSource.setTestOnBorrow(LdapConfig.test_on_borrow);
-            poolingContextSource.setTestOnReturn(LdapConfig.test_on_return);
-            poolingContextSource.setTestWhileIdle(LdapConfig.test_while_idle);
+            poolingContextSource.setMaxActive(LdapConfig.ldap_pool_max_active);
+            poolingContextSource.setMaxTotal(LdapConfig.ldap_pool_max_total);
+            poolingContextSource.setMaxIdle(LdapConfig.ldap_pool_max_idle);
+            poolingContextSource.setMaxWait(LdapConfig.ldap_pool_max_wait);
+            poolingContextSource.setMinIdle(LdapConfig.ldap_pool_min_idle);
+            poolingContextSource.setWhenExhaustedAction(LdapConfig.ldap_pool_when_exhausted);
+            poolingContextSource.setTestOnBorrow(LdapConfig.ldap_pool_test_on_borrow);
+            poolingContextSource.setTestOnReturn(LdapConfig.ldap_pool_test_on_return);
+            poolingContextSource.setTestWhileIdle(LdapConfig.ldap_pool_test_while_idle);
 
             TransactionAwareContextSourceProxy proxy = new TransactionAwareContextSourceProxy(poolingContextSource);
             ldapTemplatePool = new LdapTemplate(proxy);
@@ -104,7 +104,7 @@ public class LdapClient {
         }
     }
 
-    private static void init() {
+    private void init() {
         LdapInfo ldapInfo = Env.getCurrentEnv().getAuth().getLdapInfo();
         if (ldapInfo == null || !ldapInfo.isValid()) {
             LOG.error("info is null, maybe no ldap admin password is set.");
@@ -123,7 +123,7 @@ public class LdapClient {
         }
     }
 
-    public static boolean doesUserExist(String userName) {
+    boolean doesUserExist(String userName) {
         String user = getUserDn(userName);
         if (user == null) {
             LOG.debug("User:{} does not exist in LDAP.", userName);
@@ -132,7 +132,7 @@ public class LdapClient {
         return true;
     }
 
-    public static boolean checkPassword(String userName, String password) {
+    boolean checkPassword(String userName, String password) {
         init();
         try {
             clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
@@ -145,7 +145,7 @@ public class LdapClient {
     }
 
     // Search group DNs by 'member' attribution.
-    public static List<String> getGroups(String userName) {
+    List<String> getGroups(String userName) {
         List<String> groups = Lists.newArrayList();
         if (LdapConfig.ldap_group_basedn.isEmpty()) {
             return groups;
@@ -171,7 +171,7 @@ public class LdapClient {
         return groups;
     }
 
-    private static String getUserDn(String userName) {
+    private String getUserDn(String userName) {
         List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                 .base(LdapConfig.ldap_user_basedn).filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
@@ -186,7 +186,7 @@ public class LdapClient {
         return userDns.get(0);
     }
 
-    private static List<String> getDn(LdapQuery query) {
+    private List<String> getDn(LdapQuery query) {
         init();
         try {
             return clientInfo.getLdapTemplatePool().search(query, new AbstractContextMapper<String>() {
@@ -201,7 +201,7 @@ public class LdapClient {
         }
     }
 
-    private static String getUserFilter(String userFilter, String userName) {
+    private String getUserFilter(String userFilter, String userName) {
         return userFilter.replaceAll("\\{login}", userName);
     }
 }

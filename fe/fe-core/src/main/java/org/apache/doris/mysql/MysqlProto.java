@@ -26,7 +26,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.ldap.LdapAuthenticate;
-import org.apache.doris.ldap.LdapClient;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
@@ -130,18 +129,15 @@ public class MysqlProto {
         channel.sendAndFlush(serializer.toByteBuffer());
     }
 
-    private static boolean useLdapAuthenticate(String qualifiedUser) {
+    public static boolean useLdapAuthenticate(String qualifiedUser) {
         // The root and admin are used to set the ldap admin password and cannot use ldap authentication.
         if (qualifiedUser.equals(PaloAuth.ROOT_USER) || qualifiedUser.equals(PaloAuth.ADMIN_USER)) {
             return false;
         }
         // If LDAP authentication is enabled and the user exists in LDAP, use LDAP authentication,
         // otherwise use Doris authentication.
-        if (LdapConfig.ldap_authentication_enabled
-                && LdapClient.doesUserExist(ClusterNamespace.getNameFromFullName(qualifiedUser))) {
-            return true;
-        }
-        return false;
+        return LdapConfig.ldap_authentication_enabled
+                && Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(qualifiedUser) != null;
     }
 
     /**
@@ -206,7 +202,7 @@ public class MysqlProto {
         try {
             useLdapAuthenticate = useLdapAuthenticate(qualifiedUser);
         } catch (Exception e) {
-            LOG.debug("Check if user exists in ldap error.", e);
+            LOG.warn("Check if user exists in ldap error.", e);
             sendResponsePacket(context);
             return false;
         }
