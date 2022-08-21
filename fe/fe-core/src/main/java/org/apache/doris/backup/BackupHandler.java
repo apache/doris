@@ -650,12 +650,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (AbstractJob job : getAllCurrentJobs()) {
             if (job.getType() == JobType.BACKUP) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
-                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
                     return true;
                 }
             } else if (job.getType() == JobType.RESTORE) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.DOWNLOAD) {
-                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
                     return true;
                 }
             }

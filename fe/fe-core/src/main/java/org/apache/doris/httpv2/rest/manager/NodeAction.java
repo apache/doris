@@ -484,7 +484,7 @@ public class NodeAction extends RestBaseController {
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> new Pair<>(fe.getHost(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
@@ -587,7 +587,7 @@ public class NodeAction extends RestBaseController {
         List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getBackendIds(true)
                 .stream().map(beId -> {
                     Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-                    return new Pair<>(be.getHost(), be.getHttpPort());
+                    return Pair.of(be.getHost(), be.getHttpPort());
                 })
                 .collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveBe, failedTotal);
@@ -784,7 +784,7 @@ public class NodeAction extends RestBaseController {
         private Map<String, String> nonPersistConfigs;
 
         public NodeConfigs(String host, Integer httpPort) {
-            hostPort = new Pair<>(host, httpPort);
+            hostPort = Pair.of(host, httpPort);
             persistConfigs = Maps.newHashMap();
             nonPersistConfigs = Maps.newHashMap();
         }

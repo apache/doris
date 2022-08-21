@@ -75,7 +75,7 @@ public class Memo {
     public Pair<Boolean, GroupExpression> copyIn(Plan node, @Nullable Group target, boolean rewrite) {
         Optional<GroupExpression> groupExpr = node.getGroupExpression();
         if (!rewrite && groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
-            return new Pair<>(false, groupExpr.get());
+            return Pair.of(false, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < node.children().size(); i++) {
@@ -146,7 +146,7 @@ public class Memo {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
                 mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
-            return new Pair<>(false, existedGroupExpression);
+            return Pair.of(false, existedGroupExpression);
         }
         if (target != null) {
             target.addGroupExpression(groupExpression);
@@ -155,7 +155,7 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return new Pair<>(true, groupExpression);
+        return Pair.of(true, groupExpression);
     }
 
     /**
@@ -213,7 +213,7 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return new Pair<>(newGroupExpressionGenerated, groupExpression);
+        return Pair.of(newGroupExpressionGenerated, groupExpression);
     }
 
     /**

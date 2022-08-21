@@ -26,7 +26,7 @@ import java.util.Comparator;
 
 /**
  * The equivalent of C++'s std::pair<>.
- *
+ * <p>
  * Notice: When using Pair for persistence, users need to guarantee that F and S can be serialized through Gson
  */
 public class Pair<F, S> {
@@ -42,7 +42,7 @@ public class Pair<F, S> {
         this.second = second;
     }
 
-    public static <F, S> Pair<F, S> create(F first, S second) {
+    public static <F, S> Pair<F, S> of(F first, S second) {
         return new Pair<F, S>(first, second);
     }
 

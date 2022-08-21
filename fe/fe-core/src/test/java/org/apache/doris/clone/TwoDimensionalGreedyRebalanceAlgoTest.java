@@ -89,7 +89,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         Set<Pair<Long, Long>> partitionIds = Sets.newHashSet();
         for (TestClusterConfig.PartitionPerBeReplicas p : tcc.partitionReplicas) {
             Assert.assertEquals(tcc.beIds.size(), p.numReplicasByServer.size());
-            partitionIds.add(new Pair<>(p.partitionId, p.indexId));
+            partitionIds.add(Pair.of(p.partitionId, p.indexId));
         }
         Assert.assertEquals(partitionIds.size(), tcc.partitionReplicas.size());
 

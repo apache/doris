@@ -179,25 +179,25 @@ public class TabletTest {
         // [1 2 4]
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.COLOCATE_MISMATCH,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(4L, false)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(4L, false)
         );
 
         // [1 2 3(bad)]
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.VERSION_INCOMPLETE,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, true)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, true)
         );
 
         // 1 2 3 4(good)
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.COLOCATE_REDUNDANT,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, false), Pair.create(4L, false)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, false), Pair.of(4L, false)
         );
 
         // [1 2 3 4(bad)]
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.COLOCATE_REDUNDANT,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, false), Pair.create(4L, true)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, false), Pair.of(4L, true)
         );
     }
 }
