@@ -166,7 +166,7 @@ suite("test_bitmap_function") {
     sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(2)); """
     sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(3)); """
 
-    qt_sql """ select dt,bitmap_to_string(user_id) from ${intersectCountTable} where dt in (3,4); """
+    qt_sql """ select dt,bitmap_to_string(user_id) from ${intersectCountTable} where dt in (3,4) order by dt desc; """
     qt_sql """ select intersect_count(user_id,dt,3,4) from ${intersectCountTable}; """
 
     // ARTHOGONAL_BITMAP_****

@@ -36,7 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.Objects;
 
 /**
  * Internal representation of partition-related metadata.
@@ -383,25 +383,17 @@ public class Partition extends MetaObject implements Writable {
             return false;
         }
 
-        Partition partition = (Partition) obj;
-        if (idToVisibleRollupIndex != partition.idToVisibleRollupIndex) {
-            if (idToVisibleRollupIndex.size() != partition.idToVisibleRollupIndex.size()) {
-                return false;
-            }
-            for (Entry<Long, MaterializedIndex> entry : idToVisibleRollupIndex.entrySet()) {
-                long key = entry.getKey();
-                if (!partition.idToVisibleRollupIndex.containsKey(key)) {
-                    return false;
-                }
-                if (!entry.getValue().equals(partition.idToVisibleRollupIndex.get(key))) {
-                    return false;
-                }
-            }
-        }
+        Partition other = (Partition) obj;
 
-        return (visibleVersion == partition.visibleVersion)
-                && (baseIndex.equals(partition.baseIndex)
-                && distributionInfo.equals(partition.distributionInfo));
+        return (visibleVersion == other.visibleVersion)
+                && baseIndex.equals(other.baseIndex)
+                && distributionInfo.equals(other.distributionInfo)
+                && idToVisibleRollupIndex.equals(other.idToVisibleRollupIndex);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(visibleVersion, baseIndex, idToVisibleRollupIndex, distributionInfo);
     }
 
     @Override
