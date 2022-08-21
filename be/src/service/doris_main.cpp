@@ -59,7 +59,6 @@
 #include "service/single_replica_load_download_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/logging.h"
 #include "util/perf_counters.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"

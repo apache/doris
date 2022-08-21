@@ -22,6 +22,7 @@
 #include <boost/stacktrace.hpp>
 
 #include "gutil/once.h"
+#include "gutil/walltime.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"

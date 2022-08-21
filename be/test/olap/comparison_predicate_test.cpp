@@ -28,7 +28,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 
 namespace doris {
 

@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "testutil/test_util.h"
-#include "util/logging.h"
 
 using namespace doris;
 using namespace std;

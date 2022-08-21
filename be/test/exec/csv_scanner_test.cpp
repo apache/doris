@@ -19,8 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include "util/logging.h"
-
 namespace doris {
 
 class CsvScannerTest : public testing::Test {

@@ -21,8 +21,6 @@
 
 #include <string>
 
-#include "util/logging.h"
-
 namespace doris {
 
 class S3URITest : public testing::Test {

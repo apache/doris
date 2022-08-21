@@ -25,7 +25,6 @@
 #include "service/backend_options.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
-#include "util/logging.h"
 #include "util/mem_info.h"
 
 int main(int argc, char** argv) {

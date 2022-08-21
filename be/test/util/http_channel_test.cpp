@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include "util/logging.h"
 #include "util/zlib.h"
 
 namespace doris {

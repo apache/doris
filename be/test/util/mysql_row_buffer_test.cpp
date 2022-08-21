@@ -25,7 +25,6 @@
 
 #include "env/env.h"
 #include "gutil/strings/util.h"
-#include "util/logging.h"
 
 namespace doris {
 

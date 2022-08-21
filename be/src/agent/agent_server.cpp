@@ -191,10 +191,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
 #undef HANDLE_TYPE
 
         if (!ret_st.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to submit task")
-                    .tag("task", task)
-                    .error(ret_st.get_error_msg());
+            LOG_WARNING("failed to submit task").tag("task", task).error(ret_st.get_error_msg());
             // For now, all tasks in the batch share one status, so if any task
             // was failed to submit, we can only return error to FE(even when some
             // tasks have already been successfully submitted).
@@ -218,14 +215,12 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
     Status status = SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path,
                                                                &allow_incremental_clone);
     if (!status) {
-        TAG_LOG(WARNING)
-                .log("failed to make snapshot")
+        LOG_WARNING("failed to make snapshot")
                 .tag("tablet_id", snapshot_request.tablet_id)
                 .tag("schema_hash", snapshot_request.schema_hash)
                 .error(status);
     } else {
-        TAG_LOG(INFO)
-                .log("successfully make snapshot")
+        LOG_INFO("successfully make snapshot")
                 .tag("tablet_id", snapshot_request.tablet_id)
                 .tag("schema_hash", snapshot_request.schema_hash)
                 .tag("snapshot_path", snapshot_path);
@@ -240,12 +235,9 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
 void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::string& snapshot_path) {
     Status status = SnapshotManager::instance()->release_snapshot(snapshot_path);
     if (!status) {
-        TAG_LOG(WARNING)
-                .log("failed to release snapshot")
-                .tag("snapshot_path", snapshot_path)
-                .error(status);
+        LOG_WARNING("failed to release snapshot").tag("snapshot_path", snapshot_path).error(status);
     } else {
-        TAG_LOG(INFO).log("successfully release snapshot").tag("snapshot_path", snapshot_path);
+        LOG_INFO("successfully release snapshot").tag("snapshot_path", snapshot_path);
     }
     status.to_thrift(&t_agent_result.status);
 }

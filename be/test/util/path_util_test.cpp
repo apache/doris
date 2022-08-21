@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "util/logging.h"
 
 using std::string;
 using std::vector;

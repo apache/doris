@@ -21,7 +21,6 @@
 #include <string>
 
 #include "runtime/decimalv2_value.h"
-#include "util/logging.h"
 
 namespace doris {
 

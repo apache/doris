@@ -22,7 +22,6 @@
 #include <string>
 
 #include "common/configbase.h"
-#include "util/logging.h"
 
 using std::string;
 

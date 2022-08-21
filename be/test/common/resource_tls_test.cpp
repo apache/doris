@@ -21,7 +21,6 @@
 
 #include "common/configbase.h"
 #include "gen_cpp/Types_types.h"
-#include "util/logging.h"
 
 namespace doris {
 

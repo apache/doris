@@ -23,6 +23,7 @@
 #include <functional>
 #include <mutex>
 
+#include "common/logging.h"
 #include "util/fake_lock.h"
 #include "util/spinlock.h"
 

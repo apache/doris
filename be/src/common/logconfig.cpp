@@ -25,8 +25,7 @@
 #include <mutex>
 
 #include "common/config.h"
-#include "gutil/stringprintf.h"
-#include "util/logging.h"
+#include "common/logging.h"
 
 namespace doris {
 
@@ -148,16 +147,6 @@ bool init_glog(const char* basename) {
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
     google::ShutdownGoogleLogging();
-}
-
-std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch) {
-    time_t secs_since_epoch = micros_since_epoch / 1000000;
-    int usecs = micros_since_epoch % 1000000;
-    struct tm tm_time;
-    localtime_r(&secs_since_epoch, &tm_time);
-
-    return StringPrintf("%02d%02d %02d:%02d:%02d.%06d", 1 + tm_time.tm_mon, tm_time.tm_mday,
-                        tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, usecs);
 }
 
 } // namespace doris

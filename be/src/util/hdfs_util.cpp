@@ -20,7 +20,7 @@
 #include <util/string_util.h>
 
 #include "common/config.h"
-#include "util/logging.h"
+#include "common/logging.h"
 
 namespace doris {
 

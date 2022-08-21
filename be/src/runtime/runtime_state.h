@@ -36,7 +36,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
-#include "util/logging.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 

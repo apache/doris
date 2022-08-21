@@ -29,7 +29,6 @@
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/logging.h"
 
 namespace doris {
 

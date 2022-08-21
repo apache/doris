@@ -26,7 +26,6 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "util/cpu_info.h"
-#include "util/logging.h"
 
 namespace doris {
 

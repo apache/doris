@@ -248,16 +248,12 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
             task_count_in_queue = _tasks.size();
             _worker_thread_condition_variable.notify_one();
         }
-        TAG_LOG(INFO)
-                .log("successfully submit task")
+        LOG_INFO("successfully submit task")
                 .tag("type", type_str)
                 .tag("signature", signature)
                 .tag("queue_size", task_count_in_queue);
     } else {
-        TAG_LOG(WARNING)
-                .log("failed to register task")
-                .tag("type", type_str)
-                .tag("signature", signature);
+        LOG_WARNING("failed to register task").tag("type", type_str).tag("signature", signature);
     }
 }
 
@@ -301,8 +297,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
             break;
         } else {
             DorisMetrics::instance()->finish_task_requests_failed->increment(1);
-            TAG_LOG(WARNING)
-                    .log("failed to finish task")
+            LOG_WARNING("failed to finish task")
                     .tag("type", finish_task_request.task_type)
                     .tag("signature", finish_task_request.signature)
                     .error(result.status);
@@ -375,8 +370,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         Status status = _env->storage_engine()->create_tablet(create_tablet_req);
         if (!status.ok()) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
-            TAG_LOG(WARNING)
-                    .log("failed to create tablet")
+            LOG_WARNING("failed to create tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", create_tablet_req.tablet_id)
                     .error(status);
@@ -397,8 +391,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
             tablet_info.__set_replica_id(tablet->replica_id());
             finish_tablet_infos.push_back(tablet_info);
-            TAG_LOG(INFO)
-                    .log("successfully create tablet")
+            LOG_INFO("successfully create tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", create_tablet_req.tablet_id);
         }
@@ -449,13 +442,11 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                     dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
                     drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-            TAG_LOG(INFO)
-                    .log("successfully drop tablet")
+            LOG_INFO("successfully drop tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", drop_tablet_req.tablet_id);
         } else {
-            TAG_LOG(WARNING)
-                    .log("failed to drop tablet")
+            LOG_WARNING("failed to drop tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", drop_tablet_req.tablet_id)
                     .error(status);
@@ -566,16 +557,14 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     }
 
     if (!status.ok() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
-        TAG_LOG(WARNING)
-                .log("failed to " + process_name)
+        LOG_WARNING("failed to {}", process_name)
                 .tag("signature", agent_task_req.signature)
                 .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
                 .tag("new_tablet_id", new_tablet_id)
                 .error(status);
     } else {
         finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
-        TAG_LOG(INFO)
-                .log("successfully " + process_name)
+        LOG_INFO("successfully {}", process_name)
                 .tag("signature", agent_task_req.signature)
                 .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
                 .tag("new_tablet_id", new_tablet_id);
@@ -647,16 +636,14 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         }
 
         if (status.ok()) {
-            TAG_LOG(INFO)
-                    .log("successfully execute push task")
+            LOG_INFO("successfully execute push task")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", push_req.tablet_id)
                     .tag("push_type", push_req.push_type);
             ++_s_report_version;
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
         } else {
-            TAG_LOG(WARNING)
-                    .log("failed to execute push task")
+            LOG_WARNING("failed to execute push task")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", push_req.tablet_id)
                     .tag("push_type", push_req.push_type)
@@ -710,8 +697,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                 _worker_thread_condition_variable.notify_one();
                 break;
             } else {
-                TAG_LOG(WARNING)
-                        .log("failed to publish version")
+                LOG_WARNING("failed to publish version")
                         .tag("transaction_id", publish_version_req.transaction_id)
                         .tag("error_tablets_num", error_tablet_ids.size())
                         .tag("retry_time", retry_time)
@@ -729,8 +715,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             DorisMetrics::instance()->publish_task_failed_total->increment(1);
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
-            TAG_LOG(WARNING)
-                    .log("failed to publish version")
+            LOG_WARNING("failed to publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
                     .tag("error_tablets_num", error_tablet_ids.size())
@@ -757,8 +742,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                                      << succ_tablet_ids[i];
                     }
                 }
-                TAG_LOG(INFO)
-                        .log("successfully publish version")
+                LOG_INFO("successfully publish version")
                         .tag("signature", agent_task_req.signature)
                         .tag("transaction_id", publish_version_req.transaction_id)
                         .tag("tablets_num", succ_tablet_ids.size());
@@ -931,14 +915,12 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
 
         if (!status.ok()) {
             DorisMetrics::instance()->clone_requests_failed->increment(1);
-            TAG_LOG(WARNING)
-                    .log("failed to clone tablet")
+            LOG_WARNING("failed to clone tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", clone_req.tablet_id)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully clone tablet")
+            LOG_INFO("successfully clone tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", clone_req.tablet_id);
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
@@ -977,14 +959,12 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
             status = _env->storage_engine()->execute_task(&engine_task);
         }
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to migrate storage medium")
+            LOG_WARNING("failed to migrate storage medium")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", storage_medium_migrate_req.tablet_id)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully migrate storage medium")
+            LOG_INFO("successfully migrate storage medium")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", storage_medium_migrate_req.tablet_id);
         }
@@ -1077,14 +1057,12 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
                                        check_consistency_req.version, &checksum);
         Status status = _env->storage_engine()->execute_task(&engine_task);
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to check consistency")
+            LOG_WARNING("failed to check consistency")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", check_consistency_req.tablet_id)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully check consistency")
+            LOG_INFO("successfully check consistency")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", check_consistency_req.tablet_id)
                     .tag("checksum", checksum);
@@ -1279,14 +1257,12 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
         Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
 
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to upload")
+            LOG_WARNING("failed to upload")
                     .tag("signature", agent_task_req.signature)
                     .tag("job_id", upload_request.job_id)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully upload")
+            LOG_INFO("successfully upload")
                     .tag("signature", agent_task_req.signature)
                     .tag("job_id", upload_request.job_id);
         }
@@ -1334,14 +1310,12 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         Status status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
 
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to download")
+            LOG_WARNING("failed to download")
                     .tag("signature", agent_task_req.signature)
                     .tag("job_id", download_request.job_id)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully download")
+            LOG_INFO("successfully download")
                     .tag("signature", agent_task_req.signature)
                     .tag("job_id", download_request.job_id);
         }
@@ -1392,15 +1366,13 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
             status = FileUtils::list_files(Env::Default(), ss.str(), &snapshot_files);
         }
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to make snapshot")
+            LOG_WARNING("failed to make snapshot")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", snapshot_request.tablet_id)
                     .tag("version", snapshot_request.version)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully make snapshot")
+            LOG_INFO("successfully make snapshot")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", snapshot_request.tablet_id)
                     .tag("version", snapshot_request.version)
@@ -1442,14 +1414,12 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         string& snapshot_path = release_snapshot_request.snapshot_path;
         Status status = SnapshotManager::instance()->release_snapshot(snapshot_path);
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to release snapshot")
+            LOG_WARNING("failed to release snapshot")
                     .tag("signature", agent_task_req.signature)
                     .tag("snapshot_path", snapshot_path)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully release snapshot")
+            LOG_INFO("successfully release snapshot")
                     .tag("signature", agent_task_req.signature)
                     .tag("snapshot_path", snapshot_path);
         }
@@ -1495,16 +1465,14 @@ void TaskWorkerPool::_move_dir_thread_callback() {
                                   true /* TODO */);
 
         if (!status.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to move dir")
+            LOG_WARNING("failed to move dir")
                     .tag("signature", agent_task_req.signature)
                     .tag("job_id", move_dir_req.job_id)
                     .tag("tablet_id", move_dir_req.tablet_id)
                     .tag("src", move_dir_req.src)
                     .error(status);
         } else {
-            TAG_LOG(INFO)
-                    .log("successfully move dir")
+            LOG_INFO("successfully move dir")
                     .tag("signature", agent_task_req.signature)
                     .tag("job_id", move_dir_req.job_id)
                     .tag("tablet_id", move_dir_req.tablet_id)
@@ -1537,21 +1505,18 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     Status status = _master_client->report(request, &result);
     bool is_report_success = false;
     if (!status.ok()) {
-        TAG_LOG(WARNING)
-                .log("failed to report " + TYPE_STRING(type))
+        LOG_WARNING("failed to report {}", TYPE_STRING(type))
                 .tag("host", _master_info.network_address.hostname)
                 .tag("port", _master_info.network_address.port)
                 .error(status);
     } else if (result.status.status_code != TStatusCode::OK) {
-        TAG_LOG(WARNING)
-                .log("failed to report " + TYPE_STRING(type))
+        LOG_WARNING("failed to report {}", TYPE_STRING(type))
                 .tag("host", _master_info.network_address.hostname)
                 .tag("port", _master_info.network_address.port)
                 .error(result.status);
     } else {
         is_report_success = true;
-        TAG_LOG(INFO)
-                .log("successfully report " + TYPE_STRING(type))
+        LOG_INFO("successfully report {}", TYPE_STRING(type))
                 .tag("host", _master_info.network_address.hostname)
                 .tag("port", _master_info.network_address.port);
     }

@@ -29,7 +29,6 @@
 #include "exprs/anyval_util.h"
 #include "exprs/json_functions.h"
 #include "runtime/runtime_state.h"
-#include "util/logging.h"
 #include "util/stopwatch.hpp"
 namespace doris {
 

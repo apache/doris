@@ -223,16 +223,14 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         status = _make_snapshot(src.host, src.be_port, _clone_req.tablet_id, _clone_req.schema_hash,
                                 timeout_s, missed_versions, snapshot_path, allow_incremental_clone);
         if (status.ok()) {
-            TAG_LOG(INFO)
-                    .log("successfully make snapshot in remote BE")
+            LOG_INFO("successfully make snapshot in remote BE")
                     .tag("host", src.host)
                     .tag("port", src.be_port)
                     .tag("tablet", _clone_req.tablet_id)
                     .tag("snapshot_path", *snapshot_path)
                     .tag("signature", _signature);
         } else {
-            TAG_LOG(WARNING)
-                    .log("failed to make snapshot in remote BE")
+            LOG_WARNING("failed to make snapshot in remote BE")
                     .tag("host", src.host)
                     .tag("port", src.be_port)
                     .tag("tablet", _clone_req.tablet_id)
@@ -266,8 +264,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         auto st = _release_snapshot(src.host, src.be_port, *snapshot_path);
         if (!st.ok()) {
-            TAG_LOG(WARNING)
-                    .log("failed to release snapshot in remote BE")
+            LOG_WARNING("failed to release snapshot in remote BE")
                     .tag("host", src.host)
                     .tag("port", src.be_port)
                     .tag("snapshot_path", *snapshot_path)

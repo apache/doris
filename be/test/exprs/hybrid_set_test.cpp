@@ -23,7 +23,6 @@
 
 #include "common/configbase.h"
 #include "exprs/create_predicate_function.h"
-#include "util/logging.h"
 
 namespace doris {
 

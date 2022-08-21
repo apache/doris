@@ -22,7 +22,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "service/backend_options.h"
-#include "util/logging.h"
 
 using ::testing::_;
 using ::testing::Return;

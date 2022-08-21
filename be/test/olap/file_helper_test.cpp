@@ -27,7 +27,6 @@
 #include "gtest/gtest.h"
 #include "olap/olap_define.h"
 #include "testutil/test_util.h"
-#include "util/logging.h"
 
 #ifndef BE_TEST
 #define BE_TEST

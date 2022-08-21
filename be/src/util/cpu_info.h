@@ -20,11 +20,11 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "common/logging.h"
 
 namespace doris {
 
