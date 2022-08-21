@@ -337,7 +337,7 @@ public class PaloAuth implements Writable {
         }
 
         // Check the LDAP password when the user exists in the LDAP service.
-        if (LdapConfig.ldap_authentication_enabled && ldapManager.getUserInfo(remoteUser) != null) {
+        if (ldapManager.doesUserExist(remoteUser)) {
             return ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser);
         }
         readLock();

@@ -53,8 +53,7 @@ public class LdapManager {
 
     // If the user exists in LDAP, the LDAP information of the user is returned; otherwise, null is returned.
     public LdapUserInfo getUserInfo(String fullName) {
-        if (!LdapConfig.ldap_authentication_enabled || Strings.isNullOrEmpty(fullName) || fullName.equals(
-                PaloAuth.ROOT_USER) || fullName.equals(PaloAuth.ADMIN_USER)) {
+        if (!checkParam(fullName)) {
             return null;
         }
         LdapUserInfo ldapUserInfo = getUserInfoFromCache(fullName);
@@ -62,6 +61,13 @@ public class LdapManager {
             return ldapUserInfo;
         }
         return updateUserInfo(fullName);
+    }
+
+    public boolean doesUserExist(String fullName) {
+        if (!checkParam(fullName)) {
+            return false;
+        }
+        return !Objects.isNull(getUserInfo(fullName));
     }
 
     public boolean checkUserPasswd(String fullName, String passwd) {
@@ -91,6 +97,11 @@ public class LdapManager {
             return true;
         }
         return false;
+    }
+
+    private boolean checkParam(String fullName) {
+        return LdapConfig.ldap_authentication_enabled && !Strings.isNullOrEmpty(fullName) && !fullName.equalsIgnoreCase(
+                PaloAuth.ROOT_USER) && !fullName.equalsIgnoreCase(PaloAuth.ADMIN_USER);
     }
 
     private LdapUserInfo updateUserInfo(String fulName) {

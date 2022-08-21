@@ -284,8 +284,7 @@ public class UserPropertyMgr implements Writable {
     }
 
     private UserProperty getLdapPropertyIfNull(String qualifiedUser, UserProperty existProperty) {
-        if (existProperty == null
-                && Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(qualifiedUser) != null) {
+        if (existProperty == null && Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser)) {
             return LDAP_PROPERTY;
         }
         return existProperty;

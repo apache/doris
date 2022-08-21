@@ -75,7 +75,7 @@ public class ConfigBase {
     private static String ldapCustomConfFile;
     public static Class<? extends ConfigBase> ldapConfClass;
 
-    public static Map<String, Field> ldapConfFields;
+    public static Map<String, Field> ldapConfFields = Maps.newHashMap();
 
     private boolean isLdapConfig = false;
 
@@ -97,7 +97,6 @@ public class ConfigBase {
             isLdapConfig = true;
             ldapConfClass = this.getClass();
             ldapConfFile = configFile;
-            ldapConfFields = Maps.newHashMap();
             for (Field field : ldapConfClass.getFields()) {
                 ConfField confField = field.getAnnotation(ConfField.class);
                 if (confField == null) {

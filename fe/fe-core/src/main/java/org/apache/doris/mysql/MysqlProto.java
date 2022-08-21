@@ -129,15 +129,15 @@ public class MysqlProto {
         channel.sendAndFlush(serializer.toByteBuffer());
     }
 
-    public static boolean useLdapAuthenticate(String qualifiedUser) {
+    private static boolean useLdapAuthenticate(String qualifiedUser) {
         // The root and admin are used to set the ldap admin password and cannot use ldap authentication.
         if (qualifiedUser.equals(PaloAuth.ROOT_USER) || qualifiedUser.equals(PaloAuth.ADMIN_USER)) {
             return false;
         }
         // If LDAP authentication is enabled and the user exists in LDAP, use LDAP authentication,
         // otherwise use Doris authentication.
-        return LdapConfig.ldap_authentication_enabled
-                && Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(qualifiedUser) != null;
+        return LdapConfig.ldap_authentication_enabled && Env.getCurrentEnv().getAuth().getLdapManager()
+                .doesUserExist(qualifiedUser);
     }
 
     /**

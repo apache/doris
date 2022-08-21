@@ -200,8 +200,8 @@ public class LdapPrivsChecker {
     }
 
     public static boolean hasLdapPrivs(UserIdentity userIdent) {
-        return LdapConfig.ldap_authentication_enabled
-                && Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(userIdent.getQualifiedUser()) != null;
+        return LdapConfig.ldap_authentication_enabled && Env.getCurrentEnv().getAuth().getLdapManager()
+                .doesUserExist(userIdent.getQualifiedUser());
     }
 
     public static Map<TablePattern, PrivBitSet> getLdapAllDbPrivs(UserIdentity userIdentity) {
