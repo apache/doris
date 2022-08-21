@@ -244,7 +244,7 @@ template <size_t initial_size_degree = 10>
 struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
     doris::vectorized::UInt8 size_degree = initial_size_degree;
-    doris::vectorized::Int64 double_grow_degree = 31; // 2GB
+    doris::vectorized::Int64 double_grow_degree = 26; // 64M
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
