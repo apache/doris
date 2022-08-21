@@ -295,10 +295,11 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
 
         ColumnWithTypeAndName column_with_type_and_name {
-                _delete_filter_column, std::make_shared<DataTypeUInt8>(), "filter"};
+                _delete_filter_column, std::make_shared<DataTypeUInt8>(), "__DORIS_COMPACTION_FILTER__"};
         block->insert(column_with_type_and_name);
         Block::filter_block(block, delete_sign_idx, target_columns.size());
         _stats.rows_del_filtered += target_block_row - block->rows();
+        DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
     }
     return Status::OK();
 }
