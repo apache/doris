@@ -1002,7 +1002,7 @@ public class SingleNodePlanner {
                 }
 
                 Preconditions.checkState(plan != null);
-                refPlans.add(new Pair(ref, plan));
+                refPlans.add(Pair.of(ref, plan));
             }
             // save state of conjunct assignment; needed for join plan generation
             for (Pair<TableRef, PlanNode> entry : refPlans) {

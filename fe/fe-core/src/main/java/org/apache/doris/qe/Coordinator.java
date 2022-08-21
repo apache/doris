@@ -1397,7 +1397,7 @@ public class Coordinator {
             fatherPlan = newPlan;
             newPlan = newPlan.getChild(0);
         }
-        return new Pair<PlanNode, PlanNode>(fatherPlan, newPlan);
+        return Pair.of(fatherPlan, newPlan);
     }
 
     private <K, V> V findOrInsert(HashMap<K, V> m, final K key, final V defaultVal) {

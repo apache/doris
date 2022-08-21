@@ -1136,7 +1136,7 @@ public class Env {
     }
 
     private void getSelfHostPort() {
-        selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
+        selfNode = Pair.of(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
         LOG.debug("get self node: {}", selfNode);
     }
 
