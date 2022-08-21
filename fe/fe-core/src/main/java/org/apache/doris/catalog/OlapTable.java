@@ -75,6 +75,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -1126,7 +1127,7 @@ public class OlapTable extends Table {
             out.writeDouble(bfFpp);
         }
 
-        //colocateTable
+        // colocateTable
         if (colocateGroup == null) {
             out.writeBoolean(false);
         } else {
@@ -1249,14 +1250,6 @@ public class OlapTable extends Table {
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
-    }
-
-    @Override
-    public boolean equals(Table table) {
-        if (this == table) {
-            return true;
-        }
-        return table instanceof OlapTable;
     }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
@@ -1487,6 +1480,39 @@ public class OlapTable extends Table {
     @Override
     public List<Column> getBaseSchema(boolean full) {
         return getSchemaByIndexId(baseIndexId, full);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        OlapTable other = (OlapTable) o;
+
+        if (!Objects.equals(defaultDistributionInfo, other.defaultDistributionInfo)) {
+            return false;
+        }
+
+        return Double.compare(other.bfFpp, bfFpp) == 0 && hasSequenceCol == other.hasSequenceCol
+                && baseIndexId == other.baseIndexId && state == other.state && Objects.equals(indexIdToMeta,
+                other.indexIdToMeta) && Objects.equals(indexNameToId, other.indexNameToId) && keysType == other.keysType
+                && Objects.equals(partitionInfo, other.partitionInfo) && Objects.equals(
+                idToPartition, other.idToPartition) && Objects.equals(nameToPartition,
+                other.nameToPartition) && Objects.equals(tempPartitions, other.tempPartitions)
+                && Objects.equals(bfColumns, other.bfColumns) && Objects.equals(colocateGroup,
+                other.colocateGroup) && Objects.equals(sequenceType, other.sequenceType)
+                && Objects.equals(indexes, other.indexes) && Objects.equals(tableProperty,
+                other.tableProperty);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(state, indexIdToMeta, indexNameToId, keysType, partitionInfo, idToPartition,
+                nameToPartition, defaultDistributionInfo, tempPartitions, bfColumns, bfFpp, colocateGroup,
+                hasSequenceCol, sequenceType, indexes, baseIndexId, tableProperty);
     }
 
     public Column getBaseColumn(String columnName) {
@@ -1884,7 +1910,7 @@ public class OlapTable extends Table {
         tableProperty.buildReplicaAllocation();
     }
 
-    //for light schema change
+    // for light schema change
     public void initSchemaColumnUniqueId() {
         if (!getEnableLightSchemaChange()) {
             return;

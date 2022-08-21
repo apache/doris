@@ -23,6 +23,7 @@ import org.apache.doris.analysis.RandomDistributionDesc;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Random partition.
@@ -74,18 +75,23 @@ public class RandomDistributionInfo extends DistributionInfo {
         return distributionInfo;
     }
 
-    public boolean equals(DistributionInfo info) {
-        if (this == info) {
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
             return true;
         }
-
-        if (!(info instanceof RandomDistributionInfo)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
+        if (!super.equals(o)) {
+            return false;
+        }
+        RandomDistributionInfo that = (RandomDistributionInfo) o;
+        return bucketNum == that.bucketNum;
+    }
 
-        RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) info;
-
-        return type == randomDistributionInfo.type
-                && bucketNum == randomDistributionInfo.bucketNum;
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), bucketNum);
     }
 }
