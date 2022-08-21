@@ -42,7 +42,7 @@ struct TrackerGroup {
 // Multiple groups are used to reduce the impact of locks.
 static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
-NewMemTracker::NewMemTracker(const std::string& label, RuntimeProfile* profile, bool is_limiter) {
+NewMemTracker::NewMemTracker(const std::string& label, RuntimeProfile* profile) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -58,30 +58,24 @@ NewMemTracker::NewMemTracker(const std::string& label, RuntimeProfile* profile, 
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    _is_limiter = is_limiter;
-    if (!_is_limiter) {
-        if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()) {
-            _label = fmt::format(
-                    "{} | {}", label,
-                    thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label());
-        } else {
-            _label = label + " | ";
-        }
-
-        _bind_group_num =
-                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
-        {
-            std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
-            _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
-                    mem_tracker_pool[_bind_group_num].trackers.end(), this);
-        }
+    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()) {
+        _label = fmt::format(
+                "{} | {}", label,
+                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label());
     } else {
-        _label = label;
+        _label = label + " | ";
+    }
+
+    _bind_group_num = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
+    {
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
+        _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
+                mem_tracker_pool[_bind_group_num].trackers.end(), this);
     }
 }
 
 NewMemTracker::~NewMemTracker() {
-    if (!_is_limiter) {
+    if (_bind_group_num != -1) {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
         if (_tracker_group_it != mem_tracker_pool[_bind_group_num].trackers.end()) {
             mem_tracker_pool[_bind_group_num].trackers.erase(_tracker_group_it);
@@ -102,8 +96,9 @@ NewMemTracker::Snapshot NewMemTracker::make_snapshot(size_t level) const {
     return snapshot;
 }
 
-void NewMemTracker::make_group_snapshot(std::vector<NewMemTracker::Snapshot>* snapshots, size_t level,
-                                     int64_t group_num, std::string related_label) {
+void NewMemTracker::make_group_snapshot(std::vector<NewMemTracker::Snapshot>* snapshots,
+                                        size_t level, int64_t group_num,
+                                        std::string related_label) {
     std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
     for (auto tracker : mem_tracker_pool[group_num].trackers) {
         if (split(tracker->label(), " | ")[1] == related_label) {
