@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <sys/_types/_size_t.h>
-
-#include <cstddef>
-
 #include "vec/common/allocator.h"
 #include "vec/common/hash_table/hash_table.h"
 
@@ -87,16 +83,16 @@ class alignas(64) JoinHashTableGrowerWithPrecalculation {
     /// The state of this structure is enough to get the buffer size of the join hash table.
 
     doris::vectorized::UInt8 size_degree_ = initial_size_degree;
-    size_t precalculated_mask = (1ULL << initial_size_degree) - 1;
-    size_t precalculated_max_fill = 1ULL << (initial_size_degree - 1);
+    size_t precalculated_mask = (1ULL << (initial_size_degree - 1)) - 1;
+    size_t precalculated_max_fill = 1ULL << initial_size_degree;
 
 public:
     doris::vectorized::UInt8 size_degree() const { return size_degree_; }
 
     void increase_size_degree(doris::vectorized::UInt8 delta) {
         size_degree_ += delta;
-        precalculated_mask = (1ULL << size_degree_) - 1;
-        precalculated_max_fill = 1ULL << (size_degree_ - 1);
+        precalculated_mask = (1ULL << (size_degree_ - 1)) - 1;
+        precalculated_max_fill = 1ULL << size_degree_;
     }
 
     static constexpr auto initial_count = 1ULL << initial_size_degree;
@@ -146,7 +142,7 @@ template <size_t key_bits>
 struct JoinHashTableFixedGrower {
     size_t bucket_size() const { return 1ULL << (key_bits - 1); }
     size_t buf_size() const { return 1ULL << key_bits; }
-    size_t place(size_t x) const { return x; }
+    size_t place(size_t x) const { return x & (bucket_size() - 1); }
     bool overflow(size_t /*elems*/) const { return false; }
 
     void increase_size() { __builtin_unreachable(); }
@@ -201,9 +197,9 @@ protected:
 
     /// Find a cell with the same key or an empty cell, starting from the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_cell(const Key& x, size_t hash_value, size_t place_value) const {
-        while (place_value && !buf[place_value].is_zero(*this) &&
-               !buf[place_value].key_equals(x, hash_value, *this)) {
-            place_value = next[place_value + 1];
+        while (place_value && !buf[place_value - 1].is_zero(*this) &&
+               !buf[place_value - 1].key_equals(x, hash_value, *this)) {
+            place_value = next[place_value];
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
 #endif
@@ -216,9 +212,10 @@ protected:
                                                         size_t place_value) const {
         bool is_zero = false;
         do {
-            is_zero = buf[place_value].is_zero(*this);
-            if (is_zero || buf[place_value].key_equals(x, hash_value, *this)) break;
-            place_value = next[place_value + 1];
+            if (!place_value) return {true, place_value};
+            is_zero = buf[place_value - 1].is_zero(*this); ///
+            if (is_zero || buf[place_value - 1].key_equals(x, hash_value, *this)) break;
+            place_value = next[place_value];
         } while (true);
 
         return {is_zero, place_value};
@@ -226,8 +223,8 @@ protected:
 
     /// Find an empty cell, starting with the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_empty_cell(size_t place_value) const {
-        while (!buf[place_value].is_zero(*this)) {
-            place_value = next[place_value + 1];
+        while (place_value && !buf[place_value - 1].is_zero(*this)) {
+            place_value = next[place_value];
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
 #endif
@@ -240,8 +237,10 @@ protected:
         buf = reinterpret_cast<Cell*>(Allocator::alloc(new_grower.buf_size() * sizeof(Cell)));
         first = reinterpret_cast<size_t*>(
                 Allocator::alloc(new_grower.bucket_size() * sizeof(size_t)));
+        memset(first, 0, new_grower.bucket_size() * sizeof(size_t));
         next = reinterpret_cast<size_t*>(
                 Allocator::alloc((new_grower.buf_size() + 1) * sizeof(size_t)));
+        memset(next, 0, (new_grower.buf_size() + 1) * sizeof(size_t));
         grower = new_grower;
     }
 
@@ -287,10 +286,12 @@ protected:
         /// Expand the space.
         buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
                                                          new_grower.buf_size() * sizeof(Cell)));
-        first = reinterpret_cast<Cell*>(Allocator::realloc(
-                buf, get_bucket_size_in_bytes(), new_grower.bucket_size() * sizeof(size_t)));
-        next = reinterpret_cast<Cell*>(Allocator::realloc(
-                buf, get_buffer_size_in_bytes(), (new_grower.buf_size() + 1) * sizeof(size_t)));
+        first = reinterpret_cast<size_t*>(Allocator::realloc(
+                first, get_bucket_size_in_bytes(), new_grower.bucket_size() * sizeof(size_t)));
+        memset(first, 0, new_grower.bucket_size() * sizeof(size_t));
+        next = reinterpret_cast<size_t*>(Allocator::realloc(
+                next, get_buffer_size_in_bytes(), (new_grower.buf_size() + 1) * sizeof(size_t)));
+        memset(next, 0, (new_grower.buf_size() + 1) * sizeof(size_t));
         grower = new_grower;
 
         /** Now some items may need to be moved to a new location.
@@ -299,7 +300,7 @@ protected:
           */
         size_t i = 0;
         for (; i < m_no_zero_size; ++i)
-            if (!buf[i].is_zero(*this)) reinsert(i, buf[i], buf[i].get_hash(*this));
+            if (!buf[i].is_zero(*this)) reinsert(i + 1, buf[i], buf[i].get_hash(*this));
 
 #ifdef DBMS_HASH_MAP_DEBUG_RESIZES
         watch.stop();
@@ -314,8 +315,8 @@ protected:
       */
     void reinsert(size_t place_value, Cell& x, size_t hash_value) {
         size_t bucket_value = grower.place(hash_value);
-        next[place_value + 1] = first[bucket_value];
-        first[bucket_value] = place_value + 1;
+        next[place_value] = first[bucket_value];
+        first[bucket_value] = place_value;
     }
 
     void destroy_elements() {
@@ -531,6 +532,7 @@ protected:
 
 public:
     void expanse_for_add_elem(size_t num_elem) {
+        std::cout << "expanse_for_add_elem\n";
         if (add_elem_size_overflow(num_elem)) {
             resize(grower.buf_size() + num_elem);
         }
@@ -539,7 +541,6 @@ public:
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;
-
         size_t hash_value = hash(Cell::get_key(x));
         if (!emplace_if_zero(Cell::get_key(x), res.first, res.second, hash_value)) {
             emplace_non_zero(Cell::get_key(x), res.first, res.second, hash_value);
@@ -552,8 +553,7 @@ public:
 
     template <typename KeyHolder>
     void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
-        const auto& key = key_holder_get_key(key_holder);
-        auto hash_value = hash(key);
+        key_holder_get_key(key_holder);
         __builtin_prefetch(&buf[m_no_zero_size]);
     }
 
@@ -605,6 +605,7 @@ public:
     }
 
     LookupResult ALWAYS_INLINE find(Key x) {
+        std::cout << "find1\n";
         if (Cell::is_zero(x, *this)) return this->get_has_zero() ? this->zero_value() : nullptr;
 
         size_t hash_value = hash(x);
@@ -616,10 +617,12 @@ public:
     }
 
     ConstLookupResult ALWAYS_INLINE find(Key x) const {
+        std::cout << "find2\n";
         return const_cast<std::decay_t<decltype(*this)>*>(this)->find(x);
     }
 
     LookupResult ALWAYS_INLINE find(Key x, size_t hash_value) {
+        std::cout << "find3\n";
         if (Cell::is_zero(x, *this)) return this->get_has_zero() ? this->zero_value() : nullptr;
 
         size_t place_value = find_cell(x, hash_value, first[grower.place(hash_value)]);
@@ -677,6 +680,8 @@ public:
     }
 
     size_t size() const { return m_size; }
+
+    size_t no_zero_size() const { return m_no_zero_size; }
 
     bool empty() const { return 0 == m_size; }
 
