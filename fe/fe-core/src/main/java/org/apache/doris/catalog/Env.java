@@ -204,6 +204,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.scheduler.JobManager;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsJobScheduler;
@@ -429,6 +430,8 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
+    private JobManager jobManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -488,6 +491,10 @@ public class Env {
 
     public CatalogMgr getCatalogMgr() {
         return catalogMgr;
+    }
+
+    public JobManager getJobManager() {
+        return jobManager;
     }
 
     public CatalogIf getCurrentCatalog() {
@@ -616,6 +623,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.jobManager = new JobManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1918,6 +1926,15 @@ public class Env {
         return checksum;
     }
 
+    /**
+     * Load schedule jobs.
+     **/
+    public long loadJobManager(DataInputStream in, long checksum) throws IOException {
+        this.jobManager = JobManager.read(in, checksum);
+        LOG.info("finished replay job and tasks from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2188,6 +2205,11 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
+        return checksum;
+    }
+
+    public long saveJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        Env.getCurrentEnv().getJobManager().write(out, checksum);
         return checksum;
     }
 

@@ -1,9 +1,26 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.scheduler.metadata;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.scheduler.Utils;
+import org.apache.doris.scheduler.Utils.TaskState;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -11,7 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class ChangeTaskRecord implements Writable {
+public class ChangeTask implements Writable {
 
     @SerializedName("taskId")
     private long taskId;
@@ -23,10 +40,10 @@ public class ChangeTaskRecord implements Writable {
     private long finishTime;
 
     @SerializedName("fromStatus")
-    Utils.TaskState fromStatus;
+    TaskState fromStatus;
 
     @SerializedName("toStatus")
-    Utils.TaskState toStatus;
+    TaskState toStatus;
 
     @SerializedName("errorCode")
     private int errorCode;
@@ -35,15 +52,15 @@ public class ChangeTaskRecord implements Writable {
     private String errorMessage;
 
 
-    public ChangeTaskRecord(long taskId, TaskRecord taskRecord, Utils.TaskState fromStatus, Utils.TaskState toStatus) {
+    public ChangeTask(long taskId, Task task, TaskState fromStatus, TaskState toStatus) {
         this.taskId = taskId;
-        this.queryId = taskRecord.getQueryId();
+        this.queryId = task.getTaskId();
         this.fromStatus = fromStatus;
         this.toStatus = toStatus;
-        this.finishTime = taskRecord.getFinishTime();
-        if (toStatus == Utils.TaskState.FAILED) {
-            errorCode = taskRecord.getErrorCode();
-            errorMessage = taskRecord.getErrorMessage();
+        this.finishTime = task.getFinishTime();
+        if (toStatus == TaskState.FAILED) {
+            errorCode = task.getErrorCode();
+            errorMessage = task.getErrorMessage();
         }
     }
 
@@ -63,19 +80,19 @@ public class ChangeTaskRecord implements Writable {
         this.queryId = queryId;
     }
 
-    public Utils.TaskState getFromStatus() {
+    public TaskState getFromStatus() {
         return fromStatus;
     }
 
-    public void setFromStatus(Utils.TaskState fromStatus) {
+    public void setFromStatus(TaskState fromStatus) {
         this.fromStatus = fromStatus;
     }
 
-    public Utils.TaskState getToStatus() {
+    public TaskState getToStatus() {
         return toStatus;
     }
 
-    public void setToStatus(Utils.TaskState toStatus) {
+    public void setToStatus(TaskState toStatus) {
         this.toStatus = toStatus;
     }
 
@@ -103,9 +120,9 @@ public class ChangeTaskRecord implements Writable {
         this.finishTime = finishTime;
     }
 
-    public static ChangeTaskRecord read(DataInput in) throws IOException {
+    public static ChangeTask read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ChangeTaskRecord.class);
+        return GsonUtils.GSON.fromJson(json, ChangeTask.class);
     }
 
     @Override
@@ -113,5 +130,4 @@ public class ChangeTaskRecord implements Writable {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
     }
-
 }

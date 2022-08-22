@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.scheduler.Utils;
 import org.apache.doris.scheduler.Utils.JobState;
+import org.apache.doris.scheduler.Utils.RetryPolicy;
 import org.apache.doris.scheduler.Utils.TriggerMode;
 
 import com.google.gson.annotations.SerializedName;
@@ -71,6 +72,9 @@ public class Job implements Writable {
     // set default to ROOT is for compatibility
     @SerializedName("createUser")
     private String createUser = "root";
+
+    @SerializedName("retryPolicy")
+    private RetryPolicy policy = RetryPolicy.NEVER;
 
     public Job(String name) {
         this.name = name;

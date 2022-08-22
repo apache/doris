@@ -28,9 +28,9 @@ import java.util.concurrent.TimeUnit;
 
 public class Utils {
     public enum TriggerMode {
-        // Manual call to refresh
-        MANUAL, // Refresh according to the 'start time' and 'end time' set later
-        PERIODICAL, // When the base table has a commit action, refresh the map
+        MANUAL,
+        ONCE,
+        PERIODICAL,
         ON_COMMIT
     }
 
@@ -38,6 +38,12 @@ public class Utils {
         // For TaskType NORMAL TaskState is UNKNOWN.
         UNKNOWN, // For TaskType PERIODICAL when TaskState is ACTIVE it means scheduling works.
         ACTIVE, PAUSE
+    }
+
+    public enum RetryPolicy {
+        NEVER, // no retry
+        TIMES, // fix times
+        ALWAYS // retry until success
     }
 
     public enum TaskState {
@@ -87,8 +93,8 @@ public class Utils {
         }
     }
 
-    public static Task buildTask(Job job) {
-        Task taskRun = new Task();
+    public static TaskExecutor buildTask(Job job) {
+        TaskExecutor taskRun = new TaskExecutor();
         taskRun.setTaskId(job.getId());
         taskRun.setProperties(job.getProperties());
         taskRun.setJob(job);

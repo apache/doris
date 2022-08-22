@@ -28,20 +28,21 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class DropJob implements Writable {
-    @SerializedName("jobIds")
-    List<Long> jobIds;
+public class DropTask implements Writable {
 
-    public DropJob(List<Long> jobIds) {
-        this.jobIds = jobIds;
+    @SerializedName("taskIds")
+    List<String> taskIds;
+
+    public DropTask(List<String> taskIdList) {
+        this.taskIds = taskIdList;
     }
 
-    public List<Long> getJobIds() {
-        return jobIds;
+    public List<String> getTaskIds() {
+        return taskIds;
     }
 
-    public static DropJob read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropJob.class);
+    public static DropTask read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropTask.class);
     }
 
     @Override

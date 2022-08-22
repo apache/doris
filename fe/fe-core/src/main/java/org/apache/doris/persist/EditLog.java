@@ -68,6 +68,12 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.scheduler.metadata.ChangeJob;
+import org.apache.doris.scheduler.metadata.ChangeTask;
+import org.apache.doris.scheduler.metadata.DropJob;
+import org.apache.doris.scheduler.metadata.DropTask;
+import org.apache.doris.scheduler.metadata.Job;
+import org.apache.doris.scheduler.metadata.Task;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -879,6 +885,36 @@ public class EditLog {
                     env.getLoadManager().replayCleanLabel(log);
                     break;
                 }
+                case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                    final Job job = (Job) journal.getData();
+                    env.getJobManager().replayCreateJob(job);
+                    break;
+                }
+                case OperationType.OP_ALTER_SCHEDULER_JOB: {
+                    ChangeJob changeJob = (ChangeJob) journal.getData();
+                    env.getJobManager().replayUpdateJob(changeJob);
+                    break;
+                }
+                case OperationType.OP_DROP_SCHEDULER_JOB: {
+                    DropJob dropJob = (DropJob) journal.getData();
+                    env.getJobManager().replayDropJobs(dropJob.getJobIds());
+                    break;
+                }
+                case OperationType.OP_CREATE_SCHEDULER_TASK: {
+                    final Task task = (Task) journal.getData();
+                    env.getJobManager().replayCreateJobTask(task);
+                    break;
+                }
+                case OperationType.OP_ALTER_SCHEDULER_TASK: {
+                    final ChangeTask changeTask = (ChangeTask) journal.getData();
+                    env.getJobManager().replayUpdateTask(changeTask);
+                    break;
+                }
+                case OperationType.OP_DROP_SCHEDULER_TASK: {
+                    DropTask dropTask = (DropTask) journal.getData();
+                    env.getJobManager().replayDropJobTasks(dropTask.getTaskIds());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1504,6 +1540,26 @@ public class EditLog {
 
     public void logCatalogLog(short id, CatalogLog log) {
         logEdit(id, log);
+    }
+
+    public void logCreateScheduleJob(Job job) {
+        logEdit(OperationType.OP_CREATE_SCHEDULER_JOB, job);
+    }
+
+    public void logDropScheduleJob(List<Long> jobIds) {
+        logEdit(OperationType.OP_DROP_SCHEDULER_JOB, new DropJob(jobIds));
+    }
+
+    public void logCreateScheduleTask(Task task) {
+        logEdit(OperationType.OP_CREATE_SCHEDULER_TASK, task);
+    }
+
+    public void logAlterScheduleTask(ChangeTask changeTaskRecord) {
+        logEdit(OperationType.OP_ALTER_SCHEDULER_TASK, changeTaskRecord);
+    }
+
+    public void logAlterScheduleTask(List<String> taskIds) {
+        logEdit(OperationType.OP_DROP_SCHEDULER_TASK, new DropTask(taskIds));
     }
 
     public Journal getJournal() {

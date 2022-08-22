@@ -17,53 +17,156 @@
 
 package org.apache.doris.scheduler;
 
-import org.apache.doris.scheduler.metadata.TaskRecord;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.scheduler.metadata.Job;
+import org.apache.doris.scheduler.metadata.Task;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Future;
 
-public class TaskExecutor {
+public class TaskExecutor implements Comparable<TaskExecutor> {
     private static final Logger LOG = LogManager.getLogger(TaskExecutor.class);
-    private final ExecutorService taskRunPool = Executors.newCachedThreadPool();
 
-    public void executeTaskRun(Task task) {
-        if (task == null) {
-            return;
-        }
-        TaskRecord taskRecord = task.getRecord();
-        if (taskRecord == null) {
-            return;
-        }
-        if (taskRecord.getState() == Utils.TaskState.SUCCESS || taskRecord.getState() == Utils.TaskState.FAILED) {
-            LOG.warn("TaskRun {} is in final status {} ", taskRecord.getQueryId(), taskRecord.getState());
-            return;
-        }
+    private long taskId;
 
-        Future<?> future = taskRunPool.submit(() -> {
-            taskRecord.setState(Utils.TaskState.RUNNING);
-            try {
-                boolean isSuccess = task.executeTaskRun();
-                if (isSuccess) {
-                    taskRecord.setState(Utils.TaskState.SUCCESS);
-                } else {
-                    taskRecord.setState(Utils.TaskState.FAILED);
-                }
-            } catch (Exception ex) {
-                LOG.warn("failed to execute TaskRun.", ex);
-                taskRecord.setState(Utils.TaskState.FAILED);
-                taskRecord.setErrorCode(-1);
-                taskRecord.setErrorMessage(ex.toString());
-            } finally {
-                taskRecord.setFinishTime(System.currentTimeMillis());
-            }
-        });
-        task.setFuture(future);
+    private Map<String, String> properties;
+
+    private Future<?> future;
+
+    private Job job;
+
+    public Job getJob() {
+        return job;
     }
 
-    public static class TaskManager {
+    public void setJob(Job job) {
+        this.job = job;
+    }
+
+    private ConnectContext ctx;
+
+    private TaskProcessor processor;
+
+    private Task task;
+
+    public long getTaskId() {
+        return taskId;
+    }
+
+    public void setTaskId(long taskId) {
+        this.taskId = taskId;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public Future<?> getFuture() {
+        return future;
+    }
+
+    public void setFuture(Future<?> future) {
+        this.future = future;
+    }
+
+
+    public TaskProcessor getProcessor() {
+        return processor;
+    }
+
+    public void setProcessor(TaskProcessor processor) {
+        this.processor = processor;
+    }
+
+    public boolean executeTask() throws Exception {
+        TaskContext taskContext = new TaskContext();
+        taskContext.setDefinition(task.getDefinition());
+        ctx = new ConnectContext();
+        ctx.setDatabase(job.getDbName());
+        ctx.setQualifiedUser(task.getUser());
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getCreateUser(), "%"));
+        ctx.getState().reset();
+        ctx.setQueryId(Utils.genTUniqueId(UUID.fromString(task.getTaskId())));
+        Map<String, String> taskContextProperties = Maps.newHashMap();
+
+        taskContext.setCtx(ctx);
+        taskContext.setRemoteIp(ctx.getMysqlChannel().getRemoteHostPortString());
+        taskContext.setProperties(taskContextProperties);
+        processor.process(taskContext);
+        QueryState queryState = ctx.getState();
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            task.setErrorMessage(queryState.getErrorMessage());
+            int errorCode = -1;
+            if (queryState.getErrorCode() != null) {
+                errorCode = queryState.getErrorCode().getCode();
+            }
+            task.setErrorCode(errorCode);
+            return false;
+        }
+        return true;
+    }
+
+    public ConnectContext getCtx() {
+        return ctx;
+    }
+
+    public Task getTask() {
+        return task;
+    }
+
+    public Task initRecord(String queryId, Long createTime) {
+        Task record = new Task();
+        record.setTaskId(queryId);
+        record.setJobName(job.getName());
+        if (createTime == null) {
+            record.setCreateTime(System.currentTimeMillis());
+        } else {
+            record.setCreateTime(createTime);
+        }
+        record.setUser(job.getCreateUser());
+        record.setDbName(job.getDbName());
+        record.setDefinition(job.getDefinition());
+        record.setExpireTime(System.currentTimeMillis() + 7 * 24 * 3600 * 1000L);
+        this.task = record;
+        return record;
+    }
+
+    @Override
+    public int compareTo(@NotNull TaskExecutor task) {
+        if (this.getTask().getPriority() != task.getTask().getPriority()) {
+            return task.getTask().getPriority() - this.getTask().getPriority();
+        } else {
+            return this.getTask().getCreateTime() > task.getTask().getCreateTime() ? 1 : -1;
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TaskExecutor task = (TaskExecutor) o;
+        return this.task.getDefinition().equals(task.getTask().getDefinition());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(task);
     }
 }

@@ -20,28 +20,36 @@ package org.apache.doris.scheduler.metadata;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.scheduler.Utils.JobState;
 
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 
-public class DropJob implements Writable {
-    @SerializedName("jobIds")
-    List<Long> jobIds;
+public class ChangeJob implements Writable {
+    @SerializedName("jobId")
+    private long jobId;
 
-    public DropJob(List<Long> jobIds) {
-        this.jobIds = jobIds;
-    }
+    @SerializedName("finishTime")
+    private long finishTime;
 
-    public List<Long> getJobIds() {
-        return jobIds;
-    }
+    @SerializedName("fromStatus")
+    JobState fromStatus;
 
-    public static DropJob read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropJob.class);
+    @SerializedName("toStatus")
+    JobState toStatus;
+
+    @SerializedName("errorCode")
+    private int errorCode;
+
+    @SerializedName("errorMessage")
+    private String errorMessage;
+
+    public static ChangeJob read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ChangeJob.class);
     }
 
     @Override

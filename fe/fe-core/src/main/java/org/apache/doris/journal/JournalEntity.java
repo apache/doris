@@ -96,6 +96,11 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.scheduler.metadata.ChangeTask;
+import org.apache.doris.scheduler.metadata.DropJob;
+import org.apache.doris.scheduler.metadata.DropTask;
+import org.apache.doris.scheduler.metadata.Job;
+import org.apache.doris.scheduler.metadata.Task;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -682,6 +687,31 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CLEAN_LABEL: {
                 data = CleanLabelOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                data = Job.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_SCHEDULER_JOB: {
+                data = DropJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SCHEDULER_TASK: {
+                data = Task.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_SCHEDULER_TASK: {
+                data = ChangeTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_SCHEDULER_TASK: {
+                data = DropTask.read(in);
                 isRead = true;
                 break;
             }

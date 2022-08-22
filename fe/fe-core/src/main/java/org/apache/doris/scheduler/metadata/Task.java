@@ -28,13 +28,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class TaskRecord implements Writable {
+public class Task implements Writable {
+    @SerializedName("taskId")
+    private String taskId;
 
-    @SerializedName("queryId")
-    private String queryId;
-
-    @SerializedName("taskName")
-    private String taskName;
+    @SerializedName("jobName")
+    private String jobName;
 
     @SerializedName("createTime")
     private long createTime;
@@ -70,20 +69,20 @@ public class TaskRecord implements Writable {
     @SerializedName("mergeRedundant")
     private boolean mergeRedundant = false;
 
-    public String getQueryId() {
-        return queryId;
+    public String getTaskId() {
+        return taskId;
     }
 
-    public void setQueryId(String queryId) {
-        this.queryId = queryId;
+    public void setTaskId(String taskId) {
+        this.taskId = taskId;
     }
 
-    public String getTaskName() {
-        return taskName;
+    public String getJobName() {
+        return jobName;
     }
 
-    public void setTaskName(String taskName) {
-        this.taskName = taskName;
+    public void setJobName(String jobName) {
+        this.jobName = jobName;
     }
 
     public long getCreateTime() {
@@ -174,9 +173,9 @@ public class TaskRecord implements Writable {
         this.mergeRedundant = mergeRedundant;
     }
 
-    public static TaskRecord read(DataInput in) throws IOException {
+    public static Task read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, TaskRecord.class);
+        return GsonUtils.GSON.fromJson(json, Task.class);
     }
 
     @Override
@@ -187,7 +186,7 @@ public class TaskRecord implements Writable {
 
     @Override
     public String toString() {
-        return "TaskRunStatus{" + "queryId='" + queryId + '\'' + ", taskName='" + taskName + '\'' + ", createTime="
+        return "TaskRunStatus{" + "queryId='" + taskId + '\'' + ", taskName='" + jobName + '\'' + ", createTime="
                 + createTime + ", finishTime=" + finishTime + ", state=" + state + ", dbName='" + dbName + '\''
                 + ", definition='" + definition + '\'' + ", user='" + user + '\'' + ", errorCode=" + errorCode
                 + ", errorMessage='" + errorMessage + '\'' + ", expireTime=" + expireTime + ", priority=" + priority

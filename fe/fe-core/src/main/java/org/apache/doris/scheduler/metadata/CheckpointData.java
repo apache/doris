@@ -28,26 +28,21 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class DropTaskRecord implements Writable {
+public class CheckpointData implements Writable {
+    @SerializedName("jobs")
+    public List<Job> jobs;
 
-    @SerializedName("taskIdList")
-    List<Long> taskIdList;
-
-    public DropTaskRecord(List<Long> taskIdList) {
-        this.taskIdList = taskIdList;
-    }
-
-    public List<Long> getTaskIdList() {
-        return taskIdList;
-    }
-
-    public static DropTaskRecord read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropTaskRecord.class);
-    }
+    @SerializedName("tasks")
+    public List<Task> tasks;
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public static CheckpointData read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, CheckpointData.class);
     }
 }

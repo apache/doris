@@ -239,6 +239,16 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
 
+    // scheduler job and task 330-350
+    public static final short OP_CREATE_SCHEDULER_JOB = 330;
+    public static final short OP_DROP_SCHEDULER_JOB = 331;
+    public static final short OP_ALTER_SCHEDULER_JOB = 332;
+
+    public static final short OP_CREATE_SCHEDULER_TASK = 340;
+    public static final short OP_DROP_SCHEDULER_TASK = 341;
+    public static final short OP_ALTER_SCHEDULER_TASK = 342;
+
+
     /**
      * Get opcode name by op code.
      **/

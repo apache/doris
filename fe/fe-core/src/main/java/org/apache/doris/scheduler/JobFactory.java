@@ -17,40 +17,10 @@
 
 package org.apache.doris.scheduler;
 
-public class ExecuteOption {
-    private int priority = Utils.TaskRunPriority.LOWEST.value();
-    private boolean mergeRedundant = false;
+import org.apache.doris.scheduler.metadata.Job;
 
-    private boolean markJobFinished = false;
-
-    public ExecuteOption() {
-    }
-
-    public ExecuteOption(int priority) {
-        this.priority = priority;
-    }
-
-    public int getPriority() {
-        return priority;
-    }
-
-    public void setPriority(int priority) {
-        this.priority = priority;
-    }
-
-    public boolean isMergeRedundant() {
-        return mergeRedundant;
-    }
-
-    public void setMergeRedundant(boolean mergeRedundant) {
-        this.mergeRedundant = mergeRedundant;
-    }
-
-    public boolean isMarkJobFinished() {
-        return markJobFinished;
-    }
-
-    public void setMarkJobFinished(boolean markJobFinished) {
-        this.markJobFinished = markJobFinished;
+public class JobFactory {
+    public static Job buildJob() {
+        return new Job("fake");
     }
 }
