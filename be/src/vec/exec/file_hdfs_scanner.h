@@ -38,6 +38,7 @@ public:
                            const TFileScanRangeParams& params,
                            const std::vector<TFileRangeDesc>& ranges,
                            const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+    ~ParquetFileHdfsScanner();
     Status open() override;
 
     Status get_next(vectorized::Block* block, bool* eof) override;
@@ -51,7 +52,6 @@ private:
 
 private:
     std::shared_ptr<ParquetReader> _reader;
-    int64_t _current_range_offset;
 };
 
 } // namespace doris::vectorized
