@@ -21,15 +21,66 @@
 
 #include "common/status.h"
 #include "gen_cpp/parquet_types.h"
+#include "gutil/endian.h"
+#include "schema_desc.h"
 #include "util/bit_stream_utils.inline.h"
+#include "util/coding.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/int_exp.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
 using level_t = int16_t;
+
+struct ParquetInt96 {
+    uint64_t lo; // time of nanoseconds in a day
+    uint32_t hi; // days from julian epoch
+
+    inline uint64_t to_timestamp_micros() const;
+
+    static const uint32_t JULIAN_EPOCH_OFFSET_DAYS;
+    static const uint64_t MICROS_IN_DAY;
+    static const uint64_t NANOS_PER_MICROSECOND;
+};
+
+struct DecimalScaleParams {
+    enum ScaleType {
+        NOT_INIT,
+        NO_SCALE,
+        SCALE_UP,
+        SCALE_DOWN,
+    };
+    ScaleType scale_type = ScaleType::NOT_INIT;
+    int32_t scale_factor = 1;
+
+    template <typename DecimalPrimitiveType>
+    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
+        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
+            return common::exp10_i32(n);
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
+            return common::exp10_i64(n);
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
+            return common::exp10_i128(n);
+        } else {
+            return DecimalPrimitiveType(1);
+        }
+    }
+};
+
+struct DecodeParams {
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
+    static const cctz::time_zone utc0;
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set the time zone
+    cctz::time_zone* ctz = nullptr;
+    int64_t second_mask = 1;
+    int64_t scale_to_nano_factor = 1;
+    DecimalScaleParams decimal_scale;
+};
 
 class Decoder {
 public:
@@ -48,6 +99,11 @@ public:
         _offset = 0;
     }
 
+    void init(FieldSchema* field_schema, cctz::time_zone* ctz);
+
+    template <typename DecimalPrimitiveType>
+    void init_decimal_converter(DataTypePtr& data_type);
+
     // Write the decoded values batch to doris's column
     Status decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
 
@@ -62,7 +118,33 @@ protected:
     int32_t _type_length;
     Slice* _data = nullptr;
     uint32_t _offset = 0;
+    FieldSchema* _field_schema = nullptr;
+    std::unique_ptr<DecodeParams> _decode_params = nullptr;
 };
+
+template <typename DecimalPrimitiveType>
+void Decoder::init_decimal_converter(DataTypePtr& data_type) {
+    if (_decode_params == nullptr || _field_schema == nullptr ||
+        _decode_params->decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
+        return;
+    }
+    auto scale = _field_schema->parquet_schema.scale;
+    auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
+            const_cast<IDataType*>(remove_nullable(data_type).get()));
+    auto dest_scale = decimal_type->get_scale();
+    if (dest_scale > scale) {
+        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
+        _decode_params->decimal_scale.scale_factor =
+                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
+    } else if (dest_scale < scale) {
+        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
+        _decode_params->decimal_scale.scale_factor =
+                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
+    } else {
+        _decode_params->decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
+        _decode_params->decimal_scale.scale_factor = 1;
+    }
+}
 
 class PlainDecoder final : public Decoder {
 public:
@@ -92,8 +174,137 @@ protected:
         return Status::OK();
     }
 
+    template <typename CppType, typename ColumnType>
+    Status _decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type, size_t num_values);
+
+    template <typename CppType, typename ColumnType>
+    Status _decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                              size_t num_values);
+
+    template <typename CppType, typename ColumnType>
+    Status _decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                              size_t num_values);
+
+    template <typename DecimalPrimitiveType>
+    Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                  size_t num_values);
+
+    template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
+    Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                     size_t num_values);
+
     tparquet::Type::type _physical_type;
 };
+
+template <typename CppType, typename ColumnType>
+Status PlainDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                                  size_t num_values) {
+    auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
+    for (int i = 0; i < num_values; ++i) {
+        int64_t date_value =
+                static_cast<int64_t>(*reinterpret_cast<int32_t*>(_data->data + _offset));
+        CppType v;
+        v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
+        if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+            // we should cast to date if using date v1.
+            v.cast_to_date();
+        }
+        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
+        column_data.emplace_back(cast_value);
+        _offset += _type_length;
+    }
+    return Status::OK();
+}
+
+template <typename CppType, typename ColumnType>
+Status PlainDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                                        size_t num_values) {
+    auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
+    for (int i = 0; i < num_values; i++) {
+        int64_t& date_value = *reinterpret_cast<int64_t*>(_data->data + _offset);
+        CppType v;
+        v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
+        if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+            // nanoseconds will be ignored.
+            v.set_microsecond((date_value % _decode_params->second_mask) *
+                              _decode_params->scale_to_nano_factor / 1000);
+        }
+        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
+        column_data.emplace_back(cast_value);
+        _offset += _type_length;
+    }
+    return Status::OK();
+}
+
+template <typename CppType, typename ColumnType>
+Status PlainDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                                        size_t num_values) {
+    auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
+    for (int i = 0; i < num_values; ++i) {
+        ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(_data->data + _offset);
+        CppType v;
+        int64_t micros = datetime96.to_timestamp_micros();
+        v.from_unixtime(micros / 1000000, *_decode_params->ctz);
+        if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+            // spark.sql.parquet.outputTimestampType = INT96(NANOS) will lost precision.
+            // only keep microseconds.
+            v.set_microsecond(micros % 1000000);
+        }
+        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
+        column_data.emplace_back(cast_value);
+        _offset += _type_length;
+    }
+    return Status::OK();
+}
+
+template <typename DecimalPrimitiveType>
+Status PlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                            size_t num_values) {
+    init_decimal_converter<DecimalPrimitiveType>(data_type);
+    auto& column_data =
+            static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+    for (int i = 0; i < num_values; ++i) {
+        char* buf_start = _data->data + _offset;
+        // When Decimal in parquet is stored in byte arrays, binary and fixed,
+        // the unscaled number must be encoded as two's complement using big-endian byte order.
+        Int128 value = buf_start[0] & 0x80 ? -1 : 0;
+        memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - _type_length, buf_start,
+               _type_length);
+        value = BigEndian::ToHost128(value);
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            value *= scale_params.scale_factor;
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            value /= scale_params.scale_factor;
+        }
+        DecimalPrimitiveType cast_value(value);
+        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        _offset += _type_length;
+    }
+    return Status::OK();
+}
+
+template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
+Status PlainDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
+                                               DataTypePtr& data_type, size_t num_values) {
+    init_decimal_converter<DecimalPrimitiveType>(data_type);
+    auto& column_data =
+            static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+    for (int i = 0; i < num_values; ++i) {
+        // we should use decimal128 to scale up/down
+        Int128 value = *reinterpret_cast<DecimalPhysicalType*>(_data->data + _offset);
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            value *= scale_params.scale_factor;
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            value /= scale_params.scale_factor;
+        }
+        DecimalPrimitiveType cast_value(value);
+        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        _offset += _type_length;
+    }
+    return Status::OK();
+}
 
 class ByteArrayPlainDecoder final : public Decoder {
 public:
@@ -106,7 +317,44 @@ public:
     Status decode_values(Slice& slice, size_t num_values) override;
 
     Status skip_values(size_t num_values) override;
+
+protected:
+    template <typename DecimalPrimitiveType>
+    Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                  size_t num_values);
 };
+
+template <typename DecimalPrimitiveType>
+Status ByteArrayPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
+                                                     DataTypePtr& data_type, size_t num_values) {
+    init_decimal_converter<DecimalPrimitiveType>(data_type);
+    auto& column_data =
+            static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+    for (int i = 0; i < num_values; ++i) {
+        if (UNLIKELY(_offset + 4 > _data->size)) {
+            return Status::IOError("Can't read byte array length from plain decoder");
+        }
+        uint32_t length =
+                decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+        _offset += 4;
+        char* buf_start = _data->data + _offset;
+        // When Decimal in parquet is stored in byte arrays, binary and fixed,
+        // the unscaled number must be encoded as two's complement using big-endian byte order.
+        Int128 value = buf_start[0] & 0x80 ? -1 : 0;
+        memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - length, buf_start, length);
+        value = BigEndian::ToHost128(value);
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            value *= scale_params.scale_factor;
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            value /= scale_params.scale_factor;
+        }
+        DecimalPrimitiveType cast_value(value);
+        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        _offset += length;
+    }
+    return Status::OK();
+}
 
 /// Decoder bit-packed boolean-encoded values.
 /// Implementation from https://github.com/apache/impala/blob/master/be/src/exec/parquet/parquet-bool-decoder.h

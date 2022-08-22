@@ -65,7 +65,7 @@ private:
 class ParquetReader {
 public:
     ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file, size_t batch_size,
-                  int64_t range_start_offset, int64_t range_size);
+                  int64_t range_start_offset, int64_t range_size, cctz::time_zone* ctz);
 
     ~ParquetReader();
 
@@ -130,6 +130,7 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
+    cctz::time_zone* _ctz;
 
     const TupleDescriptor* _tuple_desc; // get all slot info
 };

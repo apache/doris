@@ -20,12 +20,14 @@
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema)
+                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
+                                     cctz::time_zone* ctz)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
-          _metadata(column_chunk->meta_data) {}
+          _metadata(column_chunk->meta_data),
+          _ctz(ctz) {}
 
 Status ColumnChunkReader::init() {
     size_t start_offset = _metadata.__isset.dictionary_page_offset
@@ -34,10 +36,14 @@ Status ColumnChunkReader::init() {
     size_t chunk_size = _metadata.total_compressed_size;
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
     if (_metadata.__isset.dictionary_page_offset) {
+        // seek to the directory page
+        _page_reader->seek_to_page(_metadata.dictionary_page_offset);
+        RETURN_IF_ERROR(_page_reader->next_page_header());
         RETURN_IF_ERROR(_decode_dict_page());
+    } else {
+        // seek to the first data page
+        _page_reader->seek_to_page(_metadata.data_page_offset);
     }
-    // seek to the first data page
-    _page_reader->seek_to_page(_metadata.data_page_offset);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
     return Status::OK();
@@ -45,8 +51,16 @@ Status ColumnChunkReader::init() {
 
 Status ColumnChunkReader::next_page() {
     RETURN_IF_ERROR(_page_reader->next_page_header());
-    _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
-    return Status::OK();
+    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
+        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
+        // so we should parse the directory page in next_page()
+        RETURN_IF_ERROR(_decode_dict_page());
+        // parse the real first data page
+        return next_page();
+    } else {
+        _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
+        return Status::OK();
+    }
 }
 
 Status ColumnChunkReader::load_page_data() {
@@ -89,20 +103,20 @@ Status ColumnChunkReader::load_page_data() {
     } else {
         std::unique_ptr<Decoder> page_decoder;
         Decoder::get_decoder(_metadata.type, encoding, page_decoder);
+        // Set type length
+        page_decoder->set_type_length(_get_type_length());
+        // Initialize the time convert context
+        page_decoder->init(_field_schema, _ctz);
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
+    // Reset page data for each page
     _page_decoder->set_data(&_page_data);
-    // Set type length
-    _page_decoder->set_type_length(_get_type_length());
 
     return Status::OK();
 }
 
 Status ColumnChunkReader::_decode_dict_page() {
-    int64_t dict_offset = _metadata.dictionary_page_offset;
-    _page_reader->seek_to_page(dict_offset);
-    _page_reader->next_page_header();
     const tparquet::PageHeader& header = *_page_reader->get_page_header();
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
     // TODO(gaoxin): decode dictionary page
