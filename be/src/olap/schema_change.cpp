@@ -39,7 +39,6 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/olap/block_reader.h"
 
 using std::nothrow;
 
@@ -1149,8 +1148,7 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         return SchemaChangeHandler::get_sc_procedure(_row_block_changer, false, true)
                 ->process(rowset_reader, rowset_writer, new_tablet, base_tablet);
     } else {
-        Status status = rowset_writer->add_rowset_for_linked_schema_change(
-                rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
+        Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
         if (!status) {
             LOG(WARNING) << "fail to convert rowset."
                          << ", new_tablet=" << new_tablet->full_name()
