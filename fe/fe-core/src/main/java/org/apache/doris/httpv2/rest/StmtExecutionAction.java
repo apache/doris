@@ -25,6 +25,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
@@ -85,47 +86,31 @@ public class StmtExecutionAction extends RestBaseController {
      */
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object executeSQL(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
-            HttpServletRequest request, HttpServletResponse response, @RequestBody String stmtBody) {
+            HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
-        }
-
-        boolean isSync = true;
-        String syncParam = request.getParameter(PARAM_SYNC);
-        if (!Strings.isNullOrEmpty(syncParam)) {
-            isSync = syncParam.equals("1");
-        }
-
-        String limitParam = request.getParameter(PARAM_LIMIT);
-        long limit = DEFAULT_ROW_LIMIT;
-        if (!Strings.isNullOrEmpty(limitParam)) {
-            limit = Math.min(Long.valueOf(limitParam), MAX_ROW_LIMIT);
+        if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+            ns = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
 
         Type type = new TypeToken<StmtRequestBody>() {
         }.getType();
-        StmtRequestBody stmtRequestBody = new Gson().fromJson(stmtBody, type);
+        StmtRequestBody stmtRequestBody = new Gson().fromJson(body, type);
 
         if (Strings.isNullOrEmpty(stmtRequestBody.stmt)) {
             return ResponseEntityBuilder.badRequest("Missing statement request body");
         }
-        LOG.info("stmt: {}", stmtRequestBody.stmt);
+        LOG.info("stmt: {}, isSync:{}, limit: {}, operation: {}", stmtRequestBody.stmt, stmtRequestBody.isSync,
+                stmtRequestBody.limit, stmtRequestBody.operation);
 
+        ConnectContext.get().changeDefaultCatalog(ns);
         ConnectContext.get().setDatabase(getFullDbName(dbName));
-
-        String operation = request.getParameter(PARAM_OPERATION);
-        if (Strings.isNullOrEmpty(operation)) {
-            operation = OPERATION_EXECUTE;
-        }
-
-        if (operation.equalsIgnoreCase(OPERATION_EXECUTE)) {
-            return executeQuery(authInfo, isSync, limit, stmtRequestBody);
-        } else if (operation.equalsIgnoreCase(OPERATION_GET_SCHEMA)) {
+        if (stmtRequestBody.operation.equalsIgnoreCase(OPERATION_EXECUTE)) {
+            return executeQuery(authInfo, stmtRequestBody.isSync, stmtRequestBody.limit, stmtRequestBody);
+        } else if (stmtRequestBody.operation.equalsIgnoreCase(OPERATION_GET_SCHEMA)) {
             return getSchema(stmtRequestBody);
         } else {
-            return ResponseEntityBuilder.badRequest("Unknown operation: " + operation);
+            return ResponseEntityBuilder.badRequest("Unknown operation: " + stmtRequestBody.operation);
         }
     }
 
@@ -179,7 +164,7 @@ public class StmtExecutionAction extends RestBaseController {
             QueryStmt queryStmt = (QueryStmt) stmt;
             Map<Long, TableIf> tableMap = Maps.newHashMap();
             Set<String> parentViewNameSet = Sets.newHashSet();
-            queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+            queryStmt.getTables(analyzer, true, tableMap, parentViewNameSet);
 
             Map<Long, Object> resultMap = new HashMap<>(4);
             for (TableIf tbl : tableMap.values()) {
@@ -197,6 +182,9 @@ public class StmtExecutionAction extends RestBaseController {
     }
 
     private static class StmtRequestBody {
+        public Boolean isSync = true;
+        public Long limit = DEFAULT_ROW_LIMIT;
+        public String operation = OPERATION_EXECUTE;
         public String stmt;
     }
 }

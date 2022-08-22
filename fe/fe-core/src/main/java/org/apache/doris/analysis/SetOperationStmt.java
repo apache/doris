@@ -213,11 +213,11 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
-        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, expandView, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getTables(analyzer, tableMap, parentViewNameSet);
+            op.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
