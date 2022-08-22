@@ -82,6 +82,7 @@ std::string TabletReader::KeysParam::to_string() const {
 
 TabletReader::~TabletReader() {
     VLOG_NOTICE << "merged rows:" << _merged_rows;
+    _delete_handler.finalize();
 
     for (auto pred : _col_predicates) {
         delete pred;
@@ -203,10 +204,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
-    _reader_context.load_bf_columns = &_load_bf_columns;
-    _reader_context.load_bf_all_columns = &_load_bf_all_columns;
-    _reader_context.conditions = _conditions.get();
-    _reader_context.all_conditions = _all_conditions.get();
     _reader_context.predicates = &_col_predicates;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
@@ -241,7 +238,6 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet_schema = read_params.tablet_schema;
 
     _init_conditions_param(read_params);
-    _init_load_bf_columns(read_params);
 
     Status res = _init_delete_condition(read_params);
     if (!res.ok()) {
@@ -448,17 +444,16 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+    for (const auto& condition : read_params.conditions) {
+        ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
-                Status status = _conditions->append_condition(tmp_cond);
                 DCHECK_EQ(Status::OK(), status);
             }
-            Status status = _all_conditions->append_condition(tmp_cond);
-            DCHECK_EQ(Status::OK(), status);
         }
     }
 
@@ -493,66 +488,6 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     // currently only support like predicate
     return new LikeColumnPredicate<false>(function_filter._opposite, index, function_filter._fn_ctx,
                                           function_filter._string_param);
-}
-
-void TabletReader::_init_load_bf_columns(const ReaderParams& read_params) {
-    _init_load_bf_columns(read_params, _conditions.get(), &_load_bf_columns);
-    _init_load_bf_columns(read_params, _all_conditions.get(), &_load_bf_all_columns);
-}
-
-void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
-                                         std::set<uint32_t>* load_bf_columns) {
-    // add all columns with condition to load_bf_columns
-    for (const auto& cond_column : conditions->columns()) {
-        int32_t column_id = _tablet_schema->field_index(cond_column.first);
-        if (!_tablet_schema->column(column_id).is_bf_column()) {
-            continue;
-        }
-        for (const auto& cond : cond_column.second->conds()) {
-            if (cond->op == OP_EQ ||
-                (cond->op == OP_IN && cond->operand_set.size() < MAX_OP_IN_FIELD_NUM)) {
-                load_bf_columns->insert(column_id);
-            }
-        }
-    }
-
-    // remove columns which have same value between start_key and end_key
-    int min_scan_key_len = _tablet_schema->num_columns();
-    for (const auto& start_key : read_params.start_key) {
-        min_scan_key_len = std::min(min_scan_key_len, static_cast<int>(start_key.size()));
-    }
-    for (const auto& end_key : read_params.end_key) {
-        min_scan_key_len = std::min(min_scan_key_len, static_cast<int>(end_key.size()));
-    }
-
-    int max_equal_index = -1;
-    for (int i = 0; i < read_params.start_key.size(); ++i) {
-        int j = 0;
-        for (; j < min_scan_key_len; ++j) {
-            if (read_params.start_key[i].get_value(j) != read_params.end_key[i].get_value(j)) {
-                break;
-            }
-        }
-
-        if (max_equal_index < j - 1) {
-            max_equal_index = j - 1;
-        }
-    }
-
-    for (int i = 0; i < max_equal_index; ++i) {
-        load_bf_columns->erase(i);
-    }
-
-    // remove the max_equal_index column when it's not varchar
-    // or longer than number of short key fields
-    if (max_equal_index == -1) {
-        return;
-    }
-    FieldType type = _tablet_schema->column(max_equal_index).type();
-    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING) ||
-        max_equal_index + 1 > _tablet->num_short_key_columns()) {
-        load_bf_columns->erase(max_equal_index);
-    }
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {

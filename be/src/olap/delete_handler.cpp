@@ -29,7 +29,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
-#include "olap/olap_cond.h"
 #include "olap/predicate_creator.h"
 #include "olap/tablet.h"
 #include "olap/utils.h"
@@ -255,12 +254,6 @@ Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tabl
                 Version(delete_condition.version(), delete_condition.version()));
         DeleteConditions temp;
         temp.filter_version = delete_condition.version();
-        temp.del_cond = new (std::nothrow) Conditions(tablet_schema);
-
-        if (temp.del_cond == nullptr) {
-            LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
-            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
-        }
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
@@ -270,10 +263,6 @@ Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tabl
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
             Status res = temp.del_cond->append_condition(condition);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to append condition.res = " << res;
-                return res;
-            }
             auto predicate =
                     parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
             if (predicate != nullptr) {
@@ -294,11 +283,6 @@ Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tabl
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
-            Status res = temp.del_cond->append_condition(condition);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to append condition.res = " << res;
-                return res;
-            }
             temp.column_predicate_vec.push_back(
                     parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true));
         }
@@ -311,24 +295,12 @@ Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tabl
     return Status::OK();
 }
 
-std::vector<int64_t> DeleteHandler::get_conds_version() {
-    std::vector<int64_t> conds_version;
-    for (const auto& cond : _del_conds) {
-        conds_version.push_back(cond.filter_version);
-    }
-
-    return conds_version;
-}
-
 void DeleteHandler::finalize() {
     if (!_is_inited) {
         return;
     }
 
     for (auto& cond : _del_conds) {
-        cond.del_cond->finalize();
-        delete cond.del_cond;
-
         for (auto pred : cond.column_predicate_vec) {
             delete pred;
         }
@@ -339,12 +311,9 @@ void DeleteHandler::finalize() {
 }
 
 void DeleteHandler::get_delete_conditions_after_version(
-        int64_t version, std::vector<const Conditions*>* delete_conditions,
-        AndBlockColumnPredicate* and_block_column_predicate_ptr) const {
+        int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
-            delete_conditions->emplace_back(del_cond.del_cond);
-
             // now, only query support delete column predicate operator
             if (!del_cond.column_predicate_vec.empty()) {
                 if (del_cond.column_predicate_vec.size() == 1) {

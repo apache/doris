@@ -20,6 +20,8 @@
 #include <cstdint>
 
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
@@ -198,6 +200,101 @@ public:
                       bool* flags) const override {
         _evaluate_bit<true>(column, sel, size, flags);
     }
+
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first == nullptr || statistic.second == nullptr) {
+            return true;
+        }
+        if (statistic.first->is_null()) {
+            return true;
+        }
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return tmp_min_uint32_value <= _value && tmp_max_uint32_value >= _value;
+            } else if constexpr (std::is_same_v<T, StringValue>) {
+                auto min = reinterpret_cast<const Slice*>(statistic.first->cell_ptr());
+                auto max = reinterpret_cast<const Slice*>(statistic.second->cell_ptr());
+                return StringValue(min->data, min->size) <= _value &&
+                       StringValue(max->data, max->size) >= _value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _value &&
+                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _value;
+            }
+        } else if constexpr (PT == PredicateType::NE) {
+            return true;
+        } else if constexpr (PT == PredicateType::LT) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_uint32_value = 0;
+                memcpy((char*)(&tmp_uint32_value), statistic.first->cell_ptr(), sizeof(uint24_t));
+                return tmp_uint32_value < _value;
+            } else if constexpr (std::is_same_v<T, StringValue>) {
+                auto min = reinterpret_cast<const Slice*>(statistic.first->cell_ptr());
+                return StringValue(min->data, min->size) < _value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) < _value;
+            }
+        } else if constexpr (PT == PredicateType::LE) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_uint32_value = 0;
+                memcpy((char*)(&tmp_uint32_value), statistic.first->cell_ptr(), sizeof(uint24_t));
+                return tmp_uint32_value <= _value;
+            } else if constexpr (std::is_same_v<T, StringValue>) {
+                auto min = reinterpret_cast<const Slice*>(statistic.first->cell_ptr());
+                return StringValue(min->data, min->size) <= _value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _value;
+            }
+        } else if constexpr (PT == PredicateType::GT) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_uint32_value = 0;
+                memcpy((char*)(&tmp_uint32_value), statistic.second->cell_ptr(), sizeof(uint24_t));
+                return tmp_uint32_value > _value;
+            } else if constexpr (std::is_same_v<T, StringValue>) {
+                auto max = reinterpret_cast<const Slice*>(statistic.second->cell_ptr());
+                return StringValue(max->data, max->size) > _value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.second->cell_ptr()) > _value;
+            }
+        } else if constexpr (PT == PredicateType::GE) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_uint32_value = 0;
+                memcpy((char*)(&tmp_uint32_value), statistic.second->cell_ptr(), sizeof(uint24_t));
+                return tmp_uint32_value >= _value;
+            } else if constexpr (std::is_same_v<T, StringValue>) {
+                auto max = reinterpret_cast<const Slice*>(statistic.second->cell_ptr());
+                return StringValue(max->data, max->size) >= _value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _value;
+            }
+        }
+    }
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            bool existed = false;
+            if constexpr (std::is_same_v<T, StringValue>) {
+                existed = bf->test_bytes(_value.ptr, _value.len);
+            } else if constexpr (Type == TYPE_DATE) {
+                existed = bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                         sizeof(uint24_t));
+            } else {
+                existed = bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                         sizeof(_value));
+            }
+            return existed;
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
+    }
+
+    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {

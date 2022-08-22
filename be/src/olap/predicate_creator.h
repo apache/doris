@@ -23,8 +23,8 @@
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
-#include "olap/olap_cond.h"
 #include "olap/tablet_schema.h"
+#include "runtime/type_limit.h"
 #include "util/date_func.h"
 #include "util/string_util.h"
 
@@ -47,10 +47,19 @@ public:
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<CppType> values;
+            CppType min = type_limit<CppType>::max();
+            CppType max = type_limit<CppType>::min();
             for (const auto& condition : conditions) {
-                values.insert(convert(condition));
+                CppType tmp = convert(condition);
+                values.insert(tmp);
+                if (tmp > max) {
+                    max = tmp;
+                }
+                if (tmp < min) {
+                    min = tmp;
+                }
             }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), min, max, opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(conditions), opposite);
@@ -73,10 +82,19 @@ public:
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<CppType> values;
+            CppType min = type_limit<CppType>::max();
+            CppType max = type_limit<CppType>::min();
             for (const auto& condition : conditions) {
-                values.insert(convert(column, condition));
+                CppType tmp = convert(column, condition);
+                values.insert(tmp);
+                if (tmp > max) {
+                    max = tmp;
+                }
+                if (tmp < min) {
+                    min = tmp;
+                }
             }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), min, max, opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions),
@@ -102,10 +120,19 @@ public:
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<StringValue> values;
+            StringValue min = type_limit<StringValue>::max();
+            StringValue max = type_limit<StringValue>::min();
             for (const auto& condition : conditions) {
-                values.insert(convert(column, condition, pool));
+                StringValue tmp = convert(column, condition, pool);
+                values.insert(tmp);
+                if (tmp > max) {
+                    max = tmp;
+                }
+                if (tmp < min) {
+                    min = tmp;
+                }
             }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), min, max, opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions, pool),
@@ -140,10 +167,19 @@ public:
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<CppType> values;
+            CppType min = type_limit<CppType>::max();
+            CppType max = type_limit<CppType>::min();
             for (const auto& condition : conditions) {
-                values.insert(_convert(condition));
+                CppType tmp = _convert(condition);
+                values.insert(tmp);
+                if (tmp > max) {
+                    max = tmp;
+                }
+                if (tmp < min) {
+                    min = tmp;
+                }
             }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, std::move(values), min, max, opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, _convert(conditions), opposite);

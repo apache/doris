@@ -23,6 +23,10 @@
 
 namespace doris {
 
+namespace segment_v2 {
+class BloomFilter;
+}
+
 // Block Column Predicate support do column predicate in RowBlockV2 and support OR and AND predicate
 // Block Column Predicate will replace column predicate as a unified external vectorized interface
 // in the future
@@ -57,6 +61,16 @@ public:
 
     virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size,
                               bool* flags) const {};
+
+    virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+        DCHECK(false) << "should not reach here";
+        return true;
+    };
+
+    virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
+        DCHECK(false) << "should not reach here";
+        return true;
+    };
 };
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
@@ -79,6 +93,8 @@ public:
                       uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
 
@@ -158,6 +174,10 @@ public:
                      bool* flags) const override;
 
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
+
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
 };
 
 } //namespace doris

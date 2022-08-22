@@ -25,7 +25,10 @@
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/wrapper_field.h"
 #include "runtime/string_value.h"
+#include "runtime/type_limit.h"
 #include "uint24.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/core/types.h"
@@ -81,8 +84,12 @@ class InListPredicateBase : public ColumnPredicate {
 public:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>&& values,
+                        T min_value = type_limit<T>::min(), T max_value = type_limit<T>::max(),
                         bool is_opposite = false)
-            : ColumnPredicate(column_id, is_opposite), _values(std::move(values)) {}
+            : ColumnPredicate(column_id, is_opposite),
+              _values(std::move(values)),
+              _min_value(min_value),
+              _max_value(max_value) {}
 
     PredicateType type() const override { return PT; }
 
@@ -180,6 +187,60 @@ public:
                      bool* flags) const override {
         LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_or now.";
     }
+
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first == nullptr || statistic.second == nullptr) {
+            return true;
+        }
+        if (statistic.first->is_null()) {
+            return true;
+        }
+        if constexpr (PT == PredicateType::IN_LIST) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
+            } else if constexpr (std::is_same_v<T, StringValue>) {
+                auto min = reinterpret_cast<const Slice*>(statistic.first->cell_ptr());
+                auto max = reinterpret_cast<const Slice*>(statistic.second->cell_ptr());
+                return StringValue(min->data, min->size) <= _max_value &&
+                       StringValue(max->data, max->size) >= _min_value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _max_value &&
+                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _min_value;
+            }
+        } else {
+            return true;
+        }
+    }
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::IN_LIST) {
+            for (auto value : _values) {
+                bool existed = false;
+                if constexpr (std::is_same_v<T, StringValue>) {
+                    existed = bf->test_bytes(value.ptr, value.len);
+                } else if constexpr (Type == TYPE_DATE) {
+                    existed = bf->test_bytes(reinterpret_cast<char*>(&value), sizeof(uint24_t));
+                } else {
+                    existed = bf->test_bytes(reinterpret_cast<char*>(&value), sizeof(value));
+                }
+                if (existed) {
+                    return true;
+                }
+            }
+            return false;
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
+    }
+
+    bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
 
 private:
     template <typename LeftT, typename RightT>
@@ -325,6 +386,8 @@ private:
 
     phmap::flat_hash_set<T> _values;
     mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
+    T _min_value;
+    T _max_value;
 };
 
 } //namespace doris

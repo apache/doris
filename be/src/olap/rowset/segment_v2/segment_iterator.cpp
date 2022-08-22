@@ -288,7 +288,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
 
     if (!_row_bitmap.isEmpty() &&
-        (_opts.conditions != nullptr || !_opts.delete_conditions.empty())) {
+        (!_opts.col_id_to_predicates.empty() ||
+         _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
@@ -302,22 +303,22 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 }
 
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
-    std::set<int32_t> uids;
-    if (_opts.conditions != nullptr) {
-        for (auto& column_condition : _opts.conditions->columns()) {
-            uids.insert(column_condition.first);
-        }
+    std::set<int32_t> cids;
+    for (auto& entry : _opts.col_id_to_predicates) {
+        cids.insert(entry.first);
     }
 
     // first filter data by bloom filter index
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
-    for (auto& uid : uids) {
+    for (auto& cid : cids) {
         // get row ranges by bf index of this column,
         RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
-        CondColumn* column_cond = _opts.conditions->get_column(uid);
-        RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_bloom_filter(
-                column_cond, &column_bf_row_ranges));
+        if (_opts.col_id_to_predicates.count(cid) < 1) {
+            continue;
+        }
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_bloom_filter(
+                _opts.col_id_to_predicates[cid], &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
     size_t pre_size = condition_row_ranges->count();
@@ -326,37 +327,17 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
     // second filter data by zone map
-    for (auto& uid : uids) {
+    for (auto& cid : cids) {
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-        CondColumn* column_cond = nullptr;
-        if (_opts.conditions != nullptr) {
-            column_cond = _opts.conditions->get_column(uid);
+        if (_opts.col_id_to_predicates.count(cid) < 1) {
+            continue;
         }
-        RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_zone_map(column_cond, nullptr,
-                                                                           &column_row_ranges));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
+                _opts.col_id_to_predicates[cid], _opts.delete_condition_predicates.get(),
+                &column_row_ranges));
         // intersect different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
-                                       &zone_map_row_ranges);
-    }
-
-    // final filter data with delete conditions
-    for (auto& delete_condition : _opts.delete_conditions) {
-        RowRanges delete_condition_row_ranges = RowRanges::create_single(0);
-        for (auto& delete_column_condition : delete_condition->columns()) {
-            const int32_t uid = delete_column_condition.first;
-            CondColumn* column_cond = nullptr;
-            if (_opts.conditions != nullptr) {
-                column_cond = _opts.conditions->get_column(uid);
-            }
-            RowRanges single_delete_condition_row_ranges = RowRanges::create_single(num_rows());
-            RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_zone_map(
-                    column_cond, delete_column_condition.second,
-                    &single_delete_condition_row_ranges));
-            RowRanges::ranges_union(delete_condition_row_ranges, single_delete_condition_row_ranges,
-                                    &delete_condition_row_ranges);
-        }
-        RowRanges::ranges_intersection(zone_map_row_ranges, delete_condition_row_ranges,
                                        &zone_map_row_ranges);
     }
 

@@ -971,15 +971,6 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     // Get delete conditions which version <= 5
     res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(4, _delete_handler.conditions_num());
-    std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
-    EXPECT_EQ(4, conds_version.size());
-    sort(conds_version.begin(), conds_version.end());
-    EXPECT_EQ(2, conds_version[0]);
-    EXPECT_EQ(3, conds_version[1]);
-    EXPECT_EQ(4, conds_version[2]);
-    EXPECT_EQ(5, conds_version[3]);
-
     _delete_handler.finalize();
 }
 
@@ -1012,7 +1003,6 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(1, _delete_handler.conditions_num());
 
     // 构造一行测试数据
     std::vector<string> data_str;
@@ -1097,7 +1087,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(3, _delete_handler.conditions_num());
 
     std::vector<string> data_str;
     data_str.push_back("4");
@@ -1160,7 +1149,6 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(2, _delete_handler.conditions_num());
 
     // 构造一行测试数据
     std::vector<string> data_str;
