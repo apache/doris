@@ -60,6 +60,9 @@ void FileCacheManager::clean_timeout_caches() {
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     for (std::map<std::string, FileCachePtr>::const_iterator iter = _file_cache_map.cbegin();
          iter != _file_cache_map.cend(); ++iter) {
+        if (iter->second == nullptr) {
+            continue;
+        }
         iter->second->clean_timeout_cache();
     }
 }
