@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
@@ -31,6 +32,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 public class JoinCommute extends OneExplorationRuleFactory {
 
     public static final JoinCommute SWAP_OUTER_COMMUTE_BOTTOM_JOIN = new JoinCommute(true, SwapType.BOTTOM_JOIN);
+
+    public static final JoinCommute SWAP_OUTER_SWAP_ZIG_ZAG = new JoinCommute(true, SwapType.ZIG_ZAG);
 
     private final SwapType swapType;
     private final boolean swapOuter;
@@ -51,25 +54,16 @@ public class JoinCommute extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(any(), any()).then(join -> {
-            if (!check(join)) {
-                return null;
-            }
-            boolean isBottomJoin = isBottomJoin(join);
-            if (swapType == SwapType.BOTTOM_JOIN && !isBottomJoin) {
-                return null;
-            }
-
+        return innerLogicalJoin().when(this::check).then(join -> {
             LogicalJoin newJoin = new LogicalJoin(
                     join.getJoinType(),
                     join.getCondition(),
                     join.right(), join.left(),
-                    join.getJoinReorderContext()
-            );
+                    join.getJoinReorderContext());
             newJoin.getJoinReorderContext().setHasCommute(true);
-            if (swapType == SwapType.ZIG_ZAG && !isBottomJoin) {
-                newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
-            }
+            // if (swapType == SwapType.ZIG_ZAG && !isBottomJoin(join)) {
+            //     newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
+            // }
 
             return newJoin;
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
@@ -77,6 +71,14 @@ public class JoinCommute extends OneExplorationRuleFactory {
 
 
     private boolean check(LogicalJoin join) {
+        if (!(join.left() instanceof LogicalPlan) || !(join.right() instanceof LogicalPlan)) {
+            return false;
+        }
+
+        if (swapType == SwapType.BOTTOM_JOIN && !isBottomJoin(join)) {
+            return false;
+        }
+
         if (join.getJoinReorderContext().hasCommute() || join.getJoinReorderContext().hasExchange()) {
             return false;
         }
@@ -84,18 +86,12 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private boolean isBottomJoin(LogicalJoin join) {
-        // TODO: wait for tree model of pattern-match.
-        if (join.left() instanceof LogicalProject) {
-            LogicalProject project = (LogicalProject) join.left();
-            if (project.child() instanceof LogicalJoin) {
-                return false;
-            }
+        // TODO: filter need to be considered?
+        if (join.left() instanceof LogicalProject && ((LogicalProject) join.left()).child() instanceof LogicalJoin) {
+            return false;
         }
-        if (join.right() instanceof LogicalProject) {
-            LogicalProject project = (LogicalProject) join.left();
-            if (project.child() instanceof LogicalJoin) {
-                return false;
-            }
+        if (join.right() instanceof LogicalProject && ((LogicalProject) join.right()).child() instanceof LogicalJoin) {
+            return false;
         }
         if (join.left() instanceof LogicalJoin || join.right() instanceof LogicalJoin) {
             return false;

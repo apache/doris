@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -491,6 +492,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //for other PlanNode, just set limit as limit+offset
         child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
         return inputFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalDistribution(PhysicalDistribution<Plan> distribution,
+            PlanTranslatorContext context) {
+        return distribution.child().accept(this, context);
     }
 
     private void extractExecSlot(Expr root, Set<Integer> slotRefList) {

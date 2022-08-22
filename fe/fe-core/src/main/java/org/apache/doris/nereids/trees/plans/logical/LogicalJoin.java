@@ -71,7 +71,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     /**
      * Constructor for LogicalJoinPlan.
      *
-     * @param joinType logical type for join
+     * @param joinType  logical type for join
      * @param condition on clause for join node
      */
     public LogicalJoin(JoinType joinType, Optional<Expression> condition,
@@ -80,6 +80,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.condition = Objects.requireNonNull(condition, "condition can not be null");
+    }
+
+    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
+        this(joinType, condition, groupExpression, logicalProperties, leftChild, rightChild);
+        this.joinReorderContext.copyFrom(joinReorderContext);
     }
 
     public Optional<Expression> getCondition() {
@@ -170,17 +177,18 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, condition, children.get(0), children.get(1));
+        return new LogicalJoin<>(joinType, condition, children.get(0), children.get(1), joinReorderContext);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJoin<>(joinType, condition, groupExpression,
-                Optional.of(logicalProperties), left(), right());
+                Optional.of(logicalProperties), left(), right(), joinReorderContext);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalJoin<>(joinType, condition, Optional.empty(), logicalProperties, left(), right());
+        return new LogicalJoin<>(joinType, condition, Optional.empty(), logicalProperties, left(), right(),
+                joinReorderContext);
     }
 }
