@@ -45,24 +45,22 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf) const {
     auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
     // serialize the bitmap size array, row num saves at index 0
-    const auto row_num = column.size();
-    size_t bitmap_size_array[row_num + 1];
-    bitmap_size_array[0] = row_num;
-    for (size_t i = 0; i < row_num; ++i) {
+    size_t* meta_ptr = (size_t*)buf;
+    meta_ptr[0] = column.size();
+    for (size_t i = 0; i < meta_ptr[0]; ++i) {
         auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        bitmap_size_array[i + 1] = bitmap.getSizeInBytes();
-    }
-    auto allocate_len_size = sizeof(size_t) * (row_num + 1);
-    memcpy(buf, bitmap_size_array, allocate_len_size);
-    buf += allocate_len_size;
-    // serialize each bitmap
-    for (size_t i = 0; i < row_num; ++i) {
-        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        bitmap.write(buf);
-        buf += bitmap_size_array[i + 1];
+        meta_ptr[i + 1] = bitmap.getSizeInBytes();
     }
 
-    return buf;
+    // serialize each bitmap
+    char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
+    for (size_t i = 0; i < meta_ptr[0]; ++i) {
+        auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+        bitmap.write(data_ptr);
+        data_ptr += meta_ptr[i + 1];
+    }
+
+    return data_ptr;
 }
 
 const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column) const {
@@ -70,19 +68,17 @@ const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column) const 
     auto& data = data_column.get_data();
 
     // deserialize the bitmap size array
-    size_t row_num = *reinterpret_cast<const size_t*>(buf);
-    buf += sizeof(size_t);
-    size_t bitmap_size_array[row_num];
-    memcpy(bitmap_size_array, buf, sizeof(size_t) * row_num);
-    buf += sizeof(size_t) * row_num;
+    const size_t* meta_ptr = reinterpret_cast<const size_t*>(buf);
+
     // deserialize each bitmap
-    data.resize(row_num);
-    for (int i = 0; i < row_num; ++i) {
-        data[i].deserialize(buf);
-        buf += bitmap_size_array[i];
+    data.resize(meta_ptr[0]);
+    const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
+    for (size_t i = 0; i < meta_ptr[0]; ++i) {
+        data[i].deserialize(data_ptr);
+        data_ptr += meta_ptr[i + 1];
     }
 
-    return buf;
+    return data_ptr;
 }
 
 MutableColumnPtr DataTypeBitMap::create_column() const {
