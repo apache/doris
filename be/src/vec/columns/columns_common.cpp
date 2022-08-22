@@ -106,14 +106,14 @@ struct ResultOffsetsBuilder {
 
     void insertOne(size_t array_size) {
         current_src_offset += array_size;
-        res_offsets.push_back(current_src_offset);
+        res_offsets.push_back_without_reserve(current_src_offset);
     }
 
     template <size_t SIMD_BYTES>
     void insertChunk(const IColumn::Offset* src_offsets_pos, bool first,
                      IColumn::Offset chunk_offset, size_t chunk_size) {
         const auto offsets_size_old = res_offsets.size();
-        res_offsets.resize(offsets_size_old + SIMD_BYTES);
+        res_offsets.resize_assume_reserved(offsets_size_old + SIMD_BYTES);
         memcpy(&res_offsets[offsets_size_old], src_offsets_pos,
                SIMD_BYTES * sizeof(IColumn::Offset));
 
@@ -151,15 +151,15 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         LOG(FATAL) << "Size of filter doesn't match size of column.";
     }
 
+    constexpr int assume_string_length = 5;
     ResultOffsetsBuilder result_offsets_builder(res_offsets);
 
-    if (result_size_hint) {
-        result_offsets_builder.reserve(result_size_hint, size);
+    result_offsets_builder.reserve(result_size_hint, size);
 
-        if (result_size_hint < 0)
-            res_elems.reserve(src_elems.size());
-        else if (result_size_hint < 1000000000 && src_elems.size() < 1000000000) /// Avoid overflow.
-            res_elems.reserve((result_size_hint * src_elems.size() + size - 1) / size);
+    if (result_size_hint < 0) {
+        res_elems.reserve(src_elems.size() * assume_string_length);
+    } else if (result_size_hint < 1000000000 && src_elems.size() < 1000000000) { /// Avoid overflow.
+        res_elems.reserve(result_size_hint * assume_string_length);
     }
 
     const UInt8* filt_pos = filt.data();

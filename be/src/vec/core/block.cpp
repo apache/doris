@@ -23,11 +23,6 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
-#include <cstring>
-#include <iomanip>
-#include <iterator>
-#include <memory>
-
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
@@ -35,26 +30,17 @@
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_hll.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 
@@ -629,7 +615,7 @@ void Block::update_hash(SipHash& hash) const {
 }
 
 void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t column_to_keep) {
-    auto count = count_bytes_in_filter(filter);
+    size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
         for (size_t i = 0; i < column_to_keep; ++i) {
             std::move(*block->get_by_position(i).column).assume_mutable()->clear();
@@ -638,7 +624,7 @@ void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t
         if (count != block->rows()) {
             for (size_t i = 0; i < column_to_keep; ++i) {
                 block->get_by_position(i).column =
-                        block->get_by_position(i).column->filter(filter, 0);
+                        block->get_by_position(i).column->filter(filter, count);
             }
         }
     }
