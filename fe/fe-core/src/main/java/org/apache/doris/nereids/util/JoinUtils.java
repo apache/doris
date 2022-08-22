@@ -50,28 +50,6 @@ public class JoinUtils {
         return join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin();
     }
 
-    /**
-     * Get all equalTo from onClause of join
-     */
-    public static List<EqualTo> getEqualTo(AbstractPhysicalJoin<Plan, Plan> join) {
-        List<EqualTo> eqConjuncts = Lists.newArrayList();
-        if (!join.getOtherJoinCondition().isPresent()) {
-            return eqConjuncts;
-        }
-
-        List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
-        List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
-
-        Expression onCondition = join.getOtherJoinCondition().get();
-        List<Expression> conjunctList = ExpressionUtils.extractConjunction(onCondition);
-        for (Expression predicate : conjunctList) {
-            if (isEqualTo(leftSlots, rightSlots, predicate)) {
-                eqConjuncts.add((EqualTo) predicate);
-            }
-        }
-        return eqConjuncts;
-    }
-
     private static boolean isEqualTo(List<SlotReference> leftSlots, List<SlotReference> rightSlots,
             Expression predicate) {
         if (!(predicate instanceof EqualTo)) {
@@ -92,32 +70,20 @@ public class JoinUtils {
     }
 
     private static class JoinSlotCoverageChecker {
-        HashSet<SlotReference> left;
         HashSet<ExprId> leftExprIds;
-        HashSet<SlotReference> right;
         HashSet<ExprId> rightExprIds;
 
         JoinSlotCoverageChecker(List<SlotReference> left, List<SlotReference> right) {
-            this.left = new HashSet<>(left);
             leftExprIds = (HashSet<ExprId>) left.stream().map(SlotReference::getExprId).collect(Collectors.toSet());
-            this.right = new HashSet<>(right);
             rightExprIds = (HashSet<ExprId>) right.stream().map(SlotReference::getExprId).collect(Collectors.toSet());
         }
 
         boolean isCoveredByLeftSlots(List<SlotReference> slots) {
-            boolean covered = left.containsAll(slots);
-            if (covered) {
-                return true;
-            }
             return slots.stream().map(SlotReference::getExprId)
                     .allMatch(leftExprIds::contains);
         }
 
         boolean isCoveredByRightSlots(List<SlotReference> slots) {
-            boolean covered = right.containsAll(slots);
-            if (covered) {
-                return true;
-            }
             return slots.stream()
                     .map(SlotReference::getExprId)
                     .allMatch(rightExprIds::contains);
@@ -150,9 +116,7 @@ public class JoinUtils {
             List<ExprId> equalRightExprIds = equalRight.stream()
                     .map(SlotReference::getExprId).collect(Collectors.toList());
             return leftExprIds.containsAll(equalLeftExprIds) && rightExprIds.containsAll(equalRightExprIds)
-                    || left.containsAll(equalLeft) && right.containsAll(equalRight)
-                    || leftExprIds.containsAll(equalRightExprIds) && rightExprIds.containsAll(equalLeftExprIds)
-                    || right.containsAll(equalLeft) && left.containsAll(equalRight);
+                    || leftExprIds.containsAll(equalRightExprIds) && rightExprIds.containsAll(equalLeftExprIds);
         }
     }
 
@@ -219,13 +183,12 @@ public class JoinUtils {
 
             if (checker.isCoveredByLeftSlots(leftOnSlots)
                     && checker.isCoveredByRightSlots(rightOnSlots)) {
-                // TODO: need rethink about `.get(0)`
-                childSlots.first.add(leftOnSlots.get(0));
-                childSlots.second.add(rightOnSlots.get(0));
+                childSlots.first.addAll(leftOnSlots);
+                childSlots.second.addAll(rightOnSlots);
             } else if (checker.isCoveredByLeftSlots(rightOnSlots)
                     && checker.isCoveredByRightSlots(leftOnSlots)) {
-                childSlots.first.add(rightOnSlots.get(0));
-                childSlots.second.add(leftOnSlots.get(0));
+                childSlots.first.addAll(rightOnSlots);
+                childSlots.second.addAll(leftOnSlots);
             } else {
                 Preconditions.checkState(false, "error");
             }

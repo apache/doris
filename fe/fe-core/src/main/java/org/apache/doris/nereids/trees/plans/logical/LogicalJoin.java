@@ -164,11 +164,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("LogicalJoin (").append(joinType);
-        sb.append(" [");
+        sb.append(" hashJoinConjuncts:[");
         hashJoinConjuncts.stream().map(expr -> sb.append(" ").append(expr)).collect(Collectors.toList());
-        sb.append(" ]");
+        sb.append(" ] nonHashJoinConditions:[");
         otherJoinCondition.ifPresent(expression -> sb.append(", ").append(expression));
-        return sb.append(")").toString();
+        return sb.append("])").toString();
     }
 
     @Override
