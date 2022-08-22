@@ -22,8 +22,8 @@
 #include <memory>
 
 #include "olap/storage_engine.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/disk_info.h"
