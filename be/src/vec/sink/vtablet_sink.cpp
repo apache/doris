@@ -178,12 +178,8 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled &&
-           (_pending_batches_bytes > _max_pending_batches_bytes ||
-            thread_context()
-                    ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                    ->any_limit_exceeded()) &&
-           _pending_batches_num > 0) {
+    while (!_cancelled && _pending_batches_num > 0 &&
+           _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
