@@ -17,14 +17,27 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.io.StringReader;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * test for CreateTableAsSelectStmt.
@@ -290,5 +303,54 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                 + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\",\n"
                 + "\"disable_auto_compaction\" = \"false\"\n" + ")", showResultSet.getResultRows().get(0).get(1));
+    }
+
+    @Test
+    public void testQuerySchema() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String create1 = "create table test.qs1 (k1 int, k2 int) distributed by hash(k1) "
+                + "buckets 1 properties('replication_num' = '1')";
+        String create2 = "create table test.qs2 (k1 int, k2 int) distributed by hash(k1) "
+                + "buckets 1 properties('replication_num' = '1')";
+        createTables(create1, create2);
+
+        String view1 = "create view test.v1 as select qs1.k1 from qs1 join qs2 on qs1.k1 = qs2.k1";
+        String view2 = "create view test.v2 as with cte(s1) as (select * from v1) select * from cte";
+
+        createView(view1);
+        createView(view2);
+
+        String sql1 = "select * from v1";
+
+        org.apache.doris.analysis.SqlParser parser = new SqlParser(
+                new org.apache.doris.analysis.SqlScanner(new StringReader(sql1)));
+        QueryStmt stmt = (QueryStmt) SqlParserUtils.getStmt(parser, 0);
+        Map<Long, TableIf> tableMap = Maps.newHashMap();
+        Set<String> parentViewNameSet = Sets.newHashSet();
+        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
+        stmt.getTables(analyzer, true, tableMap, parentViewNameSet);
+
+        List<String> createStmts = Lists.newArrayList();
+        for (TableIf tbl : tableMap.values()) {
+            List<String> createTableStmts = Lists.newArrayList();
+            Env.getDdlStmt(tbl, createTableStmts, null, null, false, true);
+            createStmts.add(createTableStmts.get(0));
+            if (tbl.getName().equals("qs1")) {
+                Assert.assertEquals("CREATE TABLE `qs1` (\n" + "  `k1` int(11) NULL,\n" + "  `k2` int(11) NULL\n"
+                                + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`k1`, `k2`)\n" + "COMMENT 'OLAP'\n"
+                                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" + "PROPERTIES (\n"
+                                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                                + "\"storage_format\" = \"V2\",\n" + "\"disable_auto_compaction\" = \"false\"\n" + ");",
+                        createTableStmts.get(0));
+            } else {
+                Assert.assertEquals("CREATE TABLE `qs2` (\n" + "  `k1` int(11) NULL,\n" + "  `k2` int(11) NULL\n"
+                                + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`k1`, `k2`)\n" + "COMMENT 'OLAP'\n"
+                                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" + "PROPERTIES (\n"
+                                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                                + "\"storage_format\" = \"V2\",\n" + "\"disable_auto_compaction\" = \"false\"\n" + ");",
+                        createTableStmts.get(0));
+            }
+        }
+        Assert.assertEquals(2, createStmts.size());
     }
 }
