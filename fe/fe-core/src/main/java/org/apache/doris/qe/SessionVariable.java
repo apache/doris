@@ -359,7 +359,7 @@ public class SessionVariable implements Serializable, Writable {
     public int parallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
-    public boolean enableInsertStrict = false;
+    public boolean enableInsertStrict = true;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
