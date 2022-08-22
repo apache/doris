@@ -21,10 +21,10 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.statistics.ColumnStats;
 
@@ -37,7 +37,7 @@ import java.util.Map;
  */
 public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void> {
 
-    private static double DEFAULT_SELECTIVITY = 0.1;
+    private static final double DEFAULT_SELECTIVITY = 0.1;
 
     private final Map<Slot, ColumnStats> slotRefToStats;
 
