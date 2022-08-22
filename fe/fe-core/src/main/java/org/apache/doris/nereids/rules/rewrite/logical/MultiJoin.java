@@ -89,10 +89,6 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
      */
     private Plan reorderJoinsAccordingToConditions(List<Plan> joinInputs, List<Expression> conjuncts) {
         if (joinInputs.size() == 2) {
-            //Set<Slot> joinOutput = getJoinOutput(joinInputs.get(0), joinInputs.get(1));
-            //Map<Boolean, List<Expression>> split = splitConjuncts(conjuncts, joinOutput);
-            //List<Expression> joinConditions = split.get(true);
-            //List<Expression> nonJoinConditions = split.get(false);
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
                     joinInputs.get(0).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
                     joinInputs.get(1).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
