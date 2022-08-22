@@ -184,7 +184,7 @@ public class StmtExecutionAction extends RestBaseController {
                     createStmts.add(createTableStmts.get(0));
                 }
             }
-            return Joiner.on("\n").join(createStmts);
+            return Joiner.on("\n\n").join(createStmts);
         } catch (Exception e) {
             return "Error:" + e.getMessage();
         }
