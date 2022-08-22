@@ -17,7 +17,14 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.common.DdlException;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
@@ -25,24 +32,34 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.StringReader;
 import java.lang.reflect.Type;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 /**
- * For execute stmt via http
+ * For execute stmt or get create table stmt via http
  */
 @RestController
 public class StmtExecutionAction extends RestBaseController {
@@ -51,23 +68,24 @@ public class StmtExecutionAction extends RestBaseController {
 
     private static final String PARAM_SYNC = "sync";
     private static final String PARAM_LIMIT = "limit";
+    private static final String PARAM_OPERATION = "operation";
 
     private static final long DEFAULT_ROW_LIMIT = 1000;
     private static final long MAX_ROW_LIMIT = 10000;
+
+    private static final String OPERATION_EXECUTE = "execute";
+    private static final String OPERATION_GET_SCHEMA = "get_schema";
 
     /**
      * Execute a SQL.
      * Request body:
      * {
-     *     "stmt" : "select * from tbl1"
+     * "stmt" : "select * from tbl1"
      * }
      */
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
-    public Object executeSQL(
-            @PathVariable(value = NS_KEY) String ns,
-            @PathVariable(value = DB_KEY) String dbName,
-            HttpServletRequest request, HttpServletResponse response,
-            @RequestBody String stmtBody) throws DdlException {
+    public Object executeSQL(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
+            HttpServletRequest request, HttpServletResponse response, @RequestBody String stmtBody) {
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -97,10 +115,39 @@ public class StmtExecutionAction extends RestBaseController {
 
         ConnectContext.get().setDatabase(getFullDbName(dbName));
 
-        // 2. Submit stmt
-        StatementSubmitter.StmtContext stmtCtx = new StatementSubmitter.StmtContext(
-                stmtRequestBody.stmt, authInfo.fullUserName, authInfo.password, limit
-        );
+        String operation = request.getParameter(PARAM_OPERATION);
+        if (Strings.isNullOrEmpty(operation)) {
+            operation = OPERATION_EXECUTE;
+        }
+
+        if (operation.equalsIgnoreCase(OPERATION_EXECUTE)) {
+            return executeQuery(authInfo, isSync, limit, stmtRequestBody);
+        } else if (operation.equalsIgnoreCase(OPERATION_GET_SCHEMA)) {
+            return getSchema(stmtRequestBody);
+        } else {
+            return ResponseEntityBuilder.badRequest("Unknown operation: " + operation);
+        }
+    }
+
+    /**
+     * return like
+     * {
+     * 10000 : "create table xxx",
+     * 10001 : "create table xxx"
+     * ...
+     * }
+     *
+     * @param authInfo
+     * @param isSync
+     * @param limit
+     * @param stmtRequestBody
+     * @return
+     */
+    @NotNull
+    private ResponseEntity executeQuery(ActionAuthorizationInfo authInfo, boolean isSync, long limit,
+            StmtRequestBody stmtRequestBody) {
+        StatementSubmitter.StmtContext stmtCtx = new StatementSubmitter.StmtContext(stmtRequestBody.stmt,
+                authInfo.fullUserName, authInfo.password, limit);
         Future<ExecutionResultSet> future = stmtSubmitter.submit(stmtCtx);
 
         if (isSync) {
@@ -116,6 +163,36 @@ public class StmtExecutionAction extends RestBaseController {
             }
         } else {
             return ResponseEntityBuilder.okWithCommonError("Not support async query execution");
+        }
+    }
+
+    @NotNull
+    private ResponseEntity getSchema(StmtRequestBody stmtRequestBody) {
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmtRequestBody.stmt)));
+        StatementBase stmt = null;
+        try {
+            stmt = SqlParserUtils.getStmt(parser, 0);
+            if (!(stmt instanceof QueryStmt)) {
+                return ResponseEntityBuilder.okWithCommonError("Only support query stmt");
+            }
+            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
+            QueryStmt queryStmt = (QueryStmt) stmt;
+            Map<Long, TableIf> tableMap = Maps.newHashMap();
+            Set<String> parentViewNameSet = Sets.newHashSet();
+            queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+
+            Map<Long, Object> resultMap = new HashMap<>(4);
+            for (TableIf tbl : tableMap.values()) {
+                List<String> createTableStmts = Lists.newArrayList();
+                Env.getDdlStmt(tbl, createTableStmts, null, null, false, true);
+                if (!createTableStmts.isEmpty()) {
+                    resultMap.put(tbl.getId(), createTableStmts.get(0));
+                }
+            }
+
+            return ResponseEntityBuilder.ok(resultMap);
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError("error happens when parsing the stmt: " + e.getMessage());
         }
     }
 
