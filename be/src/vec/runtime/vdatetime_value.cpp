@@ -2596,7 +2596,6 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezon
 
 template <typename T>
 bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
-    DCHECK(is_datetime);
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
@@ -2648,6 +2647,15 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
+    }
+}
+
+template <typename T>
+void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
+    if constexpr (is_datetime) {
+        date_v2_value_.microsecond_ = microsecond;
+    } else {
+        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
     }
 }
 
