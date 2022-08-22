@@ -32,11 +32,11 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
-import org.apache.doris.nereids.trees.plans.FakeJoin;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -165,9 +165,7 @@ public class StatsCalculatorTest {
 
     @Test
     public void testHashJoin() {
-        List<String> qualifier = new ArrayList<>();
-        qualifier.add("test");
-        qualifier.add("t");
+        List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
         ColumnStats columnStats1 = new ColumnStats();
@@ -190,8 +188,12 @@ public class StatsCalculatorTest {
 
         EqualTo equalTo = new EqualTo(slot1, slot2);
 
-        FakeJoin fakeSemiJoin = new FakeJoin(JoinType.LEFT_SEMI_JOIN, Optional.of(equalTo));
-        FakeJoin fakeInnerJoin = new FakeJoin(JoinType.INNER_JOIN, Optional.of(equalTo));
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeSemiJoin = new LogicalJoin<>(
+                JoinType.LEFT_SEMI_JOIN, Optional.of(equalTo), scan1, scan2);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeInnerJoin = new LogicalJoin<>(
+                JoinType.INNER_JOIN, Optional.of(equalTo), scan1, scan2);
 
         StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
         Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
