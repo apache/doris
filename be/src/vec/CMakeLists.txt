@@ -66,6 +66,7 @@ set(VEC_FILES
   data_types/data_type_array.cpp
   data_types/data_type_bitmap.cpp
   data_types/data_type_factory.cpp
+  data_types/data_type_fixed_length_object.cpp
   data_types/data_type_hll.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nothing.cpp
