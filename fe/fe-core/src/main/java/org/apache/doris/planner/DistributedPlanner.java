@@ -459,7 +459,7 @@ public class DistributedPlanner {
             if (rightScanNode == null) {
                 return false;
             }
-            Pair<OlapScanNode, OlapScanNode> eqPair = new Pair<>(leftScanNode, rightScanNode);
+            Pair<OlapScanNode, OlapScanNode> eqPair = Pair.of(leftScanNode, rightScanNode);
             List<BinaryPredicate> predicateList = scanNodeWithJoinConjuncts.get(eqPair);
             if (predicateList == null) {
                 predicateList = Lists.newArrayList();

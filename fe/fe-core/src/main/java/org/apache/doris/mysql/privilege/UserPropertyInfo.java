@@ -72,7 +72,7 @@ public class UserPropertyInfo implements Writable {
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String val = Text.readString(in);
-            properties.add(Pair.create(key, val));
+            properties.add(Pair.of(key, val));
         }
     }
 }

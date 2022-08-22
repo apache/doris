@@ -226,11 +226,11 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth,
 Status MemTrackerLimiter::mem_limit_exceeded_log(const std::string& msg) {
     DCHECK(_limit != -1);
     std::string detail = fmt::format(
-            "{}, backend={} free memory left={}. If is query, can change the limit by `set "
-            "exec_mem_limit=xxx`, details mem usage see be.INFO.",
+            "{}, backend={} memory used={}, free memory left={}. If is query, can change the limit "
+            "by `set exec_mem_limit=xxx`, details mem usage see be.INFO.",
             msg, BackendOptions::get_localhost(),
-            PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity(),
-                                 TUnit::BYTES));
+            PrettyPrinter::print(PerfCounters::get_vm_rss(), TUnit::BYTES),
+            PrettyPrinter::print(MemInfo::mem_limit() - PerfCounters::get_vm_rss(), TUnit::BYTES));
     Status status = Status::MemoryLimitExceeded(detail);
 
     // only print the tracker log_usage in be log.
