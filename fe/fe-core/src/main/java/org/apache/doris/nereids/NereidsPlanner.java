@@ -120,7 +120,9 @@ public class NereidsPlanner extends Planner {
         optimize();
 
         // Get plan directly. Just for SSB.
-        PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
+        PhysicalPlan physicalPlan = getRoot().extractPlan();
+        // TODO: remove above
+        // PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
 
         // post-process physical plan out of memo, just for future use.
         return postprocess(physicalPlan);
