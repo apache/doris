@@ -19,14 +19,17 @@
 ##############################################################
 # This script is used to build ssb-dbgen
 # sssb-dbgen's source code is from https://github.com/electrum/ssb-dbgen.git
-# Usage: 
+# Usage:
 #    sh build-ssb-dbgen.sh
 ##############################################################
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT=$(dirname "$0")
+ROOT=$(
+    cd "$ROOT"
+    pwd
+)
 
 CURDIR=${ROOT}
 SSB_DBGEN_DIR=$CURDIR/ssb-dbgen/
@@ -35,17 +38,23 @@ SSB_DBGEN_DIR=$CURDIR/ssb-dbgen/
 if [[ -d $SSB_DBGEN_DIR ]]; then
     echo "Dir $CURDIR/ssb-dbgen/ already exists. No need to download."
     echo "If you want to download ssb-dbgen again, please delete this dir first."
+    exit 1
 else
-    curl https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/ssb-dbgen-linux.tar.gz | tar xz -C $CURDIR/
+    cd "$CURDIR"
+    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/ssb-dbgen-linux.tar.gz && tar -xzvf ssb-dbgen-linux.tar.gz -C $CURDIR/
 fi
 
 # compile ssb-dbgen
-cd $SSB_DBGEN_DIR/ && make
+cd "$SSB_DBGEN_DIR/" && make
 cd -
 
 # check
 if [[ -f $CURDIR/ssb-dbgen/dbgen ]]; then
-    echo "Build succeed! Run $CURDIR/ssb-dbgen/dbgen -h"
+    echo -e "
+################
+Build succeed!
+################
+Run $CURDIR/ssb-dbgen/dbgen -h"
     exit 0
 else
     echo "Build failed!"

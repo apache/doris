@@ -48,7 +48,7 @@ Usage: $0 <options>
 }
 
 OPTS=$(getopt \
-  -n $0 \
+  -n "$0" \
   -o '' \
   -o 'hs:c:' \
   -- "$@")
@@ -107,40 +107,40 @@ if [[ -d $TPCH_DATA_DIR/ ]]; then
   exit 1
 fi
 
-mkdir $TPCH_DATA_DIR/
+mkdir "$TPCH_DATA_DIR"/
 
 # gen data
-cd $TPCH_DBGEN_DIR
+cd "$TPCH_DBGEN_DIR"
 echo "Begin to generate data for table: region"
-$TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T r
+"$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T r
 echo "Begin to generate data for table: nation"
-$TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T n
+"$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T n
 echo "Begin to generate data for table: supplier"
-$TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T s
+"$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T s
 echo "Begin to generate data for table: part"
-$TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T P
+"$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T P
 echo "Begin to generate data for table: customer"
-$TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T c
+"$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T c
 echo "Begin to generate data for table: partsupp"
-for i in $(seq 1 $PARALLEL); do
+for i in $(seq 1 "$PARALLEL"); do
   {
-    $TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T S -C $PARALLEL -S ${i}
+    "$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T S -C "$PARALLEL" -S "$i"
   } &
 done
 wait
 
 echo "Begin to generate data for table: orders"
-for i in $(seq 1 $PARALLEL); do
+for i in $(seq 1 "$PARALLEL"); do
   {
-    $TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T O -C $PARALLEL -S ${i}
+    "$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T O -C "$PARALLEL" -S "$i"
   } &
 done
 wait
 
 echo "Begin to generate data for table: lineitem"
-for i in $(seq 1 $PARALLEL); do
+for i in $(seq 1 "$PARALLEL"); do
   {
-    $TPCH_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T L -C $PARALLEL -S ${i}
+    "$TPCH_DBGEN_DIR"/dbgen -f -s "$SCALE_FACTOR" -T L -C "$PARALLEL" -S "$i"
   } &
 done
 wait
@@ -148,7 +148,7 @@ wait
 cd -
 
 # move data to $TPCH_DATA_DIR
-mv $TPCH_DBGEN_DIR/*.tbl* $TPCH_DATA_DIR/
+mv "$TPCH_DBGEN_DIR"/*.tbl* "$TPCH_DATA_DIR"/
 
 # check data
-du -sh $TPCH_DATA_DIR/*.tbl*
+du -sh "$TPCH_DATA_DIR"/*.tbl*
