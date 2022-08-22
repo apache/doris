@@ -303,8 +303,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
-           (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->limit_exceeded(_max_pending_batches_bytes))) {
+           _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
