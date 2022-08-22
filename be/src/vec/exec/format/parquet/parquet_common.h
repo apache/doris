@@ -25,6 +25,7 @@
 #include "schema_desc.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/coding.h"
+#include "util/rle_encoding.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -110,9 +111,11 @@ public:
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                  size_t num_values) = 0;
 
-    virtual Status decode_values(Slice& slice, size_t num_values) = 0;
-
     virtual Status skip_values(size_t num_values) = 0;
+
+    virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+        return Status::NotSupported("set_dict is not supported");
+    }
 
 protected:
     int32_t _type_length;
@@ -146,33 +149,25 @@ void Decoder::init_decimal_converter(DataTypePtr& data_type) {
     }
 }
 
-class PlainDecoder final : public Decoder {
+class FixLengthDecoder final : public Decoder {
 public:
-    PlainDecoder(tparquet::Type::type physical_type) : _physical_type(physical_type) {};
-    ~PlainDecoder() override = default;
+    FixLengthDecoder(tparquet::Type::type physical_type) : _physical_type(physical_type) {};
+    ~FixLengthDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          size_t num_values) override;
 
-    Status decode_values(Slice& slice, size_t num_values) override;
-
     Status skip_values(size_t num_values) override;
+
+    Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) override;
+
+    void set_data(Slice* data) override;
 
 protected:
     Status _decode_short_int(MutableColumnPtr& doris_column, size_t num_values, size_t real_length);
 
     template <typename Numeric>
-    Status _decode_numeric(MutableColumnPtr& doris_column, size_t num_values) {
-        size_t to_read_bytes = _type_length * num_values;
-        if (UNLIKELY(_offset + to_read_bytes > _data->size)) {
-            return Status::IOError("Out-of-bounds access in parquet data decoder");
-        }
-        auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
-        const auto* raw_data = reinterpret_cast<const Numeric*>(_data->data + _offset);
-        column_data.insert(raw_data, raw_data + num_values);
-        _offset += to_read_bytes;
-        return Status::OK();
-    }
+    Status _decode_numeric(MutableColumnPtr& doris_column, size_t num_values);
 
     template <typename CppType, typename ColumnType>
     Status _decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type, size_t num_values);
@@ -193,16 +188,44 @@ protected:
     Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                      size_t num_values);
 
+#define _FIXED_GET_DATA_OFFSET(index)                                                 \
+    _has_dict ? reinterpret_cast<char*>(_dict.get() + _indexes[index] * _type_length) \
+              : _data->data + _offset
+
+#define _FIXED_SHIFT_DATA_OFFSET() \
+    if (!_has_dict) _offset += _type_length
+
     tparquet::Type::type _physical_type;
+    // For dictionary encoding
+    bool _has_dict = false;
+    std::unique_ptr<uint8_t[]> _dict = nullptr;
+    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
+    std::vector<uint32_t> _indexes;
 };
 
+template <typename Numeric>
+Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column, size_t num_values) {
+    if (_has_dict) {
+        for (int i = 0; i < num_values; ++i) {
+            char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+            doris_column->insert_data(buf_start, _type_length);
+        }
+    } else {
+        auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
+        const auto* raw_data = reinterpret_cast<const Numeric*>(_data->data + _offset);
+        column_data.insert(raw_data, raw_data + num_values);
+        _offset += _type_length * num_values;
+    }
+    return Status::OK();
+}
+
 template <typename CppType, typename ColumnType>
-Status PlainDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                  size_t num_values) {
+Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                                      size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     for (int i = 0; i < num_values; ++i) {
-        int64_t date_value =
-                static_cast<int64_t>(*reinterpret_cast<int32_t*>(_data->data + _offset));
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+        int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
         CppType v;
         v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
         if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
@@ -211,17 +234,18 @@ Status PlainDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& log
         }
         ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
         column_data.emplace_back(cast_value);
-        _offset += _type_length;
+        _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status PlainDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                        size_t num_values) {
+Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                                            size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     for (int i = 0; i < num_values; i++) {
-        int64_t& date_value = *reinterpret_cast<int64_t*>(_data->data + _offset);
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+        int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
         CppType v;
         v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
         if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
@@ -231,17 +255,18 @@ Status PlainDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeInde
         }
         ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
         column_data.emplace_back(cast_value);
-        _offset += _type_length;
+        _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status PlainDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                        size_t num_values) {
+Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+                                            size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     for (int i = 0; i < num_values; ++i) {
-        ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(_data->data + _offset);
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+        ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
         CppType v;
         int64_t micros = datetime96.to_timestamp_micros();
         v.from_unixtime(micros / 1000000, *_decode_params->ctz);
@@ -252,20 +277,20 @@ Status PlainDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeInde
         }
         ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
         column_data.emplace_back(cast_value);
-        _offset += _type_length;
+        _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
 }
 
 template <typename DecimalPrimitiveType>
-Status PlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                            size_t num_values) {
+Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
+                                                DataTypePtr& data_type, size_t num_values) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _data->data + _offset;
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
         // When Decimal in parquet is stored in byte arrays, binary and fixed,
         // the unscaled number must be encoded as two's complement using big-endian byte order.
         Int128 value = buf_start[0] & 0x80 ? -1 : 0;
@@ -279,21 +304,22 @@ Status PlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column, Data
         }
         DecimalPrimitiveType cast_value(value);
         column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
-        _offset += _type_length;
+        _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
 }
 
 template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
-Status PlainDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
-                                               DataTypePtr& data_type, size_t num_values) {
+Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
+                                                   DataTypePtr& data_type, size_t num_values) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     for (int i = 0; i < num_values; ++i) {
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
         // we should use decimal128 to scale up/down
-        Int128 value = *reinterpret_cast<DecimalPhysicalType*>(_data->data + _offset);
+        Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
         } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
@@ -301,44 +327,62 @@ Status PlainDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
         }
         DecimalPrimitiveType cast_value(value);
         column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
-        _offset += _type_length;
+        _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
 }
 
-class ByteArrayPlainDecoder final : public Decoder {
+class ByteArrayDecoder final : public Decoder {
 public:
-    ByteArrayPlainDecoder() = default;
-    ~ByteArrayPlainDecoder() override = default;
+    ByteArrayDecoder() = default;
+    ~ByteArrayDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          size_t num_values) override;
 
-    Status decode_values(Slice& slice, size_t num_values) override;
-
     Status skip_values(size_t num_values) override;
+
+    void set_data(Slice* data) override;
+
+    Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) override;
 
 protected:
     template <typename DecimalPrimitiveType>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                   size_t num_values);
+
+    // For dictionary encoding
+    bool _has_dict = false;
+    std::unique_ptr<uint8_t[]> _dict = nullptr;
+    std::vector<uint32_t> _dict_offsets;
+    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
+    std::vector<uint32_t> _indexes;
 };
 
 template <typename DecimalPrimitiveType>
-Status ByteArrayPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
-                                                     DataTypePtr& data_type, size_t num_values) {
+Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
+                                                DataTypePtr& data_type, size_t num_values) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     for (int i = 0; i < num_values; ++i) {
-        if (UNLIKELY(_offset + 4 > _data->size)) {
-            return Status::IOError("Can't read byte array length from plain decoder");
+        char* buf_start;
+        uint32_t length;
+        if (_has_dict) {
+            uint32_t idx = _indexes[i];
+            uint32_t idx_cursor = _dict_offsets[idx];
+            buf_start = reinterpret_cast<char*>(_dict.get() + idx_cursor);
+            length = _dict_offsets[idx + 1] - idx_cursor - 4;
+        } else {
+            if (UNLIKELY(_offset + 4 > _data->size)) {
+                return Status::IOError("Can't read byte array length from plain decoder");
+            }
+            length = decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+            _offset += 4;
+            buf_start = _data->data + _offset;
+            _offset += length;
         }
-        uint32_t length =
-                decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-        _offset += 4;
-        char* buf_start = _data->data + _offset;
         // When Decimal in parquet is stored in byte arrays, binary and fixed,
         // the unscaled number must be encoded as two's complement using big-endian byte order.
         Int128 value = buf_start[0] & 0x80 ? -1 : 0;
@@ -351,7 +395,6 @@ Status ByteArrayPlainDecoder::_decode_binary_decimal(MutableColumnPtr& doris_col
         }
         DecimalPrimitiveType cast_value(value);
         column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
-        _offset += length;
     }
     return Status::OK();
 }
@@ -373,8 +416,6 @@ public:
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          size_t num_values) override;
-
-    Status decode_values(Slice& slice, size_t num_values) override;
 
     Status skip_values(size_t num_values) override;
 
