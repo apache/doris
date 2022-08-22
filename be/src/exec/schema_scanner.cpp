@@ -138,7 +138,12 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
         if (_columns[i].type == TYPE_DECIMALV2) {
             t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
         } else {
-            t_slot_desc.__set_slotType(TypeDescriptor(_columns[i].type).to_thrift());
+            TypeDescriptor descriptor(_columns[i].type);
+            if (_columns[i].precision >= 0 && _columns[i].scale >= 0) {
+                descriptor.precision = _columns[i].precision;
+                descriptor.scale = _columns[i].scale;
+            }
+            t_slot_desc.__set_slotType(descriptor.to_thrift());
         }
         t_slot_desc.__set_colName(_columns[i].name);
         t_slot_desc.__set_columnPos(i);
