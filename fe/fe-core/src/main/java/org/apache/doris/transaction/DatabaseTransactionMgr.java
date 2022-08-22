@@ -1421,7 +1421,7 @@ public class DatabaseTransactionMgr {
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
                             && t.getCoordinator().ip.equals(coordinateHost)))
                     .limit(limit)
-                    .forEach(t -> txnInfos.add(new Pair<>(t.getDbId(), t.getTransactionId())));
+                    .forEach(t -> txnInfos.add(Pair.of(t.getDbId(), t.getTransactionId())));
         } finally {
             readUnlock();
         }

@@ -799,7 +799,7 @@ public abstract class Type {
                 break;
             }
         }
-        return new Pair<Type, Integer>(type, tmpNodeIdx);
+        return Pair.of(type, tmpNodeIdx);
     }
 
     /**

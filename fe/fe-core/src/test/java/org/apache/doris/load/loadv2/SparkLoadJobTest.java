@@ -464,7 +464,7 @@ public class SparkLoadJobTest {
         String filePath = String.format("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9/V1.label6.%d.%d.%d.0.%d.parquet",
                 tableId, partitionId, indexId, schemaHash);
         long fileSize = 6L;
-        tabletMetaToFileInfo.put(tabletMeta, Pair.create(filePath, fileSize));
+        tabletMetaToFileInfo.put(tabletMeta, Pair.of(filePath, fileSize));
 
         if (file.exists()) {
             file.delete();

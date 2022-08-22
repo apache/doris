@@ -125,7 +125,7 @@ public class ExportPendingTask extends MasterTask {
                     LOG.warn("{}, export job: {}", err, job.getId());
                     return new Status(TStatusCode.CANCELLED, err);
                 }
-                job.addSnapshotPath(new Pair<TNetworkAddress, String>(address, result.getSnapshotPath()));
+                job.addSnapshotPath(Pair.of(address, result.getSnapshotPath()));
             }
         }
         return Status.OK;

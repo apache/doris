@@ -322,8 +322,8 @@ public class MetaInfoAction extends RestBaseController {
         }
 
         if (maxNum <= 0) {
-            return Pair.create(0, 0);
+            return Pair.of(0, 0);
         }
-        return Pair.create(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
+        return Pair.of(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
     }
 }

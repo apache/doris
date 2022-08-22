@@ -75,11 +75,11 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 if (fromType.isStringType() && !toType.isStringType()) {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else if (!fromType.isDateType() && toType.isDateType()) {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
                 }
             }
         }
@@ -179,7 +179,7 @@ public class CastExpr extends Expr {
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
-                        toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
+                        toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
                         Lists.newArrayList(fromType), false,
                         beSymbol, null, null, true));
             }

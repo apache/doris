@@ -99,7 +99,7 @@ public class JoinLAsscomProjectTest {
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
         LogicalJoin newTopJoin = (LogicalJoin) transform.get(0);
-        return new Pair<>(topJoin, newTopJoin);
+        return Pair.of(topJoin, newTopJoin);
     }
 
     @Test

@@ -144,7 +144,7 @@ public class LoadColumnsInfo implements ParseNode {
                 }
             }
 
-            Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
+            Pair<String, List<String>> functionPair = Pair.of(functionName, args);
             columnToFunction.put(column, functionPair);
         }
     }

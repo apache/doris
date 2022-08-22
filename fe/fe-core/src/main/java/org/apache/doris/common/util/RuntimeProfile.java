@@ -208,7 +208,7 @@ public class RuntimeProfile {
                 if (childProfile == null) {
                     childMap.put(childName, new RuntimeProfile(childName));
                     childProfile = this.childMap.get(childName);
-                    Pair<RuntimeProfile, Boolean> pair = Pair.create(childProfile, tchild.indent);
+                    Pair<RuntimeProfile, Boolean> pair = Pair.of(childProfile, tchild.indent);
                     this.childList.add(pair);
                 }
             } finally {
@@ -371,7 +371,7 @@ public class RuntimeProfile {
                 childList.removeIf(e -> e.first.name.equals(child.name));
             }
             this.childMap.put(child.name, child);
-            Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+            Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);
             this.childList.add(pair);
         } finally {
             childLock.writeLock().unlock();
@@ -388,7 +388,7 @@ public class RuntimeProfile {
                 childList.removeIf(e -> e.first.name.equals(child.name));
             }
             this.childMap.put(child.name, child);
-            Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+            Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);
             this.childList.addFirst(pair);
         } finally {
             childLock.writeLock().unlock();

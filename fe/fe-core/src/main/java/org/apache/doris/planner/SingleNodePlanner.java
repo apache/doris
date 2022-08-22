@@ -711,14 +711,14 @@ public class SingleNodePlanner {
             if (plan.getCardinality() == -1) {
                 // use 0 for the size to avoid it becoming the leftmost input
                 // TODO: Consider raw size of scanned partitions in the absence of stats.
-                candidates.add(new Pair<>(ref, new Long(0)));
+                candidates.add(Pair.of(ref, new Long(0)));
                 LOG.debug("The candidate of " + ref.getUniqueAlias() + ": -1. "
                         + "Using 0 instead of -1 to avoid error");
                 continue;
             }
             Preconditions.checkState(ref.isAnalyzed());
             long materializedSize = plan.getCardinality();
-            candidates.add(new Pair<>(ref, new Long(materializedSize)));
+            candidates.add(Pair.of(ref, new Long(materializedSize)));
             LOG.debug("The candidate of " + ref.getUniqueAlias() + ": " + materializedSize);
         }
         if (candidates.isEmpty()) {
@@ -1002,7 +1002,7 @@ public class SingleNodePlanner {
                 }
 
                 Preconditions.checkState(plan != null);
-                refPlans.add(new Pair(ref, plan));
+                refPlans.add(Pair.of(ref, plan));
             }
             // save state of conjunct assignment; needed for join plan generation
             for (Pair<TableRef, PlanNode> entry : refPlans) {

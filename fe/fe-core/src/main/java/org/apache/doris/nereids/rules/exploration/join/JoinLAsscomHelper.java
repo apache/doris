@@ -158,7 +158,7 @@ public class JoinLAsscomHelper {
             }
         }
 
-        return new Pair<>(newLeftProjectExpr, newRightProjectExprs);
+        return Pair.of(newLeftProjectExpr, newRightProjectExprs);
     }
 
 

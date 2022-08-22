@@ -133,7 +133,7 @@ public class KafkaUtil {
                 List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
                 List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
                 for (InternalService.PIntegerPair pair : pairs) {
-                    partitionOffsets.add(Pair.create(pair.getKey(), pair.getVal()));
+                    partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
                 }
                 LOG.debug("finish to get offsets for times of topic: {}, {}", topic, partitionOffsets);
                 return partitionOffsets;
@@ -191,7 +191,7 @@ public class KafkaUtil {
                 List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
                 List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
                 for (InternalService.PIntegerPair pair : pairs) {
-                    partitionOffsets.add(Pair.create(pair.getKey(), pair.getVal()));
+                    partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
                 }
                 LOG.debug("finish to get latest offsets for partitions {} in topic: {}, task {}, job {}",
                         partitionOffsets, topic, taskId, jobId);
