@@ -114,6 +114,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletId, selectedPartitionId,
                 distributionSpec, groupExpression, logicalProperties);
+
     }
 
     @Override

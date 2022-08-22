@@ -103,4 +103,16 @@ public class InPredicate extends Expression {
     public List<Expression> getOptions() {
         return options;
     }
+
+    /**
+     * Return true when all children are Literal , otherwise, return false.
+     */
+    public boolean isLiteralChildren() {
+        for (Expression expression : options) {
+            if (!(expression instanceof Literal)) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

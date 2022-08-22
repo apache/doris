@@ -29,7 +29,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,6 +43,8 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
     protected final List<String> qualifier;
+
+    protected Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
         this(type, table, qualifier, Optional.empty(), Optional.empty());
@@ -115,4 +119,9 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     public String qualifiedName() {
         return Utils.qualifiedName(qualifier, table.getName());
     }
+
+    public Collection<Long> getSelectedPartitionIds() {
+        return selectedPartitionIds;
+    }
+
 }
