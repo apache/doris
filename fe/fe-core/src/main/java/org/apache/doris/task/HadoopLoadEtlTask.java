@@ -105,7 +105,7 @@ public class HadoopLoadEtlTask extends LoadEtlTask {
             String filePath = entry.getKey();
             String partitionIndexBucket = getPartitionIndexBucketString(filePath);
             filePath = String.format("%s/data%s?%s", httpServer, filePath, ugi);
-            filePathMap.put(partitionIndexBucket, Pair.create(filePath, entry.getValue()));
+            filePathMap.put(partitionIndexBucket, Pair.of(filePath, entry.getValue()));
         }
 
         return filePathMap;

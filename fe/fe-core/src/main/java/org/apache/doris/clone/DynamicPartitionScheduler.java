@@ -98,16 +98,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     public void executeDynamicPartitionFirstTime(Long dbId, Long tableId) {
-        List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(new Pair<>(dbId, tableId));
+        List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(Pair.of(dbId, tableId));
         executeDynamicPartition(tempDynamicPartitionTableInfo);
     }
 
     public void registerDynamicPartitionTable(Long dbId, Long tableId) {
-        dynamicPartitionTableInfo.add(new Pair<>(dbId, tableId));
+        dynamicPartitionTableInfo.add(Pair.of(dbId, tableId));
     }
 
     public void removeDynamicPartitionTable(Long dbId, Long tableId) {
-        dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
+        dynamicPartitionTableInfo.remove(Pair.of(dbId, tableId));
     }
 
     public String getRuntimeInfo(long tableId, String key) {

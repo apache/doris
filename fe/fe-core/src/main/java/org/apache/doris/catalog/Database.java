@@ -353,7 +353,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
                 }
             }
-            return Pair.create(result, isTableExist);
+            return Pair.of(result, isTableExist);
         } finally {
             writeUnlock();
         }

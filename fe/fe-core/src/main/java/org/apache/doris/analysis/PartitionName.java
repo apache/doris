@@ -162,10 +162,10 @@ public class PartitionName {
         List<Pair<String, String>> newPairs = Lists.newArrayList();
         Map<String, String> tableRenameMap = Maps.newHashMap();
         for (PartitionName partitionName : partitionNames) {
-            Pair<String, String> oldPair = new Pair<String, String>(partitionName.getTableName(),
+            Pair<String, String> oldPair = Pair.of(partitionName.getTableName(),
                                                                     partitionName.getPartitionName());
             oldPairs.add(oldPair);
-            Pair<String, String> newPair = new Pair<String, String>(partitionName.getNewTableName(),
+            Pair<String, String> newPair = Pair.of(partitionName.getNewTableName(),
                                                                     partitionName.getNewPartitionName());
             newPairs.add(newPair);
 

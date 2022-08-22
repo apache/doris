@@ -447,7 +447,7 @@ public class TabletChecker extends MasterDaemon {
                 long tblId = tblEntry.getKey();
                 OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
-                    deletedPrios.add(Pair.create(dbId, tblId));
+                    deletedPrios.add(Pair.of(dbId, tblId));
                     continue;
                 }
                 tbl.readLock();
@@ -456,7 +456,7 @@ public class TabletChecker extends MasterDaemon {
                     parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
                             Collectors.toSet());
                     if (parts.isEmpty()) {
-                        deletedPrios.add(Pair.create(dbId, tblId));
+                        deletedPrios.add(Pair.of(dbId, tblId));
                     }
                 } finally {
                     tbl.readUnlock();

@@ -146,13 +146,13 @@ public class GroupExpression {
             double cost) {
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first > cost) {
-                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+                lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
             } else {
                 return false;
             }
         } else {
-            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
             return true;
         }
     }
