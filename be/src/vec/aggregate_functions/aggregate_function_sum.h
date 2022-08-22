@@ -101,6 +101,59 @@ public:
         column.get_data().push_back(this->data(place).get());
     }
 
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+                                 size_t num_rows) const override {
+        auto data = assert_cast<const ColVecResult&>(column).get_data().data();
+        auto dst_data = reinterpret_cast<Data*>(places);
+        for (size_t i = 0; i != num_rows; ++i) {
+            dst_data[i].sum = data[i];
+        }
+    }
+
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const override {
+        auto& col = assert_cast<ColVecResult&>(*dst);
+        col.resize(num_rows);
+        auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            data[i] = this->data(places[i] + offset).sum;
+        }
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena* arena) const override {
+        auto& col = assert_cast<ColVecResult&>(*dst);
+        auto& src = assert_cast<const ColVecType&>(*columns[0]);
+        col.resize(num_rows);
+        auto* src_data = src.get_data().data();
+        auto* dst_data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            dst_data[i] = src_data[i];
+        }
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {
+        auto data = assert_cast<const ColVecResult&>(column).get_data().data();
+        const size_t num_rows = column.size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->data(place).sum += data[i];
+        }
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         MutableColumnPtr& dst) const override {
+        auto& col = assert_cast<ColVecResult&>(*dst);
+        col.resize(1);
+        reinterpret_cast<Data*>(col.get_data().data())->sum = this->data(place).sum;
+    }
+
+    MutableColumnPtr create_serialize_column() const override {
+        return get_return_type()->create_column();
+    }
+
+    DataTypePtr get_serialized_type() const override { return get_return_type(); }
+
 private:
     UInt32 scale;
 };

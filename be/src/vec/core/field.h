@@ -182,6 +182,7 @@ public:
             Float64 = 3,
             UInt128 = 4,
             Int128 = 5,
+            FixedLengthObject = 6,
 
             /// Non-POD types.
 
@@ -224,6 +225,8 @@ public:
                 return "Decimal128";
             case AggregateFunctionState:
                 return "AggregateFunctionState";
+            case FixedLengthObject:
+                return "FixedLengthObject";
             }
 
             LOG(FATAL) << "Bad type of Field";
@@ -378,6 +381,8 @@ public:
             return get<DecimalField<Decimal128>>() < rhs.get<DecimalField<Decimal128>>();
         case Types::AggregateFunctionState:
             return get<AggregateFunctionStateData>() < rhs.get<AggregateFunctionStateData>();
+        case Types::FixedLengthObject:
+            break;
         }
 
         LOG(FATAL) << "Bad type of Field";
@@ -417,6 +422,8 @@ public:
             return get<DecimalField<Decimal128>>() <= rhs.get<DecimalField<Decimal128>>();
         case Types::AggregateFunctionState:
             return get<AggregateFunctionStateData>() <= rhs.get<AggregateFunctionStateData>();
+        case Types::FixedLengthObject:
+            break;
         }
         LOG(FATAL) << "Bad type of Field";
         return {};
@@ -452,6 +459,8 @@ public:
             return get<DecimalField<Decimal128>>() == rhs.get<DecimalField<Decimal128>>();
         case Types::AggregateFunctionState:
             return get<AggregateFunctionStateData>() == rhs.get<AggregateFunctionStateData>();
+        case Types::FixedLengthObject:
+            break;
         }
 
         CHECK(false) << "Bad type of Field";
@@ -544,6 +553,9 @@ private:
         case Types::AggregateFunctionState:
             f(field.template get<AggregateFunctionStateData>());
             return;
+        case Types::FixedLengthObject:
+            LOG(FATAL) << "FixedLengthObject not supported";
+            break;
         }
     }
 
