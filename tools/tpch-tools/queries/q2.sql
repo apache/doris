@@ -15,7 +15,9 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     s_acctbal,
     s_name,
     n_name,
@@ -25,9 +27,29 @@ select
     s_phone,
     s_comment
 from
+    partsupp join
+    (
+        select
+            ps_partkey as a_partkey,
+            min(ps_supplycost) as a_min
+        from
+            partsupp,
+            part,
+            supplier,
+            nation,
+            region
+        where
+            p_partkey = ps_partkey
+            and s_suppkey = ps_suppkey
+            and s_nationkey = n_nationkey
+            and n_regionkey = r_regionkey
+            and r_name = 'EUROPE'
+            and p_size = 15
+            and p_type like '%BRASS'
+        group by a_partkey
+    ) A on ps_partkey = a_partkey and ps_supplycost=a_min ,
     part,
     supplier,
-    partsupp,
     nation,
     region
 where
@@ -38,21 +60,7 @@ where
     and s_nationkey = n_nationkey
     and n_regionkey = r_regionkey
     and r_name = 'EUROPE'
-    and ps_supplycost = (
-        select
-            min(ps_supplycost)
-        from
-            partsupp,
-            supplier,
-            nation,
-            region
-        where
-            p_partkey = ps_partkey
-            and s_suppkey = ps_suppkey
-            and s_nationkey = n_nationkey
-            and n_regionkey = r_regionkey
-            and r_name = 'EUROPE'
-    )
+
 order by
     s_acctbal desc,
     n_name,

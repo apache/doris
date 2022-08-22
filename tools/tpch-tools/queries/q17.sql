@@ -15,20 +15,24 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
     sum(l_extendedprice) / 7.0 as avg_yearly
 from
-    lineitem,
-    part
+    lineitem join [broadcast]
+    part p1 on p1.p_partkey = l_partkey
 where
-    p_partkey = l_partkey
-    and p_brand = 'Brand#23'
-    and p_container = 'MED BOX'
+    p1.p_brand = 'Brand#23'
+    and p1.p_container = 'MED BOX'
     and l_quantity < (
         select
             0.2 * avg(l_quantity)
         from
-            lineitem
+            lineitem join [broadcast]
+            part p2 on p2.p_partkey = l_partkey
         where
-            l_partkey = p_partkey
+            l_partkey = p1.p_partkey
+            and p2.p_brand = 'Brand#23'
+            and p2.p_container = 'MED BOX'
     );

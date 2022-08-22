@@ -15,23 +15,24 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=4, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     o_orderpriority,
     count(*) as order_count
 from
-    orders
-where
-    o_orderdate >= date '1993-07-01'
-    and o_orderdate < date '1993-07-01' + interval '3' month
-    and exists (
+    (
         select
             *
         from
             lineitem
-        where
-            l_orderkey = o_orderkey
-            and l_commitdate < l_receiptdate
-    )
+        where l_commitdate < l_receiptdate
+    ) t1
+    right semi join orders
+    on t1.l_orderkey = o_orderkey
+where
+    o_orderdate >= date '1993-07-01'
+    and o_orderdate < date '1993-07-01' + interval '3' month
 group by
     o_orderpriority
 order by

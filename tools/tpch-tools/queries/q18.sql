@@ -15,36 +15,44 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
     c_name,
     c_custkey,
-    o_orderkey,
-    o_orderdate,
-    o_totalprice,
-    sum(l_quantity)
+    t3.o_orderkey,
+    t3.o_orderdate,
+    t3.o_totalprice,
+    sum(t3.l_quantity)
 from
-    customer,
-    orders,
-    lineitem
-where
-    o_orderkey in (
-        select
-            l_orderkey
-        from
-            lineitem
-        group by
-            l_orderkey having
-                sum(l_quantity) > 300
-    )
-    and c_custkey = o_custkey
-    and o_orderkey = l_orderkey
+customer join
+(
+  select * from
+  lineitem join
+  (
+    select * from
+    orders left semi join
+    (
+      select
+          l_orderkey
+      from
+          lineitem
+      group by
+          l_orderkey having sum(l_quantity) > 300
+    ) t1
+    on o_orderkey = t1.l_orderkey
+  ) t2
+  on t2.o_orderkey = l_orderkey
+) t3
+on c_custkey = t3.o_custkey
 group by
     c_name,
     c_custkey,
-    o_orderkey,
-    o_orderdate,
-    o_totalprice
+    t3.o_orderkey,
+    t3.o_orderdate,
+    t3.o_totalprice
 order by
-    o_totalprice desc,
-    o_orderdate
+    t3.o_totalprice desc,
+    t3.o_orderdate
 limit 100;
+
