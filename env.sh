@@ -45,7 +45,12 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
 fi
 
 # check python
-export PYTHON='python'
+if [[ -z "${DORIS_BUILD_PYTHON_VERSION}" ]]; then
+    DORIS_BUILD_PYTHON_VERSION="python"
+fi
+
+export PYTHON="${DORIS_BUILD_PYTHON_VERSION}"
+
 if ! ${PYTHON} --version; then
     export PYTHON=python2.7
     if ! ${PYTHON} --version; then
