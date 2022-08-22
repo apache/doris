@@ -88,7 +88,7 @@ DISTRIBUTED BY HASH(sessionid, visitorid) BUCKETS 10;
 
 ### 大宽表与 Star Schema
 
-业务方建表时, 为了和前端业务适配, 往往不对维度信息和指标信息加以区分, 而将 Schema 定义成大宽表。对于 Doris 而言, 这类大宽表往往性能不尽如人意:
+业务方建表时, 为了和前端业务适配, 往往不对维度信息和指标信息加以区分, 而将 Schema 定义成大宽表，这种操作对于数据库其实不是那么友好，我们更建议用户采用星型模型。
 
 - Schema 中字段数比较多, 聚合模型中可能 key 列比较多, 导入过程中需要排序的列会增加。
 - 维度信息更新会反应到整张表中，而更新的频率直接影响查询的效率。
@@ -171,28 +171,12 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 
 ## Schema Change
 
-Doris中目前进行 Schema Change 的方式有三种：Sorted Schema Change，Direct Schema Change, Linked Schema Change。
+用户可以通过 Schema Change 操作来修改已存在表的 Schema。目前 Doris 支持以下几种修改:
 
-### Sorted Schema Change
+- 增加、删除列
+- 修改列类型
+- 调整列顺序
+- 增加、修改 Bloom Filter
+- 增加、删除 bitmap index
 
-改变了列的排序方式，需对数据进行重新排序。例如删除排序列中的一列, 字段重排序。
-
-```sql
-ALTER TABLE site_visit DROP COLUMN city;
-```
-
-### Direct Schema Change
-
-无需重新排序，但是需要对数据做一次转换。例如修改列的类型，在稀疏索引中加一列等。
-
-```sql
-ALTER TABLE site_visit MODIFY COLUMN username varchar(64);
-```
-
-### Linked Schema Change
-
-```sql
-ALTER TABLE site_visit ADD COLUMN click bigint SUM default '0';
-```
-
-建表时建议考虑好 Schema，这样在进行 Schema Change 时可以加快速度。
+具体请参照 [Schema 变更](../advanced/alter-table/schema-change)
