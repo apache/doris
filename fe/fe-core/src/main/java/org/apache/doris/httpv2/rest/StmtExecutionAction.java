@@ -32,6 +32,7 @@ import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -50,7 +51,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.StringReader;
 import java.lang.reflect.Type;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,21 +67,16 @@ public class StmtExecutionAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(StmtExecutionAction.class);
     private static StatementSubmitter stmtSubmitter = new StatementSubmitter();
 
-    private static final String PARAM_SYNC = "sync";
-    private static final String PARAM_LIMIT = "limit";
-    private static final String PARAM_OPERATION = "operation";
-
     private static final long DEFAULT_ROW_LIMIT = 1000;
     private static final long MAX_ROW_LIMIT = 10000;
-
-    private static final String OPERATION_EXECUTE = "execute";
-    private static final String OPERATION_GET_SCHEMA = "get_schema";
 
     /**
      * Execute a SQL.
      * Request body:
      * {
-     * "stmt" : "select * from tbl1"
+     * "is_sync": 1,   // optional
+     * "limit" : 1000  // optional
+     * "stmt" : "select * from tbl1"   // required
      * }
      */
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
@@ -100,27 +95,42 @@ public class StmtExecutionAction extends RestBaseController {
         if (Strings.isNullOrEmpty(stmtRequestBody.stmt)) {
             return ResponseEntityBuilder.badRequest("Missing statement request body");
         }
-        LOG.info("stmt: {}, isSync:{}, limit: {}, operation: {}", stmtRequestBody.stmt, stmtRequestBody.isSync,
-                stmtRequestBody.limit, stmtRequestBody.operation);
+        LOG.info("stmt: {}, isSync:{}, limit: {}", stmtRequestBody.stmt, stmtRequestBody.is_sync,
+                stmtRequestBody.limit);
 
         ConnectContext.get().changeDefaultCatalog(ns);
         ConnectContext.get().setDatabase(getFullDbName(dbName));
-        if (stmtRequestBody.operation.equalsIgnoreCase(OPERATION_EXECUTE)) {
-            return executeQuery(authInfo, stmtRequestBody.isSync, stmtRequestBody.limit, stmtRequestBody);
-        } else if (stmtRequestBody.operation.equalsIgnoreCase(OPERATION_GET_SCHEMA)) {
-            return getSchema(stmtRequestBody);
-        } else {
-            return ResponseEntityBuilder.badRequest("Unknown operation: " + stmtRequestBody.operation);
+        return executeQuery(authInfo, stmtRequestBody.is_sync, stmtRequestBody.limit, stmtRequestBody);
+    }
+
+
+    /**
+     * Get all create table stmt of a SQL
+     *
+     * @param ns
+     * @param dbName
+     * @param request
+     * @param response
+     * @param sql plain text of sql
+     * @return plain text of create table stmts
+     */
+    @RequestMapping(path = "/api/query_schema/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
+    public String querySchema(@PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
+            HttpServletRequest request, HttpServletResponse response, @RequestBody String sql) {
+        checkWithCookie(request, response, false);
+
+        if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+            ns = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
+        LOG.info("sql: {}", sql);
+
+        ConnectContext.get().changeDefaultCatalog(ns);
+        ConnectContext.get().setDatabase(getFullDbName(dbName));
+        return getSchema(sql);
     }
 
     /**
-     * return like
-     * {
-     * 10000 : "create table xxx",
-     * 10001 : "create table xxx"
-     * ...
-     * }
+     * Execute a query
      *
      * @param authInfo
      * @param isSync
@@ -152,13 +162,13 @@ public class StmtExecutionAction extends RestBaseController {
     }
 
     @NotNull
-    private ResponseEntity getSchema(StmtRequestBody stmtRequestBody) {
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmtRequestBody.stmt)));
+    private String getSchema(String sql) {
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(sql)));
         StatementBase stmt = null;
         try {
             stmt = SqlParserUtils.getStmt(parser, 0);
             if (!(stmt instanceof QueryStmt)) {
-                return ResponseEntityBuilder.okWithCommonError("Only support query stmt");
+                return "Only support query stmt";
             }
             Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
             QueryStmt queryStmt = (QueryStmt) stmt;
@@ -166,25 +176,23 @@ public class StmtExecutionAction extends RestBaseController {
             Set<String> parentViewNameSet = Sets.newHashSet();
             queryStmt.getTables(analyzer, true, tableMap, parentViewNameSet);
 
-            Map<Long, Object> resultMap = new HashMap<>(4);
+            List<String> createStmts = Lists.newArrayList();
             for (TableIf tbl : tableMap.values()) {
                 List<String> createTableStmts = Lists.newArrayList();
                 Env.getDdlStmt(tbl, createTableStmts, null, null, false, true);
                 if (!createTableStmts.isEmpty()) {
-                    resultMap.put(tbl.getId(), createTableStmts.get(0));
+                    createStmts.add(createTableStmts.get(0));
                 }
             }
-
-            return ResponseEntityBuilder.ok(resultMap);
+            return Joiner.on("\n").join(createStmts);
         } catch (Exception e) {
-            return ResponseEntityBuilder.okWithCommonError("error happens when parsing the stmt: " + e.getMessage());
+            return "Error:" + e.getMessage();
         }
     }
 
     private static class StmtRequestBody {
-        public Boolean isSync = true;
+        public Boolean is_sync = true; // CHECKSTYLE IGNORE THIS LINE
         public Long limit = DEFAULT_ROW_LIMIT;
-        public String operation = OPERATION_EXECUTE;
         public String stmt;
     }
 }
