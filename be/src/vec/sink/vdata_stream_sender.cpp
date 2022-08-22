@@ -69,6 +69,13 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
     }
 
+    if (!_brpc_stub) {
+        std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                      _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
