@@ -131,6 +131,7 @@ protected:
 
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
+    RuntimeProfile::Counter* _compress_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
@@ -146,6 +147,8 @@ protected:
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
+
+    segment_v2::CompressionTypePB _compression_type;
 };
 
 // TODO: support local exechange

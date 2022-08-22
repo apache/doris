@@ -180,10 +180,12 @@ TEST(BlockTest, RowBatchCovertToBlock) {
     }
 }
 
-void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
+void block_to_pb(
+        const vectorized::Block& block, PBlock* pblock,
+        segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes);
+    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, compression_type);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
@@ -237,7 +239,7 @@ void fill_block_with_array_string(vectorized::Block& block) {
     block.insert(test_array_string);
 }
 
-TEST(BlockTest, SerializeAndDeserializeBlock) {
+void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_type) {
     config::compress_rowbatches = true;
     // int
     {
@@ -250,12 +252,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
         vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -271,12 +273,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
                                                         "test_string");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -295,12 +297,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
                                                         decimal_data_type, "test_decimal");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -321,12 +323,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
                                                         "test_bitmap");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -341,12 +343,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
                                                         nullable_data_type, "test_nullable");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -361,14 +363,14 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
                 nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         EXPECT_EQ(1, pblock.column_metas_size());
         EXPECT_TRUE(pblock.column_metas()[0].has_decimal_param());
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -385,12 +387,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
                                                         data_type, "test_nullable_int32");
         vectorized::Block block({type_and_name});
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
@@ -400,15 +402,21 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
         fill_block_with_array_int(block);
         fill_block_with_array_string(block);
         PBlock pblock;
-        block_to_pb(block, &pblock);
+        block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2(pblock);
         PBlock pblock2;
-        block_to_pb(block2, &pblock2);
+        block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
+}
+
+TEST(BlockTest, SerializeAndDeserializeBlock) {
+    config::compress_rowbatches = true;
+    serialize_and_deserialize_test(segment_v2::CompressionTypePB::SNAPPY);
+    serialize_and_deserialize_test(segment_v2::CompressionTypePB::LZ4);
 }
 
 TEST(BlockTest, dump_data) {
