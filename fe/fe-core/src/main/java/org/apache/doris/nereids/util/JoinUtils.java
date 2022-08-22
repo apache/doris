@@ -169,7 +169,7 @@ public class JoinUtils {
             List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
             return extractExpressionForHashTable(leftSlots, rightSlots, onExprs);
         }
-        return new Pair<>(Lists.newArrayList(), Lists.newArrayList());
+        return Pair.of(Lists.newArrayList(), Lists.newArrayList());
     }
 
     /**
@@ -183,7 +183,7 @@ public class JoinUtils {
             List<SlotReference> rightSlots,
             List<Expression> onConditions) {
 
-        Pair<List<Expression>, List<Expression>> pair = new Pair<>(Lists.newArrayList(), Lists.newArrayList());
+        Pair<List<Expression>, List<Expression>> pair = Pair.of(Lists.newArrayList(), Lists.newArrayList());
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
         Map<Boolean, List<Expression>> mapper = onConditions.stream()
                 .collect(Collectors.groupingBy(
