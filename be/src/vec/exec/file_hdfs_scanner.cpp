@@ -28,6 +28,10 @@ ParquetFileHdfsScanner::ParquetFileHdfsScanner(RuntimeState* state, RuntimeProfi
                                                ScannerCounter* counter)
         : HdfsFileScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
 
+ParquetFileHdfsScanner::~ParquetFileHdfsScanner() {
+    ParquetFileHdfsScanner::close();
+}
+
 Status ParquetFileHdfsScanner::open() {
     RETURN_IF_ERROR(FileScanner::open());
     if (_ranges.empty()) {

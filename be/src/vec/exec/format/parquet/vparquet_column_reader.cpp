@@ -84,20 +84,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     size_t read_values = _chunk_reader->remaining_num_values() < batch_size
                                  ? _chunk_reader->remaining_num_values()
                                  : batch_size;
+    RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, read_values));
     *read_rows = read_values;
-    WhichDataType which_type(type);
-    switch (_metadata->t_metadata().type) {
-    case tparquet::Type::INT32:
-    case tparquet::Type::INT64:
-    case tparquet::Type::FLOAT:
-    case tparquet::Type::DOUBLE:
-    case tparquet::Type::BOOLEAN: {
-        _chunk_reader->decode_values(doris_column, type, read_values);
-        return Status::OK();
-    }
-    default:
-        return Status::Corruption("unsupported parquet data type");
-    }
     return Status::OK();
 }
 

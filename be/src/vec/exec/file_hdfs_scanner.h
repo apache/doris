@@ -38,6 +38,7 @@ public:
                            const TFileScanRangeParams& params,
                            const std::vector<TFileRangeDesc>& ranges,
                            const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+    ~ParquetFileHdfsScanner();
     Status open() override;
 
     Status get_next(vectorized::Block* block, bool* eof) override;

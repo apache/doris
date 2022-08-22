@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -81,14 +82,12 @@ public:
     int64_t size() const { return _file_reader->size(); }
 
 private:
+    int32_t _next_row_group_id();
     Status _init_read_columns(const std::vector<SlotDescriptor*>& tuple_slot_descs);
-    Status _init_row_group_readers(const TupleDescriptor* tuple_desc, int64_t range_start_offset,
-                                   int64_t range_size,
-                                   const std::vector<ExprContext*>& conjunct_ctxs);
-    void _init_conjuncts(const TupleDescriptor* tuple_desc,
-                         const std::vector<ExprContext*>& conjunct_ctxs);
+    Status _init_row_group_readers(const std::vector<ExprContext*>& conjunct_ctxs);
+    void _init_conjuncts(const std::vector<ExprContext*>& conjunct_ctxs);
     // Page Index Filter
-    bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
+    bool _has_page_index(std::vector<tparquet::ColumnChunk>& columns);
     Status _process_page_index(tparquet::RowGroup& row_group,
                                std::vector<RowRange>& skipped_row_ranges);
 
@@ -101,7 +100,7 @@ private:
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
-    Status _filter_row_groups(std::vector<int32_t>* read_row_group_ids);
+    Status _filter_row_groups();
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     bool _determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
                                    const std::string& encoded_min, const std::string& encoded_max);
@@ -121,11 +120,10 @@ private:
     //        std::shared_ptr<Statistics> _statistics;
     const int32_t _num_of_columns_from_file;
     std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::shared_ptr<std::vector<ExprContext*>> _conjunct_ctxs;
     std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
     std::vector<int> _include_column_ids; // columns that need to get from file
     std::vector<ParquetReadColumn> _read_columns;
-    bool* _file_eof;
+    std::list<int32_t> _read_row_groups;
     // parquet file reader object
     size_t _batch_size;
     int64_t _range_start_offset;
