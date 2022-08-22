@@ -40,7 +40,7 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
     }
 
     private Expression simplify(Cast cast) {
-        Expression source = cast.left();
+        Expression source = cast.child();
         // simplify inside
         if (source instanceof Cast) {
             source = simplify((Cast) source);
@@ -52,8 +52,8 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
             return source;
         }
 
-        if (source != cast.left()) {
-            return new Cast(source, cast.right());
+        if (source != cast.child()) {
+            return new Cast(source, cast.getDataType());
         }
         return cast;
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.FractionalType;
 
 /**
  * Double data type in Nereids.
@@ -28,5 +29,25 @@ public class DoubleType extends FractionalType {
     @Override
     public Type toCatalogDataType() {
         return Type.DOUBLE;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof DoubleType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "double";
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof DoubleType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
     }
 }

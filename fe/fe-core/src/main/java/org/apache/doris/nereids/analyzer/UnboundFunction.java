@@ -79,7 +79,7 @@ public class UnboundFunction extends Expression implements Unbound {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public UnboundFunction withChildren(List<Expression> children) {
         return new UnboundFunction(name, isDistinct, isStar, children);
     }
 

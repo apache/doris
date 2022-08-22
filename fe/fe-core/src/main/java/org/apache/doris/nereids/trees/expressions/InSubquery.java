@@ -29,13 +29,14 @@ import java.util.Objects;
 /**
  * In predicate expression.
  */
-public class InSubquery extends SubqueryExpr implements BinaryExpression {
-    private Expression compareExpr;
-    private ListQuery listQuery;
+public class InSubquery extends SubqueryExpr {
+
+    private final Expression compareExpr;
+    private final ListQuery listQuery;
 
     public InSubquery(Expression compareExpression, ListQuery listQuery) {
         super(Objects.requireNonNull(listQuery.getQueryPlan(), "subquery can not be null"));
-        this.compareExpr = compareExpression;
+        this.compareExpr = Objects.requireNonNull(compareExpression);
         this.listQuery = listQuery;
     }
 
@@ -68,9 +69,8 @@ public class InSubquery extends SubqueryExpr implements BinaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public InSubquery withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        Preconditions.checkArgument(children.get(0) instanceof Expression);
         Preconditions.checkArgument(children.get(1) instanceof ListQuery);
         return new InSubquery(children.get(0), (ListQuery) children.get(1));
     }
