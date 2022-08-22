@@ -151,6 +151,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
+            if (_filter_delete) {
+                _delete_filter_column = ColumnUInt8::create();
+            }
         }
         break;
     case KeysType::AGG_KEYS:
