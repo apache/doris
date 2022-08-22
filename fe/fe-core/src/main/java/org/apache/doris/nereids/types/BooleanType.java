@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
  * Boolean type in Nereids.
@@ -28,5 +29,10 @@ public class BooleanType extends PrimitiveType {
     @Override
     public Type toCatalogDataType() {
         return Type.BOOLEAN;
+    }
+
+    @Override
+    public String simpleString() {
+        return "boolean";
     }
 }

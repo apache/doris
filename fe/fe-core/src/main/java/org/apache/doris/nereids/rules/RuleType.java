@@ -40,6 +40,10 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
+
+    // check analysis rule
+    CHECK_ANALYSIS(RuleTypeClass.CHECK),
+
     // rewrite rules
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
@@ -113,6 +117,7 @@ public enum RuleType {
     enum RuleTypeClass {
         REWRITE,
         EXPLORATION,
+        CHECK,
         IMPLEMENTATION,
         SENTINEL,
         ;

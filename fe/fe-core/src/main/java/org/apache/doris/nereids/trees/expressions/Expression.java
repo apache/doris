@@ -20,10 +20,18 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +42,8 @@ import java.util.Objects;
  * Abstract class for all Expression in Nereids.
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
+
+    private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
@@ -51,6 +61,31 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     public boolean nullable() throws UnboundException {
         throw new UnboundException("nullable");
+    }
+
+    public TypeCheckResult checkInputDataTypes() {
+        if (this instanceof ExpectsInputTypes) {
+            ExpectsInputTypes expectsInputTypes = (ExpectsInputTypes) this;
+            return checkInputDataTypes(children, expectsInputTypes.expectedInputTypes());
+        }
+        return TypeCheckResult.SUCCESS;
+    }
+
+    private TypeCheckResult checkInputDataTypes(List<Expression> inputs, List<AbstractDataType> inputTypes) {
+        Preconditions.checkArgument(inputs.size() == inputTypes.size());
+        List<String> errorMessages = Lists.newArrayList();
+        for (int i = 0; i < inputs.size(); i++) {
+            Expression input = inputs.get(i);
+            AbstractDataType inputType = inputTypes.get(i);
+            if (!inputType.acceptsType(input.getDataType())) {
+                errorMessages.add(String.format(INPUT_CHECK_ERROR_MESSAGE,
+                        i + 1, inputType.simpleString(), input.toSql(), input.getDataType().simpleString()));
+            }
+        }
+        if (!errorMessages.isEmpty()) {
+            return new TypeCheckResult(false, StringUtils.join(errorMessages, ", "));
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

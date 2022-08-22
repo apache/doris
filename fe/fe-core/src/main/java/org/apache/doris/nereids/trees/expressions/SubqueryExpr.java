@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * Subquery Expression.
  */
-public class SubqueryExpr extends Expression {
+public abstract class SubqueryExpr extends Expression {
     protected LogicalPlan queryPlan;
 
     public SubqueryExpr(LogicalPlan subquery) {
