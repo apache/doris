@@ -132,17 +132,17 @@ public class KafkaProgress extends RoutineLoadProgress {
         List<Pair<Integer, String>> pairs = Lists.newArrayList();
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (entry.getValue() == 0) {
-                pairs.add(Pair.create(entry.getKey(), OFFSET_ZERO));
+                pairs.add(Pair.of(entry.getKey(), OFFSET_ZERO));
             } else if (entry.getValue() == -1) {
-                pairs.add(Pair.create(entry.getKey(), OFFSET_END));
+                pairs.add(Pair.of(entry.getKey(), OFFSET_END));
             } else if (entry.getValue() == -2) {
-                pairs.add(Pair.create(entry.getKey(), OFFSET_BEGINNING));
+                pairs.add(Pair.of(entry.getKey(), OFFSET_BEGINNING));
             } else {
                 long offset = entry.getValue();
                 if (alreadyConsumed) {
                     offset -= 1;
                 }
-                pairs.add(Pair.create(entry.getKey(), "" + offset));
+                pairs.add(Pair.of(entry.getKey(), "" + offset));
             }
         }
         return pairs;

@@ -327,9 +327,9 @@ public class RebalanceTest {
         Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
         MovesCacheMap m = new MovesCacheMap();
         m.updateMapping(statisticMap, 3);
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get().put(1L, new Pair<>(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(2L, new Pair<>(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get().put(1L, Pair.of(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(2L, Pair.of(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
         // Maintenance won't clean up the entries of cache
         m.maintain();
         Assert.assertEquals(3, m.size());
@@ -338,7 +338,7 @@ public class RebalanceTest {
         m.updateMapping(statisticMap, 1);
         Assert.assertEquals(0, m.size());
 
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
         try {
             Thread.sleep(1000);
             m.maintain();

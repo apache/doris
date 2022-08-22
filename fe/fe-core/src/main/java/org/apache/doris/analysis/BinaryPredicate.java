@@ -511,7 +511,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (rhs == null) {
             return null;
         }
-        return new Pair<SlotId, SlotId>(lhs.getSlotId(), rhs.getSlotId());
+        return Pair.of(lhs.getSlotId(), rhs.getSlotId());
     }
 
 

@@ -610,7 +610,7 @@ public class Load {
                              * (A, B, C) SET (__doris_shadow_B = substitute(B))
                              */
                             columnToHadoopFunction.put(column.getName(),
-                                    Pair.create("substitute", Lists.newArrayList(originCol)));
+                                    Pair.of("substitute", Lists.newArrayList(originCol)));
                             ImportColumnDesc importColumnDesc
                                     = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
                             parsedColumnExprList.add(importColumnDesc);
@@ -636,7 +636,7 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__DORIS_DELETE_SIGN__ = 0)
                      */
-                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value",
+                    columnToHadoopFunction.put(column.getName(), Pair.of("default_value",
                             Lists.newArrayList(column.getDefaultValue())));
                     ImportColumnDesc importColumnDesc = null;
                     try {

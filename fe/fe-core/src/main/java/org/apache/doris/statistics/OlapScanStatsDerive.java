@@ -94,7 +94,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
 
             long tableId = slot.getParent().getTable().getId();
             String columnName = slot.getColumn().getName();
-            slotIdToTableIdAndColumnName.put(slot.getId(), new Pair<>(tableId, columnName));
+            slotIdToTableIdAndColumnName.put(slot.getId(), Pair.of(tableId, columnName));
         }
     }
 
@@ -124,6 +124,6 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
                         .getColumnStats(pair.first).get(pair.second).getDataSize();
          }
          */
-        return new Pair<>(ndv, dataSize);
+        return Pair.of(ndv, dataSize);
     }
 }

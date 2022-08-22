@@ -447,7 +447,7 @@ public class InsertStmt extends DdlStmt {
                 for (int i = 0; i < targetColumns.size(); i++) {
                     if (targetColumns.get(i).nameEquals(origName, false)) {
                         // Rule A
-                        origColIdxsForExtendCols.add(new Pair<>(i, null));
+                        origColIdxsForExtendCols.add(Pair.of(i, null));
                         targetColumns.add(column);
                         break;
                     }
@@ -462,7 +462,7 @@ public class InsertStmt extends DdlStmt {
                 String origName = refColumn.getColumnName();
                 for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
                     if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                        origColIdxsForExtendCols.add(new Pair<>(originColumnIdx, column));
+                        origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
                         targetColumns.add(column);
                         break;
                     }

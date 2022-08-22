@@ -157,7 +157,7 @@ public class PartitionRebalancer extends Rebalancer {
             alternativeTablets.add(tabletCtx);
             // Pair<Move, ToDeleteReplicaId>, ToDeleteReplicaId should be -1L before scheduled successfully
             movesInProgress.get().put(pickedTabletId,
-                    new Pair<>(new TabletMove(pickedTabletId, move.fromBe, move.toBe), -1L));
+                    Pair.of(new TabletMove(pickedTabletId, move.fromBe, move.toBe), -1L));
             counterBalanceMoveCreated.incrementAndGet();
             // Synchronize with movesInProgress
             inProgressIds.add(pickedTabletId);

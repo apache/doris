@@ -265,7 +265,7 @@ public class ConnectProcessor {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                     finalizeCommand();
                 }
-                auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+                auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
                 alreadyAddedToAuditInfoList = true;
             }
         } catch (IOException e) {
@@ -291,7 +291,7 @@ public class ConnectProcessor {
 
         // that means execute some statement failed
         if (!alreadyAddedToAuditInfoList && executor != null) {
-            auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+            auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
         }
 
         // audit after exec, analysis query would not be recorded

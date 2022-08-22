@@ -46,7 +46,7 @@ public class SetUserPropertyStmt extends DdlStmt {
     public List<Pair<String, String>> getPropertyPairList() {
         List<Pair<String, String>> list = Lists.newArrayList();
         for (SetVar var : propertyList) {
-            list.add(Pair.create(((SetUserPropertyVar) var).getPropertyKey(),
+            list.add(Pair.of(((SetUserPropertyVar) var).getPropertyKey(),
                                  ((SetUserPropertyVar) var).getPropertyValue()));
         }
         return list;

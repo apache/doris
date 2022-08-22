@@ -279,7 +279,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             return null;
         }
         Long count = (extremumType == ExtremumType.MIN) ? multimap.keySet().first() : multimap.keySet().last();
-        return new Pair<>(count, multimap.get(count));
+        return Pair.of(count, multimap.get(count));
     }
 
     /** Update the balance state in 'ClusterBalanceInfo'(the two maps) with the outcome of the move 'move'.
