@@ -249,11 +249,11 @@ public:
             /// metric. Don't blow up in this case. (Note that this doesn't affect non-process
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
-            if (LIKELY(tracker->consumption_metric_ == nullptr)) {
-                DCHECK_GE(tracker->consumption_->current_value(), 0)
-                        << std::endl
-                        << tracker->LogUsage(UNLIMITED_DEPTH);
-            }
+            // if (LIKELY(tracker->consumption_metric_ == nullptr)) {
+            //     DCHECK_GE(tracker->consumption_->current_value(), 0)
+            //             << std::endl
+            //             << tracker->LogUsage(UNLIMITED_DEPTH);
+            // }
         }
     }
 
