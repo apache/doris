@@ -32,7 +32,7 @@ import java.util.List;
 public class Multiply extends BinaryArithmetic {
 
     public Multiply(Expression left, Expression right) {
-        super(left, right, "*", Operator.MULTIPLY);
+        super(left, right, Operator.MULTIPLY);
     }
 
     @Override

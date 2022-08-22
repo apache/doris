@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.LargeIntType;
 
 import java.math.BigInteger;
 import java.util.Objects;
@@ -33,7 +33,7 @@ public class LargeIntLiteral extends Literal {
     private final BigInteger value;
 
     public LargeIntLiteral(BigInteger value) {
-        super(SmallIntType.INSTANCE);
+        super(LargeIntType.INSTANCE);
         this.value = Objects.requireNonNull(value);
     }
 

@@ -53,11 +53,11 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     public static final TypeCoercion INSTANCE = new TypeCoercion();
 
     @Override
-    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+    public Expression visit(Expression expr, ExpressionRewriteContext ctx) {
         if (expr instanceof ImplicitCastInputTypes) {
             return visitImplicitCastInputTypes(expr, ctx);
         } else {
-            return super.rewrite(expr, ctx);
+            return super.visit(expr, ctx);
         }
     }
 
@@ -65,8 +65,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBinaryOperator(BinaryOperator binaryOperator, ExpressionRewriteContext context) {
-        Expression left = rewrite(binaryOperator.left(), context);
-        Expression right = rewrite(binaryOperator.right(), context);
+        Expression left = visit(binaryOperator.left(), context);
+        Expression right = visit(binaryOperator.right(), context);
 
         return Optional.of(TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType()))
                 .filter(Boolean::booleanValue)
@@ -86,7 +86,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
         List<Expression> rewrittenChildren = caseWhen.children().stream()
-                .map(e -> rewrite(e, context)).collect(Collectors.toList());
+                .map(e -> visit(e, context)).collect(Collectors.toList());
         CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren);
         List<DataType> dataTypesForCoercion = newCaseWhen.dataTypesForCoercion();
         if (dataTypesForCoercion.size() <= 1) {
@@ -115,7 +115,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
-                .map(e -> rewrite(e, context)).collect(Collectors.toList());
+                .map(e -> visit(e, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
 
         if (newInPredicate.getOptions().stream().map(Expression::getDataType)
@@ -164,13 +164,12 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     @Developing
     private Optional<Expression> implicitCast(Expression input, AbstractDataType expected,
             ExpressionRewriteContext ctx) {
-        Expression rewrittenInput = rewrite(input, ctx);
+        Expression rewrittenInput = visit(input, ctx);
         Optional<DataType> castDataType = TypeCoercionUtils.implicitCast(rewrittenInput.getDataType(), expected);
         if (castDataType.isPresent() && !castDataType.get().equals(rewrittenInput.getDataType())) {
             return Optional.of(new Cast(rewrittenInput, castDataType.get()));
         } else {
-            // TODO: there maybe has performance problem, we need use ctx to save whether children is changed.
-            if (rewrittenInput.equals(input)) {
+            if (rewrittenInput == input) {
                 return Optional.empty();
             } else {
                 return Optional.of(rewrittenInput);

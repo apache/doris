@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,7 +42,7 @@ public class CheckAnalysis extends OneAnalysisRuleFactory {
                 .findFirst();
 
         if (firstFailed.isPresent()) {
-            throw new RuntimeException(firstFailed.get().getMessage());
+            throw new AnalysisException(firstFailed.get().getMessage());
         }
         return plan;
     }

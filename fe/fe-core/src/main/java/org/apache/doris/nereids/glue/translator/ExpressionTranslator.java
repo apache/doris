@@ -258,7 +258,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
-        return new ArithmeticExpr(binaryArithmetic.getStaleOperator(),
+        return new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
                 binaryArithmetic.child(1).accept(this, context));
     }

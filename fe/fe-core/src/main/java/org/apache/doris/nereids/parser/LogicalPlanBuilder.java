@@ -114,6 +114,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -587,9 +588,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         BigInteger bigInt = new BigInteger(ctx.getText());
         if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
             return new IntegerLiteral(bigInt.intValue());
-        } else {
-            // throw exception if out of long range
+        } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
             return new BigIntLiteral(bigInt.longValueExact());
+        } else {
+            return new LargeIntLiteral(bigInt);
         }
     }
 

@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 
@@ -64,10 +62,5 @@ public class And extends CompoundPredicate {
     @Override
     public Class<? extends CompoundPredicate> flipType() {
         return Or.class;
-    }
-
-    @Override
-    public AbstractDataType inputType() {
-        return BooleanType.INSTANCE;
     }
 }

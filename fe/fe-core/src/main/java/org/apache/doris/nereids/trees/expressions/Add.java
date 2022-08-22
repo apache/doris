@@ -32,7 +32,7 @@ import java.util.List;
 public class Add extends BinaryArithmetic {
 
     public Add(Expression left, Expression right) {
-        super(left, right, "+", Operator.ADD);
+        super(left, right, Operator.ADD);
     }
 
     @Override

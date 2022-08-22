@@ -32,7 +32,7 @@ import java.util.List;
 public class Divide extends BinaryArithmetic {
 
     public Divide(Expression left, Expression right) {
-        super(left, right, "/", Operator.DIVIDE);
+        super(left, right, Operator.DIVIDE);
     }
 
     @Override

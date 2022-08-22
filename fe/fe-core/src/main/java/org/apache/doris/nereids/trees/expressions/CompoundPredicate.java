@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 /**
  * Compound predicate expression.
@@ -52,6 +53,11 @@ public abstract class CompoundPredicate extends BinaryOperator {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCompoundPredicate(this, context);
+    }
+
+    @Override
+    public AbstractDataType inputType() {
+        return BooleanType.INSTANCE;
     }
 
     /**

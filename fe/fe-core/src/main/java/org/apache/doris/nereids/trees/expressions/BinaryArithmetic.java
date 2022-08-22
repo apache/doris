@@ -27,15 +27,15 @@ import org.apache.doris.nereids.types.DataType;
  */
 public abstract class BinaryArithmetic extends BinaryOperator {
 
-    private final Operator staleOperator;
+    private final Operator legacyOperator;
 
-    public BinaryArithmetic(Expression left, Expression right, String symbol, Operator staleOperator) {
-        super(left, right, symbol);
-        this.staleOperator = staleOperator;
+    public BinaryArithmetic(Expression left, Expression right, Operator legacyOperator) {
+        super(left, right, legacyOperator.toString());
+        this.legacyOperator = legacyOperator;
     }
 
-    public Operator getStaleOperator() {
-        return staleOperator;
+    public Operator getLegacyOperator() {
+        return legacyOperator;
     }
 
     @Override

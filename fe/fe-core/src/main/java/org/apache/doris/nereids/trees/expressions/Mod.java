@@ -32,7 +32,7 @@ import java.util.List;
 public class Mod extends BinaryArithmetic {
 
     public Mod(Expression left, Expression right) {
-        super(left, right, "%", Operator.MOD);
+        super(left, right, Operator.MOD);
     }
 
     @Override
