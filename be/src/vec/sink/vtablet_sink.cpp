@@ -235,6 +235,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
