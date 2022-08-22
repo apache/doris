@@ -403,6 +403,23 @@ public final class SparkDpp implements java.io.Serializable {
                     return false;
                 }
                 break;
+<<<<<<< HEAD
+=======
+            case "STRING":
+            case "TEXT":
+                // TODO(zjf) padding string type
+                int strDataSize = 0;
+                if (srcValue != null && (strDataSize = srcValue.toString().getBytes(StandardCharsets.UTF_8).length)
+                        > DppUtils.STRING_LENGTH_LIMIT) {
+                    LOG.warn(String.format("The string type is limited to a maximum of %s bytes."
+                                    + " column_name:%s,input_str[%s],actual length:%s",
+                            DppUtils.STRING_LENGTH_LIMIT, etlColumn.columnName, row.toString(), strDataSize));
+                    return false;
+                }
+                break;
+            default:
+                return true;
+>>>>>>> 915d8989c ([feature](spark-load)Spark load supports string type data import (#11927))
         }
         return true;
     }

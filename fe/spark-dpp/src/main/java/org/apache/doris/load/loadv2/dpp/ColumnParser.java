@@ -28,6 +28,7 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
+
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
 
@@ -57,6 +58,9 @@ public abstract class ColumnParser implements Serializable {
             return new DateParser();
         } else if (columnType.equalsIgnoreCase("DATETIME")) {
             return new DatetimeParser();
+        } else if (columnType.equalsIgnoreCase("STRING")
+                || columnType.equalsIgnoreCase("TEXT")) {
+            return new StringTypeParser(etlColumn);
         } else if (columnType.equalsIgnoreCase("VARCHAR")
                 || columnType.equalsIgnoreCase("CHAR")
                 || columnType.equalsIgnoreCase("BITMAP")
@@ -199,6 +203,25 @@ class StringParser extends ColumnParser {
         }
     }
 }
+
+class StringTypeParser extends ColumnParser {
+
+    private EtlJobConfig.EtlColumn etlColumn;
+
+    public StringTypeParser(EtlJobConfig.EtlColumn etlColumn) {
+        this.etlColumn = etlColumn;
+    }
+
+    @Override
+    public boolean parse(String value) {
+        try {
+            return value.getBytes("UTF-8").length <= DppUtils.STRING_LENGTH_LIMIT;
+        } catch (Exception e) {
+            throw new RuntimeException("string check failed ", e);
+        }
+    }
+}
+
 
 class DecimalParser extends ColumnParser {
 
