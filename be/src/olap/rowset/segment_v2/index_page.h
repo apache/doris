@@ -138,6 +138,14 @@ public:
         return true;
     }
 
+    // Return true when has next page.
+    bool has_next() {
+        if ((_pos + 1) >= _reader->count()) {
+            return false;
+        }
+        return true;
+    }
+
     const Slice& current_key() const { return _reader->get_key(_pos); }
 
     const PagePointer& current_page_pointer() const { return _reader->get_value(_pos); }
