@@ -34,7 +34,6 @@
 
 namespace doris {
 
-class ReservationTracker;
 class RuntimeProfile;
 class SystemAllocator;
 class MemTracker;
@@ -149,7 +148,6 @@ public:
     class BufferHandle;
     class ClientHandle;
     class PageHandle;
-    class SubReservation;
     /// Constructs a new buffer pool.
     /// 'min_buffer_len': the minimum buffer length for the pool. Must be a power of two.
     /// 'buffer_bytes_limit': the maximum physical memory in bytes that can be used by the
@@ -167,12 +165,7 @@ public:
     /// not allowed for this client. Counters for this client are added to the (non-nullptr)
     /// 'profile'. 'client' is the client to register. 'client' must not already be
     /// registered.
-    ///
-    /// The client's reservation is created as a child of 'parent_reservation' with limit
-    /// 'reservation_limit' and associated with MemTracker 'mem_tracker'. The initial
-    /// reservation is 0 bytes.
-    Status RegisterClient(const std::string& name, ReservationTracker* parent_reservation,
-                          int64_t reservation_limit, RuntimeProfile* profile,
+    Status RegisterClient(const std::string& name, RuntimeProfile* profile,
                           ClientHandle* client) WARN_UNUSED_RESULT;
 
     /// Deregister 'client' if it is registered. All pages must be destroyed and buffers
@@ -315,49 +308,6 @@ public:
     /// Client must be deregistered.
     ~ClientHandle() { DCHECK(!is_registered()); }
 
-    /// Request to increase reservation for this client by 'bytes' by calling
-    /// ReservationTracker::IncreaseReservation(). Returns true if the reservation was
-    /// successfully increased.
-    bool IncreaseReservation(int64_t bytes) WARN_UNUSED_RESULT;
-
-    /// Tries to ensure that 'bytes' of unused reservation is available for this client
-    /// to use by calling ReservationTracker::IncreaseReservationToFit(). Returns true
-    /// if successful, after which 'bytes' can be used.
-    bool IncreaseReservationToFit(int64_t bytes) WARN_UNUSED_RESULT;
-
-    /// Try to decrease this client's reservation down to a minimum of 'target_bytes' by
-    /// releasing unused reservation to ancestor ReservationTrackers, all the way up to
-    /// the root of the ReservationTracker tree. May block waiting for unpinned pages to
-    /// be flushed. This client's reservation must be at least 'target_bytes' before
-    /// calling this method. May fail if decreasing the reservation requires flushing
-    /// unpinned pages to disk and a write to disk fails.
-    Status DecreaseReservationTo(int64_t target_bytes) WARN_UNUSED_RESULT;
-
-    /// Move some of this client's reservation to the SubReservation. 'bytes' of unused
-    /// reservation must be available in this tracker.
-    void SaveReservation(SubReservation* dst, int64_t bytes);
-
-    /// Move some of src's reservation to this client. 'bytes' of unused reservation must be
-    /// available in 'src'.
-    void RestoreReservation(SubReservation* src, int64_t bytes);
-
-    /// Accessors for this client's reservation corresponding to the identically-named
-    /// methods in ReservationTracker.
-    int64_t GetReservation() const;
-    int64_t GetUsedReservation() const;
-    int64_t GetUnusedReservation() const;
-
-    /// Try to transfer 'bytes' of reservation from 'src' to this client using
-    /// ReservationTracker::TransferReservationTo().
-    bool TransferReservationFrom(ReservationTracker* src, int64_t bytes);
-
-    /// Transfer 'bytes' of reservation from this client to 'dst' using
-    /// ReservationTracker::TransferReservationTo().
-    bool TransferReservationTo(ReservationTracker* dst, int64_t bytes);
-
-    /// Call SetDebugDenyIncreaseReservation() on this client's ReservationTracker.
-    void SetDebugDenyIncreaseReservation(double probability);
-
     bool is_registered() const { return impl_ != nullptr; }
 
     /// Return true if there are any unpinned pages for this client.
@@ -368,37 +318,11 @@ public:
 private:
     friend class BufferPool;
     friend class BufferPoolTest;
-    friend class SubReservation;
     DISALLOW_COPY_AND_ASSIGN(ClientHandle);
 
     /// Internal state for the client. nullptr means the client isn't registered.
     /// Owned by BufferPool.
     Client* impl_;
-};
-
-/// Helper class that allows dividing up a client's reservation into separate buckets.
-class BufferPool::SubReservation {
-public:
-    SubReservation(ClientHandle* client);
-    ~SubReservation();
-
-    /// Returns the amount of reservation stored in this sub-reservation.
-    int64_t GetReservation() const;
-
-    /// Releases the sub-reservation to the client's tracker. Must be called before
-    /// destruction.
-    void Close();
-
-    bool is_closed() const { return tracker_ == nullptr; }
-
-private:
-    friend class BufferPool::ClientHandle;
-    DISALLOW_COPY_AND_ASSIGN(SubReservation);
-
-    /// Child of the client's tracker used to track the sub-reservation. Usage is not
-    /// tracked against this tracker - instead the reservation is always transferred back
-    /// to the client's tracker before use.
-    std::unique_ptr<ReservationTracker> tracker_;
 };
 
 /// A handle to a buffer allocated from the buffer pool. Each BufferHandle should only
