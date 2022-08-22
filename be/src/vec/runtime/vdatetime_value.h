@@ -740,6 +740,8 @@ public:
 
     void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 
+    void set_microsecond(uint32_t microsecond);
+
     bool from_olap_date(uint64_t date) {
         auto [year, month, day] = std::tuple {0, 0, 0};
 
