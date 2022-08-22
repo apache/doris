@@ -701,6 +701,10 @@ CONF_Validator(max_send_batch_parallelism_per_job,
 CONF_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 CONF_Int32(send_batch_thread_pool_queue_size, "102400");
+// number of download cache thread pool size
+CONF_Int32(download_cache_thread_pool_thread_num, "48");
+// number of download cache thread pool queue size
+CONF_Int32(download_cache_thread_pool_queue_size, "102400");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,

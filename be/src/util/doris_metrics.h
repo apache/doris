@@ -198,6 +198,8 @@ public:
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;
+    UIntGauge* download_cache_thread_pool_thread_num;
+    UIntGauge* download_cache_thread_pool_queue_size;
 
     // Upload metrics
     UIntGauge* upload_total_byte;
