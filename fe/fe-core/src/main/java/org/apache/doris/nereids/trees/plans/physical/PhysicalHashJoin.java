@@ -26,10 +26,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
+
 
 /**
  * Physical hash join plan.
@@ -67,11 +68,11 @@ public class PhysicalHashJoin<
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalHashJoin ([").append(joinType).append("]");
-        sb.append(" [");
-        hashJoinConjuncts.stream().map(expr -> sb.append(" ").append(expr)).collect(Collectors.toList());
-        sb.append(" ]");
+        sb.append("hashJoinCondition:[");
+        sb.append(StringUtils.join(hashJoinConjuncts, ", "));
+        sb.append("] ");
         otherJoinCondition.ifPresent(
-                expression -> sb.append(", [").append(expression).append("]")
+                expression -> sb.append(", nonHashJoinCondition [").append(expression).append("]")
         );
         sb.append(")");
         return sb.toString();

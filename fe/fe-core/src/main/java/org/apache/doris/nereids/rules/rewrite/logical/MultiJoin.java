@@ -144,10 +144,6 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
                 joinInputs.get(0).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
                 joinInputs.get(1).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
                 conjuncts);
-        //Set<Slot> joinOutput = getJoinOutput(left, right);
-        //Map<Boolean, List<Expression>> split = splitConjuncts(conjuncts, joinOutput);
-        //List<Expression> joinConditions = split.get(true);
-        //List<Expression> nonJoinConditions = split.get(false);
         List<Expression> joinConditions = pair.first;
         List<Expression> nonJoinConditions = pair.second;
         LogicalJoin join;

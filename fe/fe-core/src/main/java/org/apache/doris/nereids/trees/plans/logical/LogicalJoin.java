@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -163,12 +164,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("LogicalJoin (").append(joinType);
-        sb.append(" hashJoinConjuncts:[");
-        hashJoinConjuncts.stream().map(expr -> sb.append(" ").append(expr)).collect(Collectors.toList());
-        sb.append(" ] nonHashJoinConditions:[");
-        otherJoinCondition.ifPresent(expression -> sb.append(", ").append(expression));
-        return sb.append("])").toString();
+        StringBuilder sb = new StringBuilder("LogicalJoin ([").append(joinType).append("]");
+        sb.append("hashJoinCondition:[");
+        sb.append(StringUtils.join(hashJoinConjuncts, ", "));
+        sb.append("] ");
+        otherJoinCondition.ifPresent(
+                expression -> sb.append(", nonHashJoinCondition [").append(expression).append("]")
+        );
+        sb.append(")");
+        return sb.toString();
     }
 
     @Override
