@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.Group;
@@ -52,6 +51,7 @@ import org.apache.doris.statistics.TableStats;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
