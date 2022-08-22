@@ -336,8 +336,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
+    // 1024 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    public int batchSize = 1024;
+    public int batchSize = 992;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
