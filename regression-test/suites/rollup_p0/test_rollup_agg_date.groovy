@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_rollup_agg_date", "rollup") {
-    def tbName = "test_rollup_agg"
+    def tbName = "test_rollup_agg_date"
 
     def getJobRollupState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -55,7 +55,7 @@ suite("test_rollup_agg_date", "rollup") {
         }
     }
     Thread.sleep(200)
-    sql "ALTER TABLE ${tbName} ADD COLUMN datetimev4 datetimev2(3) MAX NULL TO rollup_date;"
+    sql "ALTER TABLE ${tbName} ADD COLUMN datetimev4 datetimev2(3) MAX NULL;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobColumnState(tbName)
