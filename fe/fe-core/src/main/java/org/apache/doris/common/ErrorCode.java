@@ -75,7 +75,7 @@ public enum ErrorCode {
             + "you can add more swap space"),
     ERR_BAD_HOST_ERROR(1042, new byte[]{'0', '8', 'S', '0', '1'}, "Can't get hostname for your address"),
     ERR_HANDSHAKE_ERROR(1043, new byte[]{'0', '8', 'S', '0', '1'}, "Bad handshake"),
-    ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s'@'%s' to "
+    ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s' to "
             + "database '%s'"),
     ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s' (using "
             + "password: %s)"),
