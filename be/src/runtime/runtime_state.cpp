@@ -247,7 +247,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 
     _new_instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id),
-            _new_query_mem_tracker, &_profile);
+            _new_query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
