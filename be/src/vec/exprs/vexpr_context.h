@@ -79,11 +79,7 @@ public:
     int get_fn_context_size() const { return _fn_contexts.size(); }
 
     // Just for debug. Should be removed after fixing #11995
-    void debug_valid() {
-#ifndef NDEBUG
-        _root->debug_valid(this);
-#endif
-    }
+    void debug_valid();
 
 private:
     friend class VExpr;
