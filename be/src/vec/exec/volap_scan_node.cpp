@@ -1171,12 +1171,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     // post volap scanners to thread-pool
-    ThreadPoolToken* thread_token = nullptr;
-    if (_limit > -1 && _limit < 1024) {
-        thread_token = state->get_query_fragments_ctx()->get_serial_token();
-    } else {
-        thread_token = state->get_query_fragments_ctx()->get_token();
-    }
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
     auto iter = olap_scanners.begin();
     if (thread_token != nullptr) {
         while (iter != olap_scanners.end()) {
