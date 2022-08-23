@@ -238,11 +238,6 @@ private:
     RowRefComparator _cmp;
 };
 
-RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
-        : _desc_tbl(desc_tbl) {
-    _schema_mapping.resize(tablet_schema->num_columns());
-}
-
 RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema,
                                  const DeleteHandler* delete_handler, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
@@ -1137,7 +1132,8 @@ void RowBlockMerger::_pop_heap() {
 }
 
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) {
+                                   TabletSharedPtr new_tablet,
+                                   TabletSchemaSPtr base_tablet_schema) {
     // In some cases, there may be more than one type of rowset in a tablet,
     // in which case the conversion cannot be done directly by linked schema change,
     // but requires direct schema change to rewrite the data.
@@ -1146,7 +1142,7 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
                   << " in base tablet " << base_tablet->tablet_id() << " is not same as type "
                   << rowset_writer->type() << ", use direct schema change.";
         return SchemaChangeHandler::get_sc_procedure(_row_block_changer, false, true)
-                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet);
+                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema);
     } else {
         Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
         if (!status) {
@@ -1201,7 +1197,7 @@ Status reserve_block(std::unique_ptr<RowBlock, RowBlockDeleter>* block_handle_pt
 
 Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                             RowsetWriter* rowset_writer, TabletSharedPtr new_tablet,
-                                            TabletSharedPtr base_tablet) {
+                                            TabletSchemaSPtr base_tablet_schema) {
     if (_row_block_allocator == nullptr) {
         _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
         if (_row_block_allocator == nullptr) {
@@ -1271,17 +1267,21 @@ Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
 Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                              RowsetWriter* rowset_writer,
                                              TabletSharedPtr new_tablet,
-                                             TabletSharedPtr base_tablet) {
+                                             TabletSchemaSPtr base_tablet_schema) {
     auto new_block =
             std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-    auto ref_block =
-            std::make_unique<vectorized::Block>(base_tablet->tablet_schema()->create_block());
+    auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
     int origin_columns_size = ref_block->columns();
+    LOG(INFO) << "origin columns size: " << origin_columns_size;
+    LOG(INFO) << "ssref block: " << ref_block->dump_structure();
 
     rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
+        LOG(INFO) << "ref block: " << ref_block->dump_structure();
+        LOG(INFO) << "new block: " << new_block->dump_structure();
+        LOG(INFO) << "new block: " << new_block->dump_structure();
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
 
         new_block->clear_column_data();
@@ -1320,7 +1320,7 @@ VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_bl
 Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                                RowsetWriter* rowset_writer,
                                                TabletSharedPtr new_tablet,
-                                               TabletSharedPtr base_tablet) {
+                                               TabletSchemaSPtr base_tablet_schema) {
     if (_row_block_allocator == nullptr) {
         _row_block_allocator =
                 new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
@@ -1488,7 +1488,7 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
 Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                                 RowsetWriter* rowset_writer,
                                                 TabletSharedPtr new_tablet,
-                                                TabletSharedPtr base_tablet) {
+                                                TabletSchemaSPtr base_tablet_schema) {
     // for internal sorting
     std::vector<std::unique_ptr<vectorized::Block>> blocks;
 
@@ -1511,8 +1511,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     auto new_block =
             std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-    auto ref_block =
-            std::make_unique<vectorized::Block>(base_tablet->tablet_schema()->create_block());
+    auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
     int origin_columns_size = ref_block->columns();
 
@@ -2072,7 +2071,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         }
 
         if (res = sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet,
-                                        sc_params.base_tablet);
+                                        base_tablet_schema);
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"

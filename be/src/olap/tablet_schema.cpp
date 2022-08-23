@@ -612,6 +612,16 @@ void TabletSchema::merge_dropped_columns(TabletSchemaSPtr src_schema) {
     }
 }
 
+// Dropped column is in _field_id_to_index but not in _field_name_to_index
+// Could refer to append_column method
+bool TabletSchema::is_dropped_column(TabletColumn& col) {
+    CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
+            << "could not find col with unique id = " << col.unique_id()
+            << " and name = " << col.name();
+    return _field_name_to_index.find(col.name()) == _field_name_to_index.end() ||
+           column(col.name()).unique_id() != col.unique_id();
+}
+
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_keys_type(_keys_type);
     for (auto& col : _cols) {
@@ -702,9 +712,12 @@ vectorized::Block TabletSchema::create_block(
     return block;
 }
 
-vectorized::Block TabletSchema::create_block() const {
+vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
     vectorized::Block block;
     for (const auto& col : _cols) {
+        if (ignore_dropped_col && is_dropped_column(col)) {
+            continue;
+        }
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
         block.insert({data_type->create_column(), data_type, col.name()});
     }

@@ -166,7 +166,7 @@ public:
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    vectorized::Block create_block() const;
+    vectorized::Block create_block(bool ignore_dropped_col = true) const;
 
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const POlapTableIndexSchema& index,
@@ -184,6 +184,8 @@ public:
     // Then the read schema should be ColA, ColB, ColB' because the delete predicate need ColB to remove related data.
     // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
+
+    void is_dropped_column(TabletColumn& col);
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
