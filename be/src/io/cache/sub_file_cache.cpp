@@ -142,13 +142,12 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                             io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
                             fmt::format("Check local cache file exist failed. {}",
                                         cache_file.native()));
-                    if (!done_file_exist && cache_file_exist) {
-                        RETURN_NOT_OK_STATUS_WITH_WARN(
-                                io::global_local_filesystem()->delete_file(cache_file),
-                                fmt::format("Check local cache file exist failed. {}",
-                                            cache_file.native()));
-                    } else if (done_file_exist && cache_file_exist) {
+                    if (done_file_exist && cache_file_exist) {
                         return Status::OK();
+                    } else if (!done_file_exist && cache_file_exist) {
+                        WARN_IF_ERROR(io::global_local_filesystem()->delete_file(cache_file),
+                                      fmt::format("Check local cache file exist failed. {}",
+                                                  cache_file.native()));
                     }
                     LOG(INFO) << "Download cache file from remote file: "
                               << _remote_file_reader->path().native() << " -> "
