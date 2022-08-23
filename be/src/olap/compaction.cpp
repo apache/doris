@@ -256,17 +256,23 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+    {
+        std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
 
-    // update dst rowset delete bitmap
-    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write()) {
-        _tablet->tablet_meta()->update_delete_bitmap(_input_rowsets, _output_rs_writer->version(),
-                                                     _rowid_conversion);
+        // update dst rowset delete bitmap
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write()) {
+            _tablet->tablet_meta()->update_delete_bitmap(
+                    _input_rowsets, _output_rs_writer->version(), _rowid_conversion);
+        }
+
+        RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
-
-    RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        _tablet->save_meta();
+    }
     return Status::OK();
 }
 
