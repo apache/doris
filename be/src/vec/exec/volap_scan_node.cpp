@@ -285,6 +285,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 _status = status;
                 break;
             }
+            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -449,6 +450,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::shared_lock<std::shared_mutex> l(_rf_lock);
             WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                           "Something wrong for runtime filters: ");
+            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -1830,6 +1832,7 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
         }
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+        new_vconjunct_ctx_ptr->debug_valid();
     }
     return Status::OK();
 }

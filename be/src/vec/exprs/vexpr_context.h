@@ -76,6 +76,15 @@ public:
         _stale = true;
     }
 
+    int get_fn_context_size() const { return _fn_contexts.size(); }
+
+    // Just for debug. Should be removed after fixing #11995
+    void debug_valid() {
+#ifndef NDEBUG
+        _root->debug_valid(this);
+#endif
+    }
+
 private:
     friend class VExpr;
 
