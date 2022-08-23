@@ -54,6 +54,9 @@ public class GlobalPrivEntry extends PrivEntry {
             throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
+        if (privs.containsResourcePriv()) {
+            throw new AnalysisException("Global privilege can not contain resource privileges: " + privs);
+        }
         return new GlobalPrivEntry(hostPattern, host, userPattern, user, isDomain, password, privs);
     }
 

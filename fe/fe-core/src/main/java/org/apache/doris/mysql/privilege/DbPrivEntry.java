@@ -65,7 +65,7 @@ public class DbPrivEntry extends CatalogPrivEntry {
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
-            throw new AnalysisException("Db privilege can not contains global or resource privileges: " + privs);
+            throw new AnalysisException("Db privilege can not contain node or resource privileges: " + privs);
         }
 
         return new DbPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, dbPattern, db, isDomain, privs);

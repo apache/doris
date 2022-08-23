@@ -190,7 +190,7 @@ public class GrantStmt extends DdlStmt {
 
         // Rule 6
         if (privileges.contains(PaloPrivilege.USAGE_PRIV)) {
-            throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
+            throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from catalog/database/table");
         }
     }
 

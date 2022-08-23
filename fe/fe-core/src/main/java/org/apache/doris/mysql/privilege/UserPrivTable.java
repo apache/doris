@@ -187,6 +187,11 @@ public class UserPrivTable extends PrivTable {
         List<PrivEntry> degradedEntries = new LinkedList<>();
         for (PrivEntry privEntry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
+            if (privEntry.privSet.containsResourcePriv()) {
+                // This only happened in loading meta image from old version
+                privEntry.privSet.xor(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+                LOG.warn("USAGE_PRIV is granted to global privileges, and is ignored in current version");
+            }
             if (!globalPrivEntry.match(UserIdentity.ROOT, true)
                     && !globalPrivEntry.match(UserIdentity.ADMIN, true)
                     && !globalPrivEntry.privSet.isEmpty()) {

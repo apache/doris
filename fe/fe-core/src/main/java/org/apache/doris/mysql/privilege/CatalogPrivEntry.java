@@ -25,11 +25,15 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.InternalCatalog;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class CatalogPrivEntry extends PrivEntry {
+    private static final Logger LOG = LogManager.getLogger(CatalogPrivEntry.class);
     protected static final String ANY_CTL = "*";
 
     protected PatternMatcher ctlPattern;
@@ -59,8 +63,18 @@ public class CatalogPrivEntry extends PrivEntry {
 
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
 
-        if (privs.containsNodePriv() || privs.containsResourcePriv()) {
-            throw new AnalysisException("Catalog privilege can not contains node or resource privileges: " + privs);
+        if (privs.containsResourcePriv()) {
+            // rule6 of GrantStmt.checkTablePrivileges has checked such scenario.
+            // This only happened in replaying EditLog from old version:
+            // GlobalPrivEntry of the previous version does not check 'privs.containsResourcePriv()',
+            // so GlobalPrivEntry maybe contians USAGE_PRIV which is wrong operation and useless priv.
+            // In order to be compatible with this scenario, we should delete USAGE_PRIV.
+            privs.xor(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+            LOG.warn("USAGE_PRIV is granted to global privileges, and is ignored in current version");
+        }
+
+        if (privs.containsNodePriv()) {
+            throw new AnalysisException("Catalog privilege can not contain node privileges: " + privs);
         }
 
         return new CatalogPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, isDomain, privs);

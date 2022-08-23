@@ -64,7 +64,7 @@ public class TablePrivEntry extends DbPrivEntry {
                 tbl, CaseSensibility.TABLE.getCaseSensibility(), tbl.equals(ANY_TBL));
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
-            throw new AnalysisException("Table privilege can not contains global or resource privileges: " + privs);
+            throw new AnalysisException("Table privilege can not contain node or resource privileges: " + privs);
         }
 
         return new TablePrivEntry(userPattern, user, hostPattern, host,
