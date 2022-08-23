@@ -24,7 +24,8 @@
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-}
+class ScannerScheduler;
+} // namespace vectorized
 class BfdParser;
 class BrokerMgr;
 
@@ -163,6 +164,7 @@ public:
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
+    doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -246,6 +248,7 @@ private:
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
     StoragePolicyMgr* _storage_policy_mgr = nullptr;
+    doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 };
 
 template <>

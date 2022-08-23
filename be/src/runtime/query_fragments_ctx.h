@@ -52,21 +52,14 @@ public:
         return false;
     }
 
-    void set_thread_token(int cpu_limit) {
-        if (cpu_limit > 0) {
-            // For now, cpu_limit will be the max concurrency of the scan thread pool token.
-            _thread_token = _exec_env->limited_scan_thread_pool()->new_token(
-                    ThreadPool::ExecutionMode::CONCURRENT, cpu_limit);
-        }
-    }
-    void set_serial_thread_token() {
-        _serial_thread_token = _exec_env->limited_scan_thread_pool()->new_token(
-                ThreadPool::ExecutionMode::SERIAL, 1);
+    void set_thread_token(int concurrency, bool is_serial) {
+        _thread_token = _exec_env->limited_scan_thread_pool()->new_token(
+                is_serial ? ThreadPool::ExecutionMode::SERIAL
+                          : ThreadPool::ExecutionMode::CONCURRENT,
+                concurrency);
     }
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
-
-    ThreadPoolToken* get_serial_token() { return _serial_thread_token.get(); }
 
     void set_ready_to_execute() {
         {
@@ -113,11 +106,6 @@ private:
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
     std::unique_ptr<ThreadPoolToken> _thread_token;
-
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool" serially, it used for
-    // query like `select * limit 1`, this query used for limit the max scaner thread to 1 to avoid
-    // this query cost too much resource
-    std::unique_ptr<ThreadPoolToken> _serial_thread_token;
 
     std::mutex _start_lock;
     std::condition_variable _start_cond;

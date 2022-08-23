@@ -138,7 +138,7 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public SlotReference withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 0);
         return this;
     }

@@ -69,6 +69,13 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
     }
 
+    if (!_brpc_stub) {
+        std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                      _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
@@ -323,6 +330,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _cur_pb_block(&_pb_block1),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
+          _compress_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
@@ -340,6 +348,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _cur_pb_block(&_pb_block1),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
+          _compress_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
@@ -418,6 +427,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _uncompressed_bytes_counter = ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
     _ignore_rows = ADD_COUNTER(profile(), "IgnoreRows", TUnit::UNIT);
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
+    _compress_timer = ADD_TIMER(profile(), "CompressTime");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -438,6 +448,8 @@ Status VDataStreamSender::open(RuntimeState* state) {
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
     }
+
+    _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
 }
 
@@ -590,9 +602,10 @@ Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_rece
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
-                                       _transfer_large_data_by_brpc));
+                                       _compression_type, _transfer_large_data_by_brpc));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
+        COUNTER_UPDATE(_compress_timer, src->get_compress_time());
     }
 
     return Status::OK();
