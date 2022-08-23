@@ -347,6 +347,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             table = new IcebergTable();
         } else if (type == TableType.HUDI) {
             table = new HudiTable();
+        } else if (type == TableType.JDBC) {
+            table = new JdbcTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }

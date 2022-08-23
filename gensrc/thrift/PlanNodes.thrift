@@ -55,6 +55,7 @@ enum TPlanNodeType {
   TABLE_FUNCTION_NODE,
   TABLE_VALUED_FUNCTION_SCAN_NODE,
   FILE_SCAN_NODE,
+  JDBC_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -310,6 +311,14 @@ struct TOdbcScanNode {
   //Use now
   7: optional string connect_string
   8: optional string query_string
+}
+
+struct TJdbcScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+  3: optional list<string> columns
+  4: optional list<string> filters
+  5: optional i64 limit
 }
 
 
@@ -887,6 +896,7 @@ struct TPlanNode {
 
   // file scan node
   44: optional TFileScanNode file_scan_node
+  45: optional TJdbcScanNode jdbc_scan_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

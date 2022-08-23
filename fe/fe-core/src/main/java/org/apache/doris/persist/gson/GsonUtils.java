@@ -23,6 +23,7 @@ import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.RandomDistributionInfo;
@@ -120,7 +121,8 @@ public class GsonUtils {
             .of(Resource.class, "clazz")
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
-            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName());
+            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory

@@ -20,6 +20,8 @@
 
 #include "runtime/descriptors.h"
 
+#include <gen_cpp/Types_types.h>
+
 #include <boost/algorithm/string/join.hpp>
 #include <ios>
 #include <sstream>
@@ -218,6 +220,28 @@ std::string ODBCTableDescriptor::debug_string() const {
     out << "ODBCTable(" << TableDescriptor::debug_string() << " _db" << _db << " table=" << _table
         << " host=" << _host << " port=" << _port << " user=" << _user << " passwd=" << _passwd
         << " driver=" << _driver << " type" << _type;
+    return out.str();
+}
+
+JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _jdbc_resource_name(tdesc.jdbcTable.jdbc_resource_name),
+          _jdbc_driver_url(tdesc.jdbcTable.jdbc_driver_url),
+          _jdbc_driver_class(tdesc.jdbcTable.jdbc_driver_class),
+          _jdbc_driver_checksum(tdesc.jdbcTable.jdbc_driver_checksum),
+          _jdbc_url(tdesc.jdbcTable.jdbc_url),
+          _jdbc_table_name(tdesc.jdbcTable.jdbc_table_name),
+          _jdbc_user(tdesc.jdbcTable.jdbc_user),
+          _jdbc_passwd(tdesc.jdbcTable.jdbc_password) {}
+
+std::string JdbcTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "JDBCTable(" << TableDescriptor::debug_string()
+        << " _jdbc_resource_name=" << _jdbc_resource_name << " jdbc_driver_url=" << _jdbc_driver_url
+        << " jdbc_driver_class=" << _jdbc_driver_class
+        << " _jdbc_driver_checksum= " << _jdbc_driver_checksum << " jdbc_url=" << _jdbc_url
+        << " _jdbc_table_name=" << _jdbc_table_name << " jdbc_user=" << _jdbc_user
+        << " jdbc_passwd=" << _jdbc_passwd << "}";
     return out.str();
 }
 
@@ -562,6 +586,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::ICEBERG_TABLE:
             desc = pool->add(new IcebergTableDescriptor(tdesc));
+            break;
+        case TTableType::JDBC_TABLE:
+            desc = pool->add(new JdbcTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
