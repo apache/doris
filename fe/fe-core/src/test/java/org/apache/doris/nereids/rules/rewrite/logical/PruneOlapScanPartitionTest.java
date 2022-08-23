@@ -28,8 +28,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,11 +54,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 class PruneOlapScanPartitionTest extends TestWithFeService {
 
     @Test
-    public void testOlapScan(@Mocked OlapTable olapTable) {
+    public void testOlapScanPartitionWithSingleColumnCase(@Mocked OlapTable olapTable) throws Exception {
         List<Column> columnNameList = new ArrayList<>();
         columnNameList.add(new Column("col1", Type.INT.getPrimitiveType()));
         columnNameList.add(new Column("col2", Type.INT.getPrimitiveType()));
@@ -75,13 +79,53 @@ class PruneOlapScanPartitionTest extends TestWithFeService {
         new Expectations() {{
                 olapTable.getPartitionInfo();
                 result = rangePartitionInfo;
-
+                olapTable.getPartitionColumnNames();
+                result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
+                        .collect(Collectors.toSet());
+                olapTable.getPartitionIds();
+                result = Lists.newArrayList(0L, 1L);
             }};
         LogicalOlapScan scan = new LogicalOlapScan(olapTable);
-        Expression expression = new Add(new SlotReference("col1", IntegerType.INSTANCE),
-                new IntegerLiteral(4));
+        Expression expression = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expression, scan);
 
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter);
+        List<Rule> rules = Lists.newArrayList(new PruneOlapScanPartition().build());
+        cascadesContext.topDownRewrite(rules);
+        Plan resultPlan = cascadesContext.getMemo().copyOut();
+        LogicalOlapScan rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
+        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+    }
+
+    @Test
+    public void testOlapScanPartitionPruneWithMultiColumnCase(@Mocked OlapTable olapTable) throws Exception {
+        List<Column> columnNameList = new ArrayList<>();
+        columnNameList.add(new Column("col1", Type.INT.getPrimitiveType()));
+        columnNameList.add(new Column("col2", Type.INT.getPrimitiveType()));
+        Map<Long, PartitionItem> keyItemMap = new HashMap<>();
+        PartitionKey k0 = new PartitionKey();
+        k0.pushColumn(new IntLiteral(1), Type.INT.getPrimitiveType());
+        k0.pushColumn(new IntLiteral(10), Type.INT.getPrimitiveType());
+        PartitionKey k1 = new PartitionKey();
+        k1.pushColumn(new IntLiteral(4), Type.INT.getPrimitiveType());
+        k1.pushColumn(new IntLiteral(5), Type.INT.getPrimitiveType());
+        keyItemMap.put(0L, new RangePartitionItem(Range.range(k0, BoundType.CLOSED, k1, BoundType.OPEN)));
+        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(columnNameList);
+        Deencapsulation.setField(rangePartitionInfo, "idToItem", keyItemMap);
+        new Expectations() {{
+                olapTable.getPartitionInfo();
+                result = rangePartitionInfo;
+                olapTable.getPartitionColumnNames();
+                result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
+                        .collect(Collectors.toSet());
+                olapTable.getPartitionIds();
+                result = Lists.newArrayList(0L);
+            }};
+        LogicalOlapScan scan = new LogicalOlapScan(olapTable);
+        Expression left = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));
+        Expression right = new GreaterThan(new SlotReference("col2", IntegerType.INSTANCE), new IntegerLiteral(11));
+        CompoundPredicate and = new And(left, right);
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(and, scan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter);
         List<Rule> rules = Lists.newArrayList(new PruneOlapScanPartition().build());
         cascadesContext.topDownRewrite(rules);

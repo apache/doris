@@ -51,7 +51,7 @@ public class SwapFilterAndProject extends OneRewriteRuleFactory {
             RewriteAliasToChildExpr rewriteAliasToChildExpr = new RewriteAliasToChildExpr();
             Expression rewrittenPredicate = rewriteAliasToChildExpr.visit(filter.getPredicates(), slotToAlias);
             LogicalFilter<LogicalPlan> rewrittenFilter =
-                    new LogicalFilter<LogicalPlan>(rewrittenPredicate, (LogicalPlan) filter.child(0));
+                    new LogicalFilter<LogicalPlan>(rewrittenPredicate, project.child());
             return new LogicalProject(project.getProjects(), rewrittenFilter);
         }).toRule(RuleType.SWAP_FILTER_AND_PROJECT);
     }
