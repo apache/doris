@@ -139,12 +139,7 @@ public:
     }
 
     // Return true when has next page.
-    bool has_next() {
-        if ((_pos + 1) >= _reader->count()) {
-            return false;
-        }
-        return true;
-    }
+    bool has_next() { return (_pos + 1) < _reader->count(); }
 
     const Slice& current_key() const { return _reader->get_key(_pos); }
 
