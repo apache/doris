@@ -46,7 +46,8 @@ class OpenTelemetryLogHandler : public internal_log::LogHandler {
 public:
     void Handle(internal_log::LogLevel level, const char* file, int line, const char* msg,
                 const opentelemetry::sdk::common::AttributeMap& attributes) noexcept override {
-        if (level == internal_log::LogLevel::Error || level == internal_log::LogLevel::Warning) {
+        if ((level == internal_log::LogLevel::Error || level == internal_log::LogLevel::Warning) &&
+            file != nullptr && msg != nullptr) {
             LOG(WARNING) << fmt::format("OpenTelemetry File: {}:{} {}", file, line, msg);
         }
     }
