@@ -110,7 +110,7 @@ http:// fe_ip:8030
 
 我们下面通过 MySQL 客户端来连接 Doris FE，下载免安装的 [MySQL 客户端](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-glibc2.12-x86_64.tar.gz)
 
-解压刚才下载的 MySQL 客户端，然后执行下面的命令连接 Doris。
+解压刚才下载的 MySQL 客户端，在 `bin/` 目录下可以找到 `mysql` 命令行工具。然后执行下面的命令连接 Doris。
 
 ```
 mysql -uroot -P9030 -h127.0.0.1
