@@ -15,10 +15,12 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     c_custkey,
     c_name,
-    sum(l_extendedprice * (1 - l_discount)) as revenue,
+    sum(t1.l_extendedprice * (1 - t1.l_discount)) as revenue,
     c_acctbal,
     n_name,
     c_address,
@@ -26,15 +28,16 @@ select
     c_comment
 from
     customer,
-    orders,
-    lineitem,
+    (
+        select o_custkey,l_extendedprice,l_discount from lineitem, orders
+        where l_orderkey = o_orderkey
+        and o_orderdate >= date '1993-10-01'
+        and o_orderdate < date '1993-10-01' + interval '3' month
+        and l_returnflag = 'R'
+    ) t1,
     nation
 where
-    c_custkey = o_custkey
-    and l_orderkey = o_orderkey
-    and o_orderdate >= date '1993-10-01'
-    and o_orderdate < date '1993-10-01' + interval '3' month
-    and l_returnflag = 'R'
+    c_custkey = t1.o_custkey
     and c_nationkey = n_nationkey
 group by
     c_custkey,
@@ -47,3 +50,4 @@ group by
 order by
     revenue desc
 limit 20;
+

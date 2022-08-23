@@ -15,20 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-create view revenue0 (supplier_no, total_revenue) as
-    select
-        l_suppkey,
-        sum(l_extendedprice * (1 - l_discount))
-    from
-        lineitem
-    where
-        l_shipdate >= date '1996-01-01'
-        and l_shipdate < date '1996-01-01' + interval '3' month
-    group by
-        l_suppkey;
-
-
-select
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
     s_suppkey,
     s_name,
     s_address,
@@ -47,5 +34,3 @@ where
     )
 order by
     s_suppkey;
-
-drop view revenue0;
