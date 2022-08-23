@@ -1106,6 +1106,18 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 * Type: int32
 * Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
 
+### `download_cache_thread_pool_thread_num`
+
+* Type: int32
+* Description: The number of threads in the DownloadCache thread pool. In the download cache task of FileCache, the download cache operation will be submitted to the thread pool as a thread task and wait to be scheduled. This parameter determines the size of the DownloadCache thread pool.
+* Default value: 48
+
+### `download_cache_thread_pool_queue_size`
+
+* Type: int32
+* Description: The number of threads in the DownloadCache thread pool. In the download cache task of FileCache, the download cache operation will be submitted to the thread pool as a thread task and wait to be scheduled. After the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Default value: 102400
+
 ### `single_replica_load_brpc_port`
 
 * Type: int32
