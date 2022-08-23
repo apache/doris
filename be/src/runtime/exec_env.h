@@ -218,7 +218,7 @@ private:
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
-    // threadpool used to download cache from remote storage
+    // Threadpool used to download cache from remote storage
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
