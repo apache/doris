@@ -591,10 +591,10 @@ public class DeleteHandler implements Writable {
                                 Type.fromPrimitiveType(column.getDataType())));
                     } else if (column.getDataType() == PrimitiveType.DATETIMEV2) {
                         DateLiteral dateLiteral = new DateLiteral(value,
-                                ScalarType.createDecimalType(ScalarType.MAX_DATETIMEV2_SCALE));
+                                ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE));
                         value = dateLiteral.getStringValue();
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
-                                ScalarType.createDecimalType(ScalarType.MAX_DATETIMEV2_SCALE)));
+                                ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE)));
                     }
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {

@@ -44,10 +44,17 @@ public:
     };
 
     // Creates and adds the tracker to the mem_tracker_pool.
-    MemTracker(const std::string& label = std::string(), RuntimeProfile* profile = nullptr,
-               bool is_limiter = false);
+    MemTracker(const std::string& label, RuntimeProfile* profile = nullptr);
+    // For MemTrackerLimiter
+    MemTracker() { _bind_group_num = -1; }
 
     ~MemTracker();
+
+    // Get a global tracker with a specified label, and the tracker will be created when the label is first get.
+    // use SCOPED_CONSUME_MEM_TRACKER count the memory in the scope to a global tracker with the specified label name.
+    // which is usually used for debugging, to finding memory hotspots.
+    static std::shared_ptr<MemTracker> get_global_mem_tracker(const std::string& label);
+    static void make_global_mem_tracker_snapshot(std::vector<MemTracker::Snapshot>* snapshots);
 
 public:
     const std::string& label() const { return _label; }
@@ -92,9 +99,6 @@ protected:
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _bind_group_num;
-
-    // Whether is a MemTrackerLimiter
-    bool _is_limiter;
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;

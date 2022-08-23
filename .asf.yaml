@@ -51,7 +51,8 @@ github:
           - License Check
           - Clang Formatter
           - CheckStyle
-          - P0 regression (Doris P0 Regression)
+          - P0 Regression (Doris Regression)
+          - P1 Regression (Doris Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker

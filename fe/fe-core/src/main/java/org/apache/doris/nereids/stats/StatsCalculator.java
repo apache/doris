@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -29,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -36,19 +39,22 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
@@ -60,25 +66,28 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Used to calculate the stats for each operator
+ * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
 
     private final GroupExpression groupExpression;
 
-    public StatsCalculator(GroupExpression groupExpression) {
+    private StatsCalculator(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
     }
 
     /**
-     * Do estimate.
+     * estimate stats
      */
-    public void estimate() {
+    public static void estimate(GroupExpression groupExpression) {
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+    }
 
+    private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getOwnerGroup().setStatistics(stats);
         groupExpression.setStatDerived(true);
-
     }
 
     @Override
@@ -118,6 +127,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalTopN(LogicalTopN<Plan> topN, Void context) {
+        return computeTopN(topN);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
                 groupExpression.getCopyOfChildStats(1), join);
@@ -134,8 +148,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
-    public StatsDeriveResult visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, Void context) {
+    public StatsDeriveResult visitPhysicalQuickSort(PhysicalQuickSort<Plan> sort, Void context) {
         return groupExpression.getCopyOfChildStats(0);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalTopN(PhysicalTopN<Plan> topN, Void context) {
+        return computeTopN(topN);
     }
 
     @Override
@@ -181,9 +200,9 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
     private StatsDeriveResult computeScan(Scan scan) {
-        Table table = scan.getTable();
         TableStats tableStats = Utils.execWithReturnVal(() ->
-                ConnectContext.get().getEnv().getStatisticsManager().getStatistics().getTableStats(table.getId())
+                // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
+                mockRowCountInStatistic(scan)
         );
         Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
@@ -201,6 +220,28 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
+    }
+
+    // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
+    private TableStats mockRowCountInStatistic(Scan scan) throws AnalysisException {
+        long cardinality = 0;
+        if (scan instanceof PhysicalOlapScan) {
+            PhysicalOlapScan olapScan = (PhysicalOlapScan) scan;
+            for (long selectedPartitionId : olapScan.getSelectedPartitionId()) {
+                final Partition partition = olapScan.getTable().getPartition(selectedPartitionId);
+                final MaterializedIndex baseIndex = partition.getBaseIndex();
+                cardinality += baseIndex.getRowCount();
+            }
+        }
+        Statistics statistics = ConnectContext.get().getEnv().getStatisticsManager().getStatistics();
+
+        statistics.mockTableStatsWithRowCount(scan.getTable().getId(), cardinality);
+        return statistics.getTableStats(scan.getTable().getId());
+    }
+
+    private StatsDeriveResult computeTopN(TopN topN) {
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
+        return stats.updateRowCountByLimit(topN.getLimit());
     }
 
     private StatsDeriveResult computeLimit(Limit limit) {

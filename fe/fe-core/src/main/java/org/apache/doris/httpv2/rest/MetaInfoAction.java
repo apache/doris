@@ -30,8 +30,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
-import org.apache.doris.datasource.DataSourceIf;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -90,20 +90,19 @@ public class MetaInfoAction extends RestBaseController {
 
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            ns = InternalDataSource.INTERNAL_DS_NAME;
+            ns = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
 
         // 1. get all database with privilege
-        DataSourceIf ds = Env.getCurrentEnv().getDataSourceMgr().getCatalog(ns);
-        if (ds == null) {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ns);
+        if (catalog == null) {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
-        List<String> dbNames = ds.getDbNames();
+        List<String> dbNames = catalog.getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName,
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName, PrivPredicate.SHOW)) {
                 continue;
             }
             dbNameSet.add(db);
@@ -323,8 +322,8 @@ public class MetaInfoAction extends RestBaseController {
         }
 
         if (maxNum <= 0) {
-            return Pair.create(0, 0);
+            return Pair.of(0, 0);
         }
-        return Pair.create(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
+        return Pair.of(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
     }
 }

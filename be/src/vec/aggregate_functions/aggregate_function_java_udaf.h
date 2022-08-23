@@ -26,18 +26,14 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/Exprs_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_ref.h"
-#include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -339,7 +335,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena) const override {
+                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i]);

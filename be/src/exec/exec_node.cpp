@@ -62,6 +62,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -213,12 +214,15 @@ Status ExecNode::prepare(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
     }
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
+
+    // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
+    // And _conjunct_ctxs is useless.
+    // TODO: Should be removed when non-vec engine is removed.
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
 
-    // TODO(zc):
-    // AddExprCtxsToFree(_conjunct_ctxs);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
@@ -231,7 +235,8 @@ Status ExecNode::open(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         return Expr::open(_conjunct_ctxs, state);
     } else {
         return Status::OK();
@@ -272,8 +277,11 @@ Status ExecNode::close(RuntimeState* state) {
         }
     }
 
-    if (_vconjunct_ctx_ptr) (*_vconjunct_ctx_ptr)->close(state);
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode)) {
+    if (_vconjunct_ctx_ptr) {
+        (*_vconjunct_ctx_ptr)->close(state);
+    }
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         Expr::close(_conjunct_ctxs, state);
     }
 
@@ -283,6 +291,8 @@ Status ExecNode::close(RuntimeState* state) {
                                               _resource_profile.min_reservation);
         state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
     }
+
+    runtime_profile()->add_to_span();
 
     return result;
 }
@@ -426,8 +436,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
-        } else
+        } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
@@ -448,7 +459,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
+            if (config::enable_new_scan_node) {
+                *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
+            } else {
+                *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
+            }
         } else {
             *node = pool->add(new OlapScanNode(pool, tnode, descs));
         }
@@ -677,8 +692,16 @@ void ExecNode::try_do_aggregate_serde_improve() {
         return;
     }
 
-    ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
-    scan_node->set_no_agg_finalize();
+    // TODO(cmy): should be removed when NewOlapScanNode is ready
+    ExecNode* child0 = agg_node[0]->_children[0];
+    if (typeid(*child0) == typeid(vectorized::NewOlapScanNode)) {
+        vectorized::VScanNode* scan_node =
+                static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
+        scan_node->set_no_agg_finalize();
+    } else {
+        ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
+        scan_node->set_no_agg_finalize();
+    }
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {

@@ -1300,5 +1300,147 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     build_segment(opts2, schema, schema, 100, DefaultIntGenerator, &seg2);
     EXPECT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
 }
+
+TEST_F(SegmentReaderWriterTest, TestLookupRowKey) {
+    TabletSchemaSPtr tablet_schema = create_schema(
+            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)},
+            UNIQUE_KEYS);
+    SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = true;
+    opts.num_rows_per_block = 10;
+
+    shared_ptr<Segment> segment;
+    build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
+
+    // key exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 0; rid < 4096; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(row_location.row_id, rid);
+            EXPECT_EQ(st, Status::OK());
+        }
+    }
+
+    // key not exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 4096; rid < 4100; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(st.is_not_found(), true);
+        }
+    }
+}
+
+TEST_F(SegmentReaderWriterTest, TestLookupRowKeyWithSequenceCol) {
+    TabletSchemaSPtr tablet_schema = create_schema(
+            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)},
+            UNIQUE_KEYS);
+    tablet_schema->_sequence_col_idx = 3;
+    SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = true;
+    opts.num_rows_per_block = 10;
+
+    shared_ptr<Segment> segment;
+    build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
+
+    // key exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 0; rid < 4096; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+            encoded_key.push_back(KEY_NORMAL_MARKER);
+            auto cid = tablet_schema->sequence_col_idx();
+            auto cell = row.cell(cid);
+            row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(row_location.row_id, rid);
+            EXPECT_EQ(st, Status::OK());
+        }
+    }
+
+    // key not exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 4096; rid < 4100; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+
+            encoded_key.push_back(KEY_NORMAL_MARKER);
+            auto cid = tablet_schema->sequence_col_idx();
+            auto cell = row.cell(cid);
+            row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(st.is_not_found(), true);
+        }
+    }
+
+    // key exist, sequence id is smaller
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            cell.set_not_null();
+            if (cid == tablet_schema->sequence_col_idx()) {
+                *(int*)cell.mutable_cell_ptr() = 100 + cid - 3;
+            } else {
+                *(int*)cell.mutable_cell_ptr() = 100 + cid;
+            }
+        }
+        std::string encoded_key;
+        encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+
+        encoded_key.push_back(KEY_NORMAL_MARKER);
+        auto cid = tablet_schema->sequence_col_idx();
+        auto cell = row.cell(cid);
+        row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+
+        RowLocation row_location;
+        Status st = segment->lookup_row_key(encoded_key, &row_location);
+        EXPECT_EQ(st.is_already_exist(), true);
+    }
+}
+
 } // namespace segment_v2
 } // namespace doris

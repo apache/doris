@@ -33,6 +33,14 @@ abstract class SuiteScript extends Script {
     }
 
     void suite(String suiteName, String group = getDefaultGroups(new File(context.config.suitePath), context.file), Closure suiteBody) {
+        if (!group.split(',').any {
+            def match = it =~ /^p\d+$/
+            if (match.find())
+                return true
+            }) {
+            group +=",p0"
+        }
+
         if (!context.suiteFilter.call(suiteName, group)) {
             return
         }
@@ -50,25 +58,25 @@ abstract class SuiteScript extends Script {
         if (path.indexOf(File.separator + "sql") > 0) {
             groupPath = path.substring(0, path.indexOf(File.separator + "sql"))
         }
-        log.info("path: ${path}, groupPath: ${groupPath}".toString())
         List<String> groups = ["default"]
 
-        groupPath.split(File.separator)
+        def grouped_p = groupPath.split(File.separator)
             .collect {it.trim()}
             .findAll {it != "." && it != ".." && !it.isEmpty()}
             .reverse()
             .any {
-                def candidateGroups = it.split('_')
-                if (candidateGroups.length > 1) {
-                    groups.add(candidateGroups[candidateGroups.length - 1])
+                def match = it =~ /_p\d+$/
+                if (match.find()) {
+                    groups.add(match.group(0).substring(1))
                     return true
                 }
             }
 
-        if (groups.size() == 1) {
+        if (!grouped_p) {
              // There is no specified group, mark it as p0
              groups.add("p0")
         }
+        log.info("path: ${path}, groupPath: ${groupPath}".toString())
         return groups.join(",")
     }
 }

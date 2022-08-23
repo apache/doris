@@ -372,7 +372,7 @@ public class SparkLoadJob extends BulkLoadJob {
                     continue;
                 }
                 String tabletMetaStr = EtlJobConfig.getTabletMetaStr(filePath);
-                tabletMetaToFileInfo.put(tabletMetaStr, Pair.create(filePath, entry.getValue()));
+                tabletMetaToFileInfo.put(tabletMetaStr, Pair.of(filePath, entry.getValue()));
             }
 
             loadingStatus = etlStatus;
@@ -775,7 +775,7 @@ public class SparkLoadJob extends BulkLoadJob {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String tabletMetaStr = Text.readString(in);
-            Pair<String, Long> fileInfo = Pair.create(Text.readString(in), in.readLong());
+            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
             tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
         }
     }

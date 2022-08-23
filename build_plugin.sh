@@ -18,16 +18,15 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME=${ROOT}
+export DORIS_HOME="${ROOT}"
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}/env.sh"
 
 # Check args
 usage() {
-  echo "
+    echo "
 Usage: $0 <options>
   Optional options:
      --plugin           build special plugin
@@ -35,81 +34,97 @@ Usage: $0 <options>
     $0 --plugin xxx     build xxx plugin
     $0                  build all plugins
   "
-  exit 1
+    exit 1
 }
 
-OPTS=$(getopt \
-  -n $0 \
-  -o '' \
-  -o 'h' \
-  -l 'plugin' \
-  -l 'clean' \
-  -l 'help' \
-  -- "$@")
-
-if [ $? != 0 ] ; then
+if ! OPTS="$(getopt \
+    -n "$0" \
+    -o '' \
+    -o 'h' \
+    -l 'plugin' \
+    -l 'clean' \
+    -l 'help' \
+    -- "$@")"; then
     usage
 fi
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
 ALL_PLUGIN=1
 CLEAN=0
-if [ $# == 1 ] ; then
+if [[ "$#" == 1 ]]; then
     # defuat
     ALL_PLUGIN=1
     CLEAN=0
 else
     while true; do
         case "$1" in
-            --plugin)  ALL_PLUGIN=0 ; shift ;;
-            --clean)  CLEAN=1 ; shift ;;
-            -h) HELP=1; shift ;;
-            --help) HELP=1; shift ;;
-            --) shift ;  break ;;
-            *) echo "Internal error" ; exit 1 ;;
+        --plugin)
+            ALL_PLUGIN=0
+            shift
+            ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
+        -h)
+            HELP=1
+            shift
+            ;;
+        --help)
+            HELP=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Internal error"
+            exit 1
+            ;;
         esac
     done
 fi
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
     exit
 fi
 
 echo "Get params:
-    BUILD_ALL_PLUGIN       -- $ALL_PLUGIN
-    CLEAN                  -- $CLEAN
+    BUILD_ALL_PLUGIN       -- ${ALL_PLUGIN}
+    CLEAN                  -- ${CLEAN}
 "
 
-cd ${DORIS_HOME}
-PLUGIN_MODULE=
-if [ ${ALL_PLUGIN} -eq 1 ] ; then
-    cd ${DORIS_HOME}/fe_plugins
-    if [ ${CLEAN} -eq 1 ]; then
-        ${MVN_CMD} clean
+cd "${DORIS_HOME}"
+PLUGIN_MODULE=''
+if [[ "${ALL_PLUGIN}" -eq 1 ]]; then
+    cd "${DORIS_HOME}/fe_plugins"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        "${MVN_CMD}" clean
     fi
     echo "build all plugins"
-    ${MVN_CMD} package -DskipTests
+    "${MVN_CMD}" package -DskipTests
 else
-    PLUGIN_MODULE=$1
-    cd ${DORIS_HOME}/fe_plugins/$PLUGIN_MODULE
-    if [ ${CLEAN} -eq 1 ]; then
-        ${MVN_CMD} clean
+    PLUGIN_MODULE="$1"
+    cd "${DORIS_HOME}/fe_plugins/${PLUGIN_MODULE}"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        "${MVN_CMD}" clean
     fi
-    echo "build plugin $PLUGIN_MODULE"
-    ${MVN_CMD} package -DskipTests
+    echo "build plugin ${PLUGIN_MODULE}"
+    "${MVN_CMD}" package -DskipTests
 fi
 
-cd ${DORIS_HOME}
+cd "${DORIS_HOME}"
 # Clean and prepare output dir
-DORIS_OUTPUT=${DORIS_HOME}/fe_plugins/output/
-mkdir -p ${DORIS_OUTPUT}
+DORIS_OUTPUT="${DORIS_HOME}/fe_plugins/output"
+mkdir -p "${DORIS_OUTPUT}"
 
-if [ ${ALL_PLUGIN} -eq 1 ] ; then
-    cp -p ${DORIS_HOME}/fe_plugins/*/target/*.zip ${DORIS_OUTPUT}/
+if [[ "${ALL_PLUGIN}" -eq 1 ]]; then
+    cp -p "${DORIS_HOME}/fe_plugins"/*/target/*.zip "${DORIS_OUTPUT}"/
 else
-    cp -p ${DORIS_HOME}/fe_plugins/$PLUGIN_MODULE/target/*.zip ${DORIS_OUTPUT}/
+    cp -p "${DORIS_HOME}/fe_plugins/${PLUGIN_MODULE}/target"/*.zip "${DORIS_OUTPUT}"/
 fi
 
 echo "***************************************"
@@ -117,4 +132,3 @@ echo "Successfully build Doris FE Plugin"
 echo "***************************************"
 
 exit 0
-

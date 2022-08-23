@@ -44,7 +44,6 @@ explode_outer(expr)
 
 ```
 mysql> set enable_vectorized_engine = true
-mysql> set enable_array_type = true
 
 mysql> select e1 from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1;
 +------+

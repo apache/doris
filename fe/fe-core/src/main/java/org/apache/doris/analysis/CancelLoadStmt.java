@@ -23,10 +23,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import lombok.Getter;
 
-import java.util.List;
+import java.util.Set;
 
 
 /**
@@ -36,7 +36,7 @@ import java.util.List;
  **/
 public class CancelLoadStmt extends DdlStmt {
 
-    private static final List<String> SUPPORT_COLUMNS = Lists.newArrayList("label", "state");
+    private static final Set<String> SUPPORT_COLUMNS = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
 
     @Getter
     private String dbName;
@@ -55,6 +55,8 @@ public class CancelLoadStmt extends DdlStmt {
     public CancelLoadStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
         this.whereClause = whereClause;
+        this.SUPPORT_COLUMNS.add("label");
+        this.SUPPORT_COLUMNS.add("state");
     }
 
     private void checkColumn(Expr expr, boolean like) throws AnalysisException {

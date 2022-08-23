@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
@@ -24,44 +25,88 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Supplier;
 import org.junit.jupiter.api.Assertions;
+
+import java.util.function.Consumer;
 
 /**
  * Utility to apply rules to plan and check output plan matches the expected pattern.
  */
 public class PlanChecker {
+    private ConnectContext connectContext;
+    private CascadesContext cascadesContext;
 
-    private Plan inputPlan;
-    private Memo memo;
+    private Plan parsedPlan;
 
-    public PlanChecker plan(Plan plan) {
-        this.inputPlan = plan;
+    public PlanChecker(ConnectContext connectContext) {
+        this.connectContext = connectContext;
+    }
+
+    public PlanChecker(CascadesContext cascadesContext) {
+        this.connectContext = cascadesContext.getConnectContext();
+        this.cascadesContext = cascadesContext;
+    }
+
+    public PlanChecker checkParse(String sql, Consumer<PlanParseChecker> consumer) {
+        PlanParseChecker checker = new PlanParseChecker(sql);
+        consumer.accept(checker);
+        parsedPlan = checker.parsedSupplier.get();
+        return this;
+    }
+
+    public PlanChecker analyze() {
+        MemoTestUtils.createCascadesContext(connectContext, parsedPlan);
+        return this;
+    }
+
+    public PlanChecker analyze(String sql) {
+        this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.newAnalyzer().analyze();
+        return this;
+    }
+
+    public PlanChecker analyze(Plan plan) {
+        this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.newAnalyzer().analyze();
         return this;
     }
 
     public PlanChecker applyTopDown(RuleFactory rule) {
-        return applyTopDown(rule, new ConnectContext());
-    }
-
-    public PlanChecker applyTopDown(RuleFactory rule, ConnectContext connectContext) {
-        memo = PlanRewriter.topDownRewriteMemo(inputPlan, connectContext, rule);
+        cascadesContext.topDownRewrite(rule);
         return this;
     }
 
     public PlanChecker applyBottomUp(RuleFactory rule) {
-        return applyBottomUp(rule);
-    }
-
-    public PlanChecker applyBottomUp(RuleFactory rule, ConnectContext connectContext) {
-        memo = PlanRewriter.bottomUpRewriteMemo(inputPlan, connectContext, rule);
+        cascadesContext.bottomUpRewrite(rule);
         return this;
     }
 
+    public void matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpression()).iterator().hasNext());
+    }
+
     public void matches(PatternDescriptor<? extends Plan> patternDesc) {
-        GroupExpressionMatching matchResult = new GroupExpressionMatching(patternDesc.pattern,
-                memo.getRoot().getLogicalExpression());
-        Assertions.assertTrue(matchResult.iterator().hasNext(), () ->
-                "pattern not match, plan :\n" + memo.getRoot().getLogicalExpression().getPlan().treeString() + "\n"
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+    }
+
+    private void assertMatches(Memo memo, Supplier<Boolean> asserter) {
+        Assertions.assertTrue(asserter.get(),
+                () -> "pattern not match, plan :\n"
+                        + memo.getRoot().getLogicalExpression().getPlan().treeString()
+                        + "\n"
         );
+    }
+
+    public static PlanChecker from(ConnectContext connectContext) {
+        return new PlanChecker(connectContext);
+    }
+
+    public static PlanChecker from(ConnectContext connectContext, Plan initPlan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, initPlan);
+        return new PlanChecker(cascadesContext);
     }
 }

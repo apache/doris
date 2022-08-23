@@ -26,7 +26,10 @@ CREATE TABLE `${table1}` (
   `siteid` int(11) NOT NULL COMMENT "",
   `date1` date NOT NULL COMMENT "",
   `date2` date NOT NULL COMMENT "",
-  `date3` date NOT NULL COMMENT ""
+  `date3` date NOT NULL COMMENT "",
+  `date4` datev2 NOT NULL COMMENT "",
+  `date5` datev2 NOT NULL COMMENT "",
+  `date6` datev2 NOT NULL COMMENT ""
 ) ENGINE=OLAP
 DUPLICATE KEY(`siteid`)
 COMMENT "OLAP"
@@ -38,11 +41,11 @@ PROPERTIES (
 )
     """
 
-    sql """insert into ${table1} values(1, '2021-04-01', '2021-04-02', '2021-04-03'),
-        (1, '2021-03-01', '2021-03-02', '2021-03-03'),
-        (1, '2021-02-01', '2021-02-02', '2021-02-03'),
-        (1, '2021-01-01', '2021-01-02', '2021-01-03')
-"""
+    sql """insert into ${table1} values(1, '2021-04-01', '2021-04-02', '2021-04-03', '2021-04-01', '2021-04-02', '2021-04-03'),
+        (1, '2021-03-01', '2021-03-02', '2021-03-03', '2021-03-01', '2021-03-02', '2021-03-03'),
+        (1, '2021-02-01', '2021-02-02', '2021-02-03', '2021-02-01', '2021-02-02', '2021-02-03'),
+        (1, '2021-01-01', '2021-01-02', '2021-01-03', '2021-01-01', '2021-01-02', '2021-01-03')
+    """
 
     qt_sql1 "select date1 from ${table1} order by date1"
 
@@ -61,6 +64,22 @@ PROPERTIES (
 
     // not in pred
     qt_select_not_in_pred_1 "select date1 from ${table1} where date1 not in ('2021-01-01') order by date1"
+
+    // read single column
+    qt_select_1_column "select date4 from ${table1} order by date4"
+
+    // date as pred
+    qt_select_pred_1 "select date4 from ${table1} where date4='2021-03-01'"
+    qt_select_pred_2 "select date4 from ${table1} where date4='2021-04-01'"
+    qt_select_pred_3 "select date5,date4 from ${table1} where date4='2021-04-01'"
+
+
+    // in pred
+    qt_select_in_pred_1 "select date4 from ${table1} where date4 in ('2021-01-01')"
+    qt_select_in_pred_2 "select * from ${table1} where date4 in ('2021-01-01')"
+
+    // not in pred
+    qt_select_not_in_pred_1 "select date4 from ${table1} where date4 not in ('2021-01-01') order by date4"
 
     sql "drop table if exists ${table1}"
 }

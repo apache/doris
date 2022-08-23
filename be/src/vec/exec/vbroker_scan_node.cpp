@@ -246,11 +246,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
                // stop pushing more batch if
                // 1. too many batches in queue, or
                // 2. at least one batch in queue and memory exceed limit.
-               (_block_queue.size() >= _max_buffered_batches ||
-                (thread_context()
-                         ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                         ->any_limit_exceeded() &&
-                 !_block_queue.empty()))) {
+               (_block_queue.size() >= _max_buffered_batches || !_block_queue.empty())) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
         // Process already set failed, so we just return OK
@@ -326,9 +322,15 @@ std::unique_ptr<BaseScanner> VBrokerScanNode::create_scanner(const TBrokerScanRa
                                            _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_JSON:
-        scan = new vectorized::VJsonScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                            scan_range.ranges, scan_range.broker_addresses,
-                                            _pre_filter_texprs, counter);
+        if (config::enable_simdjson_reader) {
+            scan = new vectorized::VJsonScanner<vectorized::VSIMDJsonReader>(
+                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+        } else {
+            scan = new vectorized::VJsonScanner<vectorized::VJsonReader>(
+                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+        }
         break;
     default:
         scan = new vectorized::VBrokerScanner(_runtime_state, runtime_profile(), scan_range.params,

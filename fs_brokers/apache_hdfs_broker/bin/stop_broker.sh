@@ -16,33 +16,34 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=`dirname "$0"`
-curdir=`cd "$curdir"; pwd`
+set -eo pipefail
 
-export BROKER_HOME=`cd "$curdir/.."; pwd`
-export PID_DIR=`cd "$curdir"; pwd`
+curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-while read line; do
-    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
-    envline=`eval "echo $envline"`
-    if [[ $envline == *"="* ]]; then
-        eval 'export "$envline"'
+BROKER_HOME=$(
+    cd "${curdir}/.."
+    pwd
+)
+export BROKER_HOME
+
+PID_DIR=$(
+    cd "${curdir}"
+    pwd
+)
+export PID_DIR
+
+pidfile="${PID_DIR}/apache_hdfs_broker.pid"
+
+if [[ -f "${pidfile}" ]]; then
+    pid="$(cat "${pidfile}")"
+    pidcomm="$(ps -p "${pid}" -o comm=)"
+
+    if [[ "java" != "${pidcomm}" ]]; then
+        echo "ERROR: pid process may not broker. "
     fi
-done < $BROKER_HOME/conf/apache_hdfs_broker.conf
 
-pidfile=$PID_DIR/apache_hdfs_broker.pid
-
-if [ -f $pidfile ]; then
-   pid=`cat $pidfile`
-   pidcomm=`ps -p $pid -o comm=`
-   
-   if [ "java" != "$pidcomm" ]; then
-       echo "ERROR: pid process may not broker. "
-   fi
-
-   if kill -9 $pid > /dev/null 2>&1; then
-        echo "stop $pidcomm, and remove pid file. "
-        rm $pidfile
-   fi
+    if kill -9 "${pid}" >/dev/null 2>&1; then
+        echo "stop ${pidcomm}, and remove pid file. "
+        rm "${pidfile}"
+    fi
 fi
-

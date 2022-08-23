@@ -224,7 +224,9 @@ class SuiteContext implements Closeable {
 
         this.withCloseable {suiteContext ->
             try {
-                func.apply(suiteContext)
+                if (!config.dryRun) {
+                    func.apply(suiteContext)
+                }
             } catch (Throwable t) {
                 if (t instanceof UndeclaredThrowableException) {
                     t = ((UndeclaredThrowableException) t).undeclaredThrowable

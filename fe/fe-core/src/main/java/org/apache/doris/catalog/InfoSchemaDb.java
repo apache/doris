@@ -41,7 +41,7 @@ public class InfoSchemaDb extends Database {
 
     @Override
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
-        return Pair.create(false, false);
+        return Pair.of(false, false);
     }
 
     @Override

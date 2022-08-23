@@ -27,7 +27,6 @@
   "author": "lpx",
   "license": "ISC",
   "dependencies": {
-    "@ant-design/compatible": "^1.0.2",
     "@ant-design/icons": "^4.1.0",
     "@umijs/hooks": "^1.9.3",
     "antd": "^4.5.4",

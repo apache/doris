@@ -120,6 +120,7 @@ class RegressionTest {
             canRun(config, suiteName, groupName)
         }
         def file = source.getFile()
+        log.info("run ${file}")
         def eventListeners = getEventListeners(config, recorder)
         new ScriptContext(file, suiteExecutors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->

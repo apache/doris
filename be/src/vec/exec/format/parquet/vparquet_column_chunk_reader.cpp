@@ -20,37 +20,47 @@
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* fieldSchema)
-        : _max_rep_level(fieldSchema->repetition_level),
-          _max_def_level(fieldSchema->definition_level),
+                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
+                                     cctz::time_zone* ctz)
+        : _field_schema(field_schema),
+          _max_rep_level(field_schema->repetition_level),
+          _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
-          _metadata(column_chunk->meta_data) {}
+          _metadata(column_chunk->meta_data),
+          _ctz(ctz) {}
 
-Status ColumnChunkReader::init(size_t type_length) {
+Status ColumnChunkReader::init() {
     size_t start_offset = _metadata.__isset.dictionary_page_offset
                                   ? _metadata.dictionary_page_offset
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
-
     if (_metadata.__isset.dictionary_page_offset) {
+        // seek to the directory page
+        _page_reader->seek_to_page(_metadata.dictionary_page_offset);
+        RETURN_IF_ERROR(_page_reader->next_page_header());
         RETURN_IF_ERROR(_decode_dict_page());
+    } else {
+        // seek to the first data page
+        _page_reader->seek_to_page(_metadata.data_page_offset);
     }
-    // seek to the first data page
-    _page_reader->seek_to_page(_metadata.data_page_offset);
-
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
-    // -1 means unfixed length type
-    _type_length = type_length;
-
     return Status::OK();
 }
 
 Status ColumnChunkReader::next_page() {
-    RETURN_IF_ERROR(_page_reader->next_page());
-    _num_values = _page_reader->get_page_header()->data_page_header.num_values;
-    return Status::OK();
+    RETURN_IF_ERROR(_page_reader->next_page_header());
+    if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
+        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
+        // so we should parse the directory page in next_page()
+        RETURN_IF_ERROR(_decode_dict_page());
+        // parse the real first data page
+        return next_page();
+    } else {
+        _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
+        return Status::OK();
+    }
 }
 
 Status ColumnChunkReader::load_page_data() {
@@ -73,12 +83,12 @@ Status ColumnChunkReader::load_page_data() {
     if (_max_rep_level > 0) {
         RETURN_IF_ERROR(_rep_level_decoder.init(&_page_data,
                                                 header.data_page_header.repetition_level_encoding,
-                                                _max_rep_level, _num_values));
+                                                _max_rep_level, _remaining_num_values));
     }
     if (_max_def_level > 0) {
         RETURN_IF_ERROR(_def_level_decoder.init(&_page_data,
                                                 header.data_page_header.definition_level_encoding,
-                                                _max_def_level, _num_values));
+                                                _max_def_level, _remaining_num_values));
     }
 
     auto encoding = header.data_page_header.encoding;
@@ -86,27 +96,27 @@ Status ColumnChunkReader::load_page_data() {
     if (encoding == tparquet::Encoding::PLAIN_DICTIONARY) {
         encoding = tparquet::Encoding::RLE_DICTIONARY;
     }
+
     // Reuse page decoder
     if (_decoders.find(static_cast<int>(encoding)) != _decoders.end()) {
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     } else {
         std::unique_ptr<Decoder> page_decoder;
-        Decoder::getDecoder(_metadata.type, encoding, page_decoder);
+        Decoder::get_decoder(_metadata.type, encoding, page_decoder);
+        // Set type length
+        page_decoder->set_type_length(_get_type_length());
+        // Initialize the time convert context
+        page_decoder->init(_field_schema, _ctz);
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
+    // Reset page data for each page
     _page_decoder->set_data(&_page_data);
-    if (_type_length > 0) {
-        _page_decoder->set_type_length(_type_length);
-    }
 
     return Status::OK();
 }
 
 Status ColumnChunkReader::_decode_dict_page() {
-    int64_t dict_offset = _metadata.dictionary_page_offset;
-    _page_reader->seek_to_page(dict_offset);
-    _page_reader->next_page();
     const tparquet::PageHeader& header = *_page_reader->get_page_header();
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
     // TODO(gaoxin): decode dictionary page
@@ -121,10 +131,10 @@ void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
 }
 
 Status ColumnChunkReader::skip_values(size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Skip too many values in current page");
     }
-    _num_values -= num_values;
+    _remaining_num_values -= num_values;
     return _page_decoder->skip_values(num_values);
 }
 
@@ -138,19 +148,46 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     return _def_level_decoder.get_levels(levels, n);
 }
 
-Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type,
+                                        size_t num_values) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
-    _num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, num_values);
+    _remaining_num_values -= num_values;
+    return _page_decoder->decode_values(doris_column, data_type, num_values);
+}
+
+Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                        size_t num_values) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    _remaining_num_values -= num_values;
+    return _page_decoder->decode_values(doris_column, data_type, num_values);
 }
 
 Status ColumnChunkReader::decode_values(Slice& slice, size_t num_values) {
-    if (UNLIKELY(_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
-    _num_values -= num_values;
+    _remaining_num_values -= num_values;
     return _page_decoder->decode_values(slice, num_values);
+}
+
+int32_t ColumnChunkReader::_get_type_length() {
+    switch (_field_schema->physical_type) {
+    case tparquet::Type::INT32:
+    case tparquet::Type::FLOAT:
+        return 4;
+    case tparquet::Type::INT64:
+    case tparquet::Type::DOUBLE:
+        return 8;
+    case tparquet::Type::INT96:
+        return 12;
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+        return _field_schema->parquet_schema.type_length;
+    default:
+        return -1;
+    }
 }
 } // namespace doris::vectorized

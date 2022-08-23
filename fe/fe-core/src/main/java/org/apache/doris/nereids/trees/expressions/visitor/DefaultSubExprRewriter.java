@@ -17,16 +17,17 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.analysis.Scope;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
 
@@ -35,14 +36,16 @@ import java.util.Optional;
  */
 public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
     private final Scope scope;
+    private final CascadesContext cascadesContext;
 
-    public DefaultSubExprRewriter(Scope scope) {
+    public DefaultSubExprRewriter(Scope scope, CascadesContext cascadesContext) {
         this.scope = scope;
+        this.cascadesContext = cascadesContext;
     }
 
     @Override
-    public Expression visitSubqueryExpr(SubqueryExpr expr, C context) {
-        return new SubqueryExpr(analyzeSubquery(expr));
+    public Expression visitExistsSubquery(Exists exists, C context) {
+        return new Exists(analyzeSubquery(exists));
     }
 
     @Override
@@ -61,10 +64,10 @@ public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
     }
 
     private LogicalPlan analyzeSubquery(SubqueryExpr expr) {
-        NereidsAnalyzer subAnalyzer = new NereidsAnalyzer(ConnectContext.get());
-        LogicalPlan analyzed = subAnalyzer.analyze(
-                expr.getQueryPlan(), Optional.ofNullable(scope));
-        return analyzed;
+        CascadesContext subqueryContext = new Memo(expr.getQueryPlan())
+                .newCascadesContext(cascadesContext.getStatementContext());
+        subqueryContext.newAnalyzer(Optional.ofNullable(getScope())).analyze();
+        return (LogicalPlan) subqueryContext.getMemo().copyOut();
     }
 
     public Scope getScope() {

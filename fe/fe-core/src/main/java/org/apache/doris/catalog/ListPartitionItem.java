@@ -28,7 +28,7 @@ import java.util.List;
 public class ListPartitionItem extends PartitionItem {
     public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
 
-    private List<PartitionKey> partitionKeys;
+    private final List<PartitionKey> partitionKeys;
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
         this.partitionKeys = partitionKeys;
@@ -91,20 +91,10 @@ public class ListPartitionItem extends PartitionItem {
             return false;
         }
 
-        ListPartitionItem partitionItem = (ListPartitionItem) obj;
+        ListPartitionItem other = (ListPartitionItem) obj;
         // check keys
-        if (partitionKeys != partitionItem.getItems()) {
-            if (partitionKeys.size() != partitionItem.getItems().size()) {
-                return false;
-            }
-            for (int i = 0; i < partitionKeys.size(); i++) {
-                if (!partitionKeys.get(i).equals(partitionItem.getItems().get(i))) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return partitionKeys.size() == other.partitionKeys.size()
+                && partitionKeys.equals(other.partitionKeys);
     }
 
     @Override

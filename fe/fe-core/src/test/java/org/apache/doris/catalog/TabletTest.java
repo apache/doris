@@ -31,9 +31,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class TabletTest {
 
@@ -116,23 +115,21 @@ public class TabletTest {
 
     @Test
     public void testSerialization() throws Exception {
-        File file = new File("./olapTabletTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("olapTabletTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         tablet.write(dos);
         dos.flush();
         dos.close();
 
         // 2. Read a object from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         Tablet rTablet1 = Tablet.read(dis);
         Assert.assertEquals(1, rTablet1.getId());
         Assert.assertEquals(3, rTablet1.getReplicas().size());
         Assert.assertEquals(rTablet1.getReplicas().get(0).getVersion(), rTablet1.getReplicas().get(1).getVersion());
 
-        Assert.assertTrue(rTablet1.equals(tablet));
-        Assert.assertTrue(rTablet1.equals(rTablet1));
-        Assert.assertFalse(rTablet1.equals(this));
+        Assert.assertEquals(rTablet1, tablet);
+        Assert.assertEquals(rTablet1, rTablet1);
 
         Tablet tablet2 = new Tablet(1);
         Replica replica1 = new Replica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -140,18 +137,18 @@ public class TabletTest {
         Replica replica3 = new Replica(3L, 3L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         tablet2.addReplica(replica1);
         tablet2.addReplica(replica2);
-        Assert.assertFalse(tablet2.equals(tablet));
+        Assert.assertNotEquals(tablet2, tablet);
         tablet2.addReplica(replica3);
-        Assert.assertTrue(tablet2.equals(tablet));
+        Assert.assertEquals(tablet2, tablet);
 
         Tablet tablet3 = new Tablet(1);
         tablet3.addReplica(replica1);
         tablet3.addReplica(replica2);
         tablet3.addReplica(new Replica(4L, 4L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0));
-        Assert.assertFalse(tablet3.equals(tablet));
+        Assert.assertNotEquals(tablet3, tablet);
 
         dis.close();
-        file.delete();
+        Files.delete(path);
     }
 
     /**
@@ -182,25 +179,25 @@ public class TabletTest {
         // [1 2 4]
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.COLOCATE_MISMATCH,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(4L, false)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(4L, false)
         );
 
         // [1 2 3(bad)]
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.VERSION_INCOMPLETE,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, true)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, true)
         );
 
         // 1 2 3 4(good)
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.COLOCATE_REDUNDANT,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, false), Pair.create(4L, false)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, false), Pair.of(4L, false)
         );
 
         // [1 2 3 4(bad)]
         testTabletColocateHealthStatus0(
                 Tablet.TabletStatus.COLOCATE_REDUNDANT,
-                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, false), Pair.create(4L, true)
+                Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, false), Pair.of(4L, true)
         );
     }
 }

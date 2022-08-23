@@ -72,7 +72,7 @@ using std::string;
 using std::vector;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
@@ -101,7 +101,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
                                                              _tablet_meta->all_stale_rs_metas());
 
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_count);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
 }
 
 Status Tablet::_init_once_action() {
@@ -1434,7 +1434,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_storage_medium(_data_dir->storage_medium());
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
-    tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
+    tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
 }
@@ -1879,7 +1879,12 @@ TabletSchemaSPtr Tablet::tablet_schema() const {
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
                               RowLocation* row_location, uint32_t version) {
     std::vector<std::pair<RowsetSharedPtr, int32_t>> selected_rs;
-    _rowset_tree->FindRowsetsWithKeyInRange(encoded_key, rowset_ids, &selected_rs);
+    size_t seq_col_length = 0;
+    if (_schema->has_sequence_col()) {
+        seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+    }
+    Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
+    _rowset_tree->FindRowsetsWithKeyInRange(key_without_seq, rowset_ids, &selected_rs);
     if (selected_rs.empty()) {
         return Status::NotFound("No rowsets contains the key in key range");
     }
@@ -1887,6 +1892,9 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
     // to search the key in the rowset with larger version.
     std::sort(selected_rs.begin(), selected_rs.end(),
               [](std::pair<RowsetSharedPtr, int32_t>& a, std::pair<RowsetSharedPtr, int32_t>& b) {
+                  if (a.first->end_version() == b.first->end_version()) {
+                      return a.second > b.second;
+                  }
                   return a.first->end_version() > b.first->end_version();
               });
     RowLocation loc;
@@ -1909,6 +1917,11 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
         loc.rowset_id = rs.first->rowset_id();
         if (version >= 0 && _tablet_meta->delete_bitmap().contains_agg(
                                     {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+            // if has sequence col, we continue to compare the sequence_id of
+            // all rowsets, util we find an existing key.
+            if (_schema->has_sequence_col()) {
+                continue;
+            }
             // The key is deleted, we don't need to search for it any more.
             break;
         }
@@ -1937,10 +1950,11 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     int64_t end_version = max_version_unlocked().second;
     Version dummy_version(end_version + 1, end_version + 1);
     for (auto& seg : segments) {
-        seg->load_index(); // We need index blocks to iterate
+        seg->load_pk_index_and_bf(); // We need index blocks to iterate
         auto pk_idx = seg->get_primary_key_index();
         int cnt = 0;
         int total = pk_idx->num_rows();
+        uint32_t row_id = 0;
         int32_t remaining = total;
         bool exact_match = false;
         std::string last_key;
@@ -1981,9 +1995,18 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 }
                 RowLocation loc;
                 auto st = lookup_row_key(*key, specified_rowset_ids, &loc, dummy_version.first - 1);
-                CHECK(st.ok() || st.is_not_found());
+                CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
                 if (st.is_not_found()) continue;
+
+                // sequece id smaller than the previous one, so delelte current row
+                if (st.is_already_exist()) {
+                    loc.rowset_id = rowset_id;
+                    loc.segment_id = seg->id();
+                    loc.row_id = row_id;
+                }
+
                 ++cnt;
+                ++row_id;
                 delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
                                    loc.row_id);
             }
@@ -2041,7 +2064,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
-    std::lock_guard<std::shared_mutex> meta_wrlock(_meta_lock);
+    std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
+    std::shared_lock meta_rlock(_meta_lock);
     cur_rowset_ids = all_rs_id();
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
@@ -2056,7 +2080,9 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
                                            delete_bitmap, true));
     }
 
-    // update version
+    // update version without write lock, compaction and publish_txn
+    // will update delete bitmap, handle compaction with _delete_bitmap_lock
+    // and publish_txn runs sequencial so no need to lock here
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         int ret = _tablet_meta->delete_bitmap().set(

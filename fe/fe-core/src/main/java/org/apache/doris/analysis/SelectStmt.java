@@ -314,7 +314,7 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                DatabaseIf db = analyzer.getEnv().getDataSourceMgr()
+                DatabaseIf db = analyzer.getEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
@@ -738,7 +738,7 @@ public class SelectStmt extends QueryStmt {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
                 LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
             }
-            candidates.add(new Pair(tblRef, rowCount));
+            candidates.add(Pair.of(tblRef, rowCount));
         }
         // give InlineView row count
         long last = 0;

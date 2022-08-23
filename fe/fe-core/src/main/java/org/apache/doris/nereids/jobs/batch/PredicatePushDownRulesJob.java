@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 
 import com.google.common.collect.ImmutableList;
@@ -26,8 +26,8 @@ import com.google.common.collect.ImmutableList;
  * execute predicate push down job.
  */
 public class PredicatePushDownRulesJob extends BatchRulesJob {
-    public PredicatePushDownRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
+    public PredicatePushDownRulesJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(
                         new PushPredicateThroughJoin())

@@ -726,7 +726,7 @@ public class HashJoinNode extends PlanNode {
                 List<EqJoinConjunctScanSlots> eqJoinConjunctSlots) {
             Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>> scanSlotsByJoinedTids = new LinkedHashMap<>();
             for (EqJoinConjunctScanSlots slots : eqJoinConjunctSlots) {
-                Pair<TupleId, TupleId> tids = Pair.create(slots.lhsTid(), slots.rhsTid());
+                Pair<TupleId, TupleId> tids = Pair.of(slots.lhsTid(), slots.rhsTid());
                 List<EqJoinConjunctScanSlots> scanSlots = scanSlotsByJoinedTids.get(tids);
                 if (scanSlots == null) {
                     scanSlots = new ArrayList<>();

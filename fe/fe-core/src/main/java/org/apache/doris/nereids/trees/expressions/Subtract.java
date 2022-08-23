@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 
@@ -26,15 +29,10 @@ import java.util.List;
 /**
  * Subtract Expression. BinaryExpression.
  */
-public class Subtract extends Arithmetic implements BinaryExpression {
-    public Subtract(Expression left, Expression right) {
-        super(ArithmeticOperator.SUBTRACT, left, right);
-    }
+public class Subtract extends BinaryArithmetic {
 
-    @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+    public Subtract(Expression left, Expression right) {
+        super(left, right, Operator.SUBTRACT);
     }
 
     @Override
@@ -46,5 +44,10 @@ public class Subtract extends Arithmetic implements BinaryExpression {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSubtract(this, context);
+    }
+
+    @Override
+    public AbstractDataType inputType() {
+        return NumericType.INSTANCE;
     }
 }

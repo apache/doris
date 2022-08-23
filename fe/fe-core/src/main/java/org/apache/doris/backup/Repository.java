@@ -159,7 +159,7 @@ public class Repository implements Writable {
             return null;
         }
 
-        return Pair.create(fileName, md5sum);
+        return Pair.of(fileName, md5sum);
     }
 
     // in: /path/to/orig_file

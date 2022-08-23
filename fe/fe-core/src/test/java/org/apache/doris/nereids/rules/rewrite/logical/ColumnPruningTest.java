@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -57,13 +56,11 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
     public void testPruneColumns1() {
         // TODO: It's inconvenient and less efficient to use planPattern().when(...) to check plan properties.
         // Enhance the generated patterns in the future.
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze(
-                                "select id,name,grade from student "
-                                        + "left join score on student.id = score.sid where score.grade > 60"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select id,name,grade from student left join score on student.id = score.sid"
+                        + " where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -90,14 +87,12 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
 
     @Test
     public void testPruneColumns2() {
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze(
-                                "select name,sex,cid,grade "
-                                        + "from student left join score on student.id = score.sid "
-                                        + "where score.grade > 60"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select name,sex,cid,grade "
+                        + "from student left join score on student.id = score.sid "
+                        + "where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -124,11 +119,10 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
 
     @Test
     public void testPruneColumns3() {
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze("select id,name from student where age > 18"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select id,name from student where age > 18")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject().when(p -> getOutputQualifiedNames(p)
@@ -143,15 +137,14 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
 
     @Test
     public void testPruneColumns4() {
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze("select name,cname,grade "
-                                + "from student left join score "
-                                + "on student.id = score.sid left join course "
-                                + "on score.cid = course.cid "
-                                + "where score.grade > 60"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select name,cname,grade "
+                        + "from student left join score "
+                        + "on student.id = score.sid left join course "
+                        + "on score.cid = course.cid "
+                        + "where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(

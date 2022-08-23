@@ -32,9 +32,8 @@ public class ExpressionReplacer
     public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
         if (substitutionMap.containsKey(expr)) {
             return substitutionMap.get(expr);
-        } else {
-            return super.visit(expr, substitutionMap);
         }
+        return super.visit(expr, substitutionMap);
     }
 }
 

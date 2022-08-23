@@ -192,7 +192,7 @@ public class LargeIntLiteral extends LiteralExpr {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
         } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
             return new DecimalLiteral(new BigDecimal(value));
-        } else if (targetType.isNumericType()) {
+        } else if (targetType.isIntegerType()) {
             try {
                 return new IntLiteral(value.longValueExact(), targetType);
             } catch (ArithmeticException e) {

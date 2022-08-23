@@ -41,6 +41,8 @@ import java.util.zip.CRC32;
 public class DppUtils {
     public static final String BUCKET_ID = "__bucketId__";
 
+    public static final int STRING_LENGTH_LIMIT = 1048576;
+
     public static Class getClassFromDataType(DataType dataType) {
         if (dataType == null) {
             return null;
@@ -94,6 +96,8 @@ public class DppUtils {
             case "HLL":
             case "CHAR":
             case "VARCHAR":
+            case "STRING":
+            case "TEXT":
             case "BITMAP":
             case "OBJECT":
                 return String.class;
@@ -142,6 +146,8 @@ public class DppUtils {
                 break;
             case "CHAR":
             case "VARCHAR":
+            case "STRING":
+            case "TEXT":
             case "OBJECT":
                 dataType = DataTypes.StringType;
                 break;

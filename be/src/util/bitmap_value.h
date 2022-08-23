@@ -1262,6 +1262,54 @@ public:
         return *this;
     }
 
+    BitmapValue& fastunion(const std::vector<const BitmapValue*>& values) {
+        std::vector<const detail::Roaring64Map*> bitmaps;
+        std::vector<uint64_t> single_values;
+        for (int i = 0; i < values.size(); ++i) {
+            auto* value = values[i];
+            switch (value->_type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                single_values.push_back(value->_sv);
+                break;
+            case BITMAP:
+                bitmaps.push_back(&value->_bitmap);
+                break;
+            }
+        }
+
+        if (!bitmaps.empty()) {
+            switch (_type) {
+            case EMPTY:
+                _bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                _type = BITMAP;
+                break;
+            case SINGLE:
+                _bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                _bitmap.add(_sv);
+                _type = BITMAP;
+                break;
+            case BITMAP:
+                _bitmap |= detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                break;
+            }
+        }
+
+        if (_type == EMPTY && single_values.size() == 1) {
+            _sv = single_values[0];
+            _type = SINGLE;
+        } else if (!single_values.empty()) {
+            _bitmap.addMany(single_values.size(), single_values.data());
+            if (_type == SINGLE) {
+                _bitmap.add(_sv);
+            }
+            _type = BITMAP;
+        }
+
+        return *this;
+    }
+
     // Compute the intersection between the current bitmap and the provided bitmap.
     // Possible type transitions are:
     // SINGLE -> EMPTY

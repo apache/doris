@@ -115,20 +115,26 @@ Status EnginePublishVersionTask::finish() {
                 res = Status::OLAPInternalError(OLAP_ERR_PUSH_TABLE_NOT_EXIST);
                 continue;
             }
-            Version max_version = tablet->max_version();
             // in uniq key model with merge-on-write, we should see all
             // previous version when update delete bitmap, so add a check
             // here and wait pre version publish or lock timeout
             if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                tablet->enable_unique_key_merge_on_write() &&
-                version.first != max_version.second + 1) {
-                LOG(INFO) << "uniq key with merge-on-write version not continuous, current max "
-                             "version="
-                          << max_version.second << ", publish_version=" << version.first
-                          << " tablet_id=" << tablet->tablet_id();
-                meet_version_not_continuous = true;
-                res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
-                continue;
+                tablet->enable_unique_key_merge_on_write()) {
+                Version max_version;
+                {
+                    std::shared_lock rdlock(tablet->get_header_lock());
+                    max_version = tablet->max_version();
+                }
+                if (version.first != max_version.second + 1) {
+                    VLOG_NOTICE << "uniq key with merge-on-write version not continuous, current "
+                                   "max "
+                                   "version="
+                                << max_version.second << ", publish_version=" << version.first
+                                << " tablet_id=" << tablet->tablet_id();
+                    meet_version_not_continuous = true;
+                    res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
+                    continue;
+                }
             }
             total_task_num.fetch_add(1);
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
@@ -174,7 +180,7 @@ Status EnginePublishVersionTask::finish() {
 
     LOG(INFO) << "finish to publish version on transaction."
               << "transaction_id=" << transaction_id
-              << ", error_tablet_size=" << _error_tablet_ids->size();
+              << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
     return res;
 }
 

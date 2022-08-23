@@ -111,7 +111,7 @@ public class PredicatePushDown {
                         LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
                                 && !analyzer.getGlobalSlotToLiteralDeDuplication()
-                                .contains(new Pair<>(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
+                                .contains(Pair.of(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
                             scanNode.addConjunct(pushDownConjunct);
                         }
                     } else if (otherSlot.isBound(rightSlot.getSlotId())
@@ -120,7 +120,7 @@ public class PredicatePushDown {
                         LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
                                 && !analyzer.getGlobalSlotToLiteralDeDuplication()
-                                .contains(new Pair<>(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
+                                .contains(Pair.of(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
                             scanNode.addConjunct(pushDownConjunct);
                         }
                     }

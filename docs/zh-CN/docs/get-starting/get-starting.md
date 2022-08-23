@@ -124,7 +124,7 @@ under the License.
    校验FE启动是否成功
 
    > 1. 检查是否启动成功, JPS 命令下有没有 PaloFe 进程 
-   > 2. FE 进程启动后，会先加载元数据，根据 FE 角色的不同，在志中会看到 transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER 。最终会看到 thrift server started 日志，并且可以通过 mysql 客户端连接到 FE，则 表示 FE 启动成功。
+   > 2. FE 进程启动后，会先加载元数据，根据 FE 角色的不同，在日志中会看到 transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER 。最终会看到 thrift server started 日志，并且可以通过 mysql 客户端连接到 FE，则 表示 FE 启动成功。
    > 3. 也可以通过如下连接查看是否启动成功： http://fe_host:fe_http_port/api/bootstrap (fe_http_port默认8030)如果返回： {"status":"OK","msg":"Success"} 则表示启动成功，其余情况，则可能存在问题。
    > 4. 外网环境访问 http://fe_host:fe_http_port 查看是否可以访问WebUI界面，登录账号默认为root，密码为空
    >

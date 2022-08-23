@@ -67,6 +67,9 @@ public:
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                Arena* arena) const override {}
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {}
 };
 
 } // namespace doris::vectorized

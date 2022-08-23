@@ -17,8 +17,6 @@
 
 #include "olap/schema_change.h"
 
-#include <vector>
-
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/merger.h"
@@ -829,7 +827,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                     << ", expect=" << row_size
                     << ", real=" << ref_block->get_by_position(result_column_id).column->size();
 
-            if (_schema_mapping[idx].expr->nodes[0].node_type == TExprNodeType::CAST_EXPR) {
+            if (ctx->root()->node_type() == TExprNodeType::CAST_EXPR) {
                 RETURN_IF_ERROR(
                         _check_cast_valid(ref_block->get_by_position(ref_idx).column,
                                           ref_block->get_by_position(result_column_id).column));
@@ -849,10 +847,28 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     return Status::OK();
 }
 
+// This check is to prevent schema-change from causing data loss
 Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                           vectorized::ColumnPtr new_column) const {
-    // TODO: rethink this check
-    // This check is to prevent schema-change from causing data loss,
+    if (ref_column->is_nullable() != new_column->is_nullable()) {
+        if (ref_column->is_nullable()) {
+            return Status::DataQualityError("Can not change nullable column to not nullable");
+        } else {
+            auto* new_null_map =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                            ->get_null_map_column()
+                            .get_data()
+                            .data();
+
+            bool is_changed = false;
+            for (size_t i = 0; i < ref_column->size(); i++) {
+                is_changed |= new_null_map[i];
+            }
+            if (is_changed) {
+                return Status::DataQualityError("is_null of data is changed!");
+            }
+        }
+    }
 
     if (ref_column->is_nullable() && new_column->is_nullable()) {
         auto* ref_null_map =
@@ -963,14 +979,8 @@ Status RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool n
     size_t row_block_size = _row_len * num_rows;
 
     if (_memory_limitation > 0 && _tracker->consumption() + row_block_size > _memory_limitation) {
-        LOG(WARNING)
-                << "RowBlockAllocator::alocate() memory exceeded. "
-                << "m_memory_allocated=" << _tracker->consumption() << " "
-                << "mem limit for schema change=" << _memory_limitation << " "
-                << "You can increase the memory "
-                << "by changing the Config.memory_limitation_per_thread_for_schema_change_bytes";
         *row_block = nullptr;
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
     }
 
     // TODO(lijiao) : Why abandon the original m_row_block_buffer
@@ -1356,11 +1366,15 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
-        if (!_row_block_allocator->allocate(&new_row_block, ref_row_block->row_block_info().row_num,
-                                            true)) {
-            LOG(WARNING) << "failed to allocate RowBlock.";
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
-        } else {
+        auto st = _row_block_allocator->allocate(&new_row_block,
+                                                 ref_row_block->row_block_info().row_num, true);
+        // if OLAP_ERR_FETCH_MEMORY_EXCEEDED == st.precise_code()
+        // that mean RowBlockAllocator::alocate() memory exceeded.
+        // But we can flush row_block_arr if row_block_arr is not empty.
+        // Don't return directly.
+        if (OLAP_ERR_MALLOC_ERROR == st.precise_code()) {
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        } else if (st) {
             // do memory check for sorting, in case schema change task fail at row block sorting because of
             // not doing internal sorting first
             if (!_row_block_allocator->is_memory_enough_for_sorting(
@@ -1375,8 +1389,11 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
         if (new_row_block == nullptr) {
             if (row_block_arr.empty()) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
-                             << "memory_limitation=" << _memory_limitation;
-                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+                             << "memory_limitation=" << _memory_limitation
+                             << "You can increase the memory "
+                             << "by changing the "
+                                "Config.memory_limitation_per_thread_for_schema_change_bytes";
+                return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
             }
 
             // enter here while memory limitation is reached.
@@ -1738,6 +1755,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     }
 
     std::vector<Version> versions_to_be_changed;
+    vectorized::BlockReader reader;
     std::vector<RowsetReaderSharedPtr> rs_readers;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
@@ -1849,7 +1867,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 break;
             }
 
-            vectorized::BlockReader reader;
             TabletReader::ReaderParams reader_params;
             reader_params.tablet = base_tablet;
             reader_params.reader_type = READER_ALTER_TABLE;

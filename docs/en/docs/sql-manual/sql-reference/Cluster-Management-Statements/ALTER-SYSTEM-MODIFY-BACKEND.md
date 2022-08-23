@@ -59,20 +59,20 @@ Note:
 1. Modify the resource tag of BE
 
     ```sql
-    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
-    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a", "tag.compute" = "c1");
+    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a");
+    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a", "tag.compute" = "c1");
     ````
 
 2. Modify the query disable property of BE
 
     ```sql
-    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_query" = "true");
     ````
 
 3. Modify the import disable property of BE
 
     ```sql
-    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true");
+    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_load" = "true");
     ````
 
 ### Keywords

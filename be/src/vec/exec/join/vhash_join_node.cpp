@@ -22,7 +22,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
-#include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -879,6 +878,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime");
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
+    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
+
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
@@ -1034,8 +1035,11 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     }
 
     _add_tuple_is_null_column(&temp_block);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+    {
+        SCOPED_TIMER(_join_filter_timer);
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+    }
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
@@ -1110,6 +1114,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     status->set_value(_hash_table_build(state));
 }
 
@@ -1470,7 +1475,9 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
             }
         }
 
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
+        if (!is_mem_reuse) {
+            output_block->swap(mutable_block.to_block());
+        }
         DCHECK(output_block->rows() == rows);
     }
 
