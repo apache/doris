@@ -284,7 +284,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
     // do filter detete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
         int delete_sign_idx =
-                (_sequence_col_idx == -1) ? target_columns.size() : target_columns.size() - 1;
+                (_sequence_col_idx == -1) ? target_columns.size() - 1 : target_columns.size() - 2;
         DCHECK(delete_sign_idx > 0);
         MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
@@ -292,7 +292,9 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         auto* __restrict filter_data =
                 reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
         auto* __restrict delete_data =
-                reinterpret_cast<ColumnInt8*>(target_columns.back().get())->get_data().data();
+                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
+                        ->get_data()
+                        .data();
         for (int i = 0; i < target_block_row; ++i) {
             filter_data[i] = delete_data[i] == 0;
         }
@@ -301,7 +303,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
         block->insert(column_with_type_and_name);
-        Block::filter_block(block, delete_sign_idx, target_columns.size());
+        Block::filter_block(block, target_columns.size(), target_columns.size());
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
     }
