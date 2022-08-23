@@ -30,8 +30,8 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -73,10 +73,10 @@ class PruneOlapScanPartitionTest extends TestWithFeService {
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(columnNameList);
         Deencapsulation.setField(rangePartitionInfo, "idToItem", keyItemMap);
         new Expectations() {{
-            olapTable.getPartitionInfo();
-            result = rangePartitionInfo;
+                olapTable.getPartitionInfo();
+                result = rangePartitionInfo;
 
-        }};
+            }};
         LogicalOlapScan scan = new LogicalOlapScan(olapTable);
         Expression expression = new Add(new SlotReference("col1", IntegerType.INSTANCE),
                 new IntegerLiteral(4));

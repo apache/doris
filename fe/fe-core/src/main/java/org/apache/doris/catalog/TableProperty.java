@@ -161,7 +161,7 @@ public class TableProperty implements Writable {
     }
 
     public boolean disableAutoCompaction() {
-        return disableAutoCompaction != null && disableAutoCompaction;
+        return disableAutoCompaction;
     }
 
     public TableProperty buildStoragePolicy() {
