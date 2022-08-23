@@ -121,7 +121,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 }
 
                 Optional<Expression> newOtherJoinCondition = rewriter.rewrite(otherJoinCondition);
-                if (!joinConjunctsChanged && newOtherJoinCondition.equals(otherJoinCondition.get())) {
+                if (!joinConjunctsChanged && newOtherJoinCondition.equals(otherJoinCondition)) {
                     return join;
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
