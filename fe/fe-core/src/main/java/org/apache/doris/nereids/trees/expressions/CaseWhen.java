@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -37,35 +38,34 @@ import java.util.stream.Collectors;
  * If an else expr is given then it is the last child.
  */
 public class CaseWhen extends Expression {
-    /**
-     * If default value exists, then defaultValueIndex is the index of the last element in children,
-     * otherwise it is -1
-     */
-    private final int defaultValueIndex;
+
+    private final List<WhenClause> whenClauses;
+    private final Optional<Expression> defaultValue;
 
     public CaseWhen(List<WhenClause> whenClauses) {
         super(whenClauses.toArray(new Expression[0]));
-        defaultValueIndex = -1;
+        this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
+        defaultValue = Optional.empty();
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
-        super(ImmutableList.builder().addAll(whenClauses).add(defaultValue).build().toArray(new Expression[0]));
-        defaultValueIndex = children().size() - 1;
+        super(ImmutableList.<Expression>builder()
+                .addAll(whenClauses).add(defaultValue).build()
+                .toArray(new Expression[0]));
+        this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
+        this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
     }
 
     public List<WhenClause> getWhenClauses() {
-        List<WhenClause> whenClauses = children().stream()
-                .filter(e -> e instanceof WhenClause)
-                .map(e -> (WhenClause) e)
-                .collect(Collectors.toList());
         return whenClauses;
     }
 
     public Optional<Expression> getDefaultValue() {
-        if (defaultValueIndex == -1) {
-            return Optional.empty();
-        }
-        return Optional.of(child(defaultValueIndex));
+        return defaultValue;
+    }
+
+    public List<DataType> dataTypesForCoercion() {
+        return whenClauses.stream().map(WhenClause::getDataType).collect(Collectors.toList());
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -79,12 +79,12 @@ public class CaseWhen extends Expression {
 
     @Override
     public boolean nullable() {
-        for (Expression child : children()) {
-            if (child.nullable()) {
+        for (WhenClause whenClause : whenClauses) {
+            if (whenClause.nullable()) {
                 return true;
             }
         }
-        return false;
+        return defaultValue.map(Expression::nullable).orElse(true);
     }
 
     @Override
@@ -99,7 +99,7 @@ public class CaseWhen extends Expression {
             if (child instanceof WhenClause) {
                 output.append(child.toSql());
             } else {
-                output.append(" ELSE " + child.toSql());
+                output.append(" ELSE ").append(child.toSql());
             }
         }
         output.append(" END");
@@ -107,7 +107,7 @@ public class CaseWhen extends Expression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public CaseWhen withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1);
         List<WhenClause> whenClauseList = new ArrayList<>();
         Expression defaultValue = null;
@@ -117,7 +117,7 @@ public class CaseWhen extends Expression {
             } else if (children.size() - 1 == i) {
                 defaultValue = children.get(i);
             } else {
-                throw new IllegalArgumentException("The children format needs to be [WhenClause*, DefaultValue+]");
+                throw new IllegalArgumentException("The children format needs to be [WhenClause+, DefaultValue?]");
             }
         }
         if (defaultValue == null) {

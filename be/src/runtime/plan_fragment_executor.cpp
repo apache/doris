@@ -47,6 +47,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -165,11 +166,20 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _plan->try_do_aggregate_serde_improve();
 
     for (int i = 0; i < scan_nodes.size(); ++i) {
-        ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
-        const std::vector<TScanRangeParams>& scan_ranges =
-                find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-        scan_node->set_scan_ranges(scan_ranges);
-        VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+        // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
+        ExecNode* node = scan_nodes[i];
+        if (typeid(*node) == typeid(vectorized::NewOlapScanNode)) {
+            vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
+            const std::vector<TScanRangeParams>& scan_ranges =
+                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            scan_node->set_scan_ranges(scan_ranges);
+        } else {
+            ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
+            const std::vector<TScanRangeParams>& scan_ranges =
+                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            scan_node->set_scan_ranges(scan_ranges);
+            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+        }
     }
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
