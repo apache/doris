@@ -90,11 +90,9 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
                 if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
                     continue;
                 }
-                std::string cache_file_path = StringReplace(
-                        done_file_path, "_DONE", "", true);
+                std::string cache_file_path = StringReplace(done_file_path, "_DONE", "", true);
                 LOG(INFO) << "Delete timeout done_cache_path: " << done_file_path
-                          << ", cache_file_path: " << cache_file_path
-                          << ", m_time: " << m_time;
+                          << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
                 if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
                     LOG(ERROR) << "delete_file failed: " << done_file_path;
                     continue;
@@ -105,8 +103,8 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
                 }
             }
             // find cache file without done file.
-            for (std::list<std::string>::iterator itr = done_names.begin();
-                 itr != done_names.end(); ++itr) {
+            for (std::list<std::string>::iterator itr = done_names.begin(); itr != done_names.end();
+                 ++itr) {
                 std::string cache_filename = StringReplace(*itr, "_DONE", "", true);
                 if (cache_names.find(cache_filename) != cache_names.end()) {
                     cache_names.erase(cache_filename);
@@ -128,8 +126,8 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
                     LOG(ERROR) << "delete_file failed: " << cache_file_path;
                 }
             }
-            if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()
-                && cache_file_names.size() == 0) {
+            if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok() &&
+                cache_file_names.size() == 0) {
                 if (global_local_filesystem()->delete_directory(cache_path).ok()) {
                     LOG(INFO) << "Delete empty dir: " << cache_path;
                 }

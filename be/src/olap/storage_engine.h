@@ -277,6 +277,7 @@ private:
     void _cooldown_tasks_producer_callback();
 
     void _cache_file_cleaner_tasks_producer_callback();
+
 private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
