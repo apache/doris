@@ -266,8 +266,8 @@ MemTracker::~MemTracker() {
     delete reservation_counters_.load();
 
     if (parent()) {
-        DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
-                                   << " has unreleased consumption " << consumption();
+        // DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
+        //                            << " has unreleased consumption " << consumption();
         parent_->Release(consumption());
 
         lock_guard<SpinLock> l(parent_->child_trackers_lock_);
