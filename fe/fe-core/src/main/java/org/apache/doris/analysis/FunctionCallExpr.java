@@ -222,7 +222,16 @@ public class FunctionCallExpr extends Expr {
         } else {
             fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
         }
-        aggFnParams = other.aggFnParams;
+
+        if (other.aggFnParams != null) {
+            if (other.aggFnParams.isStar()) {
+                Preconditions.checkState(children.isEmpty());
+                aggFnParams = FunctionParams.createStarParam();
+            } else {
+                aggFnParams = new FunctionParams(other.aggFnParams.isDistinct(), children);
+            }
+        }
+
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
