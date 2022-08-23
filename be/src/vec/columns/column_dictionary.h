@@ -395,11 +395,11 @@ public:
             }
         }
 
-        T convert_code(const T& code) const {
+        inline T convert_code(const T& code) const {
             if (get_null_code() == code) {
                 return code;
             }
-            return _code_convert_table[code];
+            return _code_convert_map.find(code)->second;
         }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
