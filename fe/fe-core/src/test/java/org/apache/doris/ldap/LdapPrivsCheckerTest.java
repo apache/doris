@@ -121,6 +121,10 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = new LdapUserInfo(userIdentity.getQualifiedUser(), false, "", role);
 
+                ldapManager.doesUserExist(userIdentity.getQualifiedUser());
+                minTimes = 0;
+                result = true;
+
                 context.getCurrentUserIdentity();
                 minTimes = 0;
                 result = userIdentity;

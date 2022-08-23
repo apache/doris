@@ -139,7 +139,7 @@ public class LdapClient {
                     .base(LdapConfig.ldap_user_basedn)
                     .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
             return true;
-        } catch (Exception e) {
+        } catch (org.springframework.ldap.AuthenticationException e) {
             return false;
         }
     }

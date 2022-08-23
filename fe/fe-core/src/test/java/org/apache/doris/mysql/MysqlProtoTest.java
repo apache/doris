@@ -222,6 +222,10 @@ public class MysqlProtoTest {
                 ldapManager.checkUserPasswd(anyString, anyString);
                 minTimes = 0;
                 result = userExist;
+
+                ldapManager.doesUserExist(anyString);
+                minTimes = 0;
+                result = userExist;
             }
         };
     }

@@ -49,6 +49,22 @@ public class LdapManager {
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
+    private void readLock() {
+        lock.readLock().lock();
+    }
+
+    private void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
     private long lastTimeStamp = System.currentTimeMillis();
 
     // If the user exists in LDAP, the LDAP information of the user is returned; otherwise, null is returned.
@@ -60,7 +76,7 @@ public class LdapManager {
         if (ldapUserInfo != null && !ldapUserInfo.checkTimeout()) {
             return ldapUserInfo;
         }
-        return updateUserInfo(fullName);
+        return getUserInfoAndUpdateCache(fullName);
     }
 
     public boolean doesUserExist(String fullName) {
@@ -104,7 +120,7 @@ public class LdapManager {
                 PaloAuth.ROOT_USER) && !fullName.equalsIgnoreCase(PaloAuth.ADMIN_USER);
     }
 
-    private LdapUserInfo updateUserInfo(String fulName) {
+    private LdapUserInfo getUserInfoAndUpdateCache(String fulName) {
         String cluster = ClusterNamespace.getClusterNameFromFullName(fulName);
         String userName = ClusterNamespace.getNameFromFullName(fulName);
         if (Strings.isNullOrEmpty(userName)) {
@@ -116,22 +132,22 @@ public class LdapManager {
         checkTimeoutCleanCache();
 
         LdapUserInfo ldapUserInfo = new LdapUserInfo(fulName, false, "", getLdapGroupsPrivs(userName, cluster));
-        lock.writeLock().lock();
+        writeLock();
         try {
             ldapUserInfoCache.put(ldapUserInfo.getUserName(), ldapUserInfo);
         } finally {
-            lock.writeLock().unlock();
+            writeUnlock();
         }
         return ldapUserInfo;
     }
 
     private void updatePasswd(LdapUserInfo ldapUserInfo, String passwd) {
         LdapUserInfo newLdapUserInfo = ldapUserInfo.cloneWithPasswd(passwd);
-        lock.writeLock().lock();
+        writeLock();
         try {
             ldapUserInfoCache.put(newLdapUserInfo.getUserName(), newLdapUserInfo);
         } finally {
-            lock.writeLock().unlock();
+            writeUnlock();
         }
     }
 
@@ -141,32 +157,32 @@ public class LdapManager {
             return;
         }
 
-        lock.writeLock().lock();
+        writeLock();
         try {
             ldapUserInfoCache.remove(ldapUserInfo.getUserName());
         } finally {
-            lock.writeLock().unlock();
+            writeUnlock();
         }
     }
 
     private void checkTimeoutCleanCache() {
         if (lastTimeStamp + LdapConfig.ldap_cache_timeout_day * 24 * 60 * 60 * 1000 < System.currentTimeMillis()) {
-            lock.writeLock().lock();
+            writeLock();
             try {
                 ldapUserInfoCache.clear();
                 lastTimeStamp = System.currentTimeMillis();
             } finally {
-                lock.writeLock().unlock();
+                writeUnlock();
             }
         }
     }
 
     private LdapUserInfo getUserInfoFromCache(String fullName) {
-        lock.readLock().lock();
+        readLock();
         try {
             return ldapUserInfoCache.get(fullName);
         } finally {
-            lock.readLock().unlock();
+            readUnlock();
         }
     }
 
