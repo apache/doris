@@ -123,6 +123,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     localGroupByExprs,
                     localOutputExprs,
                     true,
+                    aggregate.isNormalized(),
                     AggPhase.LOCAL,
                     aggregate.child()
             );
@@ -130,6 +131,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     globalGroupByExprs,
                     globalOutputExprs,
                     true,
+                    aggregate.isNormalized(),
                     AggPhase.GLOBAL,
                     localAggregate
             );
