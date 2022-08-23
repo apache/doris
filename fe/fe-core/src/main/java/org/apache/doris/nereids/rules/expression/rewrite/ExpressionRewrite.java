@@ -120,12 +120,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     rewriteHashJoinConjuncts.add(newExpr);
                 }
 
-                Expression newOtherJoinCondition = rewriter.rewrite(otherJoinCondition.get());
+                Optional<Expression> newOtherJoinCondition = rewriter.rewrite(otherJoinCondition);
                 if (!joinConjunctsChanged && newOtherJoinCondition.equals(otherJoinCondition.get())) {
                     return join;
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
-                        Optional.of(newOtherJoinCondition), join.left(), join.right());
+                        newOtherJoinCondition, join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }
