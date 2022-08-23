@@ -200,6 +200,10 @@ if [[ "${RUN_IN_AWS}" -eq 0 ]]; then
     export AWS_EC2_METADATA_DISABLED=true
 fi
 
+## set asan and ubsan env to generate core file
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1
+export UBSAN_OPTIONS=print_stacktrace=1
+
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 
