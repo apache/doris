@@ -138,7 +138,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::download_cache_thread_pool_queue_size)
             .build(&_download_cache_thread_pool);
     set_serial_download_cache_thread_token();
-  
+
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
