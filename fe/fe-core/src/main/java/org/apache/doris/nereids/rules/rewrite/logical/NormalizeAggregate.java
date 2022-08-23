@@ -55,6 +55,8 @@ import java.util.stream.Collectors;
  * Project(k1#1, Alias(SR#9)#4, Alias(k1#1 + 1)#5, Alias(SR#10))#6, Alias(SR#11))#7, Alias(SR#10 + 1)#8)
  * +-- Aggregate(keys:[k1#1, SR#9], outputs:[k1#1, SR#9, Alias(SUM(v1#3))#10, Alias(SUM(v1#3 + 1))#11])
  *     +-- Project(k1#1, Alias(K2#2 + 1)#9, v1#3)
+ *
+ * More example could get from UT {@link NormalizeAggregateTest}
  */
 public class NormalizeAggregate extends OneRewriteRuleFactory {
     @Override
@@ -94,7 +96,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                     .map(Entry::getValue)
                     .map(NamedExpression.class::cast)
                     .forEach(newOutputs::add);
-            // bottomProjections.stream().filter(p -> aggregate.getOutputExpressions().stream().anyMatch(e -> e.anyMatch(p)))
 
             // if we generate bottom, we need to generate to project too.
             // output

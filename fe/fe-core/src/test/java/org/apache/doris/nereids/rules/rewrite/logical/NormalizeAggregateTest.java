@@ -51,6 +51,16 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
         rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
     }
 
+    /**
+     * original plan:
+     * LogicalAggregate (phase: [GLOBAL], output: [name#2, sum(id#0) AS `sum`#4], groupBy: [name#2])
+     * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     *
+     * after rewrite:
+     * LogicalProject (name#2, sum(id)#5 AS `sum`#4)
+     * +--LogicalAggregate (phase: [GLOBAL], output: [name#2, sum(id#0) AS `sum(id)`#5], groupBy: [name#2])
+     *    +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     */
     @Test
     public void testSimpleKeyWithSimpleAggregateFunction() {
         NamedExpression key = rStudent.getOutput().get(2).toSlot();
@@ -76,6 +86,16 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                 );
     }
 
+    /**
+     * original plan:
+     * LogicalAggregate (phase: [GLOBAL], output: [(sum((id#0 * 1)) + 2) AS `(sum((id * 1)) + 2)`#4], groupBy: [name#2])
+     * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     *
+     * after rewrite:
+     * LogicalProject ((sum((id * 1))#5 + 2) AS `(sum((id * 1)) + 2)`#4)
+     * +--LogicalAggregate (phase: [GLOBAL], output: [sum((id#0 * 1)) AS `sum((id * 1))`#5], groupBy: [name#2])
+     *    +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     */
     @Test
     public void testComplexFuncWithComplexOutputOfFunc() {
         NamedExpression key = rStudent.getOutput().get(2).toSlot();
@@ -104,6 +124,18 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                 );
     }
 
+
+    /**
+     * original plan:
+     * LogicalAggregate (phase: [GLOBAL], output: [((gender#1 + 1) + 2) AS `((gender + 1) + 2)`#4], groupBy: [(gender#1 + 1)])
+     * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     *
+     * after rewrite:
+     * LogicalProject (((gender + 1)#5 + 2) AS `((gender + 1) + 2)`#4)
+     * +--LogicalAggregate (phase: [GLOBAL], output: [(gender + 1)#5], groupBy: [(gender + 1)#5])
+     *    +--LogicalProject ((gender#1 + 1) AS `(gender + 1)`#5)
+     *       +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     */
     @Test
     public void testComplexKeyWithComplexOutputOfKey() {
         Expression key = new Add(rStudent.getOutput().get(1).toSlot(), new IntegerLiteral(1));
