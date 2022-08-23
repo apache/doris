@@ -217,13 +217,12 @@ Status FileUtils::mtime(const std::string& file, time_t* m_time) {
         return Status::InternalError("failed to open file");
     }
 
+    Defer defer {[&]() { close(fd); }};
     struct stat statbuf;
     if (fstat(fd, &statbuf) < 0) {
-        close(fd);
         return Status::InternalError("failed to stat file");
     }
     *m_time = statbuf.st_mtime;
-    close(fd);
     return Status::OK();
 }
 

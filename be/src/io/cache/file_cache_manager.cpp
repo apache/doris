@@ -26,23 +26,22 @@
 namespace doris {
 namespace io {
 
-void FileCacheManager::add_file_cache(const Path& cache_path, FileCachePtr file_cache) {
+void FileCacheManager::add_file_cache(const std::string_view& cache_path, FileCachePtr file_cache) {
     std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
-    _file_cache_map.emplace(cache_path.native(), file_cache);
+    _file_cache_map.emplace(cache_path, file_cache);
 }
 
-void FileCacheManager::remove_file_cache(const Path& cache_path) {
+void FileCacheManager::remove_file_cache(const std::string_view& cache_path) {
     bool cache_path_exist = false;
     {
         std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
         if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
             bool cache_dir_exist = false;
-            if (global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok()) {
-                if (cache_dir_exist) {
-                    Status st = global_local_filesystem()->delete_directory(cache_path);
-                    if (!st.ok()) {
-                        LOG(WARNING) << st.to_string();
-                    }
+            if (global_local_filesystem()->exists(cache_path, &cache_dir_exist).ok() &&
+                cache_dir_exist) {
+                Status st = global_local_filesystem()->delete_directory(cache_path);
+                if (!st.ok()) {
+                    LOG(WARNING) << st.to_string();
                 }
             }
         } else {
@@ -52,7 +51,7 @@ void FileCacheManager::remove_file_cache(const Path& cache_path) {
     }
     if (cache_path_exist) {
         std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
-        _file_cache_map.erase(cache_path.native());
+        _file_cache_map.erase(cache_path);
     }
 }
 
@@ -67,30 +66,33 @@ void FileCacheManager::clean_timeout_caches() {
     }
 }
 
-void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
+void FileCacheManager::clean_timeout_file_not_in_mem(const std::string_view& cache_path) {
+    time_t now = time(nullptr);
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     // Deal with caches not in _file_cache_map
-    if (_file_cache_map.find(cache_path.native()) == _file_cache_map.end()) {
+    if (_file_cache_map.find(cache_path) == _file_cache_map.end()) {
         std::vector<Path> cache_file_names;
         if (io::global_local_filesystem()->list(cache_path, &cache_file_names).ok()) {
             std::map<std::string, bool> cache_names;
             std::list<std::string> done_names;
             for (Path cache_file_name : cache_file_names) {
-                std::string filename = cache_file_name.native();
+                std::string_view filename = cache_file_name.native();
                 if (filename.find("_DONE") == std::string::npos) {
                     cache_names[filename] = true;
                     continue;
                 }
                 done_names.push_back(filename);
-                std::string done_file_path = (cache_path / filename).native();
+                std::stringstream done_file_ss;
+                done_file_ss << cache_path << "/" << filename;
+                std::string_view done_file_path = done_file_ss.str();
                 time_t m_time;
                 if (!FileUtils::mtime(done_file_path, &m_time).ok()) {
                     continue;
                 }
-                if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
+                if (now - m_time < config::file_cache_alive_time_sec) {
                     continue;
                 }
-                std::string cache_file_path = StringReplace(done_file_path, "_DONE", "", true);
+                std::string_view cache_file_path = StringReplace(done_file_path, "_DONE", "", true);
                 LOG(INFO) << "Delete timeout done_cache_path: " << done_file_path
                           << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
                 if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
@@ -105,7 +107,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
             // find cache file without done file.
             for (std::list<std::string>::iterator itr = done_names.begin(); itr != done_names.end();
                  ++itr) {
-                std::string cache_filename = StringReplace(*itr, "_DONE", "", true);
+                std::string_view cache_filename = StringReplace(*itr, "_DONE", "", true);
                 if (cache_names.find(cache_filename) != cache_names.end()) {
                     cache_names.erase(cache_filename);
                 }
@@ -113,7 +115,9 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
             // remove cache file without done file
             for (std::map<std::string, bool>::iterator itr = cache_names.begin();
                  itr != cache_names.end(); ++itr) {
-                std::string cache_file_path = (cache_path / itr->first).native();
+                std::stringstream cache_file_ss;
+                cache_file_ss << cache_path << "/" << itr->first;
+                std::string_view cache_file_path = cache_file_ss.str();
                 time_t m_time;
                 if (!FileUtils::mtime(cache_file_path, &m_time).ok()) {
                     continue;
@@ -136,7 +140,8 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const Path& cache_path) {
     }
 }
 
-FileCachePtr FileCacheManager::new_file_cache(const Path& cache_dir, int64_t alive_time_sec,
+FileCachePtr FileCacheManager::new_file_cache(const std::string_view& cache_dir,
+                                              int64_t alive_time_sec,
                                               io::FileReaderSPtr remote_file_reader,
                                               const std::string& file_cache_type) {
     if (file_cache_type == "whole_file_cache") {
@@ -148,7 +153,7 @@ FileCachePtr FileCacheManager::new_file_cache(const Path& cache_dir, int64_t ali
     }
 }
 
-bool FileCacheManager::exist(const Path& cache_path) {
+bool FileCacheManager::exist(const std::string_view& cache_path) {
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     return _file_cache_map.find(cache_path) != _file_cache_map.end();
 }
