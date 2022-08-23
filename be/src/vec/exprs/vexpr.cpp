@@ -366,7 +366,7 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
 void VExpr::debug_valid(VExprContext* context) {
     DCHECK_LT(_fn_context_index, context->get_fn_context_size());
     for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->debug_valid(context)) {
+        _children[i]->debug_valid(context);
     }
 }
 
