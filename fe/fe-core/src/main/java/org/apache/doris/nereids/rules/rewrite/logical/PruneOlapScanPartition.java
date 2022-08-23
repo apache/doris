@@ -69,6 +69,10 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             List<Expression> expressionList = ExpressionUtils.extractConjunction(predicate);
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
+            if (partitionColumnNameSet.isEmpty()) {
+                scan.getSelectedPartitionIds().addAll(table.getPartitionIds());
+                return ctx.root;
+            }
             // TODO: Process all partition column for now, better to process required column only.
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (String colName : partitionColumnNameSet) {
