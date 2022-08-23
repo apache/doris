@@ -292,7 +292,9 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         auto* __restrict filter_data =
                 reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
         auto* __restrict delete_data =
-                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())->get_data().data();
+                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
+                        ->get_data()
+                        .data();
         for (int i = 0; i < target_block_row; ++i) {
             filter_data[i] = delete_data[i] == 0;
         }
