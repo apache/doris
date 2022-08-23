@@ -1148,11 +1148,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
                     DefaultValue defaultValue;
                     if (column.getDefaultValueExprDef() != null) {
-                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(), column.getDefaultValueExprDef().getExprName());
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                                column.getDefaultValueExprDef().getExprName());
                     } else {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
-                    columnDef = new ColumnDef(name, typeDef, column.isKey(), column.getAggregationType(), column.isAllowNull(), defaultValue, column.getComment());
+                    columnDef = new ColumnDef(name, typeDef, column.isKey(), column.getAggregationType(),
+                            column.isAllowNull(), defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution

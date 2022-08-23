@@ -71,7 +71,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromDecimal);
         Assertions.assertEquals("CREATE TABLE `select_decimal_table` (\n" + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `amount_decimal` decimal(10, 2) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n"
-                        + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                        + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
                         + "\n\"disable_auto_compaction\" = \"false\"\n" + ")",
@@ -118,7 +119,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromVarchar);
         ShowResultSet showResultSet = showCreateTableByName("select_varchar");
         Assertions.assertEquals("CREATE TABLE `select_varchar` (\n" + "  `userId` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
+                        + "  `username` varchar(255) REPLACE NOT NULL\n"
+                        + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
@@ -171,7 +173,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTableByName("select_alias_2");
         Assertions.assertEquals("CREATE TABLE `select_alias_2` (\n" + "  `alias_name` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`alias_name`)\n"
+                        + "  `username` varchar(255) REPLACE NOT NULL\n"
+                        + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`alias_name`)\n"
                         + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
@@ -199,7 +202,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet1 = showCreateTableByName("select_join1");
         Assertions.assertEquals("CREATE TABLE `select_join1` (\n" + "  `userId1` varchar(255) NOT NULL,\n"
                         + "  `userId2` varchar(255) NOT NULL,\n" + "  `username` varchar(255) REPLACE NOT NULL,\n"
-                        + "  `status` int(11) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId1`, `userId2`)\n"
+                        + "  `status` int(11) REPLACE NOT NULL\n"
+                        + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId1`, `userId2`)\n"
                         + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId1`) BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
@@ -268,7 +272,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromPartition);
         ShowResultSet showResultSet = showCreateTableByName("selectPartition");
         Assertions.assertEquals("CREATE TABLE `selectPartition` (\n" + "  `userId` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
+                        + "  `username` varchar(255) REPLACE NOT NULL\n"
+                        + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n" + "PARTITION BY LIST(`userId`)\n"
                         + "(PARTITION p1 VALUES IN (\"CA\",\"GB\",\"US\",\"ZH\"))\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
@@ -280,7 +285,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
     @Test
     public void testDefaultTimestamp() throws Exception {
         String createSql
-                = "create table `test`.`test_default_timestamp` PROPERTIES (\"replication_num\" = \"1\") as select * from `test`.`default_timestamp_table`";
+                = "create table `test`.`test_default_timestamp` PROPERTIES (\"replication_num\" = \"1\")"
+                + " as select * from `test`.`default_timestamp_table`";
         createTableAsSelect(createSql);
         ShowResultSet showResultSet = showCreateTableByName("test_default_timestamp");
         Assertions.assertEquals("CREATE TABLE `test_default_timestamp` (\n" + "  `userId` varchar(255) NOT NULL,\n"
