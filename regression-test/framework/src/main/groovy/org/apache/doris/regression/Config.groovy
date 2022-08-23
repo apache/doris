@@ -375,7 +375,7 @@ class Config {
     String getDbNameByFile(File suiteFile) {
         String dir = new File(suitePath).relativePath(suiteFile.parentFile)
         // We put sql files under sql dir, so dbs and tables used by cases
-        // under sql directory should be prepared by load.groovy unbder the
+        // under sql directory should be prepared by load.groovy under the
         // parent.
         //
         // e.g.
