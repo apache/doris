@@ -404,7 +404,7 @@ public:
             static std::once_flag once;
             std::call_once(once, [size_in_bytes] {
                 auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
-                                               LRUCacheType::SIZE, 2048);
+                                               LRUCacheType::SIZE, 256);
                 AggCache::s_repr.store(tmp, std::memory_order_release);
             });
 
