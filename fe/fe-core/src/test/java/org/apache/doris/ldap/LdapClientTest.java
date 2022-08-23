@@ -98,7 +98,7 @@ public class LdapClientTest {
                         if (passwd.equals(password)) {
                             return;
                         } else {
-                            throw new RuntimeException("exception");
+                            throw new org.springframework.ldap.AuthenticationException();
                         }
                     }
                 };
