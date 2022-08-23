@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;

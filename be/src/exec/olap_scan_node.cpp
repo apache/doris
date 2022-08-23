@@ -1491,13 +1491,6 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
     }
 
-    ThreadPoolToken* thread_token = nullptr;
-    if (limit() != -1 && limit() < 1024) {
-        thread_token = state->get_query_fragments_ctx()->get_serial_token();
-    } else {
-        thread_token = state->get_query_fragments_ctx()->get_token();
-    }
-
     /*********************************
      * The basic strategy of priority scheduling:
      * 1. Determine the initial nice value by querying the number of split ranges
@@ -1508,6 +1501,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      *    The larger the nice value, the more preferentially obtained query resources
      * 4. Regularly increase the priority of the remaining tasks in the queue to avoid starvation for large queries
      *********************************/
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
     _total_assign_num = 0;

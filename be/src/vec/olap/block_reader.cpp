@@ -175,6 +175,7 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
         return res;
     }
     *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
+    _eof = *eof;
     if (UNLIKELY(_reader_context.record_rowids)) {
         res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
         if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
@@ -208,6 +209,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            _eof = true;
             *eof = true;
             break;
         }
@@ -265,6 +267,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            _eof = true;
             *eof = true;
             if (UNLIKELY(_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
@@ -294,11 +297,13 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
             filter_data[i] = delete_data[i] == 0;
         }
 
-        ColumnWithTypeAndName column_with_type_and_name {
-                _delete_filter_column, std::make_shared<DataTypeUInt8>(), "filter"};
+        ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
+                                                         std::make_shared<DataTypeUInt8>(),
+                                                         "__DORIS_COMPACTION_FILTER__"};
         block->insert(column_with_type_and_name);
         Block::filter_block(block, delete_sign_idx, target_columns.size());
         _stats.rows_del_filtered += target_block_row - block->rows();
+        DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
     }
     return Status::OK();
 }
