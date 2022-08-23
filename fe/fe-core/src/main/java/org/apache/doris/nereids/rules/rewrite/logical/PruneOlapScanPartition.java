@@ -69,7 +69,10 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             List<Expression> expressionList = ExpressionUtils.extractConjunction(predicate);
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
-            if (partitionColumnNameSet.isEmpty()) {
+            PartitionInfo partitionInfo = table.getPartitionInfo();
+            // TODO: 1. support grammar: SELECT * FROM tbl PARTITION(p1,p2)
+            //       2. support list partition
+            if (partitionColumnNameSet.isEmpty() || !partitionInfo.getType().equals(PartitionType.RANGE)) {
                 scan.getSelectedPartitionIds().addAll(table.getPartitionIds());
                 return ctx.root;
             }
@@ -79,11 +82,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                 ColumnRange columnRange = createColumnRange(colName, expressionList);
                 columnNameToRange.put(colName, columnRange);
             }
-            // TODO: support grammar: SELECT * FROM tbl PARTITION(p1,p2)
-            PartitionInfo partitionInfo = table.getPartitionInfo();
-            if (!partitionInfo.getType().equals(PartitionType.RANGE)) {
-                return ctx.root;
-            }
+
             Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItem(false);
             PartitionPruner partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
