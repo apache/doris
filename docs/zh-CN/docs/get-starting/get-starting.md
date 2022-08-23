@@ -77,8 +77,6 @@ meta_dir=/path/your/doris-meta
 >
 >这里你可以不配置，默认是在你的Doris FE 安装目录下的 doris-meta，
 >
->如果你有 SSD 硬盘，建议这里目录配置到 SSD 上，会获取更好的性能
->
 >单独配置元数据目录，需要你提前创建好你指定的目录
 
 ### 启动 FE 
@@ -91,7 +89,17 @@ meta_dir=/path/your/doris-meta
 
 #### 查看 FE 运行状态
 
-通过 Doris FE 提供的Web UI 访问，在浏览器里输入地址
+你可以通过下面的命令来检查 Doris 是否启动成功
+
+```
+curl http://127.0.0.1:8030/api/bootstrap
+```
+
+这里 IP 和 端口分别是 FE 的 IP 和 http_port（默认8030），如果是你在 FE 节点执行，直接运行上面的命令即可。
+
+如果返回结果中带有 `"msg":"success"` 字样，则说明启动成功。
+
+你也可以通过 Doris FE 提供的Web UI 来检查，在浏览器里输入地址
 
 http:// fe_ip:8030
 
@@ -187,11 +195,15 @@ priority_networks=172.23.16.0/24
 
 2. 配置 BE 数据存储目录
 
-   这里是演示，我们使用系统默认的存储目录 `be/storage` 。
 
 ```
 storage_root=/path/your/doris-meta
 ```
+
+>注意：
+>
+>1. 默认目录在 BE安装目录的 storage 目录下。
+>2. BE 配置的存储目录必须先创建好
 
 ### 启动 BE
 
@@ -217,7 +229,7 @@ ALTER SYSTEM ADD BACKEND "be_host_ip:heartbeat_service_port";
 你可以在 MySQL 命令行下执行下面的命令查看 BE 的运行状态。
 
 ```sql
-SHOW BACKENDS\G；
+SHOW BACKENDS\G;
 ```
 
 示例：
@@ -315,7 +327,8 @@ curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127
 ```
 
 - -T test.csv : 这里使我们刚才保存的数据文件，如果路径不一样，请指定完整路径
-- -u root:   : 这里是用户名密码，我们使用默认用户root，密码是空
+- -u root :  这里是用户名密码，我们使用默认用户root，密码是空
+- 127.0.0.1:8030 : 分别是 fe 的 ip 和 http_port
 
 执行成功之后我们可以看到下面的返回信息
 
@@ -340,9 +353,11 @@ curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127
 }
 ```
 
-`NumberLoadedRows` 表示已经导入的数据记录数
+1. `NumberLoadedRows`: 表示已经导入的数据记录数
 
-`NumberTotalRows` 表示要导入的总数据量
+2. `NumberTotalRows`: 表示要导入的总数据量
+
+3. `Status` :Success 表示导入成功
 
 到这里我们已经完成的数据导入，下面就可以根据我们自己的需求对数据进行查询分析了。
 

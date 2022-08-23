@@ -27,7 +27,7 @@ under the License.
 
 # Quick Start
 
-Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use, requiring only sub-second response times to return query results under massive amounts of data, supporting not only highly concurrent point query scenarios but also high-throughput complex analysis scenarios. This short guide will show you how to download the latest stable version of Doris, install and run it on a single node, including creating databases, data tables, importing data and queries, etc. You can also operate and view Doris through the Web UI
+Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use. It takes only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point query scenarios, but also high-throughput complex analytic scenarios. version, install and run it on a single node, including creating databases, data tables, importing data and queries, etc.
 
 ## Download Doris
 
@@ -75,8 +75,6 @@ meta_dir=/path/your/doris-meta
 >
 >Here you can leave it unconfigured, the default is doris-meta in your Doris FE installation directory.
 >
->If you have an SSD drive, it is recommended that you configure the directory here on the SSD to get better performance.
->
 >To configure the metadata directory separately, you need to create the directory you specify in advance
 
 ### Start FE 
@@ -89,15 +87,23 @@ Execute the following command in the FE installation directory to complete the F
 
 #### View FE operational status
 
-Accessed through the Web UI provided by Doris FE by entering the address in your browser
+You can check if Doris started successfully with the following command
+
+```
+curl http://127.0.0.1:8030/api/bootstrap
+```
+
+Here the IP and port are the IP and http_port of FE (default 8030), if you are executing in FE node, just run the above command directly.
+
+If the return result has the word `"msg": "success"`, then the startup was successful.
+
+You can also check this through the web UI provided by Doris FE by entering the address in your browser
 
 http:// fe_ip:8030
 
 You can see the following screen, which indicates that the FE has started successfully
 
 ![image-20220822091951739](/images/image-20220822091951739.png)
-
-
 
 >Note: 
 >
@@ -108,7 +114,7 @@ You can see the following screen, which indicates that the FE has started succes
 
 We will connect to Doris FE via MySQL client below, download the installation-free [MySQL client](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-) glibc2.12-x86_64.tar.gz)
 
-Unzip the MySQL client you just downloaded, and then execute the following command to connect to Doris.
+Unzip the MySQL client you just downloaded and you can find the `mysql` command line tool in the `bin/` directory. Then execute the following command to connect to Doris.
 
 ```
 mysql -uroot -P9030 -h127.0.0.1
@@ -185,11 +191,15 @@ priority_networks=172.23.16.0/24
 
 2. Configure the BE data storage directory
 
-   Here is the demo, we use the default system storage directory `be/storage`.
 
 ```
 storage_root=/path/your/doris-meta
 ```
+
+>Notes.
+>
+>1. The default directory is in the storage directory of the BE installation directory.
+>2. The storage directory for BE configuration must be created first
 
 ### Start BE
 
@@ -313,7 +323,8 @@ curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127
 ```
 
 - -T test.csv : This is the data file we just saved, if the path is different, please specify the full path
-- -u root: : here is the user name and password, we use the default user root, the password is empty
+- -u root: Here is the user name and password, we use the default user root, the password is empty
+- 127.0.0.1:8030 : is the ip and http_port of fe, respectively
 
 After successful execution we can see the following return message
 
@@ -338,9 +349,11 @@ After successful execution we can see the following return message
 }
 ```
 
-`NumberLoadedRows` indicates the number of data records that have been imported
+1. `NumberLoadedRows` indicates the number of data records that have been imported
 
-`NumberTotalRows` indicates the total amount of data to be imported
+2. `NumberTotalRows` indicates the total amount of data to be imported
+
+3. `Status` :Success means the import was successful
 
 Here we have finished importing the data, and we can now query and analyze the data according to our own needs.
 
