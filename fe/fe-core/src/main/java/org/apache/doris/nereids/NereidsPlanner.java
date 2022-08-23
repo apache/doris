@@ -24,14 +24,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-<<<<<<< HEAD
-=======
-import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
-import org.apache.doris.nereids.jobs.batch.FindHashConditionForJoinJob;
-import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
-import org.apache.doris.nereids.jobs.batch.MergeConsecutiveProjectJob;
-import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
->>>>>>> f9465becc (Support non-equal predicates in join)
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.RewriteJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
