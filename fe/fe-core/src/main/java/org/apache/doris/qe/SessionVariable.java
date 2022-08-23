@@ -209,6 +209,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
 
+    public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -524,6 +526,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
+    public boolean enableLocalExchange = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -918,6 +923,10 @@ public class SessionVariable implements Serializable, Writable {
         return this.enableFunctionPushdown;
     }
 
+    public boolean getEnableLocalExchange() {
+        return enableLocalExchange;
+    }
+
     /**
      * getInsertVisibleTimeoutMs.
      **/
@@ -1113,6 +1122,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
+        tResult.setEnableLocalExchange(enableLocalExchange);
 
         return tResult;
     }
