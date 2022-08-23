@@ -64,7 +64,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // or predicates when it is not inited.
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
-                _rowset->end_version(), read_options.delete_condition_predicates.get());
+                _rowset->end_version(), read_options.delete_condition_predicates.get(),
+                &read_options.col_id_to_del_predicates);
         // if del cond is not empty, schema may be different in multiple rowset
         can_reuse_schema = read_options.delete_conditions.empty();
     }

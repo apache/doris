@@ -160,9 +160,9 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(std::vector<ColumnPredicate*>& col_predicates,
-                                                AndBlockColumnPredicate* delete_predicates,
-                                                RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_zone_map(
+        std::vector<ColumnPredicate*>& col_predicates,
+        std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
@@ -226,7 +226,7 @@ bool ColumnReader::_zone_map_match_condition(
 }
 
 Status ColumnReader::_get_filtered_pages(std::vector<ColumnPredicate*>& col_predicates,
-                                         AndBlockColumnPredicate* delete_predicates,
+                                         std::vector<const ColumnPredicate*>* delete_predicates,
                                          std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
@@ -240,8 +240,16 @@ Status ColumnReader::_get_filtered_pages(std::vector<ColumnPredicate*>& col_pred
             _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
             if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
                                           col_predicates)) {
-                if (delete_predicates->num_of_column_predicate() == 0 ||
-                    !delete_predicates->evaluate_and({min_value.get(), max_value.get()})) {
+                bool should_read = true;
+                if (delete_predicates != nullptr) {
+                    for (auto del_pred : *delete_predicates) {
+                        if (del_pred->evaluate_and({min_value.get(), max_value.get()})) {
+                            should_read = false;
+                            break;
+                        }
+                    }
+                }
+                if (should_read) {
                     page_indexes->push_back(i);
                 }
             }
@@ -857,9 +865,9 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_zone_map(std::vector<ColumnPredicate*>& col_predicates,
-                                                      AndBlockColumnPredicate* delete_predicates,
-                                                      RowRanges* row_ranges) {
+Status FileColumnIterator::get_row_ranges_by_zone_map(
+        std::vector<ColumnPredicate*>& col_predicates,
+        std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(
                 _reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_ranges));

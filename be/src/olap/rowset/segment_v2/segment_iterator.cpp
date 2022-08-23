@@ -334,7 +334,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             continue;
         }
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
-                _opts.col_id_to_predicates[cid], _opts.delete_condition_predicates.get(),
+                _opts.col_id_to_predicates[cid],
+                _opts.col_id_to_del_predicates.count(cid) > 0
+                        ? &(_opts.col_id_to_del_predicates[cid])
+                        : nullptr,
                 &column_row_ranges));
         // intersect different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
