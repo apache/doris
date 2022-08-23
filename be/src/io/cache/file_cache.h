@@ -27,6 +27,8 @@
 namespace doris {
 namespace io {
 
+const std::string CACHE_DONE_FILE_SUFFIX = "_DONE";
+
 class FileCache : public FileReader {
 public:
     FileCache() = default;
