@@ -22,6 +22,7 @@
 #include "io/cache/whole_file_cache.h"
 #include "io/fs/local_file_system.h"
 #include "util/file_utils.h"
+#include "util/string_util.h"
 
 namespace doris {
 namespace io {
