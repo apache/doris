@@ -35,6 +35,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -73,7 +74,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                 // process non-SlotReference keys
                 newKeys.addAll(partitionedKeys.get(false).stream()
                         .map(e -> new Alias(e, e.toSql()))
-                        .peek(a -> substitutionMap.put(a.child(), a))
+                        .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
                         .peek(bottomProjections::add)
                         .map(Alias::toSlot)
                         .collect(Collectors.toList()));
@@ -86,7 +87,14 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .peek(bottomProjections::add)
                         .forEach(newKeys::add);
             }
-            newOutputs.addAll(bottomProjections);
+            // add all necessary key to output
+            substitutionMap.entrySet().stream()
+                    .filter(kv -> aggregate.getOutputExpressions().stream()
+                            .anyMatch(e -> e.anyMatch(kv.getKey()::equals)))
+                    .map(Entry::getValue)
+                    .map(NamedExpression.class::cast)
+                    .forEach(newOutputs::add);
+            // bottomProjections.stream().filter(p -> aggregate.getOutputExpressions().stream().anyMatch(e -> e.anyMatch(p)))
 
             // if we generate bottom, we need to generate to project too.
             // output
@@ -100,7 +108,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .collect(Collectors.toSet());
                 newOutputs.addAll(aggregateFunctions.stream()
                         .map(f -> new Alias(f, f.toSql()))
-                        .peek(a -> substitutionMap.put(a.child(), a))
+                        .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
                         .collect(Collectors.toList()));
                 // add slot references in aggregate function to bottom projections
                 bottomProjections.addAll(aggregateFunctions.stream()
@@ -108,6 +116,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .map(SlotReference.class::cast)
                         .collect(Collectors.toSet()));
             }
+
 
             // assemble
             LogicalPlan root = aggregate.child();
