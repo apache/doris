@@ -53,7 +53,6 @@
 #include "odbc_scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/initial_reservations.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -286,9 +285,6 @@ Status ExecNode::close(RuntimeState* state) {
     }
 
     if (_buffer_pool_client.is_registered()) {
-        VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;
-        state->initial_reservations()->Return(&_buffer_pool_client,
-                                              _resource_profile.min_reservation);
         state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
     }
 
@@ -727,11 +723,8 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     }
 
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
-    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), state->instance_buffer_reservation(),
-                                                buffer_pool->GetSystemBytesLimit(),
-                                                runtime_profile(), &_buffer_pool_client));
+    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), runtime_profile(), &_buffer_pool_client));
 
-    state->initial_reservations()->Claim(&_buffer_pool_client, _resource_profile.min_reservation);
     /*
     if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
         (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
@@ -742,10 +735,6 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     } 
 */
     return Status::OK();
-}
-
-Status ExecNode::release_unused_reservation() {
-    return _buffer_pool_client.DecreaseReservationTo(_resource_profile.min_reservation);
 }
 
 void ExecNode::release_block_memory(vectorized::Block& block, uint16_t child_idx) {

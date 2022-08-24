@@ -27,7 +27,6 @@
 #include "olap/storage_policy_mgr.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
@@ -311,8 +310,6 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
                                 int64_t clean_pages_limit) {
     DCHECK(_buffer_pool == nullptr);
     _buffer_pool = new BufferPool(min_page_size, capacity, clean_pages_limit);
-    _buffer_reservation = new ReservationTracker();
-    _buffer_reservation->InitRootTracker(nullptr, capacity);
 }
 
 void ExecEnv::_register_metrics() {
@@ -364,7 +361,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_task_pool_mem_tracker_registry);
-    SAFE_DELETE(_buffer_reservation);
     SAFE_DELETE(_scanner_scheduler);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);

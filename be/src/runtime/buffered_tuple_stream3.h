@@ -228,7 +228,7 @@ public:
     /// 'got_reservation': set to true if there was enough reservation to initialize the
     ///     first write page and false if there was not enough reservation and no other
     ///     error was encountered. Undefined if an error status is returned.
-    Status PrepareForWrite(bool* got_reservation) WARN_UNUSED_RESULT;
+    Status PrepareForWrite() WARN_UNUSED_RESULT;
 
     /// Prepares the stream for interleaved reads and writes by saving enough reservation
     /// for default-sized read and write pages. Called after Init() and before the first
@@ -237,7 +237,7 @@ public:
     /// 'got_reservation': set to true if there was enough reservation to initialize the
     ///     read and write pages and false if there was not enough reservation and no other
     ///     error was encountered. Undefined if an error status is returned.
-    Status PrepareForReadWrite(bool delete_on_read, bool* got_reservation) WARN_UNUSED_RESULT;
+    Status PrepareForReadWrite(bool delete_on_read) WARN_UNUSED_RESULT;
 
     /// Prepares the stream for reading, invalidating the write iterator (if there is one).
     /// Therefore must be called after the last AddRow() or AddRowCustomEnd() and before
@@ -248,7 +248,7 @@ public:
     /// 'got_reservation': set to true if there was enough reservation to initialize the
     ///     first read page and false if there was not enough reservation and no other
     ///     error was encountered. Undefined if an error status is returned.
-    Status PrepareForRead(bool delete_on_read, bool* got_reservation) WARN_UNUSED_RESULT;
+    Status PrepareForRead(bool delete_on_read) WARN_UNUSED_RESULT;
 
     /// Adds a single row to the stream. There are three possible outcomes:
     /// a) The append succeeds. True is returned.
@@ -447,11 +447,6 @@ private:
     /// status was returned.
     std::list<Page>::iterator read_page_;
 
-    /// Saved reservation for read iterator. 'default_page_len_' reservation is saved if
-    /// there is a read iterator, no pinned read page, and the possibility that the read
-    /// iterator will advance to a valid page.
-    BufferPool::SubReservation read_page_reservation_;
-
     /// Number of rows returned from the current read_page_.
     uint32_t read_page_rows_returned_;
 
@@ -478,15 +473,6 @@ private:
     /// write page. Always pinned. Size is 'default_page_len_', except temporarily while
     /// appending a larger row between AddRowCustomBegin() and AddRowCustomEnd().
     Page* write_page_;
-
-    /// Saved reservation for write iterator. 'default_page_len_' reservation is saved if
-    /// there is a write iterator, no page currently pinned for writing and the possibility
-    /// that a pin count will be needed for the write iterator in future. Specifically if:
-    /// * no rows have been appended to the stream and 'pages_' is empty, or
-    /// * the stream is unpinned, 'write_page_' is null and and the last page in 'pages_'
-    ///   is a large page that we advanced past, or
-    /// * there is only one pinned page in the stream and it is already pinned for reading.
-    BufferPool::SubReservation write_page_reservation_;
 
     /// Total bytes of pinned pages in pages_, stored to avoid iterating over the list
     /// to compute it.
@@ -570,7 +556,7 @@ private:
     /// allocated. Returns an error if the row cannot fit in a page. Returns OK and sets
     /// 'got_reservation' to false if the reservation could not be increased and no other
     /// error was encountered.
-    Status AdvanceWritePage(int64_t row_size, bool* got_reservation) noexcept WARN_UNUSED_RESULT;
+    Status AdvanceWritePage(int64_t row_size) noexcept WARN_UNUSED_RESULT;
 
     /// Reset the write page, if there is one, and unpin pages accordingly. If there
     /// is an active write iterator, the next row will be appended to a new page.
@@ -617,36 +603,6 @@ private:
     /// Return the expected pin count for 'page' in the current stream based on the current
     /// read and write pages and whether the stream is pinned.
     int ExpectedPinCount(bool stream_pinned, const Page* page) const;
-
-    /// Return true if the stream in its current state needs to have a reservation for
-    /// a write page stored in 'write_page_reservation_'.
-    bool NeedWriteReservation() const;
-
-    /// Same as above, except assume the stream's 'pinned_' state is 'stream_pinned'.
-    bool NeedWriteReservation(bool stream_pinned) const;
-
-    /// Same as above, except assume the stream has 'num_pages' pages and different
-    /// iterator state.
-    static bool NeedWriteReservation(bool stream_pinned, int64_t num_pages, bool has_write_iterator,
-                                     bool has_write_page, bool has_read_write_page);
-
-    /// Return true if the stream in its current state needs to have a reservation for
-    /// a read page stored in 'read_page_reservation_'.
-    bool NeedReadReservation() const;
-
-    /// Same as above, except assume the stream's 'pinned_' state is 'stream_pinned'.
-    bool NeedReadReservation(bool stream_pinned) const;
-
-    /// Same as above, except assume the stream has 'num_pages' pages and a different
-    /// read iterator state.
-    bool NeedReadReservation(bool stream_pinned, int64_t num_pages, bool has_read_iterator,
-                             bool has_read_page) const;
-
-    /// Same as above, except assume the stream has 'num_pages' pages and a different
-    /// write iterator state.
-    static bool NeedReadReservation(bool stream_pinned, int64_t num_pages, bool has_read_iterator,
-                                    bool has_read_page, bool has_write_iterator,
-                                    bool has_write_page);
 
     /// Templated GetNext implementations.
     template <bool FILL_FLAT_ROWS>

@@ -31,10 +31,7 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "runtime/buffered_block_mgr2.h"
-#include "runtime/bufferpool/reservation_tracker.h"
-#include "runtime/bufferpool/reservation_util.h"
 #include "runtime/exec_env.h"
-#include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_task_pool.h"
@@ -68,8 +65,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
-          _error_log_file(nullptr),
-          _instance_buffer_reservation(new ReservationTracker) {
+          _error_log_file(nullptr) {
     Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
@@ -94,8 +90,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
-          _error_log_file(nullptr),
-          _instance_buffer_reservation(new ReservationTracker) {
+          _error_log_file(nullptr) {
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
     }
@@ -155,19 +150,6 @@ RuntimeState::~RuntimeState() {
 
     if (_error_hub != nullptr) {
         _error_hub->close();
-    }
-
-    // Release the reservation, which should be unused at the point.
-    if (_instance_buffer_reservation != nullptr) {
-        _instance_buffer_reservation->Close();
-    }
-
-    if (_initial_reservations != nullptr) {
-        _initial_reservations->ReleaseResources();
-    }
-
-    if (_buffer_reservation != nullptr) {
-        _buffer_reservation->Close();
     }
 
     // Manually release the child mem tracker before _instance_mem_tracker is destructed.
@@ -248,46 +230,12 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
             &_profile);
 
-    RETURN_IF_ERROR(init_buffer_poolstate());
-
-    _initial_reservations = _obj_pool->add(new InitialReservations(
-            _obj_pool.get(), _buffer_reservation, _query_options.initial_reservation_total_claims));
-    RETURN_IF_ERROR(_initial_reservations->Init(_query_id, min_reservation()));
-    DCHECK_EQ(0, _initial_reservation_refcnt.load());
-
-    if (_instance_buffer_reservation != nullptr) {
-        _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
-                                                       std::numeric_limits<int64_t>::max());
-    }
     return Status::OK();
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
     _query_mem_tracker = nullptr;
     _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "RuntimeState:instance");
-    return Status::OK();
-}
-
-Status RuntimeState::init_buffer_poolstate() {
-    ExecEnv* exec_env = ExecEnv::GetInstance();
-    int64_t mem_limit = _query_mem_tracker->get_lowest_limit();
-    int64_t max_reservation;
-    if (query_options().__isset.buffer_pool_limit && query_options().buffer_pool_limit > 0) {
-        max_reservation = query_options().buffer_pool_limit;
-    } else if (mem_limit == -1) {
-        // No query mem limit. The process-wide reservation limit is the only limit on
-        // reservations.
-        max_reservation = std::numeric_limits<int64_t>::max();
-    } else {
-        DCHECK_GE(mem_limit, 0);
-        max_reservation = ReservationUtil::GetReservationLimitFromMemLimit(mem_limit);
-    }
-
-    VLOG_QUERY << "Buffer pool limit for " << print_id(_query_id) << ": " << max_reservation;
-
-    _buffer_reservation = _obj_pool->add(new ReservationTracker);
-    _buffer_reservation->InitChildTracker(nullptr, exec_env->buffer_reservation(), max_reservation);
-
     return Status::OK();
 }
 

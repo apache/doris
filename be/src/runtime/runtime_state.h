@@ -56,8 +56,6 @@ class TmpFileMgr;
 class BufferedBlockMgr;
 class BufferedBlockMgr2;
 class LoadErrorHub;
-class ReservationTracker;
-class InitialReservations;
 class RowDescriptor;
 class RuntimeFilterMgr;
 
@@ -94,9 +92,6 @@ public:
 
     // for ut only
     Status init_instance_mem_tracker();
-
-    /// Called from Init() to set up buffer reservations and the file group.
-    Status init_buffer_poolstate();
 
     // Gets/Creates the query wide block mgr.
     Status create_block_mgr();
@@ -319,12 +314,6 @@ public:
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
 
-    ReservationTracker* instance_buffer_reservation() { return _instance_buffer_reservation.get(); }
-
-    int64_t min_reservation() const { return _query_options.min_reservation; }
-
-    int64_t max_reservation() const { return _query_options.max_reservation; }
-
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -359,11 +348,6 @@ public:
         }
         return segment_v2::CompressionTypePB::SNAPPY;
     }
-
-    // the following getters are only valid after Prepare()
-    InitialReservations* initial_reservations() const { return _initial_reservations; }
-
-    ReservationTracker* buffer_reservation() const { return _buffer_reservation; }
 
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
@@ -514,26 +498,6 @@ private:
     std::mutex _create_error_hub_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
-
-    //TODO chenhao , remove this to QueryState
-    /// Pool of buffer reservations used to distribute initial reservations to operators
-    /// in the query. Contains a ReservationTracker that is a child of
-    /// 'buffer_reservation_'. Owned by 'obj_pool_'. Set in Prepare().
-    ReservationTracker* _buffer_reservation = nullptr;
-
-    /// Buffer reservation for this fragment instance - a child of the query buffer
-    /// reservation. Non-nullptr if 'query_state_' is not nullptr.
-    std::unique_ptr<ReservationTracker> _instance_buffer_reservation;
-
-    /// Pool of buffer reservations used to distribute initial reservations to operators
-    /// in the query. Contains a ReservationTracker that is a child of
-    /// 'buffer_reservation_'. Owned by 'obj_pool_'. Set in Prepare().
-    InitialReservations* _initial_reservations = nullptr;
-
-    /// Number of fragment instances executing, which may need to claim
-    /// from 'initial_reservations_'.
-    /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
-    std::atomic<int32_t> _initial_reservation_refcnt {0};
 
     QueryFragmentsCtx* _query_ctx;
 

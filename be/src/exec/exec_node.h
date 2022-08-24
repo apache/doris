@@ -210,11 +210,6 @@ protected:
     /// as the initial reservation is not released before Close().
     Status claim_buffer_reservation(RuntimeState* state);
 
-    /// Release any unused reservation in excess of the node's initial reservation. Returns
-    /// an error if releasing the reservation requires flushing pages to disk, and that
-    /// fails.
-    Status release_unused_reservation();
-
     /// Release all memory of block which got from child. The block
     // 1. clear mem of valid column get from child, make sure child can reuse the mem
     // 2. delete and release the column which create by function all and other reason
