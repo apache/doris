@@ -28,7 +28,7 @@ under the License.
 
 ### Description
 
-该命令用于创建一张表。本文档主语介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.md)文档。
+该命令用于创建一张表。本文档主要介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.md)文档。
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
