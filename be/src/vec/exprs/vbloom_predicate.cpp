@@ -29,6 +29,7 @@ VBloomPredicate::VBloomPredicate(const TExprNode& node)
 
 Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
+    RETURN_OR_SET_PREPARED
     RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
 
     if (_prepared) {

@@ -37,6 +37,7 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
 
 Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) {
+    RETURN_OR_SET_PREPARED
     RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
 
     if (_is_prepare) {

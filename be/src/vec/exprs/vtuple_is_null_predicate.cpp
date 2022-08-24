@@ -36,6 +36,7 @@ VTupleIsNullPredicate::VTupleIsNullPredicate(const TExprNode& node)
 
 Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
+    RETURN_OR_SET_PREPARED
     RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
     DCHECK_EQ(0, _children.size());
     _column_to_check =

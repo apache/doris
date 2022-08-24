@@ -21,6 +21,7 @@ namespace doris::vectorized {
 
 Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                               VExprContext* context) {
+    RETURN_OR_SET_PREPARED
     DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
 
     RETURN_IF_ERROR(VExpr::prepare(state, row_desc, context));

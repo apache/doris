@@ -33,19 +33,18 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl)
           _impl(impl),
           _always_true(false),
           _filtered_rows(0),
-          _scan_rows(0),
-          _is_closed(false) {}
+          _scan_rows(0) {}
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr)
         : VExpr(vexpr),
           _impl(vexpr._impl),
           _always_true(vexpr._always_true),
           _filtered_rows(vexpr._filtered_rows.load()),
-          _scan_rows(vexpr._scan_rows.load()),
-          _is_closed(false) {}
+          _scan_rows(vexpr._scan_rows.load()) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
+    RETURN_OR_SET_PREPARED
     RETURN_IF_ERROR(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
     return Status::OK();
@@ -58,10 +57,6 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
 
 void VRuntimeFilterWrapper::close(RuntimeState* state, VExprContext* context,
                                   FunctionContext::FunctionStateScope scope) {
-    if (_is_closed) {
-        return;
-    }
-    _is_closed = true;
     _impl->close(state, context, scope);
 }
 
