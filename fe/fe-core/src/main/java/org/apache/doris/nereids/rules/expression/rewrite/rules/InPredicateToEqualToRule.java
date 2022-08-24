@@ -25,9 +25,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 
 /**
- * Rewrites InPredicate into an EqualTo Expression, if there exists only one element in InPredicate.Options.
+ * Rewrites InPredicate to an EqualTo Expression, if there exists exactly one element in InPredicate.Options.
  * Examples:
  * where A in (x) ==> where A = x
+ * where A not in (x) ==> where not A = x (After ExpressionTranslator, "not A = x" will be translated to "A != x")
  */
 public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
 

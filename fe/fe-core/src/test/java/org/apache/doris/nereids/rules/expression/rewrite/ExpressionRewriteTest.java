@@ -21,6 +21,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
@@ -149,6 +150,16 @@ public class ExpressionRewriteTest {
         assertRewrite("a between c and d", "(a >= c) and (a <= d)");
         assertRewrite("a not between c and d)", "(a < c) or (a > d)");
 
+    }
+
+    @Test
+    public void testInPredicateToEqualToRule() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE));
+
+        assertRewrite("a in (1)", "a = 1");
+        assertRewrite("a in (1, 2)", "a in (1, 2)");
+        assertRewrite("a not in (1)", "not a = 1");
+        assertRewrite("a not in (1, 2)", "not a in (1, 2)");
     }
 
     @Test
