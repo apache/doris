@@ -130,7 +130,13 @@ public:
     // It is used for revise mem tracker consumption.
     // If the location of memory alloc and free is different, the consumption value of mem tracker will be inaccurate.
     // But the consumption value of the process mem tracker is not affecte
-    void consume_local(int64_t bytes, MemTrackerLimiter* end_tracker);
+    void cache_consume_local(int64_t bytes);
+
+    // Will not change the value of process_mem_tracker, even though mem_tracker == process_mem_tracker.
+    void transfer_to(int64_t size, MemTrackerLimiter* dst) {
+        cache_consume_local(-size);
+        dst->cache_consume_local(size);
+    }
 
     void enable_print_log_usage() { _print_log_usage = true; }
 
@@ -147,11 +153,11 @@ public:
     // If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     // 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     // If 'state' is non-nullptr, logs the error to 'state'.
-    Status mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size = 0);
+    Status mem_limit_exceeded(const std::string& msg, int64_t failed_allocation_size = 0);
     Status mem_limit_exceeded(const std::string& msg, MemTrackerLimiter* failed_tracker,
                               Status failed_try_consume_st);
     Status mem_limit_exceeded(RuntimeState* state, const std::string& msg,
-                              int64_t failed_consume_size = 0);
+                              int64_t failed_allocation_size = 0);
 
     std::string debug_string() {
         std::stringstream msg;
@@ -183,7 +189,6 @@ private:
     // the current value is returned and set to 0.
     // Thread safety.
     int64_t add_untracked_mem(int64_t bytes);
-    void consume_cache(int64_t bytes);
 
     // Log consumption of all the trackers provided. Returns the sum of consumption in
     // 'logged_consumption'. 'max_recursive_depth' specifies the maximum number of levels
@@ -254,19 +259,14 @@ inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {
     return 0;
 }
 
-inline void MemTrackerLimiter::consume_cache(int64_t bytes) {
+inline void MemTrackerLimiter::cache_consume_local(int64_t bytes) {
+    if (bytes == 0) return;
     int64_t consume_bytes = add_untracked_mem(bytes);
     if (consume_bytes != 0) {
-        consume(consume_bytes);
-    }
-}
-
-inline void MemTrackerLimiter::consume_local(int64_t bytes, MemTrackerLimiter* end_tracker) {
-    DCHECK(end_tracker);
-    if (bytes == 0) return;
-    for (auto& tracker : _all_ancestors) {
-        if (tracker->label() == end_tracker->label()) return;
-        tracker->_consumption->add(bytes);
+        for (auto& tracker : _all_ancestors) {
+            if (tracker->label() == "Process") return;
+            tracker->_consumption->add(bytes);
+        }
     }
 }
 

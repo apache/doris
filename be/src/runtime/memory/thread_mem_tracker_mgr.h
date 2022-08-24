@@ -78,16 +78,6 @@ public:
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     void consume(int64_t size);
 
-    // Will not change the value of process_mem_tracker, even though mem_tracker == process_mem_tracker.
-    void transfer_to(int64_t size, MemTrackerLimiter* mem_tracker) {
-        consume(-size);
-        mem_tracker->consume_cache(size);
-    }
-    void transfer_from(int64_t size, MemTrackerLimiter* mem_tracker) {
-        mem_tracker->consume_cache(-size);
-        consume(size);
-    }
-
     template <bool CheckLimit>
     void flush_untracked_mem();
 

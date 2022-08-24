@@ -249,20 +249,21 @@ Status MemTrackerLimiter::mem_limit_exceeded_log(const std::string& msg) {
     return status;
 }
 
-Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size) {
+Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
+                                             int64_t failed_allocation_size) {
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     DCHECK(!_limited_ancestors.empty());
     std::string detail = fmt::format("memory limit exceeded:<consumed_tracker={}, ", _label);
-    if (failed_consume_size != 0)
+    if (failed_allocation_size != 0)
         detail += fmt::format("need_size={}, ",
-                              PrettyPrinter::print(failed_consume_size, TUnit::BYTES));
+                              PrettyPrinter::print(failed_allocation_size, TUnit::BYTES));
     MemTrackerLimiter* exceeded_tracker = this;
     int64_t free_size = INT_MAX;
     for (const auto& tracker : _limited_ancestors) {
         int64_t max_consumption = tracker->peak_consumption() > tracker->consumption()
                                           ? tracker->peak_consumption()
                                           : tracker->consumption();
-        if (tracker->has_limit() && tracker->limit() < max_consumption + failed_consume_size) {
+        if (tracker->has_limit() && tracker->limit() < max_consumption + failed_allocation_size) {
             exceeded_tracker = tracker;
             break;
         }
