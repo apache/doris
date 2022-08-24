@@ -18,8 +18,14 @@
 
 set -eo pipefail
 
-curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# check max_map_count first
+MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
+if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+    exit 1
+fi
 
+# check opt.
 OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -51,17 +57,33 @@ while true; do
     esac
 done
 
-DORIS_HOME="$(
-    cd "${curdir}/.."
-    pwd
-)"
-export DORIS_HOME
+# init and export env variables
+PRG="$0"
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+PRGDIR=`dirname "$PRG"`
 
-MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
-if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
-    exit 1
-fi
+export DORIS_HOME="`cd "$PRGDIR/.." >/dev/null; pwd`"
+export PID_DIR="`cd "$PRGDIR" >/dev/null; pwd`"
+export LOG_DIR="${DORIS_HOME}/log"
+export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
+# set odbc conf path
+export ODBCSYSINI="${DORIS_HOME}/conf"
+# support utf8 for oracle database
+export NLS_LANG="AMERICAN_AMERICA.AL32UTF8"
+#filter known leak for lsan.
+export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
+PID_FILE="${PID_DIR}/be.pid"
+# create if not exists
+[[ ! -d "${LOG_DIR}" ]] && mkdir -p "${LOG_DIR}"
+[[ ! -d "${UDF_RUNTIME_DIR}" ]] && mkdir -p "${UDF_RUNTIME_DIR}"
 
 # add libs to CLASSPATH
 for f in "${DORIS_HOME}/lib"/*.jar; do
@@ -126,28 +148,6 @@ setup_java_env() {
 # prepare jvm if needed
 setup_java_env || true
 
-# export env variables from be.conf
-#
-# UDF_RUNTIME_DIR
-# LOG_DIR
-# PID_DIR
-export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
-export LOG_DIR="${DORIS_HOME}/log"
-PID_DIR="$(
-    cd "${curdir}"
-    pwd
-)"
-export PID_DIR
-
-# set odbc conf path
-export ODBCSYSINI="${DORIS_HOME}/conf"
-
-# support utf8 for oracle database
-export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
-
-#filter known leak for lsan.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
-
 while read -r line; do
     envline="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
@@ -165,24 +165,14 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
-if [[ ! -d "${LOG_DIR}" ]]; then
-    mkdir -p "${LOG_DIR}"
-fi
-
-if [[ ! -d "${UDF_RUNTIME_DIR}" ]]; then
-    mkdir -p "${UDF_RUNTIME_DIR}"
-fi
-
 rm -f "${UDF_RUNTIME_DIR}"/*
 
-pidfile="${PID_DIR}/be.pid"
-
-if [[ -f "${pidfile}" ]]; then
-    if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
-        echo "Backend running as process $(cat "${pidfile}"). Stop it first."
+if [[ -f "${PID_FILE}" ]]; then
+    if kill -0 "$(cat "${PID_FILE}")" >/dev/null 2>&1; then
+        echo "Backend running as process $(cat "${PID_FILE}"). Stop it first."
         exit 1
     else
-        rm "${pidfile}"
+        rm "${PID_FILE}"
     fi
 fi
 

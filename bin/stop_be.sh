@@ -18,29 +18,32 @@
 
 set -eo pipefail
 
-curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# init and export env variables
 
-DORIS_HOME="$(
-    cd "${curdir}/.."
-    pwd
-)"
-export DORIS_HOME
+PRG="$0"
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
 
-PID_DIR="$(
-    cd "${curdir}"
-    pwd
-)"
-export PID_DIR
+PRGDIR=`dirname "$PRG"`
+
+export DORIS_HOME="`cd "$PRGDIR/.." >/dev/null; pwd`"
+export PID_DIR="`cd "$PRGDIR" >/dev/null; pwd`"
+PID_FILE="${PID_DIR}/be.pid"
 
 signum=9
 if [[ "$1" = "--grace" ]]; then
     signum=15
 fi
 
-pidfile="${PID_DIR}/be.pid"
-
-if [[ -f "${pidfile}" ]]; then
-    pid="$(cat "${pidfile}")"
+if [[ -f "${PID_FILE}" ]]; then
+    pid="$(cat "${PID_FILE}")"
 
     # check if pid valid
     if test -z "${pid}"; then
@@ -69,7 +72,7 @@ if [[ -f "${pidfile}" ]]; then
                 sleep 2
             else
                 echo "stop ${pidcomm}, and remove pid file. "
-                if [[ -f "${pidfile}" ]]; then rm "${pidfile}"; fi
+                if [[ -f "${PID_FILE}" ]]; then rm "${PID_FILE}"; fi
                 exit 0
             fi
         done
@@ -78,6 +81,6 @@ if [[ -f "${pidfile}" ]]; then
         exit 1
     fi
 else
-    echo "ERROR: ${pidfile} does not exist"
+    echo "ERROR: ${PID_FILE} does not exist"
     exit 1
 fi

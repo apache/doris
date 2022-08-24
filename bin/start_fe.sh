@@ -18,8 +18,7 @@
 
 set -eo pipefail
 
-curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-
+# check opt first
 OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -66,24 +65,29 @@ while true; do
     esac
 done
 
-DORIS_HOME="$(
-    cd "${curdir}/.."
-    pwd
-)"
-export DORIS_HOME
+# export env variables
+PRG="$0"
 
-# export env variables from fe.conf
-#
-# JAVA_OPTS
-# LOG_DIR
-# PID_DIR
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+PRGDIR=`dirname "$PRG"`
+
+export DORIS_HOME="`cd "$PRGDIR/.." >/dev/null; pwd`"
+export PID_DIR="`cd "$PRGDIR" >/dev/null; pwd`"
+export LOG_DIR="$DORIS_HOME/log"
+export LOG_FILE="${LOG_DIR}/fe.out"
 export JAVA_OPTS="-Xmx1024m"
-export LOG_DIR="${DORIS_HOME}/log"
-PID_DIR="$(
-    cd "${curdir}"
-    pwd
-)"
-export PID_DIR
+export MAIN_CLASS="org.apache.doris.PaloFe"
+# create if not exists
+[[ ! -d "${LOG_DIR}" ]] && mkdir -p "${LOG_DIR}"
 
 while read -r line; do
     envline="$(echo "${line}" |
@@ -140,10 +144,6 @@ jdk_version() {
     return 0
 }
 
-# need check and create if the log directory existed before outing message to the log file.
-if [[ ! -d "${LOG_DIR}" ]]; then
-    mkdir -p "${LOG_DIR}"
-fi
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(
@@ -153,13 +153,13 @@ java_version="$(
 final_java_opt="${JAVA_OPTS}"
 if [[ "${java_version}" -gt 8 ]]; then
     if [[ -z "${JAVA_OPTS_FOR_JDK_9}" ]]; then
-        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
+        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>"${LOG_FILE}"
         exit 1
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 fi
-echo "using java version ${java_version}" >>"${LOG_DIR}/fe.out"
-echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
+echo "using java version ${java_version}" >>"${LOG_FILE}"
+echo "${final_java_opt}" >> "${LOG_FILE}"
 
 # add libs to CLASSPATH
 for f in "${DORIS_HOME}/lib"/*.jar; do
@@ -182,7 +182,7 @@ else
     LIMIT=/bin/limit
 fi
 
-date >>"${LOG_DIR}/fe.out"
+date >>"${LOG_FILE}"
 
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend
@@ -191,15 +191,15 @@ fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     if [[ -n "${IMAGE_PATH}" ]]; then
-        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} org.apache.doris.PaloFe -i "${IMAGE_PATH}"
+        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${MAIN_CLASS} -i "${IMAGE_PATH}"
     else
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" ${MAIN_CLASS} ${HELPER:+${HELPER}} "$@" >>"${LOG_FILE}" 2>&1 </dev/null &
 else
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:OnOutOfMemoryError="kill -9 %p" ${MAIN_CLASS} ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" </dev/null
 fi
 
 echo $! >"${pidfile}"
