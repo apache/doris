@@ -43,6 +43,7 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -93,6 +94,8 @@ public class DeleteHandlerTest {
     private AgentTaskQueue agentTaskQueue;
     @Mocked
     private AgentTaskExecutor executor;
+    @Mocked
+    private SystemInfoService systemInfoService;
 
     private Database db;
     private PaloAuth auth;
@@ -167,6 +170,14 @@ public class DeleteHandlerTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                env.getClusterInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                systemInfoService.getBackendIds(false);
+                minTimes = 0;
+                result = Lists.newArrayList(1L);
             }
         };
         globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
