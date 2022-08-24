@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to create ssb flat table
+# This script is used to create TPC-H tables
 ##############################################################
 
 set -eo pipefail
@@ -29,11 +29,10 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-DDL="${CURDIR}/ddl/create-ssb-flat-table.sql"
 
 usage() {
   echo "
-This script is used to create ssb flat table, 
+This script is used to create TPC-H tables, 
 will use mysql client to connect Doris server which is specified in doris-cluster.conf file.
 Usage: $0 
   "
@@ -41,9 +40,8 @@ Usage: $0
 }
 
 OPTS=$(getopt \
-  -n $0 \
+  -n "$0" \
   -o '' \
-  -o 'h' \
   -- "$@")
 
 eval set -- "$OPTS"
@@ -86,7 +84,8 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-source $CURDIR/doris-cluster.conf
+# shellcheck source=/dev/null
+source "$CURDIR/../conf/doris-cluster.conf"
 export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
@@ -95,7 +94,7 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -e "CREATE DATABASE IF NOT EXISTS $DB"
 
-echo "Run DDL from ${DDL}"
-mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB <${DDL}
+echo "Run SQLs from $CURDIR/create-tpch-tables.sql"
+mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" <"$CURDIR"/../ddl/create-tpch-tables.sql

@@ -30,29 +30,45 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
+SSB_DATA_DIR="$CURDIR/ssb-data/"
 
 usage() {
     echo "
-The ssb flat data actually comes from ssb tables, and will load by 'INSERT INTO ... SELECT ...'
 Usage: $0 <options>
+  Optional options:
+    -c             parallelism to load data of lineorder table, default is 5.
+
+  Eg.
+    $0              load data using default value.
+    $0 -c 10        load lineorder table data using parallelism 10.     
   "
     exit 1
 }
 
 OPTS=$(getopt \
-    -n $0 \
+    -n "$0" \
     -o '' \
-    -o 'h' \
+    -o 'hc:' \
     -- "$@")
 
 eval set -- "$OPTS"
 
+PARALLEL=5
 HELP=0
+
+if [ $# == 0 ]; then
+    usage
+fi
+
 while true; do
     case "$1" in
     -h)
         HELP=1
         shift
+        ;;
+    -c)
+        PARALLEL=$2
+        shift 2
         ;;
     --)
         shift
@@ -70,6 +86,14 @@ if [[ ${HELP} -eq 1 ]]; then
     exit
 fi
 
+echo "Parallelism: $PARALLEL"
+
+# check if ssb-data exists
+if [[ ! -d $SSB_DATA_DIR/ ]]; then
+    echo "$SSB_DATA_DIR does not exist. Run sh gen-ssb-data.sh first."
+    exit 1
+fi
+
 check_prerequest() {
     local CMD=$1
     local NAME=$2
@@ -80,9 +104,9 @@ check_prerequest() {
 }
 
 run_sql() {
-    sql="$@"
-    echo $sql
-    mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB -e "$@"
+    sql="$*"
+    echo "$sql"
+    mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$@"
 }
 
 load_lineitem_flat() {
@@ -165,7 +189,9 @@ ON (p.p_partkey = l.lo_partkey);
 check_prerequest "curl --version" "curl"
 
 # load lineorder
-source $CURDIR/doris-cluster.conf
+# shellcheck source=/dev/null
+source "$CURDIR/../conf/doris-cluster.conf"
+export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
 echo "FE_HTTP_PORT: $FE_HTTP_PORT"
@@ -173,25 +199,78 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-echo 'Loading data for table: lineorder_flat'
+date
+echo "==========Start to load data into ssb tables=========="
+echo 'Loading data for table: part'
+curl --location-trusted -u "$USER":"$PASSWORD" \
+    -H "column_separator:|" \
+    -H "columns:p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy" \
+    -T "$SSB_DATA_DIR"/part.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/part/_stream_load
 
-echo '============================================'
+echo 'Loading data for table: date'
+curl --location-trusted -u "$USER":"$PASSWORD" \
+    -H "column_separator:|" \
+    -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
+    -T "$SSB_DATA_DIR"/date.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/dates/_stream_load
+
+echo 'Loading data for table: supplier'
+curl --location-trusted -u "$USER":"$PASSWORD" \
+    -H "column_separator:|" \
+    -H "columns:s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy" \
+    -T "$SSB_DATA_DIR"/supplier.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/supplier/_stream_load
+
+echo 'Loading data for table: customer'
+curl --location-trusted -u "$USER":"$PASSWORD" \
+    -H "column_separator:|" \
+    -H "columns:c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use" \
+    -T "$SSB_DATA_DIR"/customer.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/customer/_stream_load
+
+echo "Loading data for table: lineorder, with $PARALLEL parallel"
+function load() {
+    echo "$@"
+    curl --location-trusted -u "$USER":"$PASSWORD" \
+        -H "column_separator:|" \
+        -H "columns:lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority,lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount,lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy" \
+        -T "$@" http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/lineorder/_stream_load
+}
+
+# set parallelism
+[ -e /tmp/fd1 ] || mkfifo /tmp/fd1
+exec 3<>/tmp/fd1
+rm -rf /tmp/fd1
+
+for ((i = 1; i <= PARALLEL; i++)); do
+    echo >&3
+done
+
+date
+for file in "$SSB_DATA_DIR"/lineorder.tbl.*; do
+    read -r -u3
+    {
+        load "$file"
+        echo >&3
+    } &
+done
+
+# wait for child thread finished
+wait
+date
+
+echo "==========Start to insert data into ssb flat table=========="
 echo "change some session variables before load, and then restore after load."
 origin_query_timeout=$(run_sql 'select @@query_timeout;' | sed -n '3p')
 origin_parallel=$(run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p')
 # set parallel_fragment_exec_instance_num=1, loading maybe slow but stable.
 run_sql "set global query_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
-
 echo '============================================'
-echo $(date)
+date
 load_lineitem_flat
-
+date
 echo '============================================'
 echo "restore session variables"
 run_sql "set global query_timeout=${origin_query_timeout};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
-
 echo '============================================'
-echo $(date)
+
 echo "DONE."
