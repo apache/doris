@@ -375,6 +375,8 @@ public:
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
+    bool enable_profile() const { return _query_options.is_report_success; }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {

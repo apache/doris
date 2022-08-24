@@ -114,10 +114,7 @@ Status NewOlapScanner::prepare(
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
-    // SCOPED_TIMER(_parent->_reader_init_timer);
     // SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-
-    // _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -293,6 +290,7 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     if (block->rows() > 0) {
         *eof = false;
     }
+    _update_realtime_counters();
     return Status::OK();
 }
 
@@ -308,7 +306,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // deconstructor in reader references runtime state
     // so that it will core
     _tablet_reader_params.rs_readers.clear();
-    _update_counter();
     _tablet_reader.reset();
     // Expr::close(_conjunct_ctxs, state);
     _is_closed = true;
@@ -318,8 +315,91 @@ Status NewOlapScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewOlapScanner::_update_counter() {
-    // TODO
+void NewOlapScanner::_update_realtime_counters() {
+    NewOlapScanNode* olap_parent = (NewOlapScanNode*)_parent;
+    auto& stats = _tablet_reader->stats();
+    COUNTER_UPDATE(olap_parent->_read_compressed_counter, stats.compressed_bytes_read);
+    _compressed_bytes_read += stats.compressed_bytes_read;
+    _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
+
+    COUNTER_UPDATE(olap_parent->_raw_rows_counter, stats.raw_rows_read);
+    // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
+    _raw_rows_read += stats.raw_rows_read;
+    _tablet_reader->mutable_stats()->raw_rows_read = 0;
+}
+
+void NewOlapScanner::_update_counters_before_close() {
+    if (!_state->enable_profile()) return;
+
+    if (_has_updated_counter) {
+        return;
+    }
+    _has_updated_counter = true;
+
+    VScanner::_update_counters_before_close();
+
+    // Update counters for NewOlapScanner
+    NewOlapScanNode* olap_parent = (NewOlapScanNode*)_parent;
+
+    // Update counters from tablet reader's stats
+    auto& stats = _tablet_reader->stats();
+    COUNTER_UPDATE(olap_parent->_io_timer, stats.io_ns);
+    COUNTER_UPDATE(olap_parent->_read_compressed_counter, stats.compressed_bytes_read);
+    _compressed_bytes_read += stats.compressed_bytes_read;
+    COUNTER_UPDATE(olap_parent->_decompressor_timer, stats.decompress_ns);
+    COUNTER_UPDATE(olap_parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);
+
+    COUNTER_UPDATE(olap_parent->_block_load_timer, stats.block_load_ns);
+    COUNTER_UPDATE(olap_parent->_block_load_counter, stats.blocks_load);
+    COUNTER_UPDATE(olap_parent->_block_fetch_timer, stats.block_fetch_ns);
+    COUNTER_UPDATE(olap_parent->_block_convert_timer, stats.block_convert_ns);
+
+    COUNTER_UPDATE(olap_parent->_raw_rows_counter, stats.raw_rows_read);
+    // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
+    _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;
+    COUNTER_UPDATE(olap_parent->_vec_cond_timer, stats.vec_cond_ns);
+    COUNTER_UPDATE(olap_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(olap_parent->_block_init_timer, stats.block_init_ns);
+    COUNTER_UPDATE(olap_parent->_block_init_seek_timer, stats.block_init_seek_ns);
+    COUNTER_UPDATE(olap_parent->_block_init_seek_counter, stats.block_init_seek_num);
+    COUNTER_UPDATE(olap_parent->_first_read_timer, stats.first_read_ns);
+    COUNTER_UPDATE(olap_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
+    COUNTER_UPDATE(olap_parent->_first_read_seek_counter, stats.block_first_read_seek_num);
+    COUNTER_UPDATE(olap_parent->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(olap_parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
+    COUNTER_UPDATE(olap_parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
+    COUNTER_UPDATE(olap_parent->_output_col_timer, stats.output_col_ns);
+    COUNTER_UPDATE(olap_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
+
+    COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
+    COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
+    COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_filtered);
+    COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_by_bitmap);
+    COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
+
+    COUNTER_UPDATE(olap_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);
+    COUNTER_UPDATE(olap_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
+
+    size_t timer_count = sizeof(stats.general_debug_ns) / sizeof(*stats.general_debug_ns);
+    for (size_t i = 0; i < timer_count; ++i) {
+        COUNTER_UPDATE(olap_parent->_general_debug_timer[i], stats.general_debug_ns[i]);
+    }
+
+    COUNTER_UPDATE(olap_parent->_total_pages_num_counter, stats.total_pages_num);
+    COUNTER_UPDATE(olap_parent->_cached_pages_num_counter, stats.cached_pages_num);
+
+    COUNTER_UPDATE(olap_parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);
+    COUNTER_UPDATE(olap_parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);
+
+    COUNTER_UPDATE(olap_parent->_filtered_segment_counter, stats.filtered_segment_number);
+    COUNTER_UPDATE(olap_parent->_total_segment_counter, stats.total_segment_number);
+
+    // Update metrics
+    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
+    _tablet->query_scan_bytes->increment(_compressed_bytes_read);
+    _tablet->query_scan_rows->increment(_raw_rows_read);
+    _tablet->query_scan_count->increment(1);
 }
 
 } // namespace doris::vectorized

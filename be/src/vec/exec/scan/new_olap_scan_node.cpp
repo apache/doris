@@ -19,6 +19,7 @@
 
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 #include "vec/functions/in.h"
@@ -41,7 +42,94 @@ Status NewOlapScanNode::prepare(RuntimeState* state) {
 }
 
 Status NewOlapScanNode::_init_profile() {
+    VScanNode::_init_profile();
+
+    _num_disks_accessed_counter = ADD_COUNTER(_runtime_profile, "NumDiskAccess", TUnit::UNIT);
+    _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+
+    // 1. init segment profile
+    _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
+    _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
+
+    // 2. init timer and counters
+    _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
+    _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter =
+            ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
+    _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
+    _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
+    _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
+
+    _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
+    _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
+    _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
+    _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
+
+    _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
+    _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
+    _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
+
+    _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
+
+    _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
+    _conditions_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
+    _key_range_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
+
+    _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
+    _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
+
+    _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
+    _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
+
+    _bitmap_index_filter_counter =
+            ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
+    _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
+
+    _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
+    _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
+
+    // for the purpose of debugging or profiling
+    for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
+        char name[64];
+        snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
+        _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
+    }
     return Status::OK();
+}
+
+static std::string olap_filter_to_string(const doris::TCondition& condition) {
+    auto op_name = condition.condition_op;
+    if (condition.condition_op == "*=") {
+        op_name = "IN";
+    } else if (condition.condition_op == "!*=") {
+        op_name = "NOT IN";
+    }
+    return fmt::format("{{{} {} {}}}", condition.column_name, op_name,
+                       to_string(condition.condition_values));
+}
+
+static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
+    std::string filters_string;
+    filters_string += "[";
+    for (auto it = filters.cbegin(); it != filters.cend(); it++) {
+        if (it != filters.cbegin()) {
+            filters_string += ",";
+        }
+        filters_string += olap_filter_to_string(*it);
+    }
+    filters_string += "]";
+    return filters_string;
 }
 
 Status NewOlapScanNode::_process_conjuncts() {
@@ -92,8 +180,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         }
     }
 
-    // _runtime_profile->add_info_string("PushDownPredicate", olap_filters_to_string(_olap_filters));
-    // _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+    _runtime_profile->add_info_string("PushDownPredicates", olap_filters_to_string(_olap_filters));
+    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
     VLOG_CRITICAL << _scan_keys.debug_string();
 
     return Status::OK();
@@ -205,11 +293,15 @@ void NewOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
-        // COUNTER_UPDATE(_tablet_counter, 1);
+        COUNTER_UPDATE(_tablet_counter, 1);
     }
     // telemetry::set_current_span_attribute(_tablet_counter);
 
     return;
+}
+
+std::string NewOlapScanNode::get_name() {
+    return fmt::format("VNewOlapScanNode({0})", _olap_scan_node.table_name);
 }
 
 Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
@@ -228,7 +320,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    // std::unordered_set<std::string> disk_set;
+    std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
         auto tablet_id = scan_range->tablet_id;
         std::string err;
@@ -273,19 +365,14 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                              _olap_filters, _bloom_filters_push_down,
                                              _push_down_functions));
             scanners->push_back((VScanner*)scanner);
-            // disk_set.insert(scanner->scan_disk());
+            disk_set.insert(scanner->scan_disk());
         }
     }
 
-    // COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
-    // COUNTER_SET(_num_scanners, static_cast<int64_t>(_volap_scanners.size()));
+    COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
     // telemetry::set_span_attribute(span, _num_disks_accessed_counter);
     // telemetry::set_span_attribute(span, _num_scanners);
 
-    // init progress
-    // std::stringstream ss;
-    // ss << "ScanThread complete (node=" << id() << "):";
-    // _progress = ProgressUpdater(ss.str(), _volap_scanners.size(), 1);
     return Status::OK();
 }
 
