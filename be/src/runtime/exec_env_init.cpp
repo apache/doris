@@ -70,6 +70,8 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
                                    Labels({{"type", "query"}}));
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
@@ -128,6 +130,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_threads(config::send_batch_thread_pool_thread_num)
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
+
+    ThreadPoolBuilder("DownloadCacheThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::download_cache_thread_pool_thread_num)
+            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
+            .build(&_download_cache_thread_pool);
+    set_serial_download_cache_thread_token();
 
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
@@ -320,12 +329,20 @@ void ExecEnv::_register_metrics() {
 
     REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
                          [this]() { return _send_batch_thread_pool->get_queue_size(); });
+
+    REGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num,
+                         [this]() { return _download_cache_thread_pool->num_threads(); });
+
+    REGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size,
+                         [this]() { return _download_cache_thread_pool->get_queue_size(); });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
 }
 
 void ExecEnv::_destroy() {
