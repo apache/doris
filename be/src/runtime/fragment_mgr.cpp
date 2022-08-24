@@ -722,16 +722,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 }
 
 bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
-    return type == TPlanNodeType::OLAP_SCAN_NODE
-        || type == TPlanNodeType::MYSQL_SCAN_NODE
-        || type == TPlanNodeType::SCHEMA_SCAN_NODE
-        || type == TPlanNodeType::META_SCAN_NODE
-        || type == TPlanNodeType::BROKER_SCAN_NODE
-        || type == TPlanNodeType::ES_SCAN_NODE
-        || type == TPlanNodeType::ES_HTTP_SCAN_NODE
-        || type == TPlanNodeType::ODBC_SCAN_NODE
-        || type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE
-        || type == TPlanNodeType::FILE_SCAN_NODE;
+    return type == TPlanNodeType::OLAP_SCAN_NODE || type == TPlanNodeType::MYSQL_SCAN_NODE ||
+           type == TPlanNodeType::SCHEMA_SCAN_NODE || type == TPlanNodeType::META_SCAN_NODE ||
+           type == TPlanNodeType::BROKER_SCAN_NODE || type == TPlanNodeType::ES_SCAN_NODE ||
+           type == TPlanNodeType::ES_HTTP_SCAN_NODE || type == TPlanNodeType::ODBC_SCAN_NODE ||
+           type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE ||
+           type == TPlanNodeType::FILE_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
