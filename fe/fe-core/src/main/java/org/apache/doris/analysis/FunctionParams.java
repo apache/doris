@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TTypeDesc;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.io.DataInput;
