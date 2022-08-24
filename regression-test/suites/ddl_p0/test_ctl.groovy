@@ -32,7 +32,7 @@ suite("test_ctl") {
     """
 
     sql """ 
-    CREATE TABLE `test_ctl1` LIKE `test_ctl`
+    CREATE TABLE IF NOT EXISTS `test_ctl1` LIKE `test_ctl`
     """
 
     qt_select """SHOW CREATE TABLE `test_ctl1`"""
