@@ -255,6 +255,15 @@ public class Config extends ConfigBase {
     public static int bdbje_replica_ack_timeout_second = 10;
 
     /**
+     * The desired upper limit on the number of bytes of reserved space to
+     * retain in a replicated JE Environment.
+     * You only need to decrease this value if your FE meta disk is really small.
+     * And don't need to increase this value.
+     */
+    @ConfField
+    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
+    /**
      * num of thread to handle heartbeat events in heartbeat_mgr.
      */
     @ConfField(masterOnly = true)
