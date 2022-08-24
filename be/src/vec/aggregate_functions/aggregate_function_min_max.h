@@ -47,14 +47,6 @@ public:
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
-    using value_type = T;
-
-    value_type get_value() const { return value; }
-
-    void set_value(T value_) {
-        has_value = true;
-        value = value_;
-    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -155,14 +147,6 @@ public:
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
-    using value_type = Type;
-
-    value_type get_value() const { return value; }
-
-    void set_value(T value_) {
-        has_value = true;
-        value = value_;
-    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -269,8 +253,6 @@ public:
     ~SingleValueDataString() { delete[] large_data; }
 
     constexpr static bool IsFixedLength = false;
-
-    using value_type = String;
 
     bool has() const { return size >= 0; }
 
@@ -522,13 +504,11 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            const auto& src_column = static_cast<const ColumnFixedLengthObject&>(*columns[0]);
-            auto* src_data = reinterpret_cast<const Data*>(src_column.get_data().data());
             auto& dst_column = static_cast<ColumnFixedLengthObject&>(*dst);
             dst_column.resize(num_rows);
             auto* dst_data = reinterpret_cast<Data*>(dst_column.get_data().data());
             for (size_t i = 0; i != num_rows; ++i) {
-                dst_data[i] = src_data[i];
+                dst_data[i].change(*columns[0], i, arena);
             }
         } else {
             Base::streaming_agg_serialize_to_column(columns, dst, num_rows, arena);

@@ -22,8 +22,10 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -64,6 +66,55 @@ TEST_P(AggMinMaxTest, min_max_test) {
     agg_function->insert_result_into(place, ans);
     EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
     agg_function->destroy(place);
+}
+
+TEST_P(AggMinMaxTest, min_max_decimal_test) {
+    std::string min_max_type = GetParam();
+    auto data_type = std::make_shared<DataTypeDecimal<Decimal128>>();
+    // Prepare test data.
+    auto column_vector_decimal128 = data_type->create_column();
+    for (int i = 0; i < agg_test_batch_size; i++) {
+        column_vector_decimal128->insert(
+                cast_to_nearest_field_type(DecimalField<Decimal128>(Decimal128(i), 9)));
+    }
+
+    // Prepare test function and parameters.
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    DataTypes data_types = {data_type};
+    Array array;
+    auto agg_function = factory.get(min_max_type, data_types, array);
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    // Do aggregation.
+    const IColumn* column[1] = {column_vector_decimal128.get()};
+    for (int i = 0; i < agg_test_batch_size; i++) {
+        agg_function->add(place, column, i, nullptr);
+    }
+
+    // Check result.
+    ColumnDecimal128 ans(0, 9);
+    agg_function->insert_result_into(place, ans);
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
+    agg_function->destroy(place);
+
+    auto dst = agg_function->create_serialize_column();
+    agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, nullptr);
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data() * agg_test_batch_size]);
+    AggregateDataPtr places = memory2.get();
+    agg_function->deserialize_from_column(places, *dst, nullptr, agg_test_batch_size);
+
+    ColumnDecimal128 result(0, 9);
+    for (size_t i = 0; i != agg_test_batch_size; ++i) {
+        agg_function->insert_result_into(places + agg_function->size_of_data() * i, result);
+    }
+
+    for (size_t i = 0; i != agg_test_batch_size; ++i) {
+        EXPECT_EQ(i, result.get_element(i));
+    }
 }
 
 TEST_P(AggMinMaxTest, min_max_string_test) {
