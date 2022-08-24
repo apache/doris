@@ -161,9 +161,7 @@ ReplayedJournalId: 49292
 1 row in set (0.03 sec)
 ```
 
-1. Role : 表示你的节点角色，如果你只有一个 FE 的时候，当前节点角色是 Follower，
-2. IsMaster：该值为true，说明这个节点是 FE 的主节点
-3. alive ： 该值为 true 说明该节点运行正常
+1. 如果 IsMaster、Join 和 Alive 三列均为true，则表示节点正常。
 
 #### 停止 FE 节点
 

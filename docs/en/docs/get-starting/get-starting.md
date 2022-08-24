@@ -157,9 +157,7 @@ ReplayedJournalId: 49292
 1 row in set (0.03 sec)
 ```
 
-1. Role : indicates your node role, if you have only one FE, the current node role is Follower. 
-2. IsMaster : the value is true, it means this node is the master of FE
-3. alive : the value is true, it means the node is running normally
+1. If the IsMaster, Join and Alive columns are true, the node is normal.
 
 #### Stop FE
 
