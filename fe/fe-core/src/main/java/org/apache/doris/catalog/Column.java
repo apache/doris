@@ -518,7 +518,11 @@ public class Column implements Writable {
             sb.append("NOT NULL ");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
-            sb.append("DEFAULT \"").append(defaultValue).append("\" ");
+            if (defaultValueExprDef != null) {
+                sb.append("DEFAULT ").append(defaultValue).append(" ");
+            } else {
+                sb.append("DEFAULT \"").append(defaultValue).append("\" ");
+            }
         }
         sb.append("COMMENT \"").append(getComment(true)).append("\"");
 

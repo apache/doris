@@ -266,6 +266,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -3138,10 +3139,23 @@ public class Catalog {
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
-                createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
-                        null, true,
-                        new DefaultValue(false, null),
-                        ""));
+                ColumnDef columnDef;
+                if (resultExpr.getSrcSlotRef() == null) {
+                    columnDef = new ColumnDef(name, typeDef, false, null, true, new DefaultValue(false, null), "");
+                } else {
+                    Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
+                    boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
+                    DefaultValue defaultValue;
+                    if (column.getDefaultValueExprDef() != null) {
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                                column.getDefaultValueExprDef().getExprName());
+                    } else {
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
+                    }
+                    columnDef = new ColumnDef(name, typeDef, column.isKey(), column.getAggregationType(),
+                            column.isAllowNull(), defaultValue, column.getComment());
+                }
+                createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
                 if (createTableStmt.getDistributionDesc() == null && i == 0) {
                     createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
