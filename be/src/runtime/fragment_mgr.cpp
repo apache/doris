@@ -654,6 +654,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         if (params.__isset.fragment && params.fragment.__isset.plan &&
             params.fragment.plan.nodes.size() > 0) {
             for (auto& node : params.fragment.plan.nodes) {
+                // Only for SCAN NODE
+                if (!_is_scan_node(node.node_type)) {
+                    continue;
+                }
                 if (node.limit > 0 && node.limit < 1024) {
                     concurrency = 1;
                     is_serial = true;
@@ -715,6 +719,19 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     return Status::OK();
+}
+
+bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
+    return type == TPlanNodeType::OLAP_SCAN_NODE
+        || type == TPlanNodeType::MYSQL_SCAN_NODE
+        || type == TPlanNodeType::SCHEMA_SCAN_NODE
+        || type == TPlanNodeType::META_SCAN_NODE
+        || type == TPlanNodeType::BROKER_SCAN_NODE
+        || type == TPlanNodeType::ES_SCAN_NODE
+        || type == TPlanNodeType::ES_HTTP_SCAN_NODE
+        || type == TPlanNodeType::ODBC_SCAN_NODE
+        || type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE
+        || type == TPlanNodeType::FILE_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
