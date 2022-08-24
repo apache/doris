@@ -51,7 +51,6 @@ import java.util.stream.Collectors;
  * TODO:
  *     1. use different class represent different phase aggregate
  *     2. if instance count is 1, shouldn't disassemble the agg plan
- *     3. we need another rule to removing duplicated expressions in group by expression list
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 
@@ -123,6 +122,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     localGroupByExprs,
                     localOutputExprs,
                     true,
+                    aggregate.isNormalized(),
                     AggPhase.LOCAL,
                     aggregate.child()
             );
@@ -130,6 +130,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     globalGroupByExprs,
                     globalOutputExprs,
                     true,
+                    aggregate.isNormalized(),
                     AggPhase.GLOBAL,
                     localAggregate
             );
