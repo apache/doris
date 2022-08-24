@@ -31,8 +31,8 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/string_value.h"
 #include "util/string_parser.hpp"
-#include "vec/runtime/vdatetime_value.h"
 #include "vec/columns/column_array.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -796,8 +796,8 @@ Status ScrollParser::fill_column(const TypeDescriptor& type_desc, vectorized::IC
         for (auto& item : col.GetArray()) {
             vectorized::ColumnArray* column_array = assert_cast<vectorized::ColumnArray*>(col_ptr);
             auto column_items_ptr = column_array->get_offsets_column().get_ptr();
-            RETURN_IF_ERROR(
-                    fill_column(sub_type, column_items_ptr, col_name, item, pure_doc_value, nullable));
+            RETURN_IF_ERROR(fill_column(sub_type, column_items_ptr, col_name, item, pure_doc_value,
+                                        nullable));
         }
         break;
     }
