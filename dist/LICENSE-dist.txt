@@ -1068,31 +1068,31 @@ The Apache Software License, Version 2.0
     * Spark Project Unsafe:
         - org.apache.spark:spark-unsafe_2.12:2.4.6 (http://spark.apache.org/)
     * Spring AOP:
-        - org.springframework:spring-aop:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-aop:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Beans:
-        - org.springframework:spring-beans:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-beans:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Commons Logging Bridge:
-        - org.springframework:spring-jcl:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-jcl:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Context:
-        - org.springframework:spring-context:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-context:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Core:
-        - org.springframework:spring-core:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-core:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Data Core:
-        - org.springframework.data:spring-data-commons:2.6.0 (https://www.spring.io/spring-data/spring-data-commons)
+        - org.springframework.data:spring-data-commons:2.7.2 (https://www.spring.io/spring-data/spring-data-commons)
     * Spring Data LDAP:
-        - org.springframework.data:spring-data-ldap:2.6.0 (https://github.com/spring-projects/spring-data-ldap)
+        - org.springframework.data:spring-data-ldap:2.7.2 (https://github.com/spring-projects/spring-data-ldap)
     * Spring Expression Language (SpEL):
-        - org.springframework:spring-expression:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-expression:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring JDBC:
-        - org.springframework:spring-jdbc:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-jdbc:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Object/Relational Mapping:
-        - org.springframework:spring-orm:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-orm:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Transaction:
-        - org.springframework:spring-tx:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-tx:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Web:
-        - org.springframework:spring-web:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-web:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Spring Web MVC:
-        - org.springframework:spring-webmvc:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-webmvc:5.3.22 (https://github.com/spring-projects/spring-framework)
     * Springloaded:
         - org.springframework:springloaded:1.2.6.RELEASE (https://github.com/spring-projects/spring-loaded)
     * StAX API:
@@ -1239,27 +1239,30 @@ The Apache Software License, Version 2.0
     * spark-dpp:
         - org.apache.doris:spark-dpp:0.15-SNAPSHOT (https://doris.apache.org/spark-dpp/)
     * spring-boot:
-        - org.springframework.boot:spring-boot:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-autoconfigure:
-        - org.springframework.boot:spring-boot-autoconfigure:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-autoconfigure:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-configuration-processor:
-        - org.springframework.boot:spring-boot-configuration-processor:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-configuration-processor:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-devtools:
-        - org.springframework.boot:spring-boot-devtools:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-devtools:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-starter:
-        - org.springframework.boot:spring-boot-starter:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-data-ldap:
-        - org.springframework.boot:spring-boot-starter-data-ldap:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-data-ldap:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-jetty:
-        - org.springframework.boot:spring-boot-starter-jetty:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-jetty:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-json:
         - org.springframework.boot:spring-boot-starter-json:2.6.2 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-logging:
         - org.springframework.boot:spring-boot-starter-logging:2.6.2 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-web:
         - org.springframework.boot:spring-boot-starter-web:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-logging:2.7.3 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter-web:
+        - org.springframework.boot:spring-boot-starter-web:2.7.3 (https://spring.io/projects/spring-boot)
     * spring-ldap-core:
-        - org.springframework.ldap:spring-ldap-core:2.3.5.RELEASE (https://www.springframework.org/ldap)
+        - org.springframework.ldap:spring-ldap-core:2.4.1.RELEASE (https://www.springframework.org/ldap)
     * stream-lib:
         - com.clearspring.analytics:stream:2.7.0 (https://github.com/addthis/stream-lib)
     * tomcat-embed-el:
