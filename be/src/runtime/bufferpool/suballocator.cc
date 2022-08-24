@@ -20,7 +20,6 @@
 #include <new>
 
 #include "gutil/strings/substitute.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -97,10 +96,6 @@ uint64_t Suballocator::ComputeAllocateBufferSize(int64_t bytes) const {
 Status Suballocator::AllocateBuffer(int64_t bytes, std::unique_ptr<Suballocation>* result) {
     DCHECK_LE(bytes, MAX_ALLOCATION_BYTES);
     const int64_t buffer_len = std::max(min_buffer_len_, BitUtil::RoundUpToPowerOfTwo(bytes));
-    if (!client_->IncreaseReservationToFit(buffer_len)) {
-        *result = nullptr;
-        return Status::OK();
-    }
 
     std::unique_ptr<Suballocation> free_node;
     RETURN_IF_ERROR(Suballocation::Create(&free_node));
