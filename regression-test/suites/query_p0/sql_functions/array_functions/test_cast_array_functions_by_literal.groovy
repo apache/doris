@@ -193,12 +193,6 @@ suite("test_cast_array_functions_by_literal") {
 
     //  ========== cast array to array ===========
     test {
-        sql "select cast(['x'] as array<int>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
         sql "select cast([0] as array<int>)"
         // check exception message contains
         exception "errCode = 2,"
