@@ -956,6 +956,9 @@ public class SelectStmt extends QueryStmt {
             havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
+            if (groupingInfo != null) {
+                groupingInfo.substituteGroupingFn(Arrays.asList(havingClauseAfterAnaylzed), analyzer);
+            }
             // can't contain analytic exprs
             Expr analyticExpr = havingClauseAfterAnaylzed.findFirstOf(AnalyticExpr.class);
             if (analyticExpr != null) {
