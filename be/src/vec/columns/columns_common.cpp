@@ -157,15 +157,15 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         LOG(FATAL) << "Size of filter doesn't match size of column.";
     }
 
-    constexpr int assume_string_length = 5;
+    constexpr int ASSUME_STRING_LENGTH = 5;
     ResultOffsetsBuilder result_offsets_builder(res_offsets);
 
     result_offsets_builder.reserve(result_size_hint, size);
 
     if (result_size_hint < 0) {
-        res_elems.reserve(src_elems.size() * assume_string_length);
+        res_elems.reserve(src_elems.size() * ASSUME_STRING_LENGTH);
     } else if (result_size_hint < 1000000000 && src_elems.size() < 1000000000) { /// Avoid overflow.
-        res_elems.reserve(result_size_hint * assume_string_length);
+        res_elems.reserve(result_size_hint * ASSUME_STRING_LENGTH);
     }
 
     const UInt8* filt_pos = filt.data();
