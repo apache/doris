@@ -93,8 +93,8 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const std::string& cache_pa
                 if (now - m_time < config::file_cache_alive_time_sec) {
                     continue;
                 }
-                std::string cache_file_path = StringReplace(done_file_path, CACHE_DONE_FILE_SUFFIX,
-                                                            "", true);
+                std::string cache_file_path =
+                        StringReplace(done_file_path, CACHE_DONE_FILE_SUFFIX, "", true);
                 LOG(INFO) << "Delete timeout done_cache_path: " << done_file_path
                           << ", cache_file_path: " << cache_file_path << ", m_time: " << m_time;
                 if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
