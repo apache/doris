@@ -59,19 +59,20 @@ done
 
 # init and export env variables
 PRG="$0"
-while [ -h "$PRG" ] ; do
-  ls=`ls -ld "$PRG"`
-  link=`expr "$ls" : '.*-> \(.*\)$'`
-  if expr "$link" : '/.*' > /dev/null; then
-    PRG="$link"
+while [[ -h "${PRG}" ]] ; do
+  ls=$(ls -ld "${PRG}")
+  link=$(expr "${ls}" : '.*-> \(.*\)$')
+  if expr "${link}" : '/.*' > /dev/null; then
+    PRG="${link}"
   else
-    PRG=`dirname "$PRG"`/"$link"
+    PRG=$(dirname "${PRG}")/"${link}"
   fi
 done
-PRGDIR=`dirname "$PRG"`
 
-export DORIS_HOME="`cd "$PRGDIR/.." >/dev/null; pwd`"
-export PID_DIR="`cd "$PRGDIR" >/dev/null; pwd`"
+PRGDIR=$(dirname "${PRG}")
+
+export DORIS_HOME="$(cd "${PRGDIR}/.." >/dev/null; pwd)"
+export PID_DIR="$(cd "${PRGDIR}" >/dev/null; pwd)"
 export LOG_DIR="${DORIS_HOME}/log"
 export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
 # set odbc conf path

@@ -20,19 +20,20 @@ set -eo pipefail
 
 # init and export env variables
 PRG="$0"
-while [ -h "$PRG" ] ; do
-  ls=`ls -ld "$PRG"`
-  link=`expr "$ls" : '.*-> \(.*\)$'`
-  if expr "$link" : '/.*' > /dev/null; then
-    PRG="$link"
+while [[ -h "${PRG}" ]] ; do
+  ls=$(ls -ld "${PRG}")
+  link=$(expr "${ls}" : '.*-> \(.*\)$')
+  if expr "${link}" : '/.*' > /dev/null; then
+    PRG="${link}"
   else
-    PRG=`dirname "$PRG"`/"$link"
+    PRG=$(dirname "${PRG}")/"${link}"
   fi
 done
-PRGDIR=`dirname "$PRG"`
 
-export DORIS_HOME="`cd "$PRGDIR/.." >/dev/null; pwd`"
-export PID_DIR="`cd "$PRGDIR" >/dev/null; pwd`"
+PRGDIR=$(dirname "${PRG}")
+
+export DORIS_HOME="$(cd "${PRGDIR}/.." >/dev/null; pwd)"
+export PID_DIR="$(cd "${PRGDIR}" >/dev/null; pwd)"
 PID_FILE="${PID_DIR}/fe.pid"
 
 signum=9

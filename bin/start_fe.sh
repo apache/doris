@@ -67,22 +67,21 @@ done
 
 # export env variables
 PRG="$0"
-
-while [ -h "$PRG" ] ; do
-  ls=`ls -ld "$PRG"`
-  link=`expr "$ls" : '.*-> \(.*\)$'`
-  if expr "$link" : '/.*' > /dev/null; then
-    PRG="$link"
+while [[ -h "${PRG}" ]] ; do
+  ls=$(ls -ld "${PRG}")
+  link=$(expr "${ls}" : '.*-> \(.*\)$')
+  if expr "${link}" : '/.*' > /dev/null; then
+    PRG="${link}"
   else
-    PRG=`dirname "$PRG"`/"$link"
+    PRG=$(dirname "${PRG}")/"${link}"
   fi
 done
 
-PRGDIR=`dirname "$PRG"`
+PRGDIR=$(dirname "${PRG}")
 
-export DORIS_HOME="`cd "$PRGDIR/.." >/dev/null; pwd`"
-export PID_DIR="`cd "$PRGDIR" >/dev/null; pwd`"
-export LOG_DIR="$DORIS_HOME/log"
+export DORIS_HOME="$(cd "${PRGDIR}/.." >/dev/null; pwd)"
+export PID_DIR="$(cd "${PRGDIR}" >/dev/null; pwd)"
+export LOG_DIR="${DORIS_HOME}/log"
 export LOG_FILE="${LOG_DIR}/fe.out"
 export JAVA_OPTS="-Xmx1024m"
 export MAIN_CLASS="org.apache.doris.PaloFe"
