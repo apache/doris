@@ -198,10 +198,12 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     Status st = _data_page.data_decoder->seek_at_or_after_value(key, exact_match);
     // return the first row of next page when not found
     if (st.is_not_found() && _reader->_has_index_page) {
-        if (_value_iter.move_next()) {
+        if (_value_iter.has_next()) {
             _seeked = true;
             *exact_match = false;
             _current_ordinal = _data_page.first_ordinal + _data_page.num_rows;
+            // move offset to the end of the page
+            _data_page.offset_in_page = _data_page.num_rows;
             return Status::OK();
         }
     }
