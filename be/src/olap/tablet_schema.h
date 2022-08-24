@@ -185,7 +185,7 @@ public:
     // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
-    void is_dropped_column(TabletColumn& col);
+    bool is_dropped_column(const TabletColumn& col) const;
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

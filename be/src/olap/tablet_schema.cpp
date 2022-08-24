@@ -614,7 +614,7 @@ void TabletSchema::merge_dropped_columns(TabletSchemaSPtr src_schema) {
 
 // Dropped column is in _field_id_to_index but not in _field_name_to_index
 // Could refer to append_column method
-bool TabletSchema::is_dropped_column(TabletColumn& col) {
+bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
     CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
             << "could not find col with unique id = " << col.unique_id()
             << " and name = " << col.name();

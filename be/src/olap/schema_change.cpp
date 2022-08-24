@@ -1139,8 +1139,8 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     // but requires direct schema change to rewrite the data.
     if (rowset_reader->type() != rowset_writer->type()) {
         LOG(INFO) << "the type of rowset " << rowset_reader->rowset()->rowset_id()
-                  << " in base tablet " << base_tablet->tablet_id() << " is not same as type "
-                  << rowset_writer->type() << ", use direct schema change.";
+                  << " in base tablet is not same as type " << rowset_writer->type()
+                  << ", use direct schema change.";
         return SchemaChangeHandler::get_sc_procedure(_row_block_changer, false, true)
                 ->process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema);
     } else {
@@ -1148,9 +1148,8 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         if (!status) {
             LOG(WARNING) << "fail to convert rowset."
                          << ", new_tablet=" << new_tablet->full_name()
-                         << ", base_tablet=" << base_tablet->full_name()
                          << ", version=" << rowset_writer->version().first << "-"
-                         << rowset_writer->version().second;
+                         << rowset_writer->version().second << ", error status " << status;
         }
         return status;
     }
@@ -2071,7 +2070,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         }
 
         if (res = sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet,
-                                        base_tablet_schema);
+                                        sc_params.base_tablet_schema);
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
