@@ -1272,15 +1272,10 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
     int origin_columns_size = ref_block->columns();
-    LOG(INFO) << "origin columns size: " << origin_columns_size;
-    LOG(INFO) << "ssref block: " << ref_block->dump_structure();
 
     rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        LOG(INFO) << "ref block: " << ref_block->dump_structure();
-        LOG(INFO) << "new block: " << new_block->dump_structure();
-        LOG(INFO) << "new block: " << new_block->dump_structure();
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
 
         new_block->clear_column_data();

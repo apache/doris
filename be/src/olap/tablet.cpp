@@ -1857,12 +1857,8 @@ Status Tablet::remove_all_remote_rowsets() {
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
-    LOG(INFO) << "tablet meta num columns: " << BaseTablet::tablet_schema()->num_columns();
     if (UNLIKELY(_tablet_meta->all_rs_metas().empty())) {
         return BaseTablet::tablet_schema();
-    }
-    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
-        LOG(INFO) << "rs meta num columns: " << rs_meta->tablet_schema()->num_columns();
     }
     const RowsetMetaSharedPtr rowset_meta =
             rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
