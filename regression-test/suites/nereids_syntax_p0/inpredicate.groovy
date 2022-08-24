@@ -57,11 +57,11 @@ suite("inpredicate") {
     """
 
     order_qt_in_predicate_9 """
-        SELECT * FROM supplier WHERE s_suppkey in (1);
+        SELECT * FROM supplier WHERE s_suppkey in (15);
     """
 
     order_qt_in_predicate_10 """
-        SELECT * FROM supplier WHERE s_suppkey not in (1);
+        SELECT * FROM supplier WHERE s_suppkey not in (15);
     """
 }
 

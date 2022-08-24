@@ -24,8 +24,10 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 
+import java.util.List;
+
 /**
- * Rewrites InPredicate to an EqualTo Expression, if there exists exactly one element in InPredicate.Options.
+ * Rewrite InPredicate to an EqualTo Expression, if there exists exactly one element in InPredicate.options
  * Examples:
  * where A in (x) ==> where A = x
  * where A not in (x) ==> where not A = x (After ExpressionTranslator, "not A = x" will be translated to "A != x")
@@ -36,11 +38,11 @@ public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
-        if (inPredicate.getOptions().size() > 1) {
-            return inPredicate;
-        }
         Expression left = inPredicate.getCompareExpr();
-        Expression right = inPredicate.getOptions().get(0);
-        return new EqualTo(left, right);
+        List<Expression> right = inPredicate.getOptions();
+        if (right.size() != 1) {
+            return new InPredicate(left.accept(this, context), right);
+        }
+        return new EqualTo(left.accept(this, context), right.get(0).accept(this, context));
     }
 }

@@ -38,10 +38,10 @@ public class InPredicate extends Expression {
     private final Expression compareExpr;
     private final List<Expression> options;
 
-    public InPredicate(Expression compareExpr, List<Expression> optionsList) {
-        super(new Builder<Expression>().add(compareExpr).addAll(optionsList).build().toArray(new Expression[0]));
+    public InPredicate(Expression compareExpr, List<Expression> options) {
+        super(new Builder<Expression>().add(compareExpr).addAll(options).build().toArray(new Expression[0]));
         this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
-        this.options = ImmutableList.copyOf(Objects.requireNonNull(optionsList, "In list cannot be null"));
+        this.options = ImmutableList.copyOf(Objects.requireNonNull(options, "In list cannot be null"));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
