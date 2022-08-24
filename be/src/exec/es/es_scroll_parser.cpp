@@ -32,6 +32,7 @@
 #include "runtime/string_value.h"
 #include "util/string_parser.hpp"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column_array.h"
 
 namespace doris {
 
@@ -200,6 +201,7 @@ template <typename T>
 static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
                                  vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8);
+    LOG(WARNING) << "col" << col_ptr->get_name();
     if (col.IsNumber() && nullable) {
         T value = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
@@ -634,7 +636,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     return Status::OK();
 }
 
-Status ScrollParser::fill_column(const TypeDescriptor type_desc, vectorized::IColumn* col_ptr,
+Status ScrollParser::fill_column(const TypeDescriptor& type_desc, vectorized::IColumn* col_ptr,
                                  const char* col_name, const rapidjson::Value& col,
                                  bool pure_doc_value, bool nullable) {
     PrimitiveType type = type_desc.type;
@@ -791,10 +793,11 @@ Status ScrollParser::fill_column(const TypeDescriptor type_desc, vectorized::ICo
     }
     case TYPE_ARRAY: {
         const auto& sub_type = type_desc.children[0];
-        LOG(WARNING) << "sub_type: " << sub_type;
         for (auto& item : col.GetArray()) {
+            vectorized::ColumnArray* column_array = assert_cast<vectorized::ColumnArray*>(col_ptr);
+            auto column_items_ptr = column_array->get_offsets_column().get_ptr();
             RETURN_IF_ERROR(
-                    fill_column(sub_type, col_ptr, col_name, item, pure_doc_value, nullable));
+                    fill_column(sub_type, column_items_ptr, col_name, item, pure_doc_value, nullable));
         }
         break;
     }
