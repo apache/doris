@@ -113,6 +113,10 @@ else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
 
+## set asan and ubsan env to generate core file
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1
+export UBSAN_OPTIONS=print_stacktrace=1
+
 if [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT ${DORIS_HOME}/lib/doris_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
 else
