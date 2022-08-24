@@ -120,7 +120,7 @@ public class RestoreStmt extends AbstractBackupStmt {
                 reserveReplica = false;
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid reserve replica value: " + copiedProperties.get(PROP_RESERVE_REPLICA));
+                        "Invalid reserve_replica value: " + copiedProperties.get(PROP_RESERVE_REPLICA));
             }
             copiedProperties.remove(PROP_RESERVE_REPLICA);
         }
