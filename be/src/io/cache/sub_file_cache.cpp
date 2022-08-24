@@ -223,8 +223,8 @@ Status SubFileCache::_clean_cache_internal(size_t offset) {
     }
     _cache_file_size = 0;
     Path cache_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_CACHE_PREFIX, offset);
-    Path done_file = _cache_dir / fmt::format("{}_{}{}", SUB_FILE_CACHE_PREFIX, offset,
-                                              CACHE_DONE_FILE_SUFFIX);
+    Path done_file = _cache_dir /
+                     fmt::format("{}_{}{}", SUB_FILE_CACHE_PREFIX, offset, CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(done_file, &done_file_exist),

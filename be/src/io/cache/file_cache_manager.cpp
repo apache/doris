@@ -109,8 +109,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const std::string& cache_pa
             // find cache file without done file.
             for (std::list<std::string>::iterator itr = done_names.begin(); itr != done_names.end();
                  ++itr) {
-                std::string cache_filename = StringReplace(*itr, CACHE_DONE_FILE_SUFFIX,
-                                                           "", true);
+                std::string cache_filename = StringReplace(*itr, CACHE_DONE_FILE_SUFFIX, "", true);
                 if (cache_names.find(cache_filename) != cache_names.end()) {
                     cache_names.erase(cache_filename);
                 }
@@ -143,8 +142,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const std::string& cache_pa
     }
 }
 
-FileCachePtr FileCacheManager::new_file_cache(const std::string& cache_dir,
-                                              int64_t alive_time_sec,
+FileCachePtr FileCacheManager::new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                               io::FileReaderSPtr remote_file_reader,
                                               const std::string& file_cache_type) {
     if (file_cache_type == "whole_file_cache") {
