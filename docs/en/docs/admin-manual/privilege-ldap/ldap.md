@@ -171,5 +171,3 @@ If jack also belongs to the LDAP groups doris_qa, doris_pm; Doris exists roles: 
 ## Limitations of LDAP authentication
 
 * The current LDAP feature of Doris only supports plaintext password authentication, that is, when a user logs in, the password is transmitted in plaintext between client and fe and between fe and LDAP service.
-* The current LDAP authentication only supports password authentication under mysql protocol. If you use the Http interface, you cannot use LDAP users for authentication.
-* Temporary users do not have user properties.
