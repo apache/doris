@@ -120,106 +120,106 @@ TEST_F(ParquetReaderTest, normal) {
 }
 
 TEST_F(ParquetReaderTest, scanner) {
-    // set scan range
-    //    std::vector<TScanRangeParams> scan_ranges;
-    TFileScanRange file_scan_range;
-    {
-        //        TScanRangeParams scan_range_params;
-        //        TFileScanRange file_scan_range;
-        TFileScanRangeParams params;
-        {
-            params.__set_src_tuple_id(0);
-            params.__set_num_of_columns_from_file(10);
-            params.file_type = TFileType::FILE_LOCAL;
-            params.format_type = TFileFormatType::FORMAT_PARQUET;
-        }
-        file_scan_range.params = params;
-        TFileRangeDesc range;
-        {
-            range.start_offset = 0;
-            range.size = 1000;
-            range.path = "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet";
-            std::vector<std::string> columns_from_path {"tinyint_col"};
-            range.__set_columns_from_path(columns_from_path);
-        }
-        file_scan_range.ranges.push_back(range);
-        //        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(broker_scan_range);
-        //        scan_ranges.push_back(scan_range_params);
-    }
-
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-
-    t_table_desc.id = 0;
-    t_table_desc.tableType = TTableType::OLAP_TABLE;
-    t_table_desc.numCols = 7;
-    t_table_desc.numClusteringCols = 0;
-    t_desc_table.tableDescriptors.push_back(t_table_desc);
-    t_desc_table.__isset.tableDescriptors = true;
-
-    // init boolean and numeric slot
-    std::vector<std::string> numeric_types = {"boolean_col", "tinyint_col", "smallint_col",
-                                              "int_col",     "bigint_col",  "float_col",
-                                              "double_col"};
-    for (int i = 0; i < numeric_types.size(); i++) {
-        TSlotDescriptor tslot_desc;
-        {
-            tslot_desc.id = i;
-            tslot_desc.parent = 0;
-            TTypeDesc type;
-            {
-                TTypeNode node;
-                node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType scalar_type;
-                scalar_type.__set_type(TPrimitiveType::type(i + 2));
-                node.__set_scalar_type(scalar_type);
-                type.types.push_back(node);
-            }
-            tslot_desc.slotType = type;
-            tslot_desc.columnPos = 0;
-            tslot_desc.byteOffset = 0;
-            tslot_desc.nullIndicatorByte = 0;
-            tslot_desc.nullIndicatorBit = -1;
-            tslot_desc.colName = numeric_types[i];
-            tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
-            t_desc_table.slotDescriptors.push_back(tslot_desc);
-        }
-    }
-
-    t_desc_table.__isset.slotDescriptors = true;
-    {
-        TTupleDescriptor t_tuple_desc;
-        t_tuple_desc.id = 0;
-        t_tuple_desc.byteSize = 16;
-        t_tuple_desc.numNullBytes = 0;
-        t_tuple_desc.tableId = 0;
-        t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
-    }
-    std::vector<TExpr> pre_filter_texprs = std::vector<TExpr>();
-    RuntimeState runtime_state((TQueryGlobals()));
-    runtime_state.init_instance_mem_tracker();
-
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
-    runtime_state.set_desc_tbl(desc_tbl);
-    LOG(WARNING) << "============";
-    ScannerCounter counter;
-    std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
-    auto scan = new ParquetFileHdfsScanner(&runtime_state, runtime_state.runtime_profile(),
-                                           file_scan_range.params, file_scan_range.ranges,
-                                           pre_filter_texprs, &counter);
-    scan->reg_conjunct_ctxs(0, conjunct_ctxs);
-    Status st = scan->open();
-    EXPECT_TRUE(st.ok());
-
-    bool eof = false;
-    Block* block = new Block();
-    scan->get_next(block, &eof);
-    LOG(WARNING) << "block data: " << block->dump_structure();
-    delete block;
+    //    // set scan range
+    //    //    std::vector<TScanRangeParams> scan_ranges;
+    //    TFileScanRange file_scan_range;
+    //    {
+    //        //        TScanRangeParams scan_range_params;
+    //        //        TFileScanRange file_scan_range;
+    //        TFileScanRangeParams params;
+    //        {
+    //            params.__set_src_tuple_id(0);
+    //            params.__set_num_of_columns_from_file(10);
+    //            params.file_type = TFileType::FILE_LOCAL;
+    //            params.format_type = TFileFormatType::FORMAT_PARQUET;
+    //        }
+    //        file_scan_range.params = params;
+    //        TFileRangeDesc range;
+    //        {
+    //            range.start_offset = 0;
+    //            range.size = 1000;
+    //            range.path = "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet";
+    //            std::vector<std::string> columns_from_path {"tinyint_col"};
+    //            range.__set_columns_from_path(columns_from_path);
+    //        }
+    //        file_scan_range.ranges.push_back(range);
+    //        //        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(broker_scan_range);
+    //        //        scan_ranges.push_back(scan_range_params);
+    //    }
+    //
+    //    TDescriptorTable t_desc_table;
+    //    TTableDescriptor t_table_desc;
+    //
+    //    t_table_desc.id = 0;
+    //    t_table_desc.tableType = TTableType::OLAP_TABLE;
+    //    t_table_desc.numCols = 7;
+    //    t_table_desc.numClusteringCols = 0;
+    //    t_desc_table.tableDescriptors.push_back(t_table_desc);
+    //    t_desc_table.__isset.tableDescriptors = true;
+    //
+    //    // init boolean and numeric slot
+    //    std::vector<std::string> numeric_types = {"boolean_col", "tinyint_col", "smallint_col",
+    //                                              "int_col",     "bigint_col",  "float_col",
+    //                                              "double_col"};
+    //    for (int i = 0; i < numeric_types.size(); i++) {
+    //        TSlotDescriptor tslot_desc;
+    //        {
+    //            tslot_desc.id = i;
+    //            tslot_desc.parent = 0;
+    //            TTypeDesc type;
+    //            {
+    //                TTypeNode node;
+    //                node.__set_type(TTypeNodeType::SCALAR);
+    //                TScalarType scalar_type;
+    //                scalar_type.__set_type(TPrimitiveType::type(i + 2));
+    //                node.__set_scalar_type(scalar_type);
+    //                type.types.push_back(node);
+    //            }
+    //            tslot_desc.slotType = type;
+    //            tslot_desc.columnPos = 0;
+    //            tslot_desc.byteOffset = 0;
+    //            tslot_desc.nullIndicatorByte = 0;
+    //            tslot_desc.nullIndicatorBit = -1;
+    //            tslot_desc.colName = numeric_types[i];
+    //            tslot_desc.slotIdx = 0;
+    //            tslot_desc.isMaterialized = true;
+    //            t_desc_table.slotDescriptors.push_back(tslot_desc);
+    //        }
+    //    }
+    //
+    //    t_desc_table.__isset.slotDescriptors = true;
+    //    {
+    //        TTupleDescriptor t_tuple_desc;
+    //        t_tuple_desc.id = 0;
+    //        t_tuple_desc.byteSize = 16;
+    //        t_tuple_desc.numNullBytes = 0;
+    //        t_tuple_desc.tableId = 0;
+    //        t_tuple_desc.__isset.tableId = true;
+    //        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+    //    }
+    //    std::vector<TExpr> pre_filter_texprs = std::vector<TExpr>();
+    //    RuntimeState runtime_state((TQueryGlobals()));
+    //    runtime_state.init_instance_mem_tracker();
+    //
+    //    DescriptorTbl* desc_tbl;
+    //    ObjectPool obj_pool;
+    //    DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    //    runtime_state.set_desc_tbl(desc_tbl);
+    //    LOG(WARNING) << "============";
+    //    ScannerCounter counter;
+    //    std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
+    //    auto scan = new ParquetFileHdfsScanner(&runtime_state, runtime_state.runtime_profile(),
+    //                                           file_scan_range.params, file_scan_range.ranges,
+    //                                           pre_filter_texprs, &counter);
+    //    scan->reg_conjunct_ctxs(0, conjunct_ctxs);
+    //    Status st = scan->open();
+    //    EXPECT_TRUE(st.ok());
+    //
+    //    bool eof = false;
+    //    Block* block = new Block();
+    //    scan->get_next(block, &eof);
+    //    LOG(WARNING) << "block data: " << block->dump_structure();
+    //    delete block;
 }
 
 } // namespace vectorized
