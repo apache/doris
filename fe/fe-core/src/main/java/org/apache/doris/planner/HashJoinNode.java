@@ -505,8 +505,8 @@ public class HashJoinNode extends PlanNode {
         // Then: add tuple is null in left child columns
         if (leftNullable && getChild(0).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(0).tblRefIds.get(0))) {
             List<Expr> tupleIsNullLhs = TupleIsNullPredicate
-                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), TNullSide.LEFT,
-                            analyzer);
+                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), new ArrayList<>(),
+                        TNullSide.LEFT, analyzer);
             tupleIsNullLhs
                     .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
             vSrcToOutputSMap.updateLhsExprs(tupleIsNullLhs);
@@ -519,7 +519,7 @@ public class HashJoinNode extends PlanNode {
                 int rightBeginIndex = vSrcToOutputSMap.size() - rightNullableNumber;
                 List<Expr> tupleIsNullLhs = TupleIsNullPredicate
                         .wrapExprs(vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()),
-                                TNullSide.RIGHT, analyzer);
+                                new ArrayList<>(), TNullSide.RIGHT, analyzer);
                 List<Expr> newLhsList = Lists.newArrayList();
                 if (rightBeginIndex > 0) {
                     newLhsList.addAll(vSrcToOutputSMap.getLhs().subList(0, rightBeginIndex));
