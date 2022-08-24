@@ -212,24 +212,13 @@ public class FunctionCallExpr extends Expr {
         fnName = other.fnName;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
-        //   aggOp = other.aggOp;
+        // aggOp = other.aggOp;
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
-        if (other.fnParams.isStar()) {
-            Preconditions.checkState(children.isEmpty());
-            fnParams = FunctionParams.createStarParam();
-        } else {
-            fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
-        }
-
+        fnParams = other.fnParams.clone(children);
         if (other.aggFnParams != null) {
-            if (other.aggFnParams.isStar()) {
-                Preconditions.checkState(children.isEmpty());
-                aggFnParams = FunctionParams.createStarParam();
-            } else {
-                aggFnParams = new FunctionParams(other.aggFnParams.isDistinct(), children);
-            }
+            aggFnParams = other.aggFnParams.clone(children);
         }
 
         this.isMergeAggFn = other.isMergeAggFn;

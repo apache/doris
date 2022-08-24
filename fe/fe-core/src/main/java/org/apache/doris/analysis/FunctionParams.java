@@ -65,6 +65,14 @@ public class FunctionParams implements Writable {
         return new FunctionParams();
     }
 
+    public FunctionParams clone(List<Expr> children) {
+        if (isStar()) {
+            Preconditions.checkState(children.isEmpty());
+            return FunctionParams.createStarParam();
+        }
+        return new FunctionParams(isDistinct(), children);
+    }
+
     public TAggregateExpr createTAggregateExpr(boolean isMergeAggFn) {
         List<TTypeDesc> paramTypes = new ArrayList<TTypeDesc>();
         if (exprs != null) {
