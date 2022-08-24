@@ -846,6 +846,8 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(false));
         }
+        
+        output.append(prefix).append("rollup: ").append(olapTable.getIndexNameById(selectedIndexId)).append("\n");
 
         output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedTabletsNum, totalTabletsNum));
