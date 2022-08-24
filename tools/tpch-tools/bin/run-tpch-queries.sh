@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to create ssb queries
+# This script is used to create TPC-H tables
 ##############################################################
 
 set -eo pipefail
@@ -29,11 +29,11 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-QUERIES_DIR=$CURDIR/ssb-queries
+QUERIES_DIR=$CURDIR/../queries
 
 usage() {
     echo "
-This script is used to run SSB 13queries, 
+This script is used to run TPC-H 22queries, 
 will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
 Usage: $0 
   "
@@ -41,9 +41,8 @@ Usage: $0
 }
 
 OPTS=$(getopt \
-    -n $0 \
+    -n "$0" \
     -o '' \
-    -o 'h' \
     -- "$@")
 
 eval set -- "$OPTS"
@@ -84,9 +83,10 @@ check_prerequest() {
     fi
 }
 
-check_prerequest "mysqlslap --version" "mysql slap"
+check_prerequest "mysql --version" "mysql"
 
-source $CURDIR/doris-cluster.conf
+# shellcheck source=/dev/null
+source "$CURDIR/../conf/doris-cluster.conf"
 export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
@@ -94,25 +94,32 @@ echo "FE_QUERY_PORT: $FE_QUERY_PORT"
 echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
+echo "Time Unit: ms"
 
 pre_set() {
-    echo $@
-    mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB -e "$@"
+    echo "$*"
+    mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*"
 }
 
-pre_set "set global enable_vectorized_engine=1;"
-pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=48G;"
-pre_set "set global batch_size=4096;"
-pre_set "set global enable_projection=true;"
-pre_set "set global runtime_filter_mode=global;"
-# pre_set "set global enable_cost_based_join_reorder=1"
 echo '============================================'
-pre_set "show variables"
+pre_set "show variables;"
+echo '============================================'
+pre_set "show table status;"
 echo '============================================'
 
-for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
-    # Each query is executed 3 times and takes the average time
-    res=$(mysqlslap -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT --create-schema=$DB --query=$QUERIES_DIR/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
-    echo "q$i: $res"
+sum=0
+for i in $(seq 1 22); do
+    total=0
+    run=3
+    # Each query is executed ${run} times and takes the average time
+    for j in $(seq 1 ${run}); do
+        start=$(date +%s%3N)
+        mysql -h"$FE_HOST" -u "$USER" -P"$FE_QUERY_PORT" -D"$DB" --comments <"$QUERIES_DIR"/q"$i".sql >/dev/null
+        end=$(date +%s%3N)
+        total=$((total + end - start))
+    done
+    cost=$((total / run))
+    echo "q$i: ${cost}"
+    sum=$((sum + cost))
 done
+echo "Total cost: $sum"
