@@ -228,6 +228,11 @@ public class SortInfo {
      */
     public ExprSubstitutionMap createMaterializedOrderExprs(
             TupleDescriptor sortTupleDesc, Analyzer analyzer) {
+        // the sort node exprs may come from the child outer join node
+        // we need change the slots to nullable from all outer join nullable side temporarily
+        // then the sort node expr would have correct nullable info
+        // after create the output tuple we need revert the change by call analyzer.changeSlotsToNotNullable(slots)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         ExprSubstitutionMap substOrderBy = new ExprSubstitutionMap();
         for (Expr origOrderingExpr : orderingExprs_) {
             // TODO(zc): support materialized order exprs
@@ -251,6 +256,7 @@ public class SortInfo {
                 materializedOrderingExprs_.add(origOrderingExpr);
             }
         }
+        analyzer.changeSlotsToNotNullable(slots);
         return substOrderBy;
     }
 }
