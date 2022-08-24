@@ -144,6 +144,15 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
+        // the resultExprLists should be substituted by child's output smap
+        // because the result exprs are column A, B, but the child output exprs are column B, A
+        // after substituted, the next computePassthrough method will get correct info to do its job
+        List<List<Expr>> substitutedResultExprLists = Lists.newArrayList();
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            substitutedResultExprLists.add(Expr.substituteList(
+                    resultExprLists.get(i), children.get(i).getOutputSmap(), analyzer, true));
+        }
+        resultExprLists = substitutedResultExprLists;
         // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs
         // from this.init() to this.finalize(), and will not call SetOperationNode::init() again at the end
         // of createSetOperationNodeFragment().
@@ -179,8 +188,7 @@ public abstract class SetOperationNode extends PlanNode {
                     newExprList.add(exprList.get(j));
                 }
             }
-            materializedResultExprLists.add(
-                    Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
+            materializedResultExprLists.add(newExprList);
         }
         Preconditions.checkState(
                 materializedResultExprLists.size() == getChildren().size());
