@@ -32,14 +32,9 @@ Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     RETURN_OR_SET_PREPARED
     RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
 
-    if (_prepared) {
-        return Status::OK();
-    }
     if (_children.size() != 1) {
         return Status::InternalError("Invalid argument for VBloomPredicate.");
     }
-
-    _prepared = true;
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());

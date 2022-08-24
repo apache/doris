@@ -29,11 +29,7 @@
 namespace doris::vectorized {
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl)
-        : VExpr(node),
-          _impl(impl),
-          _always_true(false),
-          _filtered_rows(0),
-          _scan_rows(0) {}
+        : VExpr(node), _impl(impl), _always_true(false), _filtered_rows(0), _scan_rows(0) {}
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr)
         : VExpr(vexpr),

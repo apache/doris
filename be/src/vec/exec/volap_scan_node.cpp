@@ -265,7 +265,6 @@ Status VOlapScanNode::open(RuntimeState* state) {
             _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
         }
     }
-    // vexpr[and]
     RETURN_IF_ERROR(_append_rf_into_conjuncts(state, vexprs));
 
     return Status::OK();
@@ -1788,7 +1787,7 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
 
 Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector<VExpr*>& vexprs) {
     if (!vexprs.empty()) {
-        auto last_expr = _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
+        VExpr* last_expr = nullptr;
         if (_vconjunct_ctx_ptr) {
             last_expr = (*_vconjunct_ctx_ptr)->root();
         } else {
@@ -1824,7 +1823,6 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
             DCHECK((vexprs[j])->get_impl() != nullptr);
             new_node->add_child(vexprs[j]);
             last_expr = new_node;
-
             _rf_vexpr_set.insert(vexprs[j]);
         }
         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
