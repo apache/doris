@@ -124,7 +124,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const std::string& cache_pa
                 if (!FileUtils::mtime(cache_file_path, &m_time).ok()) {
                     continue;
                 }
-                if (time(nullptr) - m_time < config::file_cache_alive_time_sec) {
+                if (now - m_time < config::file_cache_alive_time_sec) {
                     continue;
                 }
                 LOG(INFO) << "Delete cache file without done file: " << cache_file_path;
