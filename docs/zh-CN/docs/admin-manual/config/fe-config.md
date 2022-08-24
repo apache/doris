@@ -29,7 +29,7 @@ under the License.
 
 该文档主要介绍 FE 的相关配置项。
 
-FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `fe_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `fe_custom.conf`。该配置文件用于记录用户在运行时动态配置并持久化的配置项。
 
 FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `fe_custom.conf` 中的配置项。`fe_custom.conf` 中的配置项会覆盖 `fe.conf` 中相同的配置项。
 
@@ -837,7 +837,7 @@ tablet 状态更新间隔
 默认值：
 
   storage_flood_stage_usage_percent  : 95  (95%)
-  
+
   storage_flood_stage_left_capacity_bytes :  1 * 1024 * 1024 * 1024 (1GB)
 
 是否可以动态配置：true
