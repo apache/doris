@@ -55,5 +55,13 @@ suite("inpredicate") {
     order_qt_in_predicate_8 """
         SELECT * FROM supplier WHERE s_nation not in ('PERU', 'ETHIOPIA');
     """
+  
+    order_qt_in_predicate_9 """
+        SELECT * FROM supplier WHERE s_suppkey in (1);
+    """
+
+    order_qt_in_predicate_10 """
+        SELECT * FROM supplier WHERE s_suppkey not in (1);
+    """
 }
 
