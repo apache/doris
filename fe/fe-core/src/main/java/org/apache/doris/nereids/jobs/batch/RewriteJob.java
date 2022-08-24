@@ -40,15 +40,15 @@ public class RewriteJob extends BatchRulesJob {
      */
     public RewriteJob(CascadesContext cascadesContext) {
         super(cascadesContext);
-        //NOTE: the rules must be add in reverse order of execution process
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                // add rules in reverse order due to jobPool is stack.
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
                 .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
-                .build().reverse(); // reverse due to jobPool is stack.
+                .build().reverse();
         rulesJob.addAll(jobs);
     }
 }
