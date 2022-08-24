@@ -1099,12 +1099,13 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 
 * Type: int32
 * Description: The number of threads in the SendBatch thread pool. In NodeChannels' sending data tasks, the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the SendBatch thread pool.
-* Default value: 256
+* Default value: 64
 
 ### `send_batch_thread_pool_queue_size`
 
 * Type: int32
 * Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Default value: 102400
 
 ### `download_cache_thread_pool_thread_num`
 
@@ -1180,7 +1181,7 @@ The min bytes that should be left of a data dir，default value:1G
 
 ### `storage_flood_stage_usage_percent`
 
-Default: 95 （95%）
+Default: 90 （90%）
 
 The storage_flood_stage_usage_percent and storage_flood_stage_left_capacity_bytes configurations limit the maximum usage of the capacity of the data directory.
 
