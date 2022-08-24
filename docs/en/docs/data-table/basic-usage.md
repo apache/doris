@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# Guidelines for Basic Use
+# Use Guide
 
 Doris uses MySQL protocol to communicate. Users can connect to Doris cluster through MySQL client or MySQL JDBC. When selecting the MySQL client version, it is recommended to use the version after 5.1, because user names of more than 16 characters cannot be supported before 5.1. This paper takes MySQL client as an example to show users the basic usage of Doris through a complete process.
 
@@ -403,3 +403,265 @@ MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHE
 +-----------+
 1 row in set (0.13 sec)
 ```
+
+## Table Structure Change
+
+Use the [ALTER TABLE COLUMN](. /sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) command to modify the table Schema, including the following changes.
+
+- Adding columns
+- Deleting columns
+- Modify column types
+- Changing the order of columns
+
+The following table structure changes are illustrated by using the following example.
+
+The Schema for the original table1 is as follows:
+
+```text
++----------+-------------+------+-------+---------+-------+
+| Field    | Type        | Null | Key   | Default | Extra |
++----------+-------------+------+-------+---------+-------+
+| siteid   | int(11)     | No   | true  | 10      |       |
+| citycode | smallint(6) | No   | true  | N/A     |       |
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
++----------+-------------+------+-------+---------+-------+
+```
+
+We add a new column uv, type BIGINT, aggregation type SUM, default value 0:
+
+```sql
+ALTER TABLE table1 ADD COLUMN uv BIGINT SUM DEFAULT '0' after pv;
+```
+
+After successful submission, you can check the progress of the job with the following command:
+
+```sql
+SHOW ALTER TABLE COLUMN;
+```
+
+When the job status is ``FINISHED``, the job is complete. The new Schema has taken effect.
+
+After ALTER TABLE is completed, you can view the latest Schema via ``DESC TABLE``.
+
+```
+mysql> DESC table1;
++----------+-------------+------+-------+---------+-------+
+| Field    | Type        | Null | Key   | Default | Extra |
++----------+-------------+------+-------+---------+-------+
+| siteid   | int(11)     | No   | true  | 10      |       |
+| citycode | smallint(6) | No   | true  | N/A     |       |
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
+| uv       | bigint(20)  | No   | false | 0       | SUM   |
++----------+-------------+------+-------+---------+-------+
+5 rows in set (0.00 sec)
+```
+
+You can cancel the currently executing job with the following command:
+
+```sql
+CANCEL ALTER TABLE COLUMN FROM table1;
+```
+
+For more help, see ``HELP ALTER TABLE``.
+
+## Rollup
+
+Rollup can be understood as a materialized index structure for a Table. **Materialized** because its data is physically stored independently, and **Indexed** in the sense that Rollup can reorder columns to increase the hit rate of prefix indexes, and can reduce key columns to increase the aggregation of data.
+
+Use [ALTER TABLE ROLLUP](... /sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md) to perform various changes to Rollup.
+
+The following examples are given
+
+The Schema of the original table1 is as follows:
+
+```
++----------+-------------+------+-------+---------+-------+
+| Field    | Type        | Null | Key   | Default | Extra |
++----------+-------------+------+-------+---------+-------+
+| siteid   | int(11)     | No   | true  | 10      |       |
+| citycode | smallint(6) | No   | true  | N/A     |       |
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
+| uv       | bigint(20)  | No   | false | 0       | SUM   |
++----------+-------------+------+-------+---------+-------+
+```
+
+For table1 detailed data is siteid, citycode, username three constitute a set of key, so that the pv field aggregation; if the business side often have to see the total number of city pv needs, you can create a rollup of only citycode, pv.
+
+```sql
+ALTER TABLE table1 ADD ROLLUP rollup_city(citycode, pv);
+```
+
+After successful submission, you can check the progress of the job with the following command.
+
+```sql
+SHOW ALTER TABLE ROLLUP;
+```
+
+When the job status is ``FINISHED``, the job is completed.
+
+You can use ``DESC table1 ALL`` to view the rollup information of the table after the rollup is created.
+
+```
+mysql> desc table1 all;
++-------------+----------+-------------+------+-------+--------+-------+
+| IndexName   | Field    | Type        | Null | Key   | Default | Extra |
++-------------+----------+-------------+------+-------+---------+-------+
+| table1      | siteid   | int(11)     | No   | true  | 10      |       |
+|             | citycode | smallint(6) | No   | true  | N/A     |       |
+|             | username | varchar(32) | No   | true  |         |       |
+|             | pv       | bigint(20)  | No   | false | 0       | SUM   |
+|             | uv       | bigint(20)  | No   | false | 0       | SUM   |
+|             |          |             |      |       |         |       |
+| rollup_city | citycode | smallint(6) | No   | true  | N/A     |       |
+|             | pv       | bigint(20)  | No   | false | 0       | SUM   |
++-------------+----------+-------------+------+-------+---------+-------+
+8 rows in set (0.01 sec)
+```
+
+You can cancel the currently executing job with the following command:
+
+```sql
+CANCEL ALTER TABLE ROLLUP FROM table1;
+```
+
+After Rollup is created, the query does not need to specify Rollup for the query. You can still specify the original table for the query. The program will automatically determine if Rollup should be used, and whether Rollup is hit or not can be checked with the ``EXPLAIN your_sql;`` command.
+
+For more help, see `HELP ALTER TABLE`.
+
+
+
+## Materialized Views
+
+Materialized views are a space-for-time data analysis acceleration technique, and Doris supports building materialized views on top of base tables. For example, a partial column-based aggregated view can be built on top of a table with a granular data model, allowing for fast querying of both granular and aggregated data.
+
+At the same time, Doris can automatically ensure data consistency between materialized views and base tables, and automatically match the appropriate materialized view at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience for users.
+
+For more information about materialized views, see [Materialized Views](../advanced/materialized-view)
+
+## Data table queries
+
+### Memory limit
+
+To prevent a user from having a single query that may consume too much memory because it consumes too much memory. The query is memory-controlled, and by default a query task can use no more than 2GB of memory on a single BE node.
+
+If a user finds a `Memory limit exceeded` error while using it, the memory limit is usually exceeded.
+
+When you encounter a memory limit exceeded, you should try to solve it by optimizing your sql statements.
+
+If you find exactly that 2GB of memory cannot be met, you can set the memory parameters manually.
+
+Show query memory limit:
+
+```sql
+mysql> SHOW VARIABLES LIKE "%mem_limit%";
++---------------+------------+
+| Variable_name | Value      |
++---------------+------------+
+| exec_mem_limit| 2147483648 |
++---------------+------------+
+1 row in set (0.00 sec)
+```
+
+The unit of `exec_mem_limit` is byte, and the value of `exec_mem_limit` can be changed by `SET` command. For example, change it to 8GB.
+
+```sql
+mysql> SET exec_mem_limit = 8589934592;
+Query OK, 0 rows affected (0.00 sec)
+mysql> SHOW VARIABLES LIKE "%mem_limit%";
++---------------+------------+
+| Variable_name | Value      |
++---------------+------------+
+| exec_mem_limit| 8589934592 |
++---------------+------------+
+1 row in set (0.00 sec)
+```
+
+>- The above change is session level and is only valid for the current connection session. Disconnecting and reconnecting will change it back to the default value.
+>- If you need to change the global variable, you can set it like this: `SET GLOBAL exec_mem_limit = 8589934592;`. After setting, disconnect and log back in, the parameter will take effect permanently.
+
+### Query Timeout
+
+The current default query timeout is set to a maximum of 300 seconds. If a query does not complete within 300 seconds, the query will be cancelled by the Doris system. You can use this parameter to customize the timeout for your application to achieve a blocking method similar to wait(timeout).
+
+View the current timeout settings:
+
+```sql
+mysql> SHOW VARIABLES LIKE "%query_timeout%";
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| QUERY_TIMEOUT | 300   |
++---------------+-------+
+1 row in set (0.00 sec)
+```
+
+Modify the timeout to 1 minute:
+
+```sql
+mysql>  SET query_timeout = 60;
+Query OK, 0 rows affected (0.00 sec)
+```
+
+>- The current timeout check interval is 5 seconds, so a timeout of less than 5 seconds is not too accurate.
+>- The above changes are also session level. You can change the global validity by `SET GLOBAL`.
+
+### Broadcast/Shuffle Join
+
+The default way to implement Join is to filter the small table conditionally, broadcast it to each node of the large table to form a memory Hash table, and then stream the data of the large table for Hash Join, but if the filtered data of the small table cannot be put into memory, the Join will not be completed, and the usual error should be the first to cause memory overrun.
+
+In this case, it is recommended to explicitly specify Shuffle Join, also known as Partitioned Join, where both the small and large tables are Hashed according to the key of the join and then perform a distributed join, with the memory consumption being spread across all compute nodes in the cluster.
+
+Doris will automatically attempt a Broadcast Join and switch to a Shuffle Join if the small table is estimated to be too large; note that if a Broadcast Join is explicitly specified at this point, it will also switch to a Shuffle Join.
+
+Use Broadcast Join (default):
+
+```sql
+mysql> select sum(table1.pv) from table1 join table2 where table1.siteid = 2;
++--------------------+
+| sum(`table1`.`pv`) |
++--------------------+
+|                 10 |
++--------------------+
+1 row in set (0.20 sec)
+```
+
+Use Broadcast Join (explicitly specified):
+
+```sql
+mysql> select sum(table1.pv) from table1 join [broadcast] table2 where table1.siteid = 2;
++--------------------+
+| sum(`table1`.`pv`) |
++--------------------+
+|                 10 |
++--------------------+
+1 row in set (0.20 sec)
+```
+
+Use Shuffle Join:
+
+```sql
+mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.siteid = 2;
++--------------------+
+| sum(`table1`.`pv`) |
++--------------------+
+|                 10 |
++--------------------+
+1 row in set (0.15 sec)
+```
+
+### Query Retry and High Availability
+
+When deploying multiple FE nodes, you can deploy a load balancing layer on top of multiple FEs to achieve high availability of Doris.
+
+Please refer to [Load Balancing](...) for details on installation, deployment, and usage. /admin-manual/cluster-management/load-balancing)
+
+## Data update and deletion
+
+Doris supports deleting imported data in two ways. One way is to delete data by specifying a WHERE condition with a DELETE FROM statement. This method is more general and suitable for less frequent scheduled deletion tasks.
+
+The other deletion method is for the Unique primary key unique model only, where the primary key rows to be deleted are imported by importing the data, and the final physical deletion of the data is performed internally by Doris using the delete tag bit. This deletion method is suitable for deleting data in a real-time manner.
+
+For specific instructions on delete and update operations, see [Data Update](...). /data-operate/update-delete/update) documentation.
