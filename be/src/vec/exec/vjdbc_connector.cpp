@@ -35,7 +35,10 @@ const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
-        : _is_open(false), _tuple_desc(param.tuple_desc), _conn_param(param) {}
+        : _is_open(false),
+          _query_string(param.query_string),
+          _tuple_desc(param.tuple_desc),
+          _conn_param(param) {}
 
 JdbcConnector::~JdbcConnector() {
     if (!_is_open) {
@@ -78,7 +81,6 @@ Status JdbcConnector::open() {
         RETURN_IF_ERROR(function_cache->get_jarpath(hash_str(_conn_param.resource_name),
                                                     _conn_param.driver_path,
                                                     _conn_param.driver_checksum, &local_location));
-
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_jar_location_path(local_location);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
@@ -98,41 +100,10 @@ Status JdbcConnector::open() {
     return Status::OK();
 }
 
-Status JdbcConnector::query(const std::string& table, const std::vector<std::string>& fields,
-                            const std::vector<std::string>& filters, const int64_t limit) {
-    if (!_is_open) {
-        return Status::InternalError("Query before open of jdbc query.");
-    }
-
-    _sql_str = "SELECT ";
-    for (int i = 0; i < fields.size(); ++i) {
-        if (0 != i) {
-            _sql_str += ",";
-        }
-        _sql_str += fields[i];
-    }
-    _sql_str += " FROM " + table;
-
-    if (!filters.empty()) {
-        _sql_str += " WHERE ";
-        for (int i = 0; i < filters.size(); ++i) {
-            if (0 != i) {
-                _sql_str += " AND";
-            }
-            _sql_str += " (" + filters[i] + ") ";
-        }
-    }
-    if (limit != -1) {
-        _sql_str += " LIMIT " + std::to_string(limit);
-    }
-    return _query_exec(_sql_str);
-}
-
-Status JdbcConnector::_query_exec(const std::string& query) {
+Status JdbcConnector::query_exec() {
     if (!_is_open) {
         return Status::InternalError("Query before open of JdbcConnector.");
     }
-
     // check materialize num equal
     int materialize_num = 0;
     for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
@@ -143,7 +114,7 @@ Status JdbcConnector::_query_exec(const std::string& query) {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jstring query_sql = env->NewStringUTF(query.c_str());
+    jstring query_sql = env->NewStringUTF(_query_string.c_str());
     jint colunm_count = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_query_id, query_sql);
     env->DeleteLocalRef(query_sql);

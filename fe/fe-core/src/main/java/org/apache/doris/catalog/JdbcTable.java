@@ -19,8 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TJdbcTable;
+import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -32,6 +35,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,8 +45,19 @@ public class JdbcTable extends Table {
 
     private static final String TABLE = "table";
     private static final String RESOURCE = "resource";
+    private static final String TABLE_TYPE = "table_type";
+    // TODO: We may have to support various types of databases like ODBC
+    // map now jdbc external table Doris support now
+    private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     private String resourceName;
     private String externalTableName;
+    private String jdbcTypeName;
+
+    static {
+        Map<String, TOdbcTableType> tempMap = new HashMap<>();
+        tempMap.put("mysql", TOdbcTableType.MYSQL);
+        TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
+    }
 
     public JdbcTable() {
         super(TableType.JDBC);
@@ -77,6 +93,7 @@ public class JdbcTable extends Table {
         super.write(out);
         Text.writeString(out, externalTableName);
         Text.writeString(out, resourceName);
+        Text.writeString(out, jdbcTypeName);
     }
 
     @Override
@@ -84,6 +101,7 @@ public class JdbcTable extends Table {
         super.readFields(in);
         externalTableName = Text.readString(in);
         resourceName = Text.readString(in);
+        jdbcTypeName = Text.readString(in);
     }
 
     public String getResourceName() {
@@ -94,6 +112,14 @@ public class JdbcTable extends Table {
         return externalTableName;
     }
 
+    public String getTableTypeName() {
+        return jdbcTypeName;
+    }
+
+    public TOdbcTableType getJdbcTableType() {
+        return TABLE_TYPE_MAP.get(getTableTypeName());
+    }
+
     @Override
     public String getSignature(int signatureVersion) {
         JdbcResource jdbcResource = (JdbcResource) (Env.getCurrentEnv().getResourceMgr().getResource(resourceName));
@@ -102,6 +128,7 @@ public class JdbcTable extends Table {
         sb.append(type);
         sb.append(resourceName);
         sb.append(externalTableName);
+        sb.append(jdbcTypeName);
         sb.append(jdbcResource.getProperty(JdbcResource.URL));
         sb.append(jdbcResource.getProperty(JdbcResource.USER));
         sb.append(jdbcResource.getProperty(JdbcResource.PASSWORD));
@@ -111,6 +138,16 @@ public class JdbcTable extends Table {
         String md5 = DigestUtils.md5Hex(sb.toString());
         LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
         return md5;
+    }
+
+    @Override
+    public JdbcTable clone() {
+        JdbcTable copied = new JdbcTable();
+        if (!DeepCopy.copy(this, copied, JdbcTable.class, FeConstants.meta_version)) {
+            LOG.warn("failed to copy jdbc table: " + getName());
+            return null;
+        }
+        return copied;
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -127,6 +164,11 @@ public class JdbcTable extends Table {
         resourceName = properties.get(RESOURCE);
         if (Strings.isNullOrEmpty(resourceName)) {
             throw new DdlException("property " + RESOURCE + " must be set");
+        }
+
+        jdbcTypeName = properties.get(TABLE_TYPE);
+        if (Strings.isNullOrEmpty(jdbcTypeName)) {
+            throw new DdlException("property " + TABLE_TYPE + " must be set");
         }
 
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);

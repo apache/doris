@@ -33,6 +33,7 @@ struct JdbcConnectorParam {
     std::string jdbc_url;
     std::string user;
     std::string passwd;
+    std::string query_string;
 
     const TupleDescriptor* tuple_desc;
 };
@@ -45,13 +46,11 @@ public:
 
     Status open();
 
-    Status query(const std::string& table, const std::vector<std::string>& fields,
-                 const std::vector<std::string>& filters, const int64_t limit);
+    Status query_exec();
 
     Status get_next(bool* eos, std::vector<MutableColumnPtr>& columns, int batch_size);
 
 private:
-    Status _query_exec(const std::string& query);
     Status _register_func_id(JNIEnv* env);
     Status _convert_column_data(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
                                 vectorized::IColumn* column_ptr);
@@ -60,7 +59,7 @@ private:
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
 
     bool _is_open;
-    std::string _sql_str;
+    std::string _query_string;
     const TupleDescriptor* _tuple_desc;
     const JdbcConnectorParam _conn_param;
     jclass _executor_clazz;

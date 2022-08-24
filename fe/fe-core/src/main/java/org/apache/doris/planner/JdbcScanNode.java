@@ -25,11 +25,13 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
+import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -49,16 +51,23 @@ public class JdbcScanNode extends ScanNode {
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
     private String tableName;
+    private TOdbcTableType jdbcType;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, JdbcTable tbl) {
         super(id, desc, "SCAN JDBC", StatisticalType.JDBC_SCAN_NODE);
-        tableName = "`" + tbl.getJdbcTable() + "`";
+        jdbcType = tbl.getJdbcTableType();
+        tableName = OdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         computeStats(analyzer);
+    }
+
+    @Override
+    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+        return null;
     }
 
     private void createJdbcFilters(Analyzer analyzer) {
@@ -72,12 +81,17 @@ public class JdbcScanNode extends ScanNode {
         for (SlotRef slotRef : slotRefs) {
             SlotRef slotRef1 = (SlotRef) slotRef.clone();
             slotRef1.setTblName(null);
+            slotRef1.setLabel(OdbcTable.databaseProperName(jdbcType, slotRef1.getColumnName()));
             sMap.put(slotRef, slotRef1);
         }
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         for (Expr p : conjunctsList) {
-            filters.add(p.toSql());
+            if (OdbcScanNode.shouldPushDownConjunct(jdbcType, p)) {
+                String filter = p.toMySql();
+                filters.add(filter);
+                conjuncts.remove(p);
+            }
         }
     }
 
@@ -94,8 +108,23 @@ public class JdbcScanNode extends ScanNode {
         }
     }
 
+    private boolean shouldPushDownLimit() {
+        return limit != -1 && conjuncts.isEmpty();
+    }
+
     private String getJdbcQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
+
+        // Oracle use the where clause to do top n
+        if (shouldPushDownLimit() && jdbcType == TOdbcTableType.ORACLE) {
+            filters.add("ROWNUM <= " + limit);
+        }
+
+        // MSSQL use select top to do top n
+        if (shouldPushDownLimit() && jdbcType == TOdbcTableType.SQLSERVER) {
+            sql.append("TOP " + limit + " ");
+        }
+
         sql.append(Joiner.on(", ").join(columns));
         sql.append(" FROM ").append(tableName);
 
@@ -104,6 +133,15 @@ public class JdbcScanNode extends ScanNode {
             sql.append(Joiner.on(") AND (").join(filters));
             sql.append(")");
         }
+
+        // Other DataBase use limit do top n
+        if (shouldPushDownLimit()
+                && (jdbcType == TOdbcTableType.MYSQL
+                || jdbcType == TOdbcTableType.POSTGRESQL
+                || jdbcType == TOdbcTableType.MONGODB)) {
+            sql.append(" LIMIT ").append(limit);
+        }
+
         return sql.toString();
     }
 
@@ -141,9 +179,7 @@ public class JdbcScanNode extends ScanNode {
         msg.jdbc_scan_node = new TJdbcScanNode();
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
-        msg.jdbc_scan_node.setColumns(columns);
-        msg.jdbc_scan_node.setFilters(filters);
-        msg.jdbc_scan_node.setLimit(limit);
+        msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
     }
 
     @Override
@@ -155,10 +191,5 @@ public class JdbcScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return 1;
-    }
-
-    @Override
-    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return null;
     }
 }

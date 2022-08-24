@@ -235,14 +235,15 @@ JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
           _jdbc_passwd(tdesc.jdbcTable.jdbc_password) {}
 
 std::string JdbcTableDescriptor::debug_string() const {
-    std::stringstream out;
-    out << "JDBCTable(" << TableDescriptor::debug_string()
-        << " _jdbc_resource_name=" << _jdbc_resource_name << " jdbc_driver_url=" << _jdbc_driver_url
-        << " jdbc_driver_class=" << _jdbc_driver_class
-        << " _jdbc_driver_checksum= " << _jdbc_driver_checksum << " jdbc_url=" << _jdbc_url
-        << " _jdbc_table_name=" << _jdbc_table_name << " jdbc_user=" << _jdbc_user
-        << " jdbc_passwd=" << _jdbc_passwd << "}";
-    return out.str();
+    fmt::memory_buffer buf;
+    fmt::format_to(buf,
+                   "JDBCTable({} ,_jdbc_resource_name={} ,_jdbc_driver_url={} "
+                   ",_jdbc_driver_class={} ,_jdbc_driver_checksum={} ,_jdbc_url={} "
+                   ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={})",
+                   TableDescriptor::debug_string(), _jdbc_resource_name, _jdbc_driver_url,
+                   _jdbc_driver_class, _jdbc_driver_checksum, _jdbc_url, _jdbc_table_name,
+                   _jdbc_user, _jdbc_passwd);
+    return fmt::to_string(buf);
 }
 
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)

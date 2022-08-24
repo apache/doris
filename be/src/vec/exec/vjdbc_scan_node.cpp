@@ -17,6 +17,7 @@
 #include "vec/exec/vjdbc_scan_node.h"
 #ifdef LIBJVM
 #include <string>
+
 #include "common/status.h"
 
 namespace doris {
@@ -27,8 +28,7 @@ VJdbcScanNode::VJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _is_init(false),
           _table_name(tnode.jdbc_scan_node.table_name),
           _tuple_id(tnode.jdbc_scan_node.tuple_id),
-          _columns(tnode.jdbc_scan_node.columns),
-          _filters(tnode.jdbc_scan_node.filters),
+          _query_string(tnode.jdbc_scan_node.query_string),
           _tuple_desc(nullptr) {}
 
 Status VJdbcScanNode::prepare(RuntimeState* state) {
@@ -64,6 +64,7 @@ Status VJdbcScanNode::prepare(RuntimeState* state) {
     _jdbc_param.user = jdbc_table->jdbc_user();
     _jdbc_param.passwd = jdbc_table->jdbc_passwd();
     _jdbc_param.tuple_desc = _tuple_desc;
+    _jdbc_param.query_string = std::move(_query_string);
 
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {
@@ -91,7 +92,7 @@ Status VJdbcScanNode::open(RuntimeState* state) {
 
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_jdbc_connector->open());
-    RETURN_IF_ERROR(_jdbc_connector->query(_table_name, _columns, _filters, _limit));
+    RETURN_IF_ERROR(_jdbc_connector->query_exec());
     return Status::OK();
 }
 

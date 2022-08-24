@@ -54,12 +54,8 @@ private:
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
-
-    // select columns
-    std::vector<std::string> _columns;
-    // where clause
-    std::vector<std::string> _filters;
-
+    //SQL
+    std::string _query_string;
     // Descriptor of tuples read from JDBC table.
     const TupleDescriptor* _tuple_desc;
 

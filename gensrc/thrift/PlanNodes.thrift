@@ -316,9 +316,7 @@ struct TOdbcScanNode {
 struct TJdbcScanNode {
   1: optional Types.TTupleId tuple_id
   2: optional string table_name
-  3: optional list<string> columns
-  4: optional list<string> filters
-  5: optional i64 limit
+  3: optional string query_string
 }
 
 

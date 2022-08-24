@@ -123,8 +123,8 @@ public class JdbcResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
         for (String key : properties.keySet()) {
-            if (!DRIVER_URL.equals(key) && !URL.equals(key) && !USER.equals(key) && !PASSWORD.equals(key) && !TYPE
-                    .equals(key) && !TYPE.equals(key) && !DRIVER_CLASS.equals(key)) {
+            if (!DRIVER_URL.equals(key) && !URL.equals(key) && !USER.equals(key) && !PASSWORD.equals(key)
+                    && !TYPE.equals(key) && !DRIVER_CLASS.equals(key)) {
                 throw new DdlException("JDBC resource Property of " + key + " is unknown");
             }
         }
