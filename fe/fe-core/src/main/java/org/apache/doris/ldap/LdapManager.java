@@ -65,7 +65,7 @@ public class LdapManager {
         lock.writeLock().unlock();
     }
 
-    private long lastTimeStamp = System.currentTimeMillis();
+    private volatile long lastTimestamp = System.currentTimeMillis();
 
     // If the user exists in LDAP, the LDAP information of the user is returned; otherwise, null is returned.
     public LdapUserInfo getUserInfo(String fullName) {
@@ -166,11 +166,14 @@ public class LdapManager {
     }
 
     private void checkTimeoutCleanCache() {
-        if (lastTimeStamp + LdapConfig.ldap_cache_timeout_day * 24 * 60 * 60 * 1000 < System.currentTimeMillis()) {
+        long tempTimestamp = System.currentTimeMillis() - LdapConfig.ldap_cache_timeout_day * 24 * 60 * 60 * 1000;
+        if (lastTimestamp < tempTimestamp) {
             writeLock();
             try {
-                ldapUserInfoCache.clear();
-                lastTimeStamp = System.currentTimeMillis();
+                if (lastTimestamp < tempTimestamp) {
+                    ldapUserInfoCache.clear();
+                    lastTimestamp = System.currentTimeMillis();
+                }
             } finally {
                 writeUnlock();
             }
