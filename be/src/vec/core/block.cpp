@@ -614,7 +614,7 @@ void Block::update_hash(SipHash& hash) const {
     }
 }
 
-void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t column_to_keep) {
+void Block::filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t column_to_keep) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
         for (size_t i = 0; i < column_to_keep; ++i) {
