@@ -125,6 +125,14 @@ public:
     PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
+    ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
+    void set_serial_download_cache_thread_token() {
+        _serial_download_cache_thread_token =
+                download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
+    }
+    ThreadPoolToken* get_serial_download_cache_thread_token() {
+        return _serial_download_cache_thread_token.get();
+    }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -207,6 +215,12 @@ private:
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
+
+    // Threadpool used to download cache from remote storage
+    std::unique_ptr<ThreadPool> _download_cache_thread_pool;
+    // A token used to submit download cache task serially
+    std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
+
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;

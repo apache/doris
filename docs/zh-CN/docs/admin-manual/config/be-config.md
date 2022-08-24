@@ -1108,6 +1108,18 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 * 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
 * 默认值：102400
 
+### `download_cache_thread_pool_thread_num`
+
+* 类型: int32
+* 描述: DownloadCache线程池线程数目. 在FileCache的缓存下载任务之中, 缓存下载操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了DownloadCache线程池的大小。
+* 默认值：48
+
+### `download_cache_thread_pool_queue_size`
+
+* Type: int32
+* 描述: DownloadCache线程池线程数目. 在FileCache的缓存下载任务之中, 缓存下载操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 ### `serialize_batch`
 
 默认值：false
