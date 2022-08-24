@@ -48,7 +48,7 @@ Usage: $0 <options>
 }
 
 OPTS=$(getopt \
-  -n $0 \
+  -n "$0" \
   -o '' \
   -o 'hs:c:' \
   -- "$@")
@@ -107,24 +107,24 @@ if [[ -d $SSB_DATA_DIR/ ]]; then
   exit 1
 fi
 
-mkdir $SSB_DATA_DIR/
+mkdir "$SSB_DATA_DIR/"
 
 # gen data
-cd $SSB_DBGEN_DIR
+cd "$SSB_DBGEN_DIR"
 echo "Begin to generate data for table: customer"
-$SSB_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T c
+"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T c
 echo "Begin to generate data for table: part"
-$SSB_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T p
+"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T p
 echo "Begin to generate data for table: supplier"
-$SSB_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T s
+"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T s
 echo "Begin to generate data for table: date"
-$SSB_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T d
+"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T d
 echo "Begin to generate data for table: lineorder"
-$SSB_DBGEN_DIR/dbgen -f -s $SCALE_FACTOR -T l -C $PARALLEL
+"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T l -C "$PARALLEL"
 cd -
 
 # move data to $SSB_DATA_DIR
-mv $SSB_DBGEN_DIR/*.tbl* $SSB_DATA_DIR/
+mv "$SSB_DBGEN_DIR"/*.tbl* "$SSB_DATA_DIR/"
 
 # check data
-du -sh $SSB_DATA_DIR/*.tbl*
+du -sh "$SSB_DATA_DIR"/*.tbl*

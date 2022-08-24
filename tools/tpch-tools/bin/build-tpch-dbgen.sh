@@ -51,13 +51,12 @@ if [[ -d $TPCH_DBGEN_DIR ]]; then
     echo "If you want to download TPC-H_Tools_v3.0.0 again, please delete this dir first."
 else
     wget "https://tools-chengdu.oss-cn-chengdu.aliyuncs.com/TPC-H_Tools_v3.0.0.zip"
-
-    unzip TPC-H_Tools_v3.0.0.zip -d $CURDIR/
+    unzip TPC-H_Tools_v3.0.0.zip -d "$CURDIR"/
 fi
 
 # modify tpcd.h
-cd $TPCH_DBGEN_DIR/
-echo '
+cd "$TPCH_DBGEN_DIR"/
+printf '%s' '
 #ifdef MYSQL
 #define GEN_QUERY_PLAN ""
 #define START_TRAN "START TRANSACTION"
@@ -81,7 +80,11 @@ cd -
 
 # check
 if [[ -f $TPCH_DBGEN_DIR/dbgen ]]; then
-    echo "Build succeed! Run $TPCH_DBGEN_DIR/dbgen -h"
+    echo "
+################
+Build succeed!
+################
+Run $TPCH_DBGEN_DIR/dbgen -h"
     exit 0
 else
     echo "Build failed!"
