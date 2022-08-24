@@ -1998,7 +1998,7 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
                 if (st.is_not_found()) continue;
 
-                // sequece id smaller than the previous one, so delelte current row
+                // sequence id smaller than the previous one, so delete current row
                 if (st.is_already_exist()) {
                     loc.rowset_id = rowset_id;
                     loc.segment_id = seg->id();
@@ -2081,8 +2081,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     }
 
     // update version without write lock, compaction and publish_txn
-    // will update delete bitmap, handle compaction with _delete_bitmap_lock
-    // and publish_txn runs sequencial so no need to lock here
+    // will update delete bitmap, handle compaction with _rowset_update_lock
+    // and publish_txn runs sequential so no need to lock here
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         int ret = _tablet_meta->delete_bitmap().set(
