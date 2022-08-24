@@ -453,7 +453,7 @@ public class Env {
         return journalObservable;
     }
 
-    private SystemInfoService getClusterInfo() {
+    public SystemInfoService getClusterInfo() {
         return this.systemInfo;
     }
 

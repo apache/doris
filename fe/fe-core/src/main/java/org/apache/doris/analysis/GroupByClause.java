@@ -29,9 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Wraps all information of group by clause. support normal GROUP BY clause and extended GROUP BY clause like
@@ -285,8 +283,12 @@ public class GroupByClause implements ParseNode {
                                         Analyzer analyzer) {
         groupingExprs = Expr.substituteList(groupingExprs, smap, analyzer, true);
         for (VirtualSlotRef vs : groupingSlots) {
-            vs.setRealSlots(Optional.ofNullable(Expr.substituteList(vs.getRealSlots(), smap, analyzer, true)).orElse(
-                    new ArrayList<>()).stream().map(e -> (SlotRef) e).collect(Collectors.toList()));
+            ArrayList<Expr> exprs = Expr.substituteList(vs.getRealSlots(), smap, analyzer, true);
+            if (exprs != null) {
+                vs.setRealSlots(exprs);
+            } else {
+                vs.setRealSlots(new ArrayList<Expr>());
+            }
         }
     }
 
