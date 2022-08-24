@@ -25,7 +25,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
-import org.apache.doris.nereids.rules.rewrite.logical.PartitionPrune;
+import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SwapFilterAndProject;
@@ -54,7 +54,7 @@ public class RewriteJob extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
-                .add(topDownBatch(ImmutableList.of(new PartitionPrune())))
+                .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
                 .build();
 
         rulesJob.addAll(jobs);

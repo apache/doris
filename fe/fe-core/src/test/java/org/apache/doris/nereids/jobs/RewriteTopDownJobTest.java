@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -97,7 +98,8 @@ public class RewriteTopDownJobTest {
 
         public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, groupExpression, logicalProperties);
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, groupExpression, logicalProperties,
+                    Collections.emptyList());
         }
 
         @Override

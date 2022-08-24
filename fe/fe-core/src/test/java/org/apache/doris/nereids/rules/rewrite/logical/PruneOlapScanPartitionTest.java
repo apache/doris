@@ -32,7 +32,10 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -56,7 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-class PruneOlapScanPartitionTest extends TestWithFeService {
+class PruneOlapScanPartitionTest {
 
     @Test
     public void testOlapScanPartitionWithSingleColumnCase(@Mocked OlapTable olapTable) throws Exception {
@@ -82,11 +84,11 @@ class PruneOlapScanPartitionTest extends TestWithFeService {
                 olapTable.getPartitionColumnNames();
                 result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
                         .collect(Collectors.toSet());
-                olapTable.getPartitionIds();
-                result = Lists.newArrayList(0L, 1L);
+
             }};
         LogicalOlapScan scan = new LogicalOlapScan(olapTable);
-        Expression expression = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));
+        SlotReference slotRef = new SlotReference("col1", IntegerType.INSTANCE);
+        Expression expression = new LessThan(slotRef, new IntegerLiteral(4));
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expression, scan);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter);
@@ -95,6 +97,34 @@ class PruneOlapScanPartitionTest extends TestWithFeService {
         Plan resultPlan = cascadesContext.getMemo().copyOut();
         LogicalOlapScan rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
         Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+
+        Expression lessThan0 = new LessThan(slotRef, new IntegerLiteral(0));
+        Expression greaterThan6 = new GreaterThan(slotRef, new IntegerLiteral(6));
+        Or lessThan0OrGreaterThan6 = new Or(lessThan0, greaterThan6);
+        filter = new LogicalFilter<>(lessThan0OrGreaterThan6, scan);
+        scan = new LogicalOlapScan(olapTable);
+        cascadesContext = MemoTestUtils.createCascadesContext(filter);
+        rules = Lists.newArrayList(new PruneOlapScanPartition().build());
+        cascadesContext.topDownRewrite(rules);
+        resultPlan = cascadesContext.getMemo().copyOut();
+        rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
+        Assertions.assertEquals(1L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+
+        Expression greaterThanEqual0 =
+                new GreaterThanEqual(
+                        slotRef, new IntegerLiteral(0));
+        Expression lessThanEqual5 =
+                new LessThanEqual(slotRef, new IntegerLiteral(5));
+        And greaterThanEqual0AndLessThanEqual5 = new And(greaterThanEqual0, lessThanEqual5);
+        scan = new LogicalOlapScan(olapTable);
+        filter = new LogicalFilter<>(greaterThanEqual0AndLessThanEqual5, scan);
+        cascadesContext = MemoTestUtils.createCascadesContext(filter);
+        rules = Lists.newArrayList(new PruneOlapScanPartition().build());
+        cascadesContext.topDownRewrite(rules);
+        resultPlan = cascadesContext.getMemo().copyOut();
+        rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
+        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+        Assertions.assertEquals(2, rewrittenOlapScan.getSelectedPartitionIds().toArray().length);
     }
 
     @Test
@@ -118,8 +148,6 @@ class PruneOlapScanPartitionTest extends TestWithFeService {
                 olapTable.getPartitionColumnNames();
                 result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
                         .collect(Collectors.toSet());
-                olapTable.getPartitionIds();
-                result = Lists.newArrayList(0L);
             }};
         LogicalOlapScan scan = new LogicalOlapScan(olapTable);
         Expression left = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));

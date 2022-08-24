@@ -48,8 +48,11 @@ import org.apache.doris.planner.ScanNode.ColumnRanges;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -62,20 +65,19 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalOlapScan()).thenApply(ctx -> {
+        return logicalFilter(logicalOlapScan()).when(p -> !p.child().isPartitionPruned()).thenApply(ctx -> {
             LogicalFilter<LogicalOlapScan> filter = ctx.root;
             LogicalOlapScan scan = filter.child();
             Expression predicate = filter.getPredicates();
-            List<Expression> expressionList = ExpressionUtils.extractConjunction(predicate);
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
             PartitionInfo partitionInfo = table.getPartitionInfo();
             // TODO: 1. support grammar: SELECT * FROM tbl PARTITION(p1,p2)
             //       2. support list partition
             if (partitionColumnNameSet.isEmpty() || !partitionInfo.getType().equals(PartitionType.RANGE)) {
-                scan.getSelectedPartitionIds().addAll(table.getPartitionIds());
                 return ctx.root;
             }
+            List<Expression> expressionList = ExpressionUtils.extractConjunction(predicate);
             // TODO: Process all partition column for now, better to process required column only.
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (String colName : partitionColumnNameSet) {
@@ -86,35 +88,45 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItem(false);
             PartitionPruner partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
-            Collection<Long> selectedPartitionId =  Utils.execWithReturnVal(partitionPruner::prune);
-            scan.getSelectedPartitionIds().retainAll(selectedPartitionId);
-            return ctx.root;
-        }).toRule(RuleType.PARTITION_PRUNE);
+            Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
+            LogicalOlapScan rewrittenScan =
+                    scan.withSelectedPartitionId(new ArrayList<>(selectedPartitionId));
+            return new LogicalFilter<>(filter.getPredicates(), rewrittenScan);
+        }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }
 
     private ColumnRange createColumnRange(String colName, List<Expression> expressionList) {
         ColumnRange result = ColumnRange.create();
         for (Expression expression : expressionList) {
-            Expression leftMostChild = expression.leftMostNode();
-            if (!(leftMostChild instanceof SlotReference)) {
-                continue;
-            }
-            SlotReference slotRef = (SlotReference) leftMostChild;
-            if (!slotRef.boundToColumn(colName)) {
+            List<SlotReference> slotReferenceList = expression.collect(SlotReference.class::isInstance);
+            int slotReferenceListSize = new HashSet<>(slotReferenceList).size();
+            if (slotReferenceListSize != 1 || !slotReferenceList.get(0).getName().equals(colName)) {
                 continue;
             }
             if (expression instanceof Or) {
-                ColumnRanges ranges = exprToRanges(expression, colName);
-                switch (ranges.type) {
-                    case IS_NULL:
-                        result.setHasConjunctiveIsNull(true);
-                        break;
-                    case CONVERT_SUCCESS:
-                        result.intersect(ranges.ranges);
-                        break;
-                    case CONVERT_FAILURE:
-                    default:
-                        break;
+                List<Expression> disjunctiveList = ExpressionUtils.extractDisjunction(expression);
+                if (disjunctiveList.isEmpty()) {
+                    continue;
+                }
+                List<Range<ColumnBound>> disjunctiveRanges = Lists.newArrayList();
+                Set<Boolean> hasIsNull = Sets.newHashSet();
+                boolean allMatch = disjunctiveList.stream().allMatch(e -> {
+                    ColumnRanges ranges = exprToRanges(e, colName);
+                    switch (ranges.type) {
+                        case IS_NULL:
+                            hasIsNull.add(true);
+                            return true;
+                        case CONVERT_SUCCESS:
+                            disjunctiveRanges.addAll(ranges.ranges);
+                            return true;
+                        case CONVERT_FAILURE:
+                        default:
+                            return false;
+                    }
+                });
+                if (allMatch && !(disjunctiveRanges.isEmpty() && hasIsNull.isEmpty())) {
+                    result.intersect(disjunctiveRanges);
+                    result.setHasDisjunctiveIsNull(!hasIsNull.isEmpty());
                 }
             } else {
                 ColumnRanges ranges = exprToRanges(expression, colName);
@@ -154,7 +166,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
         } else if (expression instanceof GreaterThan) {
             result.add(Range.greaterThan(ColumnBound.of(value)));
         } else if (expression instanceof LessThan) {
-            result.add(Range.atMost(ColumnBound.of(value)));
+            result.add(Range.lessThan(ColumnBound.of(value)));
         } else if (expression instanceof LessThanEqual) {
             result.add(Range.atMost(ColumnBound.of(value)));
         }

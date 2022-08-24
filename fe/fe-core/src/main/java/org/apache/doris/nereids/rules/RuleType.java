@@ -75,7 +75,7 @@ public enum RuleType {
     MERGE_CONSECUTIVE_LIMITS(RuleTypeClass.REWRITE),
     FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
-    PARTITION_PRUNE(RuleTypeClass.REWRITE),
+    OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
     SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
 
     // exploration rules

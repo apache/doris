@@ -23,8 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.RewriteAliasToChildExpr;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionReplacer;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -44,12 +43,11 @@ public class SwapFilterAndProject extends OneRewriteRuleFactory {
             LogicalFilter<LogicalProject<GroupPlan>> filter = ctx.root;
             LogicalProject<GroupPlan> project = filter.child();
             List<NamedExpression> namedExpressionList = project.getProjects();
-            Map<Slot, Alias> slotToAlias = new HashMap<>();
+            Map<Expression, Expression> slotToAlias = new HashMap<>();
             namedExpressionList.stream().filter(Alias.class::isInstance).forEach(s -> {
-                slotToAlias.put(s.toSlot(), (Alias) s);
+                slotToAlias.put(s.toSlot(), ((Alias) s).child());
             });
-            RewriteAliasToChildExpr rewriteAliasToChildExpr = new RewriteAliasToChildExpr();
-            Expression rewrittenPredicate = rewriteAliasToChildExpr.visit(filter.getPredicates(), slotToAlias);
+            Expression rewrittenPredicate = ExpressionReplacer.INSTANCE.visit(filter.getPredicates(), slotToAlias);
             LogicalFilter<LogicalPlan> rewrittenFilter =
                     new LogicalFilter<LogicalPlan>(rewrittenPredicate, project.child());
             return new LogicalProject(project.getProjects(), rewrittenFilter);
