@@ -62,10 +62,7 @@ public class ExpressionRuleExecutor {
      * Given an expression, returns a rewritten expression.
      */
     public Optional<Expression> rewrite(Optional<Expression> root) {
-        if (root.isPresent()) {
-            return Optional.of(rewrite(root.get()));
-        }
-        return Optional.empty();
+        return root.map(this::rewrite);
     }
 
     private Expression applyRule(Expression expr, ExpressionRewriteRule rule) {

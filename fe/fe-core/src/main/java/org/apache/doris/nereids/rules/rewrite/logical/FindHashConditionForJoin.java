@@ -46,21 +46,19 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin().then(join -> {
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(join);
-            List<Expression> hashJoinConjuncts = pair.first;
-            hashJoinConjuncts.addAll(join.getHashJoinConjuncts());
-            List<Expression> otherJoinPredicates = pair.second;
-
-            if (!hashJoinConjuncts.isEmpty()) {
-                Optional<Expression> condition = Optional.empty();
-                if (!otherJoinPredicates.isEmpty()) {
-                    condition = Optional.of(ExpressionUtils.and(otherJoinPredicates));
-                }
+            List<Expression> extractedHashJoinConjuncts = pair.first;
+            List<Expression> remaindNonHashJoinConjuncts = pair.second;
+            if (!extractedHashJoinConjuncts.isEmpty()) {
+                List<Expression> combinedHashJoinConjuncts = ImmutableList.builder()
+                    .addAll(join.getHashJoinConjuncts())
+                    .addAll(extractedHashJoinConjuncts)
+                    .build();
                 return new LogicalJoin(join.getJoinType(),
-                        hashJoinConjuncts,
-                        condition,
-                        Optional.empty(),
-                        Optional.empty(),
-                        join.left(), join.right());
+                    combinedHashJoinConjuncts,
+                    remaindNonHashJoinConjuncts,
+                    Optional.empty(),
+                    Optional.empty(),
+                    join.left(), join.right());
             } else {
                 return join;
             }
