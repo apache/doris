@@ -114,13 +114,11 @@ BufferPool::BufferPool(int64_t min_buffer_len, int64_t buffer_bytes_limit,
 
 BufferPool::~BufferPool() {}
 
-Status BufferPool::RegisterClient(const string& name, ReservationTracker* parent_reservation,
-                                  int64_t reservation_limit, RuntimeProfile* profile,
+Status BufferPool::RegisterClient(const string& name, RuntimeProfile* profile,
                                   ClientHandle* client) {
     DCHECK(!client->is_registered());
-    DCHECK(parent_reservation != nullptr);
     client->impl_ = new Client(this, //file_group,
-                               name, parent_reservation, reservation_limit, profile);
+                               name, profile);
     return Status::OK();
 }
 
@@ -179,7 +177,6 @@ Status BufferPool::Pin(ClientHandle* client, PageHandle* handle) {
     }
     // Update accounting last to avoid complicating the error return path above.
     ++page->pin_count;
-    client->impl_->reservation()->AllocateFrom(page->len);
     return Status::OK();
 }
 
@@ -190,8 +187,6 @@ void BufferPool::Unpin(ClientHandle* client, PageHandle* handle) {
     // If handle is pinned, we can assume that the page itself is pinned.
     DCHECK(handle->is_pinned());
     Page* page = handle->page_;
-    ReservationTracker* reservation = client->impl_->reservation();
-    reservation->ReleaseTo(page->len);
 
     if (--page->pin_count > 0) return;
     //if (page->pin_in_flight) {
@@ -249,8 +244,6 @@ Status BufferPool::TransferBuffer(ClientHandle* src_client, BufferHandle* src,
     DCHECK_NE(src, dst);
     DCHECK_NE(src_client, dst_client);
 
-    dst_client->impl_->reservation()->AllocateFrom(src->len());
-    src_client->impl_->reservation()->ReleaseTo(src->len());
     *dst = std::move(*src);
     dst->client_ = dst_client;
     return Status::OK();
@@ -292,82 +285,12 @@ int64_t BufferPool::GetFreeBufferBytes() const {
     return allocator_->GetFreeBufferBytes();
 }
 
-bool BufferPool::ClientHandle::IncreaseReservation(int64_t bytes) {
-    return impl_->reservation()->IncreaseReservation(bytes);
-}
-
-bool BufferPool::ClientHandle::IncreaseReservationToFit(int64_t bytes) {
-    return impl_->reservation()->IncreaseReservationToFit(bytes);
-}
-
-Status BufferPool::ClientHandle::DecreaseReservationTo(int64_t target_bytes) {
-    return impl_->DecreaseReservationTo(target_bytes);
-}
-
-int64_t BufferPool::ClientHandle::GetReservation() const {
-    return impl_->reservation()->GetReservation();
-}
-
-int64_t BufferPool::ClientHandle::GetUsedReservation() const {
-    return impl_->reservation()->GetUsedReservation();
-}
-
-int64_t BufferPool::ClientHandle::GetUnusedReservation() const {
-    return impl_->reservation()->GetUnusedReservation();
-}
-
-bool BufferPool::ClientHandle::TransferReservationFrom(ReservationTracker* src, int64_t bytes) {
-    return src->TransferReservationTo(impl_->reservation(), bytes);
-}
-
-bool BufferPool::ClientHandle::TransferReservationTo(ReservationTracker* dst, int64_t bytes) {
-    return impl_->reservation()->TransferReservationTo(dst, bytes);
-}
-
-void BufferPool::ClientHandle::SaveReservation(SubReservation* dst, int64_t bytes) {
-    DCHECK_EQ(dst->tracker_->parent(), impl_->reservation());
-    bool success = impl_->reservation()->TransferReservationTo(dst->tracker_.get(), bytes);
-    DCHECK(success); // SubReservation should not have a limit, so this shouldn't fail.
-}
-
-void BufferPool::ClientHandle::RestoreReservation(SubReservation* src, int64_t bytes) {
-    DCHECK_EQ(src->tracker_->parent(), impl_->reservation());
-    bool success = src->tracker_->TransferReservationTo(impl_->reservation(), bytes);
-    DCHECK(success); // Transferring reservation to parent shouldn't fail.
-}
-
-void BufferPool::ClientHandle::SetDebugDenyIncreaseReservation(double probability) {
-    impl_->reservation()->SetDebugDenyIncreaseReservation(probability);
-}
-
 bool BufferPool::ClientHandle::has_unpinned_pages() const {
     return impl_->has_unpinned_pages();
 }
 
-BufferPool::SubReservation::SubReservation(ClientHandle* client) {
-    tracker_.reset(new ReservationTracker);
-    tracker_->InitChildTracker(nullptr, client->impl_->reservation(),
-                               numeric_limits<int64_t>::max());
-}
-
-BufferPool::SubReservation::~SubReservation() {}
-
-int64_t BufferPool::SubReservation::GetReservation() const {
-    return tracker_->GetReservation();
-}
-
-void BufferPool::SubReservation::Close() {
-    // Give any reservation back to the client.
-    if (is_closed()) return;
-    bool success = tracker_->TransferReservationTo(tracker_->parent(), tracker_->GetReservation());
-    DCHECK(success); // Transferring reservation to parent shouldn't fail.
-    tracker_->Close();
-    tracker_.reset();
-}
-
 BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group,
-                           const string& name, ReservationTracker* parent_reservation,
-                           int64_t reservation_limit, RuntimeProfile* profile)
+                           const string& name, RuntimeProfile* profile)
         : pool_(pool),
           //file_group_(file_group),
           name_(name),
@@ -376,7 +299,6 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
           buffers_allocated_bytes_(0) {
     // Set up a child profile with buffer pool info.
     RuntimeProfile* child_profile = profile->create_child("Buffer pool", true, true);
-    reservation_.InitChildTracker(child_profile, parent_reservation, reservation_limit);
     counters_.alloc_time = ADD_TIMER(child_profile, "AllocTime");
     counters_.cumulative_allocations =
             ADD_COUNTER(child_profile, "CumulativeAllocations", TUnit::UNIT);
@@ -544,22 +466,8 @@ Status BufferPool::Client::PrepareToAllocateBuffer(int64_t len) {
     // Clean enough pages to allow allocation to proceed without violating our eviction
     // policy. This can fail, so only update the accounting once success is ensured.
     //RETURN_IF_ERROR(CleanPages(&lock, len));
-    reservation_.AllocateFrom(len);
     buffers_allocated_bytes_ += len;
     DCHECK_CONSISTENCY();
-    return Status::OK();
-}
-
-Status BufferPool::Client::DecreaseReservationTo(int64_t target_bytes) {
-    std::unique_lock<std::mutex> lock(lock_);
-    int64_t current_reservation = reservation_.GetReservation();
-    DCHECK_GE(current_reservation, target_bytes);
-    int64_t amount_to_free =
-            std::min(reservation_.GetUnusedReservation(), current_reservation - target_bytes);
-    if (amount_to_free == 0) return Status::OK();
-    // Clean enough pages to allow us to safely release reservation.
-    //RETURN_IF_ERROR(CleanPages(&lock, amount_to_free));
-    reservation_.DecreaseReservation(amount_to_free);
     return Status::OK();
 }
 
@@ -693,8 +601,7 @@ string BufferPool::Client::DebugString() {
        << buffers_allocated_bytes_ << " num_pages: " << num_pages_
        << " pinned_bytes: " << pinned_pages_.bytes()
        << " dirty_unpinned_bytes: " << dirty_unpinned_pages_.bytes()
-       << " in_flight_write_bytes: " << in_flight_write_pages_.bytes()
-       << " reservation: " << reservation_.DebugString();
+       << " in_flight_write_bytes: " << in_flight_write_pages_.bytes();
     ss << "\n  " << pinned_pages_.size() << " pinned pages: ";
     pinned_pages_.iterate(std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     ss << "\n  " << dirty_unpinned_pages_.size() << " dirty unpinned pages: ";
