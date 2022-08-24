@@ -1584,7 +1584,7 @@ Translated with www.DeepL.com/Translator (free version)
 ### `file_cache_type`
 * Type：string
 * Description：Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
-* Default：104857600（100MB）
+* Default：""
 
 ### `max_sub_cache_file_size`
 * Type：int64

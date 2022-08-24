@@ -1608,7 +1608,7 @@ webserver默认工作线程数
 ### `file_cache_type`
 * 类型：string
 * 描述：缓存文件的类型。whole_file_cache：将segment文件整个下载，sub_file_cache：将segment文件按大小切分成多个文件。
-* 默认值：104857600（100MB）
+* 默认值：""
 
 ### `max_sub_cache_file_size`
 * 类型：int64
