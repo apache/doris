@@ -48,7 +48,6 @@ enum class MemTrackerLevel { OVERVIEW = 0, TASK, VERBOSE };
 
 class ObjectPool;
 class MemTracker;
-struct ReservationTrackerCounters;
 class RuntimeState;
 class TQueryOptions;
 
@@ -110,10 +109,6 @@ public:
 
     // Returns a list of all the valid trackers.
     static void ListTrackers(std::vector<std::shared_ptr<MemTracker>>* trackers);
-
-    /// Include counters from a ReservationTracker in logs and other diagnostics.
-    /// The counters should be owned by the fragment's RuntimeProfile.
-    void EnableReservationReporting(const ReservationTrackerCounters& counters);
 
     // Gets a shared_ptr to the "root" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> GetRootTracker();
@@ -534,11 +529,6 @@ private:
     /// to Consume()/Release(). Only used for the process tracker, thus parent_ should be
     /// nullptr if consumption_metric_ is set.
     IntGauge* consumption_metric_;
-
-    /// If non-nullptr, counters from a corresponding ReservationTracker that should be
-    /// reported in logs and other diagnostics. Owned by this MemTracker. The counters
-    /// are owned by the fragment's RuntimeProfile.
-    AtomicPtr<ReservationTrackerCounters> reservation_counters_;
 
     std::vector<MemTracker*> all_trackers_;   // this tracker plus all of its ancestors
     std::vector<MemTracker*> limit_trackers_; // all_trackers_ with valid limits
