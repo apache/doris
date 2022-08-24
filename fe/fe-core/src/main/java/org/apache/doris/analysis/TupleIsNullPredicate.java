@@ -43,14 +43,13 @@ import java.util.Objects;
  */
 public class TupleIsNullPredicate extends Predicate {
     private List<TupleId> tupleIds = Lists.newArrayList();
+    // Only effective in vectorized exec engine to mark null side,
+    // can set null in origin exec engine
     private TNullSide nullSide = null;
 
-    public TupleIsNullPredicate(List<TupleId> tupleIds) {
-        Preconditions.checkState(tupleIds != null && !tupleIds.isEmpty());
+    public TupleIsNullPredicate(List<TupleId> tupleIds, TNullSide nullSide) {
+        Preconditions.checkState(tupleIds != null && (!tupleIds.isEmpty() || nullSide != null));
         this.tupleIds.addAll(tupleIds);
-    }
-
-    public TupleIsNullPredicate(TNullSide nullSide) {
         this.nullSide = nullSide;
     }
 
@@ -131,7 +130,7 @@ public class TupleIsNullPredicate extends Predicate {
      * Returns a new list with the nullable exprs.
      */
     public static List<Expr> wrapExprs(List<Expr> inputExprs,
-                                       List<TupleId> tids, Analyzer analyzer) throws UserException {
+                                       List<TupleId> tids, TNullSide nullSide, Analyzer analyzer) throws UserException {
         // Assert that all tids are materialized.
         for (TupleId tid : tids) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
@@ -140,42 +139,23 @@ public class TupleIsNullPredicate extends Predicate {
         // Perform the wrapping.
         List<Expr> result = Lists.newArrayListWithCapacity(inputExprs.size());
         for (Expr e : inputExprs) {
-            result.add(wrapExpr(e, tids, analyzer));
+            result.add(wrapExpr(e, tids, nullSide, analyzer));
         }
         return result;
     }
 
-    /**
-     * Makes each input expr nullable, if necessary, by wrapping it as follows:
-     * IF(TupleIsNull(nullSide), NULL, expr)
-     * <p>
-     * The given inputExprs are expected to be bound
-     * by null side tuple id once fully substituted against base tables. However, inputExprs may not yet
-     * be fully substituted at this point.
-     * <p>
-     * Returns a new list with the nullable exprs. only use in vectorized exec engine
-     */
-    public static List<Expr> wrapExprs(List<Expr> inputExprs,
-                                       TNullSide nullSide, Analyzer analyzer) throws UserException {
-        // Perform the wrapping.
-        List<Expr> result = Lists.newArrayListWithCapacity(inputExprs.size());
-        for (Expr e : inputExprs) {
-            result.add(wrapExpr(e, nullSide, analyzer));
-        }
-        return result;
-    }
 
     /**
      * Returns a new analyzed conditional expr 'IF(TupleIsNull(tids), NULL, expr)',
      * if required to make expr nullable. Otherwise, returns expr.
      */
-    public static Expr wrapExpr(Expr expr, List<TupleId> tids, Analyzer analyzer)
+    public static Expr wrapExpr(Expr expr, List<TupleId> tids, TNullSide nullSide, Analyzer analyzer)
             throws UserException {
         if (!requiresNullWrapping(expr, analyzer)) {
             return expr;
         }
         List<Expr> params = Lists.newArrayList();
-        params.add(new TupleIsNullPredicate(tids));
+        params.add(new TupleIsNullPredicate(tids, nullSide));
         params.add(new NullLiteral());
         params.add(expr);
         Expr ifExpr = new FunctionCallExpr("if", params);
@@ -192,32 +172,6 @@ public class TupleIsNullPredicate extends Predicate {
         return ifExpr;
     }
 
-    /**
-     * Returns a new analyzed conditional expr 'IF(TupleIsNull(nullSide), NULL, expr)',
-     * if required to make expr nullable. Otherwise, returns expr. only use in vectorized exec engine
-     */
-    public static Expr wrapExpr(Expr expr, TNullSide nullSide, Analyzer analyzer)
-            throws UserException {
-        if (!requiresNullWrapping(expr, analyzer)) {
-            return expr;
-        }
-        List<Expr> params = Lists.newArrayList();
-        params.add(new TupleIsNullPredicate(nullSide));
-        params.add(new NullLiteral());
-        params.add(expr);
-        Expr ifExpr = new FunctionCallExpr("if", params);
-        ifExpr.analyzeNoThrow(analyzer);
-        // The type of function which is different from the type of expr will return the incorrect result in query.
-        // Example:
-        //   the type of expr is date
-        //   the type of function is int
-        //   So, the upper fragment will receive a int value instead of date while the result expr is date.
-        // If there is no cast function, the result of query will be incorrect.
-        if (expr.getType().getPrimitiveType() != ifExpr.getType().getPrimitiveType()) {
-            ifExpr = ifExpr.uncheckedCastTo(expr.getType());
-        }
-        return ifExpr;
-    }
 
     /**
      * Returns true if the given expr evaluates to a non-NULL value if all its contained
