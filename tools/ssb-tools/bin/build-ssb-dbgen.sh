@@ -27,34 +27,34 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-    cd "$ROOT"
+    cd "${ROOT}"
     pwd
 )
 
-CURDIR=${ROOT}
-SSB_DBGEN_DIR=$CURDIR/ssb-dbgen/
+CURDIR="${ROOT}"
+SSB_DBGEN_DIR="${CURDIR}/ssb-dbgen/"
 
 # download ssb-dbgen first
-if [[ -d $SSB_DBGEN_DIR ]]; then
-    echo "Dir $CURDIR/ssb-dbgen/ already exists. No need to download."
+if [[ -d ${SSB_DBGEN_DIR} ]]; then
+    echo "Dir ${CURDIR}/ssb-dbgen/ already exists. No need to download."
     echo "If you want to download ssb-dbgen again, please delete this dir first."
     exit 1
 else
-    cd "$CURDIR"
-    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/ssb-dbgen-linux.tar.gz && tar -xzvf ssb-dbgen-linux.tar.gz -C $CURDIR/
+    cd "${CURDIR}"
+    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/ssb-dbgen-linux.tar.gz && tar -xzvf ssb-dbgen-linux.tar.gz -C "${CURDIR}"/
 fi
 
 # compile ssb-dbgen
-cd "$SSB_DBGEN_DIR/" && make
+cd "${SSB_DBGEN_DIR}/" && make
 cd -
 
 # check
-if [[ -f $CURDIR/ssb-dbgen/dbgen ]]; then
+if [[ -f ${CURDIR}/ssb-dbgen/dbgen ]]; then
     echo -e "
 ################
 Build succeed!
 ################
-Run $CURDIR/ssb-dbgen/dbgen -h"
+Run ${CURDIR}/ssb-dbgen/dbgen -h"
     exit 0
 else
     echo "Build failed!"

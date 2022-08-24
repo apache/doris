@@ -25,12 +25,12 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-    cd "$ROOT"
+    cd "${ROOT}"
     pwd
 )
 
-CURDIR=${ROOT}
-SSB_DATA_DIR="$CURDIR/ssb-data/"
+CURDIR="${ROOT}"
+SSB_DATA_DIR="${CURDIR}/ssb-data/"
 
 usage() {
     echo "
@@ -51,12 +51,12 @@ OPTS=$(getopt \
     -o 'hc:' \
     -- "$@")
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
 PARALLEL=5
 HELP=0
 
-if [ $# == 0 ]; then
+if [[ $# == 0 ]]; then
     usage
 fi
 
@@ -86,33 +86,33 @@ if [[ ${HELP} -eq 1 ]]; then
     exit
 fi
 
-echo "Parallelism: $PARALLEL"
+echo "Parallelism: ${PARALLEL}"
 
 # check if ssb-data exists
-if [[ ! -d $SSB_DATA_DIR/ ]]; then
-    echo "$SSB_DATA_DIR does not exist. Run sh gen-ssb-data.sh first."
+if [[ ! -d ${SSB_DATA_DIR}/ ]]; then
+    echo "${SSB_DATA_DIR} does not exist. Run sh gen-ssb-data.sh first."
     exit 1
 fi
 
 check_prerequest() {
     local CMD=$1
     local NAME=$2
-    if ! $CMD; then
-        echo "$NAME is missing. This script depends on cURL to load data to Doris."
+    if ! ${CMD}; then
+        echo "${NAME} is missing. This script depends on cURL to load data to Doris."
         exit 1
     fi
 }
 
 run_sql() {
     sql="$*"
-    echo "$sql"
-    mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$@"
+    echo "${sql}"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@"
 }
 
 load_lineitem_flat() {
     # Loading data in batches by year.
     for con in 'lo_orderdate<19930101' 'lo_orderdate>=19930101 and lo_orderdate<19940101' 'lo_orderdate>=19940101 and lo_orderdate<19950101' 'lo_orderdate>=19950101 and lo_orderdate<19960101' 'lo_orderdate>=19960101 and lo_orderdate<19970101' 'lo_orderdate>=19970101 and lo_orderdate<19980101' 'lo_orderdate>=19980101'; do
-        echo -e "\n$con"
+        echo -e "\n${con}"
         run_sql "
 INSERT INTO lineorder_flat
 SELECT
@@ -189,53 +189,52 @@ ON (p.p_partkey = l.lo_partkey);
 check_prerequest "curl --version" "curl"
 
 # load lineorder
-# shellcheck source=/dev/null
-source "$CURDIR/../conf/doris-cluster.conf"
-export MYSQL_PWD=$PASSWORD
+source "${CURDIR}/../conf/doris-cluster.conf"
+export MYSQL_PWD=${PASSWORD}
 
-echo "FE_HOST: $FE_HOST"
-echo "FE_HTTP_PORT: $FE_HTTP_PORT"
-echo "USER: $USER"
-echo "PASSWORD: $PASSWORD"
-echo "DB: $DB"
+echo "FE_HOST: ${FE_HOST}"
+echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
+echo "USER: ${USER}"
+echo "PASSWORD: ${PASSWORD}"
+echo "DB: ${DB}"
 
 date
 echo "==========Start to load data into ssb tables=========="
 echo 'Loading data for table: part'
-curl --location-trusted -u "$USER":"$PASSWORD" \
+curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy" \
-    -T "$SSB_DATA_DIR"/part.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/part/_stream_load
+    -T "${SSB_DATA_DIR}"/part.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/part/_stream_load
 
 echo 'Loading data for table: date'
-curl --location-trusted -u "$USER":"$PASSWORD" \
+curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
-    -T "$SSB_DATA_DIR"/date.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/dates/_stream_load
+    -T "${SSB_DATA_DIR}"/date.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/dates/_stream_load
 
 echo 'Loading data for table: supplier'
-curl --location-trusted -u "$USER":"$PASSWORD" \
+curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy" \
-    -T "$SSB_DATA_DIR"/supplier.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/supplier/_stream_load
+    -T "${SSB_DATA_DIR}"/supplier.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/supplier/_stream_load
 
 echo 'Loading data for table: customer'
-curl --location-trusted -u "$USER":"$PASSWORD" \
+curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use" \
-    -T "$SSB_DATA_DIR"/customer.tbl http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/customer/_stream_load
+    -T "${SSB_DATA_DIR}"/customer.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/customer/_stream_load
 
-echo "Loading data for table: lineorder, with $PARALLEL parallel"
+echo "Loading data for table: lineorder, with ${PARALLEL} parallel"
 function load() {
     echo "$@"
-    curl --location-trusted -u "$USER":"$PASSWORD" \
+    curl --location-trusted -u "${USER}":"${PASSWORD}" \
         -H "column_separator:|" \
         -H "columns:lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority,lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount,lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy" \
-        -T "$@" http://"$FE_HOST":"$FE_HTTP_PORT"/api/"$DB"/lineorder/_stream_load
+        -T "$@" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/lineorder/_stream_load
 }
 
 # set parallelism
-[ -e /tmp/fd1 ] || mkfifo /tmp/fd1
+[[ -e /tmp/fd1 ]] || mkfifo /tmp/fd1
 exec 3<>/tmp/fd1
 rm -rf /tmp/fd1
 
@@ -244,10 +243,10 @@ for ((i = 1; i <= PARALLEL; i++)); do
 done
 
 date
-for file in "$SSB_DATA_DIR"/lineorder.tbl.*; do
+for file in "${SSB_DATA_DIR}"/lineorder.tbl.*; do
     read -r -u3
     {
-        load "$file"
+        load "${file}"
         echo >&3
     } &
 done
@@ -258,8 +257,14 @@ date
 
 echo "==========Start to insert data into ssb flat table=========="
 echo "change some session variables before load, and then restore after load."
-origin_query_timeout=$(run_sql 'select @@query_timeout;' | sed -n '3p')
-origin_parallel=$(run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p')
+origin_query_timeout=$(
+    set -e
+    run_sql 'select @@query_timeout;' | sed -n '3p'
+)
+origin_parallel=$(
+    set -e
+    run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
+)
 # set parallel_fragment_exec_instance_num=1, loading maybe slow but stable.
 run_sql "set global query_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
