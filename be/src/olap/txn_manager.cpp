@@ -309,6 +309,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         // save meta need access disk, it maybe very slow, so that it is not in global txn lock
         // it is under a single txn lock
         if (rowset_ptr != nullptr) {
+            // TODO(ygl): rowset is already set version here, memory is changed, if save failed
+            // it maybe a fatal error
+            rowset_ptr->make_visible(version);
             // update delete_bitmap
             {
                 if (load_info != nullptr && load_info->unique_key_merge_on_write) {
@@ -323,9 +326,6 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     tablet->save_meta();
                 }
             }
-            // TODO(ygl): rowset is already set version here, memory is changed, if save failed
-            // it maybe a fatal error
-            rowset_ptr->make_visible(version);
             Status save_status =
                     RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                             rowset_ptr->rowset_meta()->get_rowset_pb());
