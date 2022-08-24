@@ -302,7 +302,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                 + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                 + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\",\n"
-                + "\"disable_auto_compaction\" = \"false\"\n" + ")", showResultSet.getResultRows().get(0).get(1));
+                + "\"disable_auto_compaction\" = \"false\"\n" + ");", showResultSet.getResultRows().get(0).get(1));
     }
 
     @Test
