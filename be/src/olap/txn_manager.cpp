@@ -309,6 +309,20 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         // save meta need access disk, it maybe very slow, so that it is not in global txn lock
         // it is under a single txn lock
         if (rowset_ptr != nullptr) {
+            // update delete_bitmap
+            {
+                if (load_info != nullptr && load_info->unique_key_merge_on_write) {
+                    auto tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+                    if (tablet == nullptr) {
+                        return Status::OK();
+                    }
+                    RETURN_IF_ERROR(tablet->update_delete_bitmap(
+                            rowset_ptr, load_info->delete_bitmap, load_info->rowset_ids));
+                    std::shared_lock rlock(tablet->get_header_lock());
+                    tablet->save_meta();
+                }
+            }
             // TODO(ygl): rowset is already set version here, memory is changed, if save failed
             // it maybe a fatal error
             rowset_ptr->make_visible(version);
@@ -323,21 +337,6 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             }
         } else {
             return Status::OLAPInternalError(OLAP_ERR_TRANSACTION_NOT_EXIST);
-        }
-    }
-    // update delete_bitmap
-    {
-        auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
-#ifdef BE_TEST
-        if (tablet == nullptr) {
-            return Status::OK();
-        }
-#endif
-        if (load_info != nullptr && load_info->unique_key_merge_on_write) {
-            RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, load_info->delete_bitmap,
-                                                         load_info->rowset_ids));
-            std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
-            tablet->save_meta();
         }
     }
     {

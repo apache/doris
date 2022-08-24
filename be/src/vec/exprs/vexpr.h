@@ -157,6 +157,9 @@ public:
         return nullptr;
     }
 
+    // Just for debug. Should be removed after fixing #11995
+    void debug_valid(VExprContext* context);
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

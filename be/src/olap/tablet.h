@@ -165,6 +165,7 @@ public:
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
+    std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
@@ -392,6 +393,13 @@ private:
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
     mutable std::shared_mutex _meta_lock;
+
+    // In unique key table with MoW, we should guarantee that only one
+    // writer can update rowset and delete bitmap at the same time.
+    // We use a separate lock rather than _meta_lock, to avoid blocking read queries
+    // during publish_txn, which might take hundreds of milliseconds
+    mutable std::mutex _rowset_update_lock;
+
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;

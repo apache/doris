@@ -285,6 +285,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 _status = status;
                 break;
             }
+            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -449,6 +450,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::shared_lock<std::shared_mutex> l(_rf_lock);
             WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                           "Something wrong for runtime filters: ");
+            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -1171,12 +1173,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     // post volap scanners to thread-pool
-    ThreadPoolToken* thread_token = nullptr;
-    if (_limit > -1 && _limit < 1024) {
-        thread_token = state->get_query_fragments_ctx()->get_serial_token();
-    } else {
-        thread_token = state->get_query_fragments_ctx()->get_token();
-    }
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
     auto iter = olap_scanners.begin();
     if (thread_token != nullptr) {
         while (iter != olap_scanners.end()) {
@@ -1835,6 +1832,7 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
         }
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+        new_vconjunct_ctx_ptr->debug_valid();
     }
     return Status::OK();
 }

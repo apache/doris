@@ -441,6 +441,11 @@ public class HashJoinNode extends PlanNode {
         int rightNullableNumber = 0;
         if (copyLeft) {
             for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
+                // if the child is cross join node, the only way to get the correct nullable info of its output slots
+                // is to check if the output tuple ids are outer joined or not.
+                // then pass this nullable info to hash join node will be correct.
+                boolean needSetToNullable =
+                        getChild(0) instanceof CrossJoinNode && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
                         continue;
@@ -451,6 +456,9 @@ public class HashJoinNode extends PlanNode {
                         outputSlotDesc.setIsNullable(true);
                         leftNullableNumber++;
                     }
+                    if (needSetToNullable) {
+                        outputSlotDesc.setIsNullable(true);
+                    }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
@@ -458,6 +466,8 @@ public class HashJoinNode extends PlanNode {
         if (copyRight) {
             for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl()
                     .getTupleDesc(getChild(1).getOutputTblRefIds())) {
+                boolean needSetToNullable =
+                        getChild(1) instanceof CrossJoinNode && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
                         continue;
@@ -467,6 +477,9 @@ public class HashJoinNode extends PlanNode {
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
                         rightNullableNumber++;
+                    }
+                    if (needSetToNullable) {
+                        outputSlotDesc.setIsNullable(true);
                     }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
                 }

@@ -65,6 +65,11 @@ private:
     Container data;
     IndexByName index_by_name;
 
+    int64_t _decompress_time_ns = 0;
+    int64_t _decompressed_bytes = 0;
+
+    int64_t _compress_time_ns = 0;
+
 public:
     BlockInfo info;
 
@@ -262,6 +267,7 @@ public:
 
     // serialize block to PBlock
     Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
+                     segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
     // serialize block to PRowbatch
@@ -334,6 +340,10 @@ public:
                                   bool padding_char = false);
 
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
+
+    int64_t get_decompress_time() const { return _decompress_time_ns; }
+    int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
+    int64_t get_compress_time() const { return _compress_time_ns; }
 
 private:
     void erase_impl(size_t position);
