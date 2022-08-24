@@ -65,6 +65,7 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.thrift.TNullSide;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1393,8 +1394,14 @@ public class SingleNodePlanner {
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
                 if (analyzer.isOuterJoined(inlineViewRef.getId())) {
-                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
+                    List<Expr> nullableRhs;
+                    if (analyzer.isOuterJoinedLeftSide(inlineViewRef.getId())) {
+                        nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
+                            unionNode.getTupleIds(), TNullSide.LEFT, analyzer);
+                    } else {
+                        nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
+                            unionNode.getTupleIds(), TNullSide.RIGHT, analyzer);
+                    }
                     unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
                 }
                 return unionNode;
@@ -1422,7 +1429,7 @@ public class SingleNodePlanner {
             // because the rhs exprs must first be resolved against the physical output of
             // 'planRoot' to correctly determine whether wrapping is necessary.
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                    outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
+                    outputSmap.getRhs(), rootNode.getTupleIds(), null, analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.

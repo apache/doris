@@ -289,6 +289,11 @@ public class Analyzer {
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
 
+        // set of left side and right side of tuple id to mark null side in vec
+        // exec engine
+        private final Set<TupleId> outerLeftSideJoinTupleIds = Sets.newHashSet();
+        private final Set<TupleId> outerRightSideJoinTupleIds = Sets.newHashSet();
+
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
         public final Map<ExprId, TableRef> fullOuterJoinedConjuncts = Maps.newHashMap();
@@ -1000,6 +1005,16 @@ public class Analyzer {
             LOG.debug("registerOuterJoinedTids: " + globalState.outerJoinedTupleIds);
         }
     }
+
+    public void registerOuterJoinedRightSideTids(List<TupleId> tids) {
+        globalState.outerRightSideJoinTupleIds.addAll(tids);
+    }
+
+    public void registerOuterJoinedLeftSideTids(List<TupleId> tids) {
+        globalState.outerLeftSideJoinTupleIds.addAll(tids);
+    }
+
+
 
     /**
      * Register the given tuple id as being the invisible side of a semi-join.
@@ -2231,6 +2246,14 @@ public class Analyzer {
 
     public boolean isOuterJoined(TupleId tid) {
         return globalState.outerJoinedTupleIds.containsKey(tid);
+    }
+
+    public boolean isOuterJoinedLeftSide(TupleId tid) {
+        return globalState.outerLeftSideJoinTupleIds.contains(tid);
+    }
+
+    public boolean isOuterJoinedRightSide(TupleId tid) {
+        return globalState.outerRightSideJoinTupleIds.contains(tid);
     }
 
     public boolean isInlineView(TupleId tid) {
