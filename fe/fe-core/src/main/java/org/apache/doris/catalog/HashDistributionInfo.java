@@ -29,6 +29,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Hash Distribution Info.
@@ -90,20 +91,24 @@ public class HashDistributionInfo extends DistributionInfo {
         return distributionInfo;
     }
 
-    public boolean equals(DistributionInfo info) {
-        if (this == info) {
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
             return true;
         }
-
-        if (!(info instanceof HashDistributionInfo)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
+        if (!super.equals(o)) {
+            return false;
+        }
+        HashDistributionInfo that = (HashDistributionInfo) o;
+        return bucketNum == that.bucketNum && Objects.equals(distributionColumns, that.distributionColumns);
+    }
 
-        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) info;
-
-        return type == hashDistributionInfo.type
-                && bucketNum == hashDistributionInfo.bucketNum
-                && distributionColumns.equals(hashDistributionInfo.distributionColumns);
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), distributionColumns, bucketNum);
     }
 
     @Override

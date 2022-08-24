@@ -163,6 +163,20 @@ void AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
 }
 
+void AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
+                                             const size_t num_rows, Arena* arena) {
+    _calc_argment_columns(block);
+    SCOPED_TIMER(_exec_timer);
+    _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
+}
+
+void AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
+                                                       const size_t num_rows, Arena* arena) {
+    _calc_argment_columns(block);
+    SCOPED_TIMER(_exec_timer);
+    _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
+}
+
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
     _function->insert_result_into(place, *column);
 }

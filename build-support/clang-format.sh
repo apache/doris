@@ -23,11 +23,14 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME=`cd "${ROOT}/.."; pwd`
+DORIS_HOME=$(
+    cd "${ROOT}/.."
+    pwd
+)
+export DORIS_HOME
 
-CLANG_FORMAT=${CLANG_FORMAT_BINARY:=$(which clang-format)}
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(which clang-format)}"
 
-python ${DORIS_HOME}/build-support/run_clang_format.py "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "true" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test"
+python "${DORIS_HOME}/build-support/run_clang_format.py" "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "true" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test"

@@ -480,7 +480,7 @@ public class TableRef implements ParseNode, Writable {
         //
         if (leftTblRef != null) {
             for (TupleId tupleId : leftTblRef.getAllTableRefIds()) {
-                Pair<TupleId, TupleId> tids = new Pair<>(tupleId, getId());
+                Pair<TupleId, TupleId> tids = Pair.of(tupleId, getId());
                 analyzer.registerAnyTwoTalesJoinOperator(tids, joinOp);
             }
         }

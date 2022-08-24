@@ -146,14 +146,26 @@ public class GroupExpression {
             double cost) {
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first > cost) {
-                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+                lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
+            } else {
+                return false;
             }
         } else {
-            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
             return true;
         }
-        return false;
+    }
+
+    /**
+     * get the lowest cost when satisfy property
+     *
+     * @param property property that needs to be satisfied
+     * @return Lowest cost to satisfy that property
+     */
+    public double getCost(PhysicalProperties property) {
+        Preconditions.checkState(lowestCostTable.containsKey(property));
+        return lowestCostTable.get(property).first;
     }
 
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,

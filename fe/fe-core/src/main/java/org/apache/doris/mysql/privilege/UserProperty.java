@@ -439,7 +439,7 @@ public class UserProperty implements Writable {
             }
         }
 
-        return Pair.create(tmpCluster, dppConfig);
+        return Pair.of(tmpCluster, dppConfig);
     }
 
     public List<List<String>> fetchProperty() {

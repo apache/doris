@@ -21,11 +21,13 @@
 
 namespace doris::vectorized {
 ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
-                             size_t batch_size, int64_t range_start_offset, int64_t range_size)
+                             size_t batch_size, int64_t range_start_offset, int64_t range_size,
+                             cctz::time_zone* ctz)
         : _num_of_columns_from_file(num_of_columns_from_file),
           _batch_size(batch_size),
           _range_start_offset(range_start_offset),
-          _range_size(range_size) {
+          _range_size(range_size),
+          _ctz(ctz) {
     _file_reader = file_reader;
     _total_groups = 0;
     _current_row_group_id = 0;
@@ -62,7 +64,6 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
     }
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < _file_metadata->num_columns(); ++i) {
-        // for test
         VLOG_DEBUG << schema_desc.debug_string();
         // Get the Column Reader for the boolean column
         _map_column.emplace(schema_desc.get_column(i)->name, i);
@@ -89,11 +90,7 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
             VLOG_DEBUG << str_error.str();
             return Status::InvalidArgument(str_error.str());
         }
-        ParquetReadColumn column;
-        column.slot_desc = slot_desc;
-        column.parquet_column_id = parquet_col_id;
-        auto physical_type = _file_metadata->schema().get_column(parquet_col_id)->physical_type;
-        column.parquet_type = physical_type;
+        ParquetReadColumn column(slot_desc);
         _read_columns.emplace_back(column);
         VLOG_DEBUG << "slot_desc " << slot_desc->debug_string();
     }
@@ -134,7 +131,7 @@ Status ParquetReader::_init_row_group_readers(const TupleDescriptor* tuple_desc,
         }
         std::shared_ptr<RowGroupReader> row_group_reader;
         row_group_reader.reset(
-                new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group));
+                new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
         // todo: can filter row with candidate ranges rather than skipped ranges
         RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), skipped_row_ranges));
         _row_group_readers.emplace_back(row_group_reader);

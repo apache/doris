@@ -33,6 +33,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 // This class saved all temp partitions of a table.
@@ -154,5 +155,23 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         for (Partition partition : idToPartition.values()) {
             nameToPartition.put(partition.getName(), partition);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TempPartitions that = (TempPartitions) o;
+        return idToPartition.equals(that.idToPartition) && nameToPartition.equals(that.nameToPartition)
+                && Objects.equals(partitionInfo, that.partitionInfo);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(idToPartition, nameToPartition, partitionInfo);
     }
 }

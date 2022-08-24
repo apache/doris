@@ -17,7 +17,6 @@
 
 #include "vec/exprs/vexpr_context.h"
 
-#include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
 #include "vec/exprs/vexpr.h"
 
@@ -149,6 +148,12 @@ Block VExprContext::get_output_block_after_execute_exprs(
     }
 
     return {result_columns};
+}
+
+void VExprContext::debug_valid() {
+#ifndef NDEBUG
+    _root->debug_valid(this);
+#endif
 }
 
 } // namespace doris::vectorized

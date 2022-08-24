@@ -43,7 +43,6 @@ fi
 mkdir -p files
 rm -rf ./files/tables
 rm -rf ./files/tables.sql
-
 #get tables from mysql databases
 echo "use $d_mysql; show tables;" |mysql -h$mysql_host  -uroot -p$mysql_password 2>/dev/null >> ./files/tables
 
@@ -72,7 +71,8 @@ rm -rf ./files/tables1.sql
 mv ./files/tables2.sql ./files/tables.sql
 
 #start transform tables struct
-sed -i '/ENGINE=/a) ENGINE=MYSQL\n COMMENT "MYSQL"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "root",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables");' ./files/tables.sql
+sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "root",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' ./files/tables.sql
+sed -i "s/\"driver\"=\"MySQL\"/$doris_odbc_name/g" ./files/tables.sql
 
 #delete match line
 sed -i '/ENGINT=/d' ./files/tables.sql
@@ -82,7 +82,7 @@ sed -i '/UNIQUE KEY/d' ./files/tables.sql
 sed -i '/,\s*$/{:loop; N; /,\(\s*\|\n\))/! bloop; s/,\s*[\n]\?\s*)/\n)/}' ./files/tables.sql
 
 #delete a line on keyword
-sed -i -e '$!N;/\n.*ENGINE=MYSQL/!P;D' ./files/tables.sql
+sed -i -e '$!N;/\n.*ENGINE=ODBC/!P;D' ./files/tables.sql
 #replace mysql password、database、table、host
 for t_name in $(awk -F '\n' '{print $1}' ./files/tables)
         do
@@ -106,10 +106,12 @@ sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' ./files/tables.sql
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' ./files/tables.sql
 sed -i 's/DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP//g' ./files/tables.sql
 sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' ./files/tables.sql
+sed -i 's/DEFAULT CURRENT_TIMESTAMP//g' ./files/tables.sql
+sed -i 's/CHARACTER SET utf8mb4//g' ./files/tables.sql
 sed -i 's/CHARACTER SET utf8//g' ./files/tables.sql
 sed -i 's/COLLATE utf8mb4_general_ci//g' ./files/tables.sql
 sed -i 's/COLLATE utf8_general_ci//g'  ./files/tables.sql
-sed -i 's/COLLATE utf8_general_ci//g'  ./files/tables.sql
+sed -i 's/COLLATE utf8_bin//g'  ./files/tables.sql
 sed -i 's/\<tinytext\>/varchar(65533)/g' ./files/tables.sql
 sed -i 's/\<text\>/varchar(65533)/g' ./files/tables.sql
 sed -i 's/\<mediumtext\>/varchar(65533)/g' ./files/tables.sql
@@ -141,6 +143,7 @@ sed -i 's/varbinary([0-9][0-9][0-9])/varchar(65533)/g' ./files/tables.sql
 sed -i 's/varbinary([0-9][0-9])/varchar(65533)/g' ./files/tables.sql
 sed -i 's/varbinary([0-9])/varchar(65533)/g' ./files/tables.sql
 sed -i 's/\<varbinary\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/decimal([^)]*)/double/g' ./files/tables.sql
 
 
 #######################################
@@ -148,3 +151,4 @@ sed -i 's/\<varbinary\>/varchar(65533)/g' ./files/tables.sql
 echo '==========================================start to write database========================================'
 echo " create database if not exists $d_doris ;use $d_doris ; source ./files/tables.sql;" |mysql -h$master_host -P$master_port -uroot -p$doris_password
 echo '==========================================write database success========================================='
+

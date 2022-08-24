@@ -986,6 +986,12 @@ public class ScalarType extends Type {
         PrimitiveType largerType =
                 (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType result = null;
+        if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
+            return t1.scale > t2.scale ? t1 : t2;
+        }
+        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t1.isDatetimeV2() || t1.isDateV2())) {
+            return t1.isDatetimeV2() ? t1 : t2;
+        }
         if (strict) {
             result = strictCompatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }

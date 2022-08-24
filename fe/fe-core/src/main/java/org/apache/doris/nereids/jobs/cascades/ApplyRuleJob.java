@@ -71,12 +71,13 @@ public class ApplyRuleJob extends Job {
                 GroupExpression newGroupExpression = pair.second;
 
                 if (newPlan instanceof LogicalPlan) {
-                    pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {
                         pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
+                        pushTask(new DeriveStatsJob(newGroupExpression, context));
                         continue;
                     }
                     pushTask(new OptimizeGroupExpressionJob(newGroupExpression, context));
+                    pushTask(new DeriveStatsJob(newGroupExpression, context));
                 } else {
                     pushTask(new CostAndEnforcerJob(newGroupExpression, context));
                 }

@@ -131,6 +131,7 @@ protected:
 
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
+    RuntimeProfile::Counter* _compress_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
@@ -146,6 +147,8 @@ protected:
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
+
+    segment_v2::CompressionTypePB _compression_type;
 };
 
 // TODO: support local exechange
@@ -176,7 +179,7 @@ public:
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
         if (_is_local) {
-            LOG(INFO) << "will use local Exchange, dest_node_id is : " << _dest_node_id;
+            VLOG_NOTICE << "will use local Exchange, dest_node_id is : " << _dest_node_id;
         }
     }
 

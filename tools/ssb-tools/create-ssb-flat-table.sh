@@ -95,7 +95,7 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
 
 echo "Run DDL from ${DDL}"
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <${DDL}
+mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB <${DDL}

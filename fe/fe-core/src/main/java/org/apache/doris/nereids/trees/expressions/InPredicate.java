@@ -59,7 +59,7 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public InPredicate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() > 1);
         return new InPredicate(children.get(0), ImmutableList.copyOf(children).subList(1, children.size()));
     }

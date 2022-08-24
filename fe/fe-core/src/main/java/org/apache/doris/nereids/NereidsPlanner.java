@@ -24,12 +24,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
-import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
-import org.apache.doris.nereids.jobs.batch.MergeConsecutiveProjectJob;
-import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
-import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
+import org.apache.doris.nereids.jobs.batch.RewriteJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -43,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -112,10 +107,7 @@ public class NereidsPlanner extends Planner {
         // rule-based optimize
         rewrite();
 
-        // TODO: remove this condition, when stats collector is fully developed.
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
-            deriveStats();
-        }
+        deriveStats();
 
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
@@ -125,6 +117,8 @@ public class NereidsPlanner extends Planner {
 
         // Get plan directly. Just for SSB.
         PhysicalPlan physicalPlan = getRoot().extractPlan();
+        // TODO: remove above
+        // PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
 
         // post-process physical plan out of memo, just for future use.
         return postprocess(physicalPlan);
@@ -146,15 +140,13 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new MergeConsecutiveProjectJob(cascadesContext).execute();
-        new NormalizeExpressionRulesJob(cascadesContext).execute();
-        new JoinReorderRulesJob(cascadesContext).execute();
-        new PredicatePushDownRulesJob(cascadesContext).execute();
-        new DisassembleRulesJob(cascadesContext).execute();
+        new RewriteJob(cascadesContext).execute();
     }
 
     private void deriveStats() {
-        new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()).execute();
+        cascadesContext
+                .pushJob(new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
     /**

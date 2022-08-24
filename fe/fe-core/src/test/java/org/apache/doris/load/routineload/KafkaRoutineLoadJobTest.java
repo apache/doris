@@ -251,7 +251,7 @@ public class KafkaRoutineLoadJobTest {
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
         List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
         for (String s : kafkaPartitionString.split(",")) {
-            partitionIdToOffset.add(new Pair<>(Integer.valueOf(s), 0L));
+            partitionIdToOffset.add(Pair.of(Integer.valueOf(s), 0L));
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }

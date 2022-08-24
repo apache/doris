@@ -21,6 +21,7 @@
 
 #include "exprs/expr.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
@@ -57,7 +58,9 @@ Status VBlockingJoinNode::prepare(RuntimeState* state) {
 
     for (int i = 0; i < _build_tuple_size; ++i) {
         TupleDescriptor* build_tuple_desc = child(1)->row_desc().tuple_descriptors()[i];
-        _build_tuple_idx.push_back(_row_descriptor.get_tuple_idx(build_tuple_desc->id()));
+        auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
+        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
+        _build_tuple_idx.push_back(tuple_idx);
     }
 
     return Status::OK();
@@ -72,6 +75,7 @@ Status VBlockingJoinNode::close(RuntimeState* state) {
 
 void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     status->set_value(construct_build_side(state));
     // Release the thread token as soon as possible (before the main thread joins
     // on it).  This way, if we had a chain of 10 joins using 1 additional thread,

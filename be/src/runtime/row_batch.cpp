@@ -172,6 +172,9 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
             // copy collection slots
             for (auto slot_collection : desc->collection_slots()) {
                 DCHECK(slot_collection->type().is_collection_type());
+                if (tuple->is_null(slot_collection->null_indicator_offset())) {
+                    continue;
+                }
 
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());

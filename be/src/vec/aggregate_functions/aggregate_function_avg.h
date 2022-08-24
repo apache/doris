@@ -22,8 +22,9 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_fixed_length_object.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
@@ -33,6 +34,12 @@ template <typename T>
 struct AggregateFunctionAvgData {
     T sum = 0;
     UInt64 count = 0;
+
+    AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
+        sum = src.sum;
+        count = src.count;
+        return *this;
+    }
 
     template <typename ResultT>
     ResultT result() const {
@@ -134,6 +141,69 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).template result<ResultType>());
+    }
+
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+                                 size_t num_rows) const override {
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
+        auto* data = col.get_data().data();
+        memcpy(places, data, sizeof(Data) * num_rows);
+    }
+
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const override {
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        col.set_item_size(sizeof(Data));
+        col.resize(num_rows);
+        auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            *reinterpret_cast<Data*>(&data[sizeof(Data) * i]) =
+                    *reinterpret_cast<Data*>(places[i] + offset);
+        }
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena* arena) const override {
+        auto* src_data = assert_cast<const ColVecType&>(*columns[0]).get_data().data();
+        auto& dst_col = static_cast<ColumnFixedLengthObject&>(*dst);
+        dst_col.set_item_size(sizeof(Data));
+        dst_col.resize(num_rows);
+        auto* data = dst_col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
+            state.sum = src_data[i];
+            state.count = 1;
+        }
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const size_t num_rows = column.size();
+        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->data(place).sum += data[i].sum;
+            this->data(place).count += data[i].count;
+        }
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         MutableColumnPtr& dst) const override {
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        col.set_item_size(sizeof(Data));
+        col.resize(1);
+        *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+    }
+
+    MutableColumnPtr create_serialize_column() const override {
+        return ColumnFixedLengthObject::create(sizeof(Data));
+    }
+
+    DataTypePtr get_serialized_type() const override {
+        return std::make_shared<DataTypeFixedLengthObject>();
     }
 
 private:

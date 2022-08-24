@@ -253,7 +253,7 @@ CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "false");
+CONF_Bool(enable_vectorized_alter_table, "true");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
@@ -839,6 +839,10 @@ CONF_Bool(enable_simdjson_reader, "true");
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+
+// If set to true, the new scan node framework will be used.
+// This config should be removed when the new scan node is ready.
+CONF_Bool(enable_new_scan_node, "false");
 
 #ifdef BE_TEST
 // test s3

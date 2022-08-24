@@ -22,7 +22,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
-#include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -1115,6 +1114,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     status->set_value(_hash_table_build(state));
 }
 
@@ -1475,7 +1475,9 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
             }
         }
 
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
+        if (!is_mem_reuse) {
+            output_block->swap(mutable_block.to_block());
+        }
         DCHECK(output_block->rows() == rows);
     }
 

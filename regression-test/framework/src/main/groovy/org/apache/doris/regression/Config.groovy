@@ -59,6 +59,7 @@ class Config {
     public boolean forceGenerateOutputFile
     public boolean randomOrder
     public boolean stopWhenFail
+    public boolean dryRun
 
     public Properties otherConfigs = new Properties()
 
@@ -177,8 +178,14 @@ class Config {
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
-        config.stopWhenFail = cmd.hasOption(stopWhenFail)
+        config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+        config.dryRun = cmd.hasOption(dryRunOpt)
+
+        log.info("randomOrder is ${config.randomOrder}".toString())
+        log.info("stopWhenFail is ${config.stopWhenFail}".toString())
+        log.info("withOutLoadData is ${config.withOutLoadData}".toString())
+        log.info("dryRun is ${config.dryRun}".toString())
 
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
@@ -329,21 +336,6 @@ class Config {
             config.actionParallel = 10
             log.info("Set actionParallel to 10 because not specify.".toString())
         }
-
-        if (config.randomOrder == null) {
-            config.randomOrder = false
-            log.info("set randomOrder to false because not specify.".toString())
-        }
-
-        if (config.stopWhenFail == null) {
-            config.stopWhenFail = false
-            log.info("set stopWhenFail to false because not specify.".toString())
-        }
-
-        if (config.withOutLoadData == null) {
-            config.withOutLoadData = false
-            log.info("set withOutLoadData to false because not specify.".toString())
-        }
     }
     
     static String configToString(Object obj) {
@@ -359,8 +351,10 @@ class Config {
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
             log.info("Try to create db, sql: ${sql}".toString())
-            getConnection().withCloseable { conn ->
-                JdbcUtils.executeToList(conn, sql)
+            if (!dryRun) {
+                getConnection().withCloseable { conn ->
+                    JdbcUtils.executeToList(conn, sql)
+                }
             }
         } catch (Throwable t) {
             throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
@@ -381,7 +375,7 @@ class Config {
     String getDbNameByFile(File suiteFile) {
         String dir = new File(suitePath).relativePath(suiteFile.parentFile)
         // We put sql files under sql dir, so dbs and tables used by cases
-        // under sql directory should be prepared by load.groovy unbder the
+        // under sql directory should be prepared by load.groovy under the
         // parent.
         //
         // e.g.

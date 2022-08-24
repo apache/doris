@@ -96,7 +96,7 @@ echo "Time Unit: ms"
 
 pre_set() {
     echo $@
-    mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+    mysql -h$FE_HOST -u$USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
 sum=0
@@ -106,11 +106,7 @@ for i in $(seq 1 22); do
     # Each query is executed ${run} times and takes the average time
     for j in $(seq 1 ${run}); do
         start=$(date +%s%3N)
-        if [ -z $PASSWORD ]; then
-            mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB --comments <$QUERIES_DIR/q$i.sql >/dev/null
-        else
-            mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB -p$PASSWORD --comments <$QUERIES_DIR/q$i.sql >/dev/null
-        fi
+        mysql -h$FE_HOST -u $USER --password=$PASSWORD -P$FE_QUERY_PORT -D$DB --comments <$QUERIES_DIR/q$i.sql >/dev/null
         end=$(date +%s%3N)
         total=$((total + end - start))
     done

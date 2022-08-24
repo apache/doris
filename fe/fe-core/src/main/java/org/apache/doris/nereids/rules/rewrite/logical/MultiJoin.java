@@ -28,8 +28,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.SlotExtractor;
 
-import com.google.common.base.Preconditions;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -53,9 +51,11 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     public final List<Plan> joinInputs = new ArrayList<>();
     public final List<Expression> conjuncts = new ArrayList<>();
 
-    public Plan reorderJoinsAccordingToConditions() {
-        Preconditions.checkArgument(joinInputs.size() >= 2);
-        return reorderJoinsAccordingToConditions(joinInputs, conjuncts);
+    public Optional<Plan> reorderJoinsAccordingToConditions() {
+        if (joinInputs.size() >= 2) {
+            return Optional.of(reorderJoinsAccordingToConditions(joinInputs, conjuncts));
+        }
+        return Optional.empty();
     }
 
     /**

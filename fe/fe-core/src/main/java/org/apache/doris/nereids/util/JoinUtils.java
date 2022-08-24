@@ -94,7 +94,7 @@ public class JoinUtils {
     public static Pair<List<SlotReference>, List<SlotReference>> getOnClauseUsedSlots(
             AbstractPhysicalJoin<Plan, Plan> join) {
         Pair<List<SlotReference>, List<SlotReference>> childSlots =
-                new Pair<>(Lists.newArrayList(), Lists.newArrayList());
+                Pair.of(Lists.newArrayList(), Lists.newArrayList());
 
         List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
         List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
