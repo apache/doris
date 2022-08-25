@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
@@ -43,10 +44,10 @@ public class RewriteJob extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
+                .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
-                .build().reverse(); // reverse due to jobPool is stack.
-
+                .build();
         rulesJob.addAll(jobs);
     }
 }

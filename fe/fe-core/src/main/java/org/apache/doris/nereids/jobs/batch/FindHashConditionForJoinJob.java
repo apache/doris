@@ -15,23 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 
-import java.util.List;
-import java.util.Optional;
+import com.google.common.collect.ImmutableList;
 
 /**
- * Common interface for logical/physical join.
+ * FindHashConditionForJoinJob
  */
-public interface Join {
-    JoinType getJoinType();
-
-    List<Expression> getHashJoinConjuncts();
-
-    Optional<Expression> getOtherJoinCondition();
-
-    Optional<Expression> getOnClauseCondition();
+public class FindHashConditionForJoinJob extends BatchRulesJob {
+    public FindHashConditionForJoinJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(new FindHashConditionForJoin()))
+        ));
+    }
 }

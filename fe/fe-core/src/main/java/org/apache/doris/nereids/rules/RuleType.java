@@ -72,6 +72,7 @@ public enum RuleType {
     REORDER_JOIN(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_FILTERS(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_PROJECTS(RuleTypeClass.REWRITE),
+    FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
