@@ -68,7 +68,7 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite);
+            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite, &column);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions),
@@ -91,7 +91,8 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite);
+            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite, &column,
+                                                     pool);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions, pool),
