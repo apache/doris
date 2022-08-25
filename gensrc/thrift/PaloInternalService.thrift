@@ -167,6 +167,8 @@ struct TQueryOptions {
   45: optional bool enable_function_pushdown;
 
   46: optional string fragment_transmission_compression_codec;
+
+  47: optional bool enable_local_exchange;
 }
     
 
