@@ -259,7 +259,7 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
 
     return Status::InvalidArgument("Can't decode parquet physical type {} to doris logical type {}",
                                    tparquet::to_string(_physical_type),
-                                   getTypeName(data_type->get_type_id()));
+                                   getTypeName(logical_type));
 }
 
 Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
@@ -351,7 +351,7 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     }
     return Status::InvalidArgument(
             "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
-            getTypeName(data_type->get_type_id()));
+            getTypeName(logical_type));
 }
 
 Status BoolPlainDecoder::skip_values(size_t num_values) {

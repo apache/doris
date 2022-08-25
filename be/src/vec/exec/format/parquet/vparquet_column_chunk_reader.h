@@ -105,6 +105,9 @@ public:
     // Get the definition level decoder of current page.
     LevelDecoder& def_level_decoder() { return _def_level_decoder; }
 
+    level_t max_rep_level() const { return _max_rep_level; }
+    level_t max_def_level() const { return _max_def_level; }
+
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
@@ -119,9 +122,7 @@ private:
     tparquet::LogicalType _parquet_logical_type;
 
     BufferedStreamReader* _stream_reader;
-    // tparquet::ColumnChunk* _column_chunk;
-    tparquet::ColumnMetaData& _metadata;
-    // FieldSchema* _field_schema;
+    tparquet::ColumnMetaData _metadata;
     cctz::time_zone* _ctz;
 
     std::unique_ptr<PageReader> _page_reader = nullptr;
