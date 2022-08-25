@@ -113,7 +113,7 @@ protected:
     }
 
     inline void reset_peak() {
-        if (UNLIKELY(c_end - c_end_peak > 1024)) {
+        if (UNLIKELY(c_end - c_end_peak > 4096)) {
             THREAD_MEM_TRACKER_TRANSFER_FROM(c_end - c_end_peak,
                                              ExecEnv::GetInstance()->new_process_mem_tracker().get());
             c_end_peak = c_end;
