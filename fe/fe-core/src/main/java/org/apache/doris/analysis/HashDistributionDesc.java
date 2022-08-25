@@ -80,6 +80,9 @@ public class HashDistributionDesc extends DistributionDesc {
                     if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
                         throw new AnalysisException("String Type should not be used in distribution column["
                                 + columnDef.getName() + "].");
+                    } else if (columnDef.getType().isArrayType()) {
+                        throw new AnalysisException("Array Type should not be used in distribution column["
+                                + columnDef.getName() + "].");
                     }
                 }
             }
