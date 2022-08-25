@@ -431,6 +431,8 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 CONF_Int32(max_free_io_buffers, "128");
 
+// Whether to disable the memory cache pool,
+// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // Whether to allocate chunk using mmap. If you enable this, you'd better to
