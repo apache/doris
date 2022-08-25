@@ -369,7 +369,7 @@ suite("test_json_load", "p0") {
             load_json_data.call('true', '', 'json', '', '',
                     '', '', '', 'invalid_json_array.json', true)
 
-            qt_select "select * from ${testTable} order by id"
+            qt_select "select * from ${testTable}"
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
