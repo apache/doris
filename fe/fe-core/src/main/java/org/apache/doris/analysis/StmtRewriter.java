@@ -273,8 +273,9 @@ public class StmtRewriter {
         List<TableRef> newTableRefList = Lists.newArrayList();
         newTableRefList.add(inlineViewRef);
         FromClause newFromClause = new FromClause(newTableRefList);
-        SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null,
-                newOrderByElements, limitElement);
+        SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null);
+        result.setOrderByElements(newOrderByElements);
+        result.setLimitElement(limitElement);
         result.setTableAliasGenerator(tableAliasGenerator);
         try {
             result.analyze(analyzer);
@@ -1205,9 +1206,7 @@ public class StmtRewriter {
                     new FromClause(Lists.newArrayList(tableRef)),
                     matchPolicy.getWherePredicate(),
                     null,
-                    null,
-                    null,
-                    LimitElement.NO_LIMIT);
+                    null);
             selectStmt.fromClause.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
             selectStmt.analyze(analyzer);
             reAnalyze = true;
