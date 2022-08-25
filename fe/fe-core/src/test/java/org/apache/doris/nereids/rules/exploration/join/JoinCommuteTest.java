@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +48,8 @@ public class JoinCommuteTest {
                 new SlotReference("id", new BigIntType(), true, ImmutableList.of("table1")),
                 new SlotReference("id", new BigIntType(), true, ImmutableList.of("table2")));
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Optional.of(onCondition), scan1, scan2);
+                JoinType.INNER_JOIN, Lists.newArrayList(onCondition),
+                Optional.empty(), scan1, scan2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
         Rule rule = new JoinCommute(true).build();
