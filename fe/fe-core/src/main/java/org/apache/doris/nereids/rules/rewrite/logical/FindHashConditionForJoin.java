@@ -23,7 +23,10 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -46,9 +49,9 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
         return logicalJoin().then(join -> {
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(join);
             List<Expression> extractedHashJoinConjuncts = pair.first;
-            List<Expression> remaindNonHashJoinConjuncts = pair.second;
+            Optional<Expression> remaindNonHashJoinConjuncts = Optional.of(ExpressionUtils.and(pair.second));
             if (!extractedHashJoinConjuncts.isEmpty()) {
-                List<Expression> combinedHashJoinConjuncts = ImmutableList.builder()
+                List<Expression> combinedHashJoinConjuncts = new ImmutableList.Builder<Expression>()
                                     .addAll(join.getHashJoinConjuncts())
                                     .addAll(extractedHashJoinConjuncts)
                                     .build();
