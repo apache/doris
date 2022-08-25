@@ -2703,8 +2703,7 @@ public class Env {
         if (table.getType() == TableType.VIEW) {
             View view = (View) table;
             sb.append("CREATE VIEW `").append(table.getName()).append("` AS ").append(view.getInlineViewDef());
-            sb.append(";");
-            createTableStmt.add(sb.toString());
+            createTableStmt.add(sb + ";");
             return;
         }
 
@@ -3045,7 +3044,7 @@ public class Env {
             sb.append("\n)");
         }
 
-        createTableStmt.add(sb.toString());
+        createTableStmt.add(sb + ";");
 
         // 2. add partition
         if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
@@ -3077,7 +3076,7 @@ public class Env {
                     sb.append("(\"version_info\" = \"");
                     sb.append(partition.getVisibleVersion()).append("\"");
                     sb.append(");");
-                    addPartitionStmt.add(sb.toString());
+                    addPartitionStmt.add(sb + ";");
                 }
             }
         }
@@ -3104,7 +3103,7 @@ public class Env {
                     }
                 }
                 sb.append(");");
-                createRollupStmt.add(sb.toString());
+                createRollupStmt.add(sb + ";");
             }
         }
     }
