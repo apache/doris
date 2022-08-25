@@ -135,6 +135,7 @@ protected:
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
+    RuntimeProfile::Counter* _local_sent_rows;
 
     std::unique_ptr<MemTracker> _mem_tracker;
 
@@ -302,6 +303,8 @@ private:
     PBlock* _ch_cur_pb_block = nullptr;
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
+
+    bool _enable_local_exchange = false;
 };
 
 template <typename Channels, typename HashVals>
