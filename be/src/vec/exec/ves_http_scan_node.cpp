@@ -24,12 +24,8 @@
 #include "exprs/expr_context.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
-#include "util/types.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -352,16 +348,14 @@ Status VEsHttpScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    _batch_queue.clear();
-
     //don't need to hold lock to update_status in close function
     //collect scanners status
     update_status(collect_scanners_status());
 
-    //close exec node
-    update_status(ExecNode::close(state));
+    _batch_queue.clear();
     _block_queue.clear();
 
+    RETURN_IF_ERROR(ScanNode::close(state));
     return _process_status;
 }
 

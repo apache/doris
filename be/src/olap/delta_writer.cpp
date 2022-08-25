@@ -282,7 +282,7 @@ Status DeltaWriter::wait_flush() {
 
 void DeltaWriter::_reset_mem_table() {
     if (_tablet->enable_unique_key_merge_on_write()) {
-        _delete_bitmap.reset(new DeleteBitmap(-1));
+        _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
     }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,

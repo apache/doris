@@ -75,6 +75,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     }
 
     private String mvName;
+    private QueryStmt queryStmt;
     private SelectStmt selectStmt;
     private Map<String, String> properties;
 
@@ -95,9 +96,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     // only in Rollup or MaterializedIndexMeta is true
     private boolean isReplay = false;
 
-    public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt, Map<String, String> properties) {
+    /**
+     * Constructor.
+     *
+     * @param mvName materialized view name
+     * @param queryStmt query stmt for construct materialized view. Must be SelectStmt
+     * @param properties properties for materialized view
+     */
+    public CreateMaterializedViewStmt(String mvName, QueryStmt queryStmt, Map<String, String> properties) {
         this.mvName = mvName;
-        this.selectStmt = selectStmt;
+        this.queryStmt = queryStmt;
         this.properties = properties;
     }
 
@@ -107,10 +115,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public String getMVName() {
         return mvName;
-    }
-
-    public SelectStmt getSelectStmt() {
-        return selectStmt;
     }
 
     public List<MVColumnItem> getMVColumnItemList() {
@@ -137,6 +141,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
+        if (!(queryStmt instanceof SelectStmt)) {
+            throw new AnalysisException("Set operation is not supported in add materialized view clause, statement.");
+        }
+        selectStmt = (SelectStmt) queryStmt;
+
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
         selectStmt.analyze(analyzer);

@@ -245,6 +245,7 @@ Status FragmentExecState::execute() {
         CgroupsMgr::apply_system_cgroup();
         WARN_IF_ERROR(_executor.open(), strings::Substitute("Got error while opening fragment $0",
                                                             print_id(_fragment_instance_id)));
+
         _executor.close();
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
@@ -635,21 +636,37 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->set_rsc_info = true;
         }
 
-        if (params.__isset.query_options) {
-            fragments_ctx->timeout_second = params.query_options.query_timeout;
-            if (params.query_options.__isset.resource_limit) {
-                fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
-            }
+        fragments_ctx->timeout_second = params.query_options.query_timeout;
+
+#ifndef BE_TEST
+        // set thread token
+        // the thread token will be set if
+        // 1. the cpu_limit is set, or
+        // 2. the limit is very small ( < 1024)
+        int concurrency = 1;
+        bool is_serial = false;
+        if (params.query_options.__isset.resource_limit &&
+            params.query_options.resource_limit.__isset.cpu_limit) {
+            concurrency = params.query_options.resource_limit.cpu_limit;
+        } else {
+            concurrency = config::doris_scanner_thread_pool_thread_num;
         }
         if (params.__isset.fragment && params.fragment.__isset.plan &&
             params.fragment.plan.nodes.size() > 0) {
             for (auto& node : params.fragment.plan.nodes) {
+                // Only for SCAN NODE
+                if (!_is_scan_node(node.node_type)) {
+                    continue;
+                }
                 if (node.limit > 0 && node.limit < 1024) {
-                    fragments_ctx->set_serial_thread_token();
+                    concurrency = 1;
+                    is_serial = true;
                     break;
                 }
             }
         }
+        fragments_ctx->set_thread_token(concurrency, is_serial);
+#endif
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
@@ -702,6 +719,15 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     return Status::OK();
+}
+
+bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
+    return type == TPlanNodeType::OLAP_SCAN_NODE || type == TPlanNodeType::MYSQL_SCAN_NODE ||
+           type == TPlanNodeType::SCHEMA_SCAN_NODE || type == TPlanNodeType::META_SCAN_NODE ||
+           type == TPlanNodeType::BROKER_SCAN_NODE || type == TPlanNodeType::ES_SCAN_NODE ||
+           type == TPlanNodeType::ES_HTTP_SCAN_NODE || type == TPlanNodeType::ODBC_SCAN_NODE ||
+           type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE ||
+           type == TPlanNodeType::FILE_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,

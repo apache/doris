@@ -148,7 +148,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
              _is_null_safe_eq_join.end());
     _hash_tbl.reset(new HashTable(_build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
                                   stores_nulls, _is_null_safe_eq_join, id(),
-                                  state->batch_size() * 2));
+                                  BitUtil::RoundUpToPowerOfTwo(state->batch_size())));
 
     _probe_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
 
@@ -179,6 +179,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 void HashJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     status->set_value(construct_hash_table(state));
 }
 

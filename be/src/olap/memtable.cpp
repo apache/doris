@@ -400,20 +400,21 @@ bool MemTable::need_to_agg() {
 
 Status MemTable::_generate_delete_bitmap() {
     // generate delete bitmap, build a tmp rowset and load recent segment
-    if (_tablet->enable_unique_key_merge_on_write()) {
-        auto rowset = _rowset_writer->build_tmp();
-        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        segment_v2::SegmentSharedPtr segment;
-        if (beta_rowset->num_segments() == 0) {
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
-        segments.push_back(segment);
-        std::lock_guard<std::shared_mutex> meta_wrlock(_tablet->get_header_lock());
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments,
-                                                    &_rowset_ids, _delete_bitmap));
+    if (!_tablet->enable_unique_key_merge_on_write()) {
+        return Status::OK();
     }
+    auto rowset = _rowset_writer->build_tmp();
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    segment_v2::SegmentSharedPtr segment;
+    if (beta_rowset->num_segments() == 0) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
+    segments.push_back(segment);
+    std::shared_lock meta_rlock(_tablet->get_header_lock());
+    RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, &_rowset_ids,
+                                                _delete_bitmap));
     return Status::OK();
 }
 

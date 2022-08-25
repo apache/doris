@@ -707,7 +707,7 @@ public class DataDescription {
             }
         }
 
-        Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
+        Pair<String, List<String>> functionPair = Pair.of(functionName, args);
         columnToHadoopFunction.put(columnName, functionPair);
     }
 

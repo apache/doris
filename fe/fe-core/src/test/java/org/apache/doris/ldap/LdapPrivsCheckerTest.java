@@ -20,9 +20,11 @@ package org.apache.doris.ldap;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -53,6 +55,15 @@ public class LdapPrivsCheckerTest {
     @Mocked
     private ConnectContext context;
 
+    @Mocked
+    private Env env;
+
+    @Mocked
+    private PaloAuth paloAuth;
+
+    @Mocked
+    private LdapManager ldapManager;
+
     @Before
     public void setUp() {
         LdapConfig.ldap_authentication_enabled = true;
@@ -61,6 +72,18 @@ public class LdapPrivsCheckerTest {
                 ConnectContext.get();
                 minTimes = 0;
                 result = context;
+
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+
+                paloAuth.getLdapManager();
+                minTimes = 0;
+                result = ldapManager;
 
                 PaloRole role = new PaloRole("");
                 Map<TablePattern, PrivBitSet> tblPatternToPrivs = role.getTblPatternToPrivs();
@@ -91,13 +114,20 @@ public class LdapPrivsCheckerTest {
                 } catch (AnalysisException e) {
                     e.printStackTrace();
                 }
-                context.getLdapGroupsPrivs();
+
+                UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(USER, IP);
+
+                ldapManager.getUserInfo(userIdentity.getQualifiedUser());
                 minTimes = 0;
-                result = role;
+                result = new LdapUserInfo(userIdentity.getQualifiedUser(), false, "", role);
+
+                ldapManager.doesUserExist(userIdentity.getQualifiedUser());
+                minTimes = 0;
+                result = true;
 
                 context.getCurrentUserIdentity();
                 minTimes = 0;
-                result = UserIdentity.createAnalyzedUserIdentWithIp(USER, IP);
+                result = userIdentity;
             }
         };
     }
@@ -165,15 +195,6 @@ public class LdapPrivsCheckerTest {
     @Test
     public void testHasPrivsOfDb() {
         Assert.assertTrue(LdapPrivsChecker.hasPrivsOfDb(userIdent, CLUSTER + ":" + TABLE_DB));
-    }
-
-    @Test
-    public void testIsCurrentUser() {
-        Assert.assertTrue(LdapPrivsChecker.isCurrentUser(userIdent));
-        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(
-                UserIdentity.createAnalyzedUserIdentWithIp("default_cluster:lisi", IP)));
-        Assert.assertFalse(LdapPrivsChecker.isCurrentUser(
-                UserIdentity.createAnalyzedUserIdentWithIp(USER, "127.0.0.1")));
     }
 
     @Test

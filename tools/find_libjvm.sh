@@ -17,8 +17,8 @@
 # under the License.
 
 jdk_version() {
+    local java_cmd="${1}"
     local result
-    local java_cmd="${JAVA_HOME:-.}/bin/java"
     local IFS=$'\n'
 
     if [[ -z "${java_cmd}" ]]; then
@@ -39,11 +39,10 @@ jdk_version() {
     return 0
 }
 
-java_version=$(jdk_version)
-MACHINE_TYPE=$(uname -m)
-jvm_arch="amd64"
-if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
-    jvm_arch="aarch64"
+java_version=$(jdk_version "${JAVA_HOME:-}/bin/java")
+jvm_arch='amd64'
+if [[ "$(uname -m)" == 'aarch64' ]]; then
+    jvm_arch='aarch64'
 fi
 if [[ "${java_version}" -gt 8 ]]; then
     export LIBJVM_PATH="${JAVA_HOME}/lib"

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cast_array_functions") {
+suite("test_cast_array_functions_by_literal") {
     // open enable_array_type
     sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
@@ -190,48 +190,4 @@ suite("test_cast_array_functions") {
         // check exception message contains
         exception "errCode = 2,"
     }
-
-    //  ========== cast array to array ===========
-    test {
-        sql "select cast(['x'] as array<int>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast([0] as array<int>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(['1'] as array<tinyint>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(['100'] as array<smallint>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast([999.999] as array<double>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast([1] as array<char>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast([1] as array<varchar>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-    
 }

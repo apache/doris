@@ -453,7 +453,7 @@ public class Env {
         return journalObservable;
     }
 
-    private SystemInfoService getClusterInfo() {
+    public SystemInfoService getClusterInfo() {
         return this.systemInfo;
     }
 
@@ -1136,7 +1136,7 @@ public class Env {
     }
 
     private void getSelfHostPort() {
-        selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
+        selfNode = Pair.of(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
         LOG.debug("get self node: {}", selfNode);
     }
 
@@ -1187,7 +1187,7 @@ public class Env {
                 }
             } else {
                 // If helper node is not designated, use local node as helper node.
-                helperNodes.add(Pair.create(selfNode.first, Config.edit_log_port));
+                helperNodes.add(Pair.of(selfNode.first, Config.edit_log_port));
             }
         }
 
@@ -1210,7 +1210,7 @@ public class Env {
             // This is not the first time this node start up.
             // It should already added to FE group, just set helper node as it self.
             LOG.info("role file exist. this is not the first time to start up");
-            helperNodes = Lists.newArrayList(Pair.create(selfNode.first, Config.edit_log_port));
+            helperNodes = Lists.newArrayList(Pair.of(selfNode.first, Config.edit_log_port));
             return;
         }
 
@@ -2487,7 +2487,7 @@ public class Env {
             BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 bdbha.addHelperSocket(host, editLogPort);
-                helperNodes.add(Pair.create(host, editLogPort));
+                helperNodes.add(Pair.of(host, editLogPort));
                 bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }
             bdbha.removeConflictNodeIfExist(host, editLogPort);
@@ -2517,7 +2517,7 @@ public class Env {
 
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
-                helperNodes.remove(Pair.create(host, port));
+                helperNodes.remove(Pair.of(host, port));
                 BDBHA ha = (BDBHA) haProtocol;
                 ha.removeUnReadyElectableNode(nodeName, getFollowerCount());
             }
@@ -2703,8 +2703,7 @@ public class Env {
         if (table.getType() == TableType.VIEW) {
             View view = (View) table;
             sb.append("CREATE VIEW `").append(table.getName()).append("` AS ").append(view.getInlineViewDef());
-            sb.append(";");
-            createTableStmt.add(sb.toString());
+            createTableStmt.add(sb + ";");
             return;
         }
 
@@ -3045,7 +3044,7 @@ public class Env {
             sb.append("\n)");
         }
 
-        createTableStmt.add(sb.toString());
+        createTableStmt.add(sb + ";");
 
         // 2. add partition
         if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
@@ -3077,7 +3076,7 @@ public class Env {
                     sb.append("(\"version_info\" = \"");
                     sb.append(partition.getVisibleVersion()).append("\"");
                     sb.append(");");
-                    addPartitionStmt.add(sb.toString());
+                    addPartitionStmt.add(sb + ";");
                 }
             }
         }
@@ -3104,7 +3103,7 @@ public class Env {
                     }
                 }
                 sb.append(");");
-                createRollupStmt.add(sb.toString());
+                createRollupStmt.add(sb + ";");
             }
         }
     }
@@ -3181,7 +3180,7 @@ public class Env {
                 // DO NOT add helper sockets here, cause BDBHA is not instantiated yet.
                 // helper sockets will be added after start BDBHA
                 // But add to helperNodes, just for show
-                helperNodes.add(Pair.create(fe.getHost(), fe.getEditLogPort()));
+                helperNodes.add(Pair.of(fe.getHost(), fe.getEditLogPort()));
             }
         } finally {
             unlock();
@@ -3197,7 +3196,7 @@ public class Env {
                 return;
             }
             if (removedFe.getRole() == FrontendNodeType.FOLLOWER || removedFe.getRole() == FrontendNodeType.REPLICA) {
-                helperNodes.remove(Pair.create(removedFe.getHost(), removedFe.getEditLogPort()));
+                helperNodes.remove(Pair.of(removedFe.getHost(), removedFe.getEditLogPort()));
             }
 
             removedFrontends.add(removedFe.getNodeName());

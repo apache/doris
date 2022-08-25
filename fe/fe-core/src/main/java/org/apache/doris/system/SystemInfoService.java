@@ -937,7 +937,7 @@ public class SystemInfoService {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
             }
 
-            return new Pair<String, Integer>(host, heartbeatPort);
+            return Pair.of(host, heartbeatPort);
         } catch (UnknownHostException e) {
             throw new AnalysisException("Unknown host: " + e.getMessage());
         } catch (Exception e) {

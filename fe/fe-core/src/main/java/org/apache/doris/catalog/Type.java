@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
@@ -545,15 +547,39 @@ public abstract class Type {
     }
 
     /**
-     * Returns null if this expr is not instance of StringLiteral or StringLiteral
-     * inner value could not parse to long. otherwise return parsed Long result.
+     * Returns true if expr is StringLiteral and can parse to valid type, false
+     * otherwise.
+     * This function only support LargeInt and BigInt now.
      */
-    public static Long tryParseToLong(Expr expectStringExpr) {
-        if (expectStringExpr instanceof StringLiteral) {
-            String value = ((StringLiteral) expectStringExpr).getValue();
-            return Longs.tryParse(value);
+    public static boolean canParseTo(Expr expr, PrimitiveType type) {
+        if (expr instanceof StringLiteral) {
+            if (type == PrimitiveType.BIGINT) {
+                return canParseToBigInt((StringLiteral) expr);
+            } else if (type == PrimitiveType.LARGEINT) {
+                return canParseToLargeInt((StringLiteral) expr);
+            }
         }
-        return null;
+        return false;
+    }
+
+    /**
+     * Returns true if expr can parse to valid BigInt, false otherwise.
+     */
+    private static boolean canParseToBigInt(StringLiteral expr) {
+        String value = ((StringLiteral) expr).getValue();
+        return Longs.tryParse(value) != null;
+    }
+
+    /**
+     * Returns true if expr can parse to valid LargeInt, false otherwise.
+     */
+    private static boolean canParseToLargeInt(Expr expr) {
+        try {
+            new LargeIntLiteral(((StringLiteral) expr).getValue());
+        } catch (AnalysisException e) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -773,7 +799,7 @@ public abstract class Type {
                 break;
             }
         }
-        return new Pair<Type, Integer>(type, tmpNodeIdx);
+        return Pair.of(type, tmpNodeIdx);
     }
 
     /**

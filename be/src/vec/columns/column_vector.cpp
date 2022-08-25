@@ -297,7 +297,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     auto res = this->create();
     Container& res_data = res->get_data();
 
-    if (result_size_hint) res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
+    res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
@@ -319,7 +319,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
         } else {
             while (mask) {
                 const size_t idx = __builtin_ctzll(mask);
-                res_data.push_back(data_pos[idx]);
+                res_data.push_back_without_reserve(data_pos[idx]);
                 mask = mask & (mask - 1);
             }
         }
@@ -329,7 +329,9 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     }
 
     while (filt_pos < filt_end) {
-        if (*filt_pos) res_data.push_back(*data_pos);
+        if (*filt_pos) {
+            res_data.push_back_without_reserve(*data_pos);
+        }
 
         ++filt_pos;
         ++data_pos;

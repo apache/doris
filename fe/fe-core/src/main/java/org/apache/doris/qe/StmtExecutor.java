@@ -630,11 +630,11 @@ public class StmtExecutor implements ProfileWriter {
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
                 queryStmt = parsedStmt.getQueryStmt();
-                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
@@ -1679,10 +1679,10 @@ public class StmtExecutor implements ProfileWriter {
         // after success create table insert data
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
-                parsedStmt = setParsedStmt(ctasStmt.getInsertStmt());
+                parsedStmt = ctasStmt.getInsertStmt();
                 execute();
             } catch (Exception e) {
-                LOG.warn("CTAS insert data error, stmt={}", parsedStmt.toSql(), e);
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
                 // insert error drop table
                 DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
                 try {

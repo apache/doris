@@ -528,7 +528,7 @@ public class TabletScheduler extends MasterDaemon {
                         partition.getVisibleVersion(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         backendsSet);
-                statusPair = Pair.create(st, Priority.HIGH);
+                statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
                 List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);

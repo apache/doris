@@ -59,6 +59,7 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -1146,9 +1147,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else {
                     Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
-                    columnDef = new ColumnDef(name, typeDef, column.isKey(), column.getAggregationType(),
-                            column.isAllowNull(), new DefaultValue(setDefault, column.getDefaultValue()),
-                            column.getComment());
+                    DefaultValue defaultValue;
+                    if (column.getDefaultValueExprDef() != null) {
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                                column.getDefaultValueExprDef().getExprName());
+                    } else {
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
+                    }
+                    // AggregateType.NONE cause the table to change to the AGGREGATE KEY when analyze is used,
+                    // cause CURRENT_TIMESTAMP to report an error.
+                    columnDef = new ColumnDef(name, typeDef, column.isKey(),
+                            AggregateType.NONE.equals(column.getAggregationType())
+                                    ? null : column.getAggregationType(),
+                            column.isAllowNull(), defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution

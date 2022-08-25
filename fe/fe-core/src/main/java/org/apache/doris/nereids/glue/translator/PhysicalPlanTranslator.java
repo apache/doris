@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -357,7 +358,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
-    //       2. For ssb, there are only binary equal predicate, we shall support more in the future.
     @Override
     public PlanFragment visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanTranslatorContext context) {
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
@@ -370,13 +370,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
-            Expression eqJoinExpression = hashJoin.getCondition().get();
-            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunction(eqJoinExpression).stream()
+            List<Expr> execEqConjunctList = hashJoin.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast)
                     .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
-
             TupleDescriptor outputDescriptor = context.generateTupleDesc();
             List<Expr> srcToOutput = hashJoin.getOutput().stream()
                     .map(SlotReference.class::cast)
@@ -491,6 +489,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //for other PlanNode, just set limit as limit+offset
         child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
         return inputFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalDistribution(PhysicalDistribution<Plan> distribution,
+            PlanTranslatorContext context) {
+        return distribution.child().accept(this, context);
     }
 
     private void extractExecSlot(Expr root, Set<Integer> slotRefList) {

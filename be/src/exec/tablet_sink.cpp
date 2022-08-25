@@ -303,8 +303,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
-           (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->limit_exceeded(_max_pending_batches_bytes))) {
+           _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -469,8 +468,9 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void NodeChannel::try_send_batch(RuntimeState* state) {
-    SCOPED_ATTACH_TASK(state);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     AddBatchReq send_batch;
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
@@ -1322,6 +1322,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
 void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {

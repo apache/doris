@@ -213,11 +213,11 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
-        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, expandView, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getTables(analyzer, tableMap, parentViewNameSet);
+            op.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
@@ -681,18 +681,12 @@ public class SetOperationStmt extends QueryStmt {
             strBuilder.append(" ");
         }
         Preconditions.checkState(operands.size() > 0);
-        strBuilder.append(operands.get(0).getQueryStmt().toSql());
+        strBuilder.append("(").append(operands.get(0).getQueryStmt().toSql()).append(")");
         for (int i = 1; i < operands.size() - 1; ++i) {
             strBuilder.append(" "
                     + operands.get(i).getOperation().toString() + " "
                     + ((operands.get(i).getQualifier() == Qualifier.ALL) ? "ALL " : ""));
-            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
-                strBuilder.append("(");
-            }
-            strBuilder.append(operands.get(i).getQueryStmt().toSql());
-            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
-                strBuilder.append(")");
-            }
+            strBuilder.append("(").append(operands.get(i).getQueryStmt().toSql()).append(")");
         }
         // Determine whether we need parenthesis around the last Set operand.
         SetOperand lastOperand = operands.get(operands.size() - 1);

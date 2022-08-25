@@ -17,7 +17,7 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 public class SlotStatsDeriveResult {
 

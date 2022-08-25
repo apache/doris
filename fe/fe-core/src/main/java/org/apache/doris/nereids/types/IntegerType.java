@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * Integer data type in Nereids.
@@ -33,5 +34,20 @@ public class IntegerType extends IntegralType {
     @Override
     public boolean equals(Object o) {
         return o instanceof IntegerType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "int";
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof IntegerType;
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
     }
 }

@@ -463,7 +463,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // get default offset
         long beginOffset = convertedDefaultOffsetToLong();
         for (Integer kafkaPartition : newPartitions) {
-            partitionOffsets.add(Pair.create(kafkaPartition, beginOffset));
+            partitionOffsets.add(Pair.of(kafkaPartition, beginOffset));
         }
         if (isOffsetForTimes()) {
             try {

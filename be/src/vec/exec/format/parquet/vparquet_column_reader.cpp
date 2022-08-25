@@ -29,7 +29,7 @@ namespace doris::vectorized {
 Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
                                    const ParquetReadColumn& column,
                                    const tparquet::RowGroup& row_group,
-                                   std::vector<RowRange>& row_ranges,
+                                   std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    std::unique_ptr<ParquetColumnReader>& reader) {
     if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
         return Status::Corruption("not supported type");
@@ -38,7 +38,7 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
         return Status::Corruption("not supported array type yet");
     } else {
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
-        ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
+        ScalarColumnReader* scalar_reader = new ScalarColumnReader(column, ctz);
         scalar_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges));
         reader.reset(scalar_reader);
@@ -62,7 +62,7 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
     _stream_reader =
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
     _row_ranges = &row_ranges;
-    _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field));
+    _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field, _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
     RETURN_IF_ERROR(_chunk_reader->next_page());
     if (_row_ranges->size() != 0) {

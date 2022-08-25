@@ -550,7 +550,11 @@ public class Column implements Writable {
             sb.append(" NOT NULL");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
-            sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+            if (defaultValueExprDef != null) {
+                sb.append(" DEFAULT ").append(defaultValue).append("");
+            } else {
+                sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+            }
         }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
@@ -565,8 +569,8 @@ public class Column implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
-                getDefaultValue(), getStrLen(), getPrecision(), getScale(), comment, visible, children);
+        return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
+                isAggregationTypeImplicit, isKey, isAllowNull, defaultValue, comment, children, visible);
     }
 
     @Override
@@ -580,62 +584,20 @@ public class Column implements Writable {
 
         Column other = (Column) obj;
 
-        if (!this.name.equalsIgnoreCase(other.getName())) {
-            return false;
-        }
-        if (this.getDataType() != other.getDataType()) {
-            return false;
-        }
-        if (this.aggregationType != other.getAggregationType()) {
-            return false;
-        }
-        if (this.isAggregationTypeImplicit != other.isAggregationTypeImplicit()) {
-            return false;
-        }
-        if (this.isKey != other.isKey()) {
-            return false;
-        }
-        if (this.isAllowNull != other.isAllowNull) {
-            return false;
-        }
-        if (this.getDefaultValue() == null) {
-            if (other.getDefaultValue() != null) {
-                return false;
-            }
-        } else {
-            if (!this.getDefaultValue().equals(other.getDefaultValue())) {
-                return false;
-            }
-        }
-
-        if (this.getStrLen() != other.getStrLen()) {
-            return false;
-        }
-        if (this.getPrecision() != other.getPrecision()) {
-            return false;
-        }
-        if (this.getScale() != other.getScale()) {
-            return false;
-        }
-
-        if (!comment.equals(other.getComment())) {
-            return false;
-        }
-        if (!visible == other.visible) {
-            return false;
-        }
-
-        if (children.size() != other.children.size()) {
-            return false;
-        }
-
-        for (int i = 0; i < children.size(); i++) {
-            if (!children.get(i).equals(other.getChildren().get(i))) {
-                return false;
-            }
-        }
-
-        return true;
+        return name.equalsIgnoreCase(other.name)
+                && Objects.equals(getDefaultValue(), other.getDefaultValue())
+                && Objects.equals(aggregationType, other.aggregationType)
+                && isAggregationTypeImplicit == other.isAggregationTypeImplicit
+                && isKey == other.isKey
+                && isAllowNull == other.isAllowNull
+                && getDataType().equals(other.getDataType())
+                && getStrLen() == other.getStrLen()
+                && getPrecision() == other.getPrecision()
+                && getScale() == other.getScale()
+                && comment.equals(other.comment)
+                && visible == other.visible
+                && children.size() == other.children.size()
+                && children.equals(other.children);
     }
 
     @Override
@@ -676,8 +638,6 @@ public class Column implements Writable {
         StringBuilder sb = new StringBuilder(name);
         switch (dataType) {
             case CHAR:
-                sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
-                break;
             case VARCHAR:
                 sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
                 break;
@@ -688,11 +648,7 @@ public class Column implements Writable {
                 sb.append(String.format(typeStringMap.get(dataType), getPrecision(), getScale()));
                 break;
             case ARRAY:
-                sb.append(type.toString());
-                break;
             case MAP:
-                sb.append(type.toString());
-                break;
             case STRUCT:
                 sb.append(type.toString());
                 break;

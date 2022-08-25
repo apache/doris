@@ -165,6 +165,8 @@ struct TQueryOptions {
   44: optional bool trim_tailing_spaces_for_external_table_query = false
 
   45: optional bool enable_function_pushdown;
+
+  46: optional string fragment_transmission_compression_codec;
 }
     
 

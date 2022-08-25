@@ -75,11 +75,8 @@ set(RUNTIME_FILES
     tablets_channel.cpp
     bufferpool/buffer_allocator.cc
     bufferpool/buffer_pool.cc
-    bufferpool/reservation_tracker.cc
-    bufferpool/reservation_util.cc
     bufferpool/suballocator.cc
     bufferpool/system_allocator.cc
-    initial_reservations.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp

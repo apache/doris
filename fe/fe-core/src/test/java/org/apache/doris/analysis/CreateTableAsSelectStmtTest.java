@@ -17,14 +17,27 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.io.StringReader;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * test for CreateTableAsSelectStmt.
@@ -55,6 +68,13 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\"\n)";
         createTable(joinTable);
+        String defaultTimestampTable =
+                "CREATE TABLE `test`.`default_timestamp_table` (`userId`   varchar(255) NOT NULL,"
+                        + " `date`  datetime NULL DEFAULT CURRENT_TIMESTAMP)" + " ENGINE = OLAP unique KEY(`userId`)\n"
+                        + "COMMENT 'default_timestamp_table'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                        + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n)";
+        createTable(defaultTimestampTable);
     }
 
     @Test
@@ -64,11 +84,10 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromDecimal);
         Assertions.assertEquals("CREATE TABLE `select_decimal_table` (\n" + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `amount_decimal` decimal(10, 2) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n"
-                        + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
-                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                        + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
-                        + "\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showCreateTableByName("select_decimal_table").getResultRows().get(0).get(1));
         String selectFromDecimal1 =
                 "create table `test`.`select_decimal_table_1` PROPERTIES(\"replication_num\" = \"1\") "
@@ -77,18 +96,20 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         if (Config.enable_decimal_conversion && Config.enable_decimalv3) {
             Assertions.assertEquals(
                     "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(38, 2) NULL\n" + ") ENGINE=OLAP\n"
-                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
-                            + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n"
+                            + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n" + "PROPERTIES (\n"
+                            + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                             + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
-                            + "\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                            + "\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         } else {
             Assertions.assertEquals(
                     "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(27, 9) NULL\n" + ") ENGINE=OLAP\n"
-                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
-                            + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n"
+                            + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n" + "PROPERTIES (\n"
+                            + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                             + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
-                            + "\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                            + "\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         }
     }
@@ -110,10 +131,10 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromVarchar);
         ShowResultSet showResultSet = showCreateTableByName("select_varchar");
         Assertions.assertEquals("CREATE TABLE `select_varchar` (\n" + "  `userId` varchar(255) NOT NULL,\n"
-                + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
-                + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
+                        + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
 
@@ -128,7 +149,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\""
-                        + ",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + ",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet1.getResultRows().get(0).get(1));
 
         String selectFromFunction2 = "create table `test`.`select_function_2` PROPERTIES(\"replication_num\" = \"1\") "
@@ -143,7 +164,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DUPLICATE KEY(`_col0`, `_col1`, `_col2`)\n" + "COMMENT 'OLAP'\n"
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
 
@@ -154,21 +175,19 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectAlias1);
         ShowResultSet showResultSet1 = showCreateTableByName("select_alias_1");
         Assertions.assertEquals("CREATE TABLE `select_alias_1` (\n" + "  `amount` bigint(20) NULL\n" + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`amount`)\n" + "COMMENT 'OLAP'\n"
-                        + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
-                        + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                        + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
-                        + "\n\"disable_auto_compaction\" = \"false\"\n" + ")",
-                showResultSet1.getResultRows().get(0).get(1));
+                + "DUPLICATE KEY(`amount`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
+                + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
+                + "\n\"disable_auto_compaction\" = \"false\"\n" + ");", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") "
                 + "as select userId as alias_name, username from `test`.`varchar_table`";
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTableByName("select_alias_2");
         Assertions.assertEquals("CREATE TABLE `select_alias_2` (\n" + "  `alias_name` varchar(255) NOT NULL,\n"
-                + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`alias_name`)\n"
-                + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n" + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`alias_name`)\n"
+                        + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
 
@@ -180,11 +199,11 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTableByName("select_join");
         Assertions.assertEquals("CREATE TABLE `select_join` (\n" + "  `userId` varchar(255) NOT NULL,\n"
-                + "  `username` varchar(255) REPLACE NOT NULL,\n" + "  `status` int(11) REPLACE NOT NULL\n"
-                + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
-                + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "  `username` varchar(255) REPLACE NOT NULL,\n" + "  `status` int(11) REPLACE NOT NULL\n"
+                        + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromJoin1 = "create table `test`.`select_join1` PROPERTIES(\"replication_num\" = \"1\") "
                 + "as select vt.userId as userId1, jt.userId as userId2, vt.username, jt.status "
@@ -192,11 +211,11 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromJoin1);
         ShowResultSet showResultSet1 = showCreateTableByName("select_join1");
         Assertions.assertEquals("CREATE TABLE `select_join1` (\n" + "  `userId1` varchar(255) NOT NULL,\n"
-                + "  `userId2` varchar(255) NOT NULL,\n" + "  `username` varchar(255) REPLACE NOT NULL,\n"
-                + "  `status` int(11) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId1`, `userId2`)\n"
-                + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId1`) BUCKETS 10\n" + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "  `userId2` varchar(255) NOT NULL,\n" + "  `username` varchar(255) REPLACE NOT NULL,\n"
+                        + "  `status` int(11) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId1`, `userId2`)\n"
+                        + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId1`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet1.getResultRows().get(0).get(1));
     }
 
@@ -209,11 +228,11 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTableByName("select_name");
         Assertions.assertEquals("CREATE TABLE `select_name` (\n" + "  `user` varchar(255) NOT NULL,\n"
-                + "  `testname` varchar(255) REPLACE NOT NULL,\n" + "  `userstatus` int(11) REPLACE NOT NULL\n"
-                + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`user`)\n" + "COMMENT 'OLAP'\n"
-                + "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n" + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "  `testname` varchar(255) REPLACE NOT NULL,\n" + "  `userstatus` int(11) REPLACE NOT NULL\n"
+                        + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`user`)\n" + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
 
@@ -224,12 +243,10 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTableByName("select_union");
         Assertions.assertEquals("CREATE TABLE `select_union` (\n" + "  `userId` varchar(255) NULL\n" + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
-                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
-                        + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                        + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\""
-                        + " = \"false\"\n" + ")",
-                showResultSet.getResultRows().get(0).get(1));
+                + "DUPLICATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\""
+                + " = \"false\"\n" + ");", showResultSet.getResultRows().get(0).get(1));
     }
 
     @Test
@@ -243,19 +260,17 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DUPLICATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromCteAndUnion = "create table `test`.`select_cte_union` PROPERTIES(\"replication_num\" = \"1\")"
                 + "as with source_data as (select 1 as id union all select 2 as id) select * from source_data;";
         createTableAsSelect(selectFromCteAndUnion);
         ShowResultSet showResultSet1 = showCreateTableByName("select_cte_union");
-        Assertions.assertEquals(
-                "CREATE TABLE `select_cte_union` (\n" + "  `id` tinyint(4) NULL\n" + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`id`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
-                        + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                        + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
-                        + "\n\"disable_auto_compaction\" = \"false\"\n" + ")",
-                showResultSet1.getResultRows().get(0).get(1));
+        Assertions.assertEquals("CREATE TABLE `select_cte_union` (\n" + "  `id` tinyint(4) NULL\n" + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`id`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
+                + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\","
+                + "\n\"disable_auto_compaction\" = \"false\"\n" + ");", showResultSet1.getResultRows().get(0).get(1));
     }
 
     @Test
@@ -266,12 +281,76 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromPartition);
         ShowResultSet showResultSet = showCreateTableByName("selectPartition");
         Assertions.assertEquals("CREATE TABLE `selectPartition` (\n" + "  `userId` varchar(255) NOT NULL,\n"
-                + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
-                + "COMMENT 'OLAP'\n" + "PARTITION BY LIST(`userId`)\n"
-                + "(PARTITION p1 VALUES IN (\"CA\",\"GB\",\"US\",\"ZH\"))\n"
-                + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
-                + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ")",
+                        + "  `username` varchar(255) REPLACE NOT NULL\n" + ") ENGINE=OLAP\n" + "AGGREGATE KEY(`userId`)\n"
+                        + "COMMENT 'OLAP'\n" + "PARTITION BY LIST(`userId`)\n"
+                        + "(PARTITION p1 VALUES IN (\"CA\",\"GB\",\"US\",\"ZH\"))\n"
+                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n\"disable_auto_compaction\" = \"false\"\n" + ");",
                 showResultSet.getResultRows().get(0).get(1));
+    }
+
+    @Test
+    public void testDefaultTimestamp() throws Exception {
+        String createSql
+                = "create table `test`.`test_default_timestamp` PROPERTIES (\"replication_num\" = \"1\")"
+                + " as select * from `test`.`default_timestamp_table`";
+        createTableAsSelect(createSql);
+        ShowResultSet showResultSet = showCreateTableByName("test_default_timestamp");
+        Assertions.assertEquals("CREATE TABLE `test_default_timestamp` (\n" + "  `userId` varchar(255) NOT NULL,\n"
+                + "  `date` datetime REPLACE NULL DEFAULT CURRENT_TIMESTAMP\n" + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`userId`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\",\n"
+                + "\"disable_auto_compaction\" = \"false\"\n" + ");", showResultSet.getResultRows().get(0).get(1));
+    }
+
+    @Test
+    public void testQuerySchema() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String create1 = "create table test.qs1 (k1 int, k2 int) distributed by hash(k1) "
+                + "buckets 1 properties('replication_num' = '1')";
+        String create2 = "create table test.qs2 (k1 int, k2 int) distributed by hash(k1) "
+                + "buckets 1 properties('replication_num' = '1')";
+        createTables(create1, create2);
+
+        String view1 = "create view test.v1 as select qs1.k1 from qs1 join qs2 on qs1.k1 = qs2.k1";
+        String view2 = "create view test.v2 as with cte(s1) as (select * from v1) select * from cte";
+
+        createView(view1);
+        createView(view2);
+
+        String sql1 = "select * from v1";
+
+        org.apache.doris.analysis.SqlParser parser = new SqlParser(
+                new org.apache.doris.analysis.SqlScanner(new StringReader(sql1)));
+        QueryStmt stmt = (QueryStmt) SqlParserUtils.getStmt(parser, 0);
+        Map<Long, TableIf> tableMap = Maps.newHashMap();
+        Set<String> parentViewNameSet = Sets.newHashSet();
+        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
+        stmt.getTables(analyzer, true, tableMap, parentViewNameSet);
+
+        List<String> createStmts = Lists.newArrayList();
+        for (TableIf tbl : tableMap.values()) {
+            List<String> createTableStmts = Lists.newArrayList();
+            Env.getDdlStmt(tbl, createTableStmts, null, null, false, true);
+            createStmts.add(createTableStmts.get(0));
+            if (tbl.getName().equals("qs1")) {
+                Assert.assertEquals("CREATE TABLE `qs1` (\n" + "  `k1` int(11) NULL,\n" + "  `k2` int(11) NULL\n"
+                                + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`k1`, `k2`)\n" + "COMMENT 'OLAP'\n"
+                                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" + "PROPERTIES (\n"
+                                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                                + "\"storage_format\" = \"V2\",\n" + "\"disable_auto_compaction\" = \"false\"\n" + ");",
+                        createTableStmts.get(0));
+            } else {
+                Assert.assertEquals("CREATE TABLE `qs2` (\n" + "  `k1` int(11) NULL,\n" + "  `k2` int(11) NULL\n"
+                                + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`k1`, `k2`)\n" + "COMMENT 'OLAP'\n"
+                                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" + "PROPERTIES (\n"
+                                + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                                + "\"storage_format\" = \"V2\",\n" + "\"disable_auto_compaction\" = \"false\"\n" + ");",
+                        createTableStmts.get(0));
+            }
+        }
+        Assert.assertEquals(2, createStmts.size());
     }
 }

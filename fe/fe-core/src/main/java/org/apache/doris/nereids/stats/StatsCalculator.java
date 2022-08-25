@@ -66,25 +66,28 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Used to calculate the stats for each operator
+ * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
 
     private final GroupExpression groupExpression;
 
-    public StatsCalculator(GroupExpression groupExpression) {
+    private StatsCalculator(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
     }
 
     /**
-     * Do estimate.
+     * estimate stats
      */
-    public void estimate() {
+    public static void estimate(GroupExpression groupExpression) {
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+    }
 
+    private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getOwnerGroup().setStatistics(stats);
         groupExpression.setStatDerived(true);
-
     }
 
     @Override

@@ -616,7 +616,7 @@ public class RestoreJob extends AbstractJob {
                                         if (restorePart == null) {
                                             return;
                                         }
-                                        restoredPartitions.add(Pair.create(localOlapTbl.getName(), restorePart));
+                                        restoredPartitions.add(Pair.of(localOlapTbl.getName(), restorePart));
                                     }
                                 } else {
                                     // It is impossible that a single partitioned table exist
@@ -1813,7 +1813,7 @@ public class RestoreJob extends AbstractJob {
         for (int i = 0; i < size; i++) {
             String tblName = Text.readString(in);
             Partition part = Partition.read(in);
-            restoredPartitions.add(Pair.create(tblName, part));
+            restoredPartitions.add(Pair.of(tblName, part));
         }
 
         size = in.readInt();

@@ -91,14 +91,14 @@ public class CreateViewTest {
         // test union all
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view6 as "
-                        + "select * from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10 "
+                        + "(select * from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10) "
                         + "union all "
-                        + "select * from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
+                        + "(select * from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50);"));
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view7 (k1, k2) as "
-                        + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10 "
+                        + "(select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10) "
                         + "union all "
-                        + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
+                        + "(select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50);"));
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
 
