@@ -217,9 +217,7 @@ public class FunctionCallExpr extends Expr {
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
         fnParams = other.fnParams.clone(children);
-        if (other.aggFnParams != null) {
-            aggFnParams = other.aggFnParams.clone(children);
-        }
+        aggFnParams = other.aggFnParams;
 
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
@@ -253,6 +251,16 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isMergeAggFn() {
         return isMergeAggFn;
+    }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap sMap, Analyzer analyzer)
+            throws AnalysisException {
+        if (aggFnParams != null) {
+            aggFnParams = aggFnParams
+                    .clone(Expr.substituteList(aggFnParams.exprs(), sMap, analyzer, false));
+        }
+        return super.substituteImpl(sMap, analyzer);
     }
 
     @Override
