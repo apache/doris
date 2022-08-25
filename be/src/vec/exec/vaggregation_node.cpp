@@ -94,7 +94,6 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
-            DCHECK(_conjunct_ctxs.empty()) << "Preaggs have no conjuncts";
             DCHECK(!tnode.agg_node.grouping_exprs.empty()) << "Streaming preaggs do grouping";
             DCHECK(_limit == -1) << "Preaggs have no limits";
         }
