@@ -568,6 +568,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     abstract List<TupleId> collectTupleIds();
 
+    public void setOrderByElements(ArrayList<OrderByElement> orderByElements) {
+        this.orderByElements = orderByElements;
+    }
+
     public ArrayList<OrderByElement> getOrderByElements() {
         return orderByElements;
     }
@@ -612,6 +616,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         Preconditions.checkState(limit >= 0);
         long newLimit = hasLimitClause() ? Math.min(limit, getLimit()) : limit;
         limitElement = new LimitElement(newLimit);
+    }
+
+    public void setLimitElement(LimitElement limitElement) {
+        this.limitElement = limitElement;
     }
 
     public void removeLimitElement() {
