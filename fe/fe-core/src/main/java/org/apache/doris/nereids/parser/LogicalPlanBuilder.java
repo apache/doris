@@ -637,6 +637,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 left = (left == null) ? right :
                         new LogicalJoin<>(
                                 JoinType.CROSS_JOIN,
+                                ImmutableList.of(),
                                 Optional.empty(),
                                 left,
                                 right);
@@ -813,7 +814,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = getExpression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalJoin<>(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
+            last = new LogicalJoin<>(joinType, new ArrayList<Expression>(),
+                    Optional.ofNullable(condition), last, plan(join.relationPrimary()));
         }
         return last;
     }

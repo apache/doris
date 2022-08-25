@@ -384,7 +384,6 @@ Status VOlapScanner::close(RuntimeState* state) {
     _tablet_reader_params.rs_readers.clear();
     update_counter();
     _tablet_reader.reset();
-    Expr::close(_conjunct_ctxs, state);
     _is_closed = true;
     return Status::OK();
 }

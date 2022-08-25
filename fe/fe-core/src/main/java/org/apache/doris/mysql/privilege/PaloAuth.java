@@ -44,6 +44,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapPrivsChecker;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.LdapInfo;
@@ -92,6 +93,8 @@ public class PaloAuth implements Writable {
 
     private LdapInfo ldapInfo = new LdapInfo();
 
+    private LdapManager ldapManager = new LdapManager();
+
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private void readLock() {
@@ -136,6 +139,10 @@ public class PaloAuth implements Writable {
 
     public void setLdapInfo(LdapInfo ldapInfo) {
         this.ldapInfo = ldapInfo;
+    }
+
+    public LdapManager getLdapManager() {
+        return ldapManager;
     }
 
     private GlobalPrivEntry grantGlobalPrivs(UserIdentity userIdentity, boolean errOnExist, boolean errOnNonExist,
@@ -327,6 +334,11 @@ public class PaloAuth implements Writable {
             List<UserIdentity> currentUser) {
         if (!Config.enable_auth_check) {
             return true;
+        }
+
+        // Check the LDAP password when the user exists in the LDAP service.
+        if (ldapManager.doesUserExist(remoteUser)) {
+            return ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser);
         }
         readLock();
         try {

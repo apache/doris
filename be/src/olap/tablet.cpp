@@ -2064,7 +2064,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
-    std::lock_guard<std::shared_mutex> meta_wrlock(_meta_lock);
+    std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
+    std::shared_lock meta_rlock(_meta_lock);
     cur_rowset_ids = all_rs_id();
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
@@ -2079,7 +2080,9 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
                                            delete_bitmap, true));
     }
 
-    // update version
+    // update version without write lock, compaction and publish_txn
+    // will update delete bitmap, handle compaction with _delete_bitmap_lock
+    // and publish_txn runs sequencial so no need to lock here
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         int ret = _tablet_meta->delete_bitmap().set(

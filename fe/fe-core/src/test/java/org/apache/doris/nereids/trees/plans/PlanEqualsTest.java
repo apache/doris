@@ -89,7 +89,8 @@ public class PlanEqualsTest {
                 new SlotReference("a", new BigIntType(), true, Lists.newArrayList()),
                 new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
         );
-        LogicalJoin innerJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition), left, right);
+        LogicalJoin innerJoin = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(condition),
+                Optional.empty(), left, right);
         Assertions.assertEquals(innerJoin, innerJoin);
 
         // Notice: condition1 != condition, so following is `assertNotEquals`.
@@ -98,14 +99,16 @@ public class PlanEqualsTest {
                 new SlotReference("a", new BigIntType(), true, Lists.newArrayList()),
                 new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
         );
-        LogicalJoin innerJoin1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition1), left, right);
+        LogicalJoin innerJoin1 = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(condition1),
+                Optional.empty(), left, right);
         Assertions.assertNotEquals(innerJoin, innerJoin1);
 
         Expression condition2 = new EqualTo(
                 new SlotReference("a", new BigIntType(), false, Lists.newArrayList()),
                 new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
         );
-        LogicalJoin innerJoin2 = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition2), left, right);
+        LogicalJoin innerJoin2 = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(condition2),
+                Optional.empty(), left, right);
         Assertions.assertNotEquals(innerJoin, innerJoin2);
     }
 
@@ -176,7 +179,8 @@ public class PlanEqualsTest {
     public void testPhysicalJoin(@Mocked Plan left, @Mocked Plan right, @Mocked LogicalProperties logicalProperties) {
         Expression expression = new EqualTo(Literal.of(1), Literal.of(2));
 
-        PhysicalHashJoin innerJoin = new PhysicalHashJoin(JoinType.INNER_JOIN, Optional.of(expression),
+        PhysicalHashJoin innerJoin = new PhysicalHashJoin(JoinType.INNER_JOIN, Lists.newArrayList(expression),
+                Optional.empty(),
                 logicalProperties, left,
                 right);
         Assertions.assertEquals(innerJoin, innerJoin);
