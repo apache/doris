@@ -112,7 +112,7 @@ public class ShowTableStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+                where, null, null);
 
         analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null);
 

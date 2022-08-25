@@ -1455,9 +1455,9 @@ create_stmt ::=
     {:
         RESULT = new CreateFileStmt(fileName, db, properties);
     :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
+    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS query_stmt:queryStmt opt_properties:properties
     {:
-        RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
+        RESULT = new CreateMaterializedViewStmt(mvName, queryStmt, properties);
     :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
@@ -2903,13 +2903,13 @@ show_param ::=
     {:
         SelectList list = new SelectList();
         list.addItem(new SelectListItem(new IntLiteral((long)0), null));
-        RESULT = new SelectStmt(list, null, null, null, null, null, null);
+        RESULT = new SelectStmt(list, null, null, null, null);
     :}
     | KW_COUNT LPAREN STAR RPAREN KW_ERRORS
     {:
         SelectList list = new SelectList();
         list.addItem(new SelectListItem(new IntLiteral((long)0), null));
-        RESULT = new SelectStmt(list, null, null, null, null, null, null);
+        RESULT = new SelectStmt(list, null, null, null, null);
     :}
     | KW_WARNINGS limit_clause
     {:
@@ -3436,85 +3436,112 @@ with_view_def_list ::=
     :}
     ;
 
-// We must have a non-empty order by or limit for them to bind to the union.
-// We cannot reuse the existing order_by_clause or
-// limit_clause because they would introduce conflicts with EOF,
-// which, unfortunately, cannot be accessed in the parser as a nonterminal
-// making this issue unresolvable.
-// We rely on the left precedence of KW_ORDER, KW_BY, and KW_LIMIT,
-// to resolve the ambiguity with select_stmt in favor of select_stmt
-// (i.e., ORDER BY and LIMIT bind to the select_stmt by default, and not the set operation).
-// There must be at least two set operands for ORDER BY or LIMIT to bind to a set operation,
-// and we manually throw a parse error if we reach this production
-// with only a single operand.
 set_operation_with_order_by_or_limit ::=
     set_operand_list:operands
     KW_LIMIT INTEGER_LITERAL:limit
   {:
+    LimitElement limitElement = new LimitElement(limit.longValue());
     if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, null, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(limit.longValue()));
   :}
   |
     set_operand_list:operands
     KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
   {:
+    LimitElement limitElement = new LimitElement(offset.longValue(), limit.longValue());
     if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, null, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   |
     set_operand_list:operands
     KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
   {:
+    LimitElement limitElement = new LimitElement(offset.longValue(), limit.longValue());
     if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, null, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   |
     set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
   {:
+    LimitElement limitElement = LimitElement.NO_LIMIT;
     if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      queryStmt.setOrderByElements(orderByClause);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, orderByClause, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, orderByClause, LimitElement.NO_LIMIT);
   :}
   |
     set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
     KW_LIMIT INTEGER_LITERAL:limit
   {:
+    LimitElement limitElement = new LimitElement(limit.longValue());
     if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      queryStmt.setOrderByElements(orderByClause);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, orderByClause, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(limit.longValue()));
   :}
   |
     set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
     KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
   {:
+    LimitElement limitElement = new LimitElement(offset.longValue(), limit.longValue());
     if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      queryStmt.setOrderByElements(orderByClause);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, orderByClause, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   |
     set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
     KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
   {:
+    LimitElement limitElement = new LimitElement(offset.longValue(), limit.longValue());
     if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
+      SetOperand setOperand = operands.get(0);
+      QueryStmt queryStmt = setOperand.getQueryStmt();
+      queryStmt.setLimitElement(limitElement);
+      queryStmt.setOrderByElements(orderByClause);
+      RESULT = queryStmt;
+    } else {
+      RESULT = new SetOperationStmt(operands, orderByClause, limitElement);
     }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   ;
-
 
 set_operand ::=
   select_stmt:select
@@ -4034,23 +4061,19 @@ set_expr_or_default ::=
 
 select_stmt ::=
   select_clause:selectList
-    limit_clause:limitClause
-  {: RESULT = new SelectStmt(selectList, null, null, null, null, null, limitClause); :}
+  {: RESULT = new SelectStmt(selectList, null, null, null, null); :}
   | select_clause:selectList
     from_clause:fromClause
     where_clause:wherePredicate
     group_by_clause:groupByClause
     having_clause:havingPredicate
-    order_by_clause:orderByClause
-    limit_clause:limitClause
   {:
     RESULT = new SelectStmt(selectList, fromClause, wherePredicate,
-                            groupByClause, havingPredicate, orderByClause,
-                            limitClause);
+                            groupByClause, havingPredicate);
   :}
-  | value_clause:valueClause order_by_clause:orderByClause limit_clause:limitClause
+  | value_clause:valueClause
   {:
-      RESULT = new SelectStmt(valueClause, orderByClause, limitClause);
+      RESULT = new SelectStmt(valueClause);
   :}
   ;
 

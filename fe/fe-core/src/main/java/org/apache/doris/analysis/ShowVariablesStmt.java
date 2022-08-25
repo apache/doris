@@ -101,7 +101,7 @@ public class ShowVariablesStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+                where, null, null);
         LOG.debug("select stmt is {}", selectStmt.toSql());
 
         // DB: type
