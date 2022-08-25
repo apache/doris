@@ -126,11 +126,11 @@ Status EnginePublishVersionTask::finish() {
                     max_version = tablet->max_version();
                 }
                 if (version.first != max_version.second + 1) {
-                    LOG(INFO) << "uniq key with merge-on-write version not continuous, current "
-                                 "max "
-                                 "version="
-                              << max_version.second << ", publish_version=" << version.first
-                              << " tablet_id=" << tablet->tablet_id();
+                    VLOG_NOTICE << "uniq key with merge-on-write version not continuous, current "
+                                   "max "
+                                   "version="
+                                << max_version.second << ", publish_version=" << version.first
+                                << " tablet_id=" << tablet->tablet_id();
                     meet_version_not_continuous = true;
                     res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
                     continue;
@@ -180,7 +180,7 @@ Status EnginePublishVersionTask::finish() {
 
     LOG(INFO) << "finish to publish version on transaction."
               << "transaction_id=" << transaction_id
-              << ", error_tablet_size=" << _error_tablet_ids->size();
+              << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
     return res;
 }
 

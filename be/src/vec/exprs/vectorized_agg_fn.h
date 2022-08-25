@@ -61,6 +61,12 @@ public:
     void execute_batch_add_selected(Block* block, size_t offset, AggregateDataPtr* places,
                                     Arena* arena = nullptr);
 
+    void streaming_agg_serialize(Block* block, BufferWritable& buf, const size_t num_rows,
+                                 Arena* arena);
+
+    void streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena* arena);
+
     void insert_result_info(AggregateDataPtr place, IColumn* column);
 
     void insert_result_info_vec(const std::vector<AggregateDataPtr>& place, size_t offset,

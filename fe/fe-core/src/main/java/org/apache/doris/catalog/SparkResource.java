@@ -150,7 +150,7 @@ public class SparkResource extends Resource {
     }
 
     public Pair<String, String> getYarnResourcemanagerAddressPair() {
-        return Pair.create(YARN_RESOURCE_MANAGER_ADDRESS, sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_ADDRESS));
+        return Pair.of(YARN_RESOURCE_MANAGER_ADDRESS, sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_ADDRESS));
     }
 
     public SparkResource getCopiedResource() {

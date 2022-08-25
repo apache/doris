@@ -44,6 +44,7 @@ public class ExpressionRewriteTest {
         assertRewrite("not x", "not x");
         assertRewrite("not not x", "x");
         assertRewrite("not not not x", "not x");
+        assertRewrite("not not not not x", "x");
         assertRewrite("not (x > y)", "x <= y");
         assertRewrite("not (x < y)", "x >= y");
         assertRewrite("not (x >= y)", "x < y");
@@ -156,13 +157,12 @@ public class ExpressionRewriteTest {
 
         // deduplicate
         assertRewrite("CAST(1 AS int)", "1");
-        assertRewrite("CAST(\"str\" AS string)", "\"str\"");
+        assertRewrite("CAST('str' AS string)", "'str'");
         assertRewrite("CAST(CAST(1 AS int) AS int)", "1");
 
         // deduplicate inside
-        assertRewrite("CAST(CAST(\"str\" AS string) AS double)", "CAST(\"str\" AS double)");
+        assertRewrite("CAST(CAST('str' AS string) AS double)", "CAST('str' AS double)");
         assertRewrite("CAST(CAST(1 AS int) AS double)", "CAST(1 AS double)");
-
     }
 
 

@@ -65,8 +65,7 @@ public class DeriveStatsJob extends Job {
                 }
             }
         } else {
-            StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
-            statsCalculator.estimate();
+            StatsCalculator.estimate(groupExpression);
         }
     }
 }

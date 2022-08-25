@@ -34,7 +34,11 @@ suite("test_bitmap_index") {
                 k8 DATETIME,
                 k9 LARGEINT,
                k10 DECIMAL,
-               k11 BOOLEAN
+               k11 BOOLEAN,
+               k12 DATEV2,
+               k13 DATETIMEV2,
+               k14 DATETIMEV2(3),
+               k15 DATETIMEV2(6)
             )
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
@@ -51,7 +55,11 @@ suite("test_bitmap_index") {
                 ADD INDEX index8 (k8) USING BITMAP,
                 ADD INDEX index9 (k9) USING BITMAP,
                 ADD INDEX index10 (k10) USING BITMAP,
-                ADD INDEX index11 (k11) USING BITMAP;
+                ADD INDEX index11 (k11) USING BITMAP,
+                ADD INDEX index12 (k12) USING BITMAP,
+                ADD INDEX index13 (k13) USING BITMAP,
+                ADD INDEX index14 (k14) USING BITMAP,
+                ADD INDEX index15 (k15) USING BITMAP;
         """
     int max_try_secs = 60
     while (max_try_secs--) {
@@ -67,7 +75,7 @@ suite("test_bitmap_index") {
         }
     }
 
-    sql "insert into ${tbName1} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1);"
+    sql "insert into ${tbName1} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111');"
     qt_sql "desc ${tbName1};"
     qt_sql "SHOW INDEX FROM ${tbName1};"
     qt_sql "select * from ${tbName1};"
@@ -104,9 +112,13 @@ suite("test_bitmap_index") {
                 k9 LARGEINT,
                k10 DECIMAL,
                k11 BOOLEAN,
+               k12 DATEV2,
+               k13 DATETIMEV2,
+               k14 DATETIMEV2(3),
+               k15 DATETIMEV2(6),
                 v1 INT SUM
             )
-            AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11)
+            AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15)
             DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
 
@@ -122,7 +134,11 @@ suite("test_bitmap_index") {
                 ADD INDEX index8 (k8) USING BITMAP,
                 ADD INDEX index9 (k9) USING BITMAP,
                 ADD INDEX index10 (k10) USING BITMAP,
-                ADD INDEX index11 (k11) USING BITMAP;
+                ADD INDEX index11 (k11) USING BITMAP,
+                ADD INDEX index12 (k12) USING BITMAP,
+                ADD INDEX index13 (k13) USING BITMAP,
+                ADD INDEX index14 (k14) USING BITMAP,
+                ADD INDEX index15 (k15) USING BITMAP;
         """
     max_try_secs = 60
     while (max_try_secs--) {
@@ -138,11 +154,11 @@ suite("test_bitmap_index") {
         }
     }
     test{
-        sql "ALTER TABLE ${tbName2} ADD INDEX index12 (v1) USING BITMAP;"
+        sql "ALTER TABLE ${tbName2} ADD INDEX index16 (v1) USING BITMAP;"
         exception "errCode = 2, detailMessage = BITMAP index only used in columns of DUP_KEYS/UNIQUE_KEYS table"
     }
 
-    sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,1);"
+    sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
     qt_sql "desc ${tbName2};"
     qt_sql "SHOW INDEX FROM ${tbName2};"
     qt_sql "select * from ${tbName2};"
@@ -178,6 +194,10 @@ suite("test_bitmap_index") {
                 k9 LARGEINT,
                k10 DECIMAL,
                k11 BOOLEAN,
+               k12 DATEV2,
+               k13 DATETIMEV2,
+               k14 DATETIMEV2(3),
+               k15 DATETIMEV2(6),
                v1  INT
             )
             UNIQUE KEY(k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11)
@@ -197,7 +217,11 @@ suite("test_bitmap_index") {
                 ADD INDEX index9 (k9) USING BITMAP,
                 ADD INDEX index10 (k10) USING BITMAP,
                 ADD INDEX index11 (k11) USING BITMAP,
-                ADD INDEX index12 (v1) USING BITMAP;
+                ADD INDEX index12 (k12) USING BITMAP,
+                ADD INDEX index13 (k13) USING BITMAP,
+                ADD INDEX index14 (k14) USING BITMAP,
+                ADD INDEX index15 (k15) USING BITMAP,
+                ADD INDEX index16 (v1) USING BITMAP;
         """
     max_try_secs = 60
     while (max_try_secs--) {
@@ -213,7 +237,7 @@ suite("test_bitmap_index") {
         }
     }
 
-    sql "insert into ${tbName3} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,1);"
+    sql "insert into ${tbName3} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
     qt_sql "desc ${tbName3};"
     qt_sql "SHOW INDEX FROM ${tbName3};"
     qt_sql "select * from ${tbName3};"

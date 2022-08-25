@@ -75,7 +75,7 @@ public class BrokerStorageTest {
 
     @Before
     public void setUp() throws Exception {
-        pair = new Pair<>(null, null);
+        pair = Pair.of(null, null);
         TTransport transport = new TSocket(brokerHost, 8111);
         transport.open();
         TProtocol protocol = new TBinaryProtocol(transport);

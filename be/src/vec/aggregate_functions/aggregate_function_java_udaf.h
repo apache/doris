@@ -26,18 +26,14 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/Exprs_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_ref.h"
-#include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {

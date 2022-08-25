@@ -242,7 +242,7 @@ public class DeployManager extends MasterDaemon {
                     System.exit(-1);
                 }
 
-                helperNodes.add(Pair.create(splittedHostPort[0], port));
+                helperNodes.add(Pair.of(splittedHostPort[0], port));
             }
 
             return helperNodes;
@@ -370,7 +370,7 @@ public class DeployManager extends MasterDaemon {
                     .getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
             List<Pair<String, Integer>> localBackendHosts = Lists.newArrayList();
             for (Backend backend : localBackends) {
-                localBackendHosts.add(Pair.create(backend.getHost(), backend.getHeartbeatPort()));
+                localBackendHosts.add(Pair.of(backend.getHost(), backend.getHeartbeatPort()));
             }
             LOG.debug("get local backend addrs: {}", localBackendHosts);
             if (inspectNodeChange(remoteBackendHosts, localBackendHosts, NodeType.BACKEND)) {
@@ -417,7 +417,7 @@ public class DeployManager extends MasterDaemon {
                             Pair<String, Integer> foundHost = getHostFromPairList(remoteList, addr.ip, addr.port);
                             if (foundHost == null) {
                                 List<Pair<String, Integer>> list = Lists.newArrayList();
-                                list.add(Pair.create(addr.ip, addr.port));
+                                list.add(Pair.of(addr.ip, addr.port));
                                 try {
                                     env.getBrokerMgr().dropBrokers(brokerName, list);
                                     LOG.info("drop broker {}:{} with name: {}",
@@ -436,7 +436,7 @@ public class DeployManager extends MasterDaemon {
                             if (foundAddr == null) {
                                 // add new broker
                                 List<Pair<String, Integer>> list = Lists.newArrayList();
-                                list.add(Pair.create(pair.first, pair.second));
+                                list.add(Pair.of(pair.first, pair.second));
                                 try {
                                     env.getBrokerMgr().addBrokers(brokerName, list);
                                     LOG.info("add broker {}:{} with name {}", pair.first, pair.second, brokerName);
@@ -586,7 +586,7 @@ public class DeployManager extends MasterDaemon {
                             break;
                         case BACKEND:
                             List<Pair<String, Integer>> newBackends = Lists.newArrayList();
-                            newBackends.add(Pair.create(remoteIp, remotePort));
+                            newBackends.add(Pair.of(remoteIp, remotePort));
                             Env.getCurrentSystemInfo().addBackends(newBackends, false);
                             break;
                         default:
@@ -619,7 +619,7 @@ public class DeployManager extends MasterDaemon {
     private List<Pair<String, Integer>> convertToHostPortPair(List<Frontend> frontends) {
         List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
         for (Frontend fe : frontends) {
-            hostPortPair.add(Pair.create(fe.getHost(), fe.getEditLogPort()));
+            hostPortPair.add(Pair.of(fe.getHost(), fe.getEditLogPort()));
         }
         return hostPortPair;
     }

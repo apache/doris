@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -65,8 +66,11 @@ public class PruneJoinChildrenColumns
     @Override
     protected Plan pushDownProject(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             Set<Slot> references) {
-        if (joinPlan.getCondition().isPresent()) {
-            references.addAll(SlotExtractor.extractSlot(joinPlan.getCondition().get()));
+        if (joinPlan.getOtherJoinCondition().isPresent()) {
+            references.addAll(SlotExtractor.extractSlot(joinPlan.getOtherJoinCondition().get()));
+        }
+        for (Expression expr : joinPlan.getHashJoinConjuncts()) {
+            references.addAll(SlotExtractor.extractSlot(expr));
         }
         Set<ExprId> exprIds = references.stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
 

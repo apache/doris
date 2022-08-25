@@ -20,39 +20,27 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
-import org.apache.doris.nereids.trees.expressions.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.DateTimeLiteral;
-import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -65,6 +53,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
 import java.util.ArrayList;
@@ -176,52 +165,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitBooleanLiteral(BooleanLiteral booleanLiteral, PlanTranslatorContext context) {
-        return new BoolLiteral(booleanLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitStringLiteral(org.apache.doris.nereids.trees.expressions.StringLiteral stringLiteral,
-            PlanTranslatorContext context) {
-        return new StringLiteral(stringLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitIntegerLiteral(IntegerLiteral integerLiteral, PlanTranslatorContext context) {
-        return new IntLiteral(integerLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitBigIntLiteral(BigIntLiteral bigIntLiteral, PlanTranslatorContext context) {
-        try {
-            return new IntLiteral(bigIntLiteral.getValue(), Type.BIGINT);
-        } catch (Throwable t) {
-            throw new IllegalStateException("Can not translate BigIntLiteral: " + bigIntLiteral.getValue(), t);
-        }
-    }
-
-    @Override
-    public Expr visitNullLiteral(org.apache.doris.nereids.trees.expressions.NullLiteral nullLiteral,
-            PlanTranslatorContext context) {
-        return new NullLiteral();
-    }
-
-    @Override
-    public Expr visitDoubleLiteral(DoubleLiteral doubleLiteral, PlanTranslatorContext context) {
-        return new FloatLiteral(doubleLiteral.getValue());
-    }
-
-    @Override
-    public Expr visitDateLiteral(DateLiteral dateLiteral, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(),
-                dateLiteral.getDay(), 0, 0, 0);
-    }
-
-    @Override
-    public Expr visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.DateLiteral(dateTimeLiteral.getYear(), dateTimeLiteral.getMonth(),
-                dateTimeLiteral.getDay(), dateTimeLiteral.getHour(), dateTimeLiteral.getMinute(),
-                dateTimeLiteral.getSecond());
+    public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
+        return literal.toLegacyLiteral();
     }
 
     @Override
@@ -282,7 +227,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitCast(Cast cast, PlanTranslatorContext context) {
         // left child of cast is expression, right child of cast is target type
         return new CastExpr(cast.getDataType().toCatalogDataType(),
-                cast.left().accept(this, context));
+                cast.child().accept(this, context));
     }
 
     @Override
@@ -312,11 +257,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
-        Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithmeticOperator();
-        return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
-                arithmetic.child(0).accept(this, context),
-                arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
+    public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
+        return new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
+                binaryArithmetic.child(0).accept(this, context),
+                binaryArithmetic.child(1).accept(this, context));
     }
 
     @Override

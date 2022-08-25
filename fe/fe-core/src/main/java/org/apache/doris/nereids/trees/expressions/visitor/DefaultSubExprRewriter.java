@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.analysis.Scope;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
@@ -43,8 +44,8 @@ public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
     }
 
     @Override
-    public Expression visitSubqueryExpr(SubqueryExpr expr, C context) {
-        return new SubqueryExpr(analyzeSubquery(expr));
+    public Expression visitExistsSubquery(Exists exists, C context) {
+        return new Exists(analyzeSubquery(exists));
     }
 
     @Override

@@ -27,6 +27,7 @@ import java.util.List;
  * And predicate expression.
  */
 public class And extends CompoundPredicate {
+
     /**
      * Desc: Constructor for CompoundPredicate.
      *

@@ -27,7 +27,6 @@
 #include "olap/storage_policy_mgr.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
@@ -58,6 +57,7 @@
 #include "util/pretty_printer.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
+#include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
@@ -70,6 +70,8 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
                                    Labels({{"type", "query"}}));
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
@@ -129,6 +131,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
+    ThreadPoolBuilder("DownloadCacheThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::download_cache_thread_pool_thread_num)
+            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
+            .build(&_download_cache_thread_pool);
+    set_serial_download_cache_thread_token();
+
+    _scanner_scheduler = new doris::vectorized::ScannerScheduler();
+
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -160,6 +171,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     }
     _broker_mgr->init();
     _small_file_mgr->init();
+    _scanner_scheduler->init(this);
+
     _init_mem_tracker();
 
     RETURN_IF_ERROR(
@@ -190,8 +203,7 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _process_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
+    _process_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Process");
     thread_context()->_thread_mem_tracker_mgr->init();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -306,8 +318,6 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
                                 int64_t clean_pages_limit) {
     DCHECK(_buffer_pool == nullptr);
     _buffer_pool = new BufferPool(min_page_size, capacity, clean_pages_limit);
-    _buffer_reservation = new ReservationTracker();
-    _buffer_reservation->InitRootTracker(nullptr, capacity);
 }
 
 void ExecEnv::_register_metrics() {
@@ -319,12 +329,20 @@ void ExecEnv::_register_metrics() {
 
     REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
                          [this]() { return _send_batch_thread_pool->get_queue_size(); });
+
+    REGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num,
+                         [this]() { return _download_cache_thread_pool->num_threads(); });
+
+    REGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size,
+                         [this]() { return _download_cache_thread_pool->get_queue_size(); });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
 }
 
 void ExecEnv::_destroy() {
@@ -359,7 +377,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_task_pool_mem_tracker_registry);
-    SAFE_DELETE(_buffer_reservation);
+    SAFE_DELETE(_scanner_scheduler);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
     DEREGISTER_HOOK_METRIC(load_mem_consumption);

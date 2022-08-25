@@ -49,7 +49,7 @@ public class HttpUtils {
 
     static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> new Pair<>(fe.getHost(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
     }
 

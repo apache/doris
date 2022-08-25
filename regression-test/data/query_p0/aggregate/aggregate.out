@@ -110,6 +110,19 @@ TESTING	AGAIN
 18000
 26988
 
+-- !aggregate --
+\N	other	98.52
+12	other	12.25
+25	other	55.52
+100	again	99.8777
+100	other	11.668833333333334
+964	again	0.245
+5000	other	67.87
+5252	sample	12.25
+5748	sample	67.87
+6000	other	\N
+8996	other	98.8777
+
 -- !aggregate1 --
 \N	\N
 -32767	2147484649

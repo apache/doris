@@ -35,7 +35,7 @@ public final class CostEstimate {
      * Constructor of CostEstimate.
      */
     public CostEstimate(double cpuCost, double memoryCost, double networkCost) {
-        // TODO: remove them after finish statistics.
+        // TODO: fix stats
         if (cpuCost < 0) {
             cpuCost = 0;
         }

@@ -40,7 +40,12 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
+
+    // check analysis rule
+    CHECK_ANALYSIS(RuleTypeClass.CHECK),
+
     // rewrite rules
+    NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
     ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
@@ -67,6 +72,7 @@ public enum RuleType {
     REORDER_JOIN(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_FILTERS(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_PROJECTS(RuleTypeClass.REWRITE),
+    FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
@@ -113,6 +119,7 @@ public enum RuleType {
     enum RuleTypeClass {
         REWRITE,
         EXPLORATION,
+        CHECK,
         IMPLEMENTATION,
         SENTINEL,
         ;

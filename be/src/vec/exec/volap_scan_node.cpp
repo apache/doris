@@ -274,6 +274,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     Status status = Status::OK();
 
     if (_vconjunct_ctx_ptr) {
@@ -284,6 +285,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 _status = status;
                 break;
             }
+            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -386,6 +388,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     SCOPED_ATTACH_TASK(_runtime_state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -447,6 +450,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::shared_lock<std::shared_mutex> l(_rf_lock);
             WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                           "Something wrong for runtime filters: ");
+            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -1169,12 +1173,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     // post volap scanners to thread-pool
-    ThreadPoolToken* thread_token = nullptr;
-    if (_limit > -1 && _limit < 1024) {
-        thread_token = state->get_query_fragments_ctx()->get_serial_token();
-    } else {
-        thread_token = state->get_query_fragments_ctx()->get_token();
-    }
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
     auto iter = olap_scanners.begin();
     if (thread_token != nullptr) {
         while (iter != olap_scanners.end()) {
@@ -1833,6 +1832,7 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
         }
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+        new_vconjunct_ctx_ptr->debug_valid();
     }
     return Status::OK();
 }

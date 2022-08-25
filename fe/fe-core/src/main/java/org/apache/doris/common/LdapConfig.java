@@ -66,10 +66,18 @@ public class LdapConfig extends ConfigBase {
     public static String ldap_group_basedn = "";
 
     /**
-     * Maximum number of user connections. This value should be between 1 and 10000.
+     * The user LDAP information cache time.
+     * After timeout, the user information will be retrieved from the LDAP service again.
      */
-    @ConfigBase.ConfField
-    public static long user_max_connections = 100L;
+    @ConfigBase.ConfField(mutable = true)
+    public static long ldap_user_cache_timeout_s = 12 * 60 * 60;
+
+    /**
+     * System LDAP information cache time.
+     * After timeout, clear all user information in the cache.
+     */
+    @ConfigBase.ConfField(mutable = true)
+    public static long ldap_cache_timeout_day = 30;
 
     /**
      * LDAP pool configuration:
@@ -80,35 +88,35 @@ public class LdapConfig extends ConfigBase {
      * from this pool at the same time. You can use a non-positive number for no limit.
      */
     @ConfigBase.ConfField
-    public static int max_active = 8;
+    public static int ldap_pool_max_active = 8;
 
     /**
      * The overall maximum number of active connections (for all types) that can be allocated from this pool
      * at the same time. You can use a non-positive number for no limit.
      */
     @ConfigBase.ConfField
-    public static int max_total = -1;
+    public static int ldap_pool_max_total = -1;
 
     /**
      * The maximum number of active connections of each type (read-only or read-write) that can remain idle
      * in the pool without extra connections being released. You can use a non-positive number for no limit.
      */
     @ConfigBase.ConfField
-    public static int max_idle = 8;
+    public static int ldap_pool_max_idle = 8;
 
     /**
      * The minimum number of active connections of each type (read-only or read-write) that can remain idle
      * in the pool without extra connections being created. You can use zero (the default) to create none.
      */
     @ConfigBase.ConfField
-    public static int min_idle = 0;
+    public static int ldap_pool_min_idle = 0;
 
     /**
      * The maximum number of milliseconds that the pool waits (when no connections are available) for a connection
      * to be returned before throwing an exception. You can use a non-positive number to wait indefinitely.
      */
     @ConfigBase.ConfField
-    public static int max_wait = -1;
+    public static int ldap_pool_max_wait = -1;
 
     /**
      * Specifies the behavior when the pool is exhausted.
@@ -121,25 +129,25 @@ public class LdapConfig extends ConfigBase {
      * The '2' option creates and returns a new object (essentially making max-active meaningless).
      */
     @ConfigBase.ConfField
-    public static byte when_exhausted = 1;
+    public static byte ldap_pool_when_exhausted = 1;
 
     /**
      * Whether objects are validated before being borrowed from the pool. If the object fails to validate,
      * it is dropped from the pool, and an attempt to borrow another is made.
      */
     @ConfigBase.ConfField
-    public static boolean test_on_borrow = false;
+    public static boolean ldap_pool_test_on_borrow = false;
 
     /**
      * Whether objects are validated before being returned to the pool.
      */
     @ConfigBase.ConfField
-    public static boolean test_on_return = false;
+    public static boolean ldap_pool_test_on_return = false;
 
     /**
      * Whether objects are validated by the idle object evictor (if any). If an object fails to validate,
      * it is dropped from the pool.
      */
     @ConfigBase.ConfField
-    public static boolean test_while_idle = false;
+    public static boolean ldap_pool_test_while_idle = false;
 }

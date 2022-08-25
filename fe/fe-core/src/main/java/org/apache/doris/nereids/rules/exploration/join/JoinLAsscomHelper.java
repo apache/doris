@@ -52,15 +52,19 @@ public class JoinLAsscomHelper {
     private final Plan b;
     private final Plan c;
 
-    private final Expression topJoinOnClause;
-    private final Expression bottomJoinOnClause;
-
+    private final List<Expression> topHashJoinConjuncts;
+    private final List<Expression> bottomHashJoinConjuncts;
+    private final List<Expression> allNonHashJoinConjuncts = Lists.newArrayList();
     private final List<SlotReference> aOutputSlots;
     private final List<SlotReference> bOutputSlots;
     private final List<SlotReference> cOutputSlots;
 
-    private final List<Expression> newBottomJoinOnCondition = Lists.newArrayList();
-    private final List<Expression> newTopJoinOnCondition = Lists.newArrayList();
+    private final List<Expression> newBottomHashJoinConjuncts = Lists.newArrayList();
+    private final List<Expression> newBottomNonHashJoinConjuncts = Lists.newArrayList();
+
+    private final List<Expression> newTopHashJoinConjuncts = Lists.newArrayList();
+    private final List<Expression> newTopNonHashJoinConjuncts = Lists.newArrayList();
+
 
     /**
      * Init plan and output.
@@ -74,10 +78,20 @@ public class JoinLAsscomHelper {
         b = bottomJoin.right();
         c = topJoin.right();
 
-        Preconditions.checkArgument(topJoin.getCondition().isPresent(), "topJoin onClause must be present.");
-        topJoinOnClause = topJoin.getCondition().get();
-        Preconditions.checkArgument(bottomJoin.getCondition().isPresent(), "bottomJoin onClause must be present.");
-        bottomJoinOnClause = bottomJoin.getCondition().get();
+        Preconditions.checkArgument(!topJoin.getHashJoinConjuncts().isEmpty(),
+                "topJoin hashJoinConjuncts must exist.");
+        topHashJoinConjuncts = topJoin.getHashJoinConjuncts();
+        if (topJoin.getOtherJoinCondition().isPresent()) {
+            allNonHashJoinConjuncts.addAll(
+                    ExpressionUtils.extractConjunction(topJoin.getOtherJoinCondition().get()));
+        }
+        Preconditions.checkArgument(!bottomJoin.getHashJoinConjuncts().isEmpty(),
+                "bottomJoin onClause must exist.");
+        bottomHashJoinConjuncts = bottomJoin.getHashJoinConjuncts();
+        if (bottomJoin.getOtherJoinCondition().isPresent()) {
+            allNonHashJoinConjuncts.addAll(
+                    ExpressionUtils.extractConjunction(bottomJoin.getOtherJoinCondition().get()));
+        }
 
         aOutputSlots = Utils.getOutputSlotReference(a);
         bOutputSlots = Utils.getOutputSlotReference(b);
@@ -93,8 +107,7 @@ public class JoinLAsscomHelper {
      * Get the onCondition of newTopJoin and newBottomJoin.
      */
     public boolean initJoinOnCondition() {
-        List<Expression> topJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(topJoinOnClause);
-        for (Expression topJoinOnClauseConjunct : topJoinOnClauseConjuncts) {
+        for (Expression topJoinOnClauseConjunct : topHashJoinConjuncts) {
             // Ignore join with some OnClause like:
             // Join C = B + A for above example.
             List<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
@@ -106,29 +119,36 @@ public class JoinLAsscomHelper {
             }
         }
 
-        List<Expression> allOnCondition = Lists.newArrayList();
-        allOnCondition.addAll(topJoinOnClauseConjuncts);
-        allOnCondition.addAll(ExpressionUtils.extractConjunction(bottomJoinOnClause));
+        List<Expression> allHashJoinConjuncts = Lists.newArrayList();
+        allHashJoinConjuncts.addAll(topHashJoinConjuncts);
+        allHashJoinConjuncts.addAll(bottomHashJoinConjuncts);
 
         HashSet<SlotReference> newBottomJoinSlots = new HashSet<>(aOutputSlots);
         newBottomJoinSlots.addAll(cOutputSlots);
 
-        for (Expression onCondition : allOnCondition) {
-            List<SlotReference> slots = onCondition.collect(SlotReference.class::isInstance);
+        for (Expression hashConjunct : allHashJoinConjuncts) {
+            List<SlotReference> slots = hashConjunct.collect(SlotReference.class::isInstance);
             if (newBottomJoinSlots.containsAll(slots)) {
-                newBottomJoinOnCondition.add(onCondition);
+                newBottomHashJoinConjuncts.add(hashConjunct);
             } else {
-                newTopJoinOnCondition.add(onCondition);
+                newTopHashJoinConjuncts.add(hashConjunct);
             }
         }
-
+        for (Expression nonHashConjunct : allNonHashJoinConjuncts) {
+            List<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
+            if (newBottomJoinSlots.containsAll(slots)) {
+                newBottomNonHashJoinConjuncts.add(nonHashConjunct);
+            } else {
+                newTopNonHashJoinConjuncts.add(nonHashConjunct);
+            }
+        }
         // newBottomJoinOnCondition/newTopJoinOnCondition is empty. They are cross join.
         // Example:
         // A: col1, col2. B: col2, col3. C: col3, col4
         // (A & B on A.col2=B.col2) & C on B.col3=C.col3.
         // (A & B) & C -> (A & C) & B.
         // (A & C) will be cross join (newBottomJoinOnCondition is empty)
-        if (newBottomJoinOnCondition.isEmpty() || newTopJoinOnCondition.isEmpty()) {
+        if (newBottomHashJoinConjuncts.isEmpty() || newTopHashJoinConjuncts.isEmpty()) {
             return false;
         }
 
@@ -158,14 +178,21 @@ public class JoinLAsscomHelper {
             }
         }
 
-        return new Pair<>(newLeftProjectExpr, newRightProjectExprs);
+        return Pair.of(newLeftProjectExpr, newRightProjectExprs);
     }
 
 
     private LogicalJoin<GroupPlan, GroupPlan> newBottomJoin() {
+        Optional<Expression> bottomNonHashExpr;
+        if (newBottomNonHashJoinConjuncts.isEmpty()) {
+            bottomNonHashExpr = Optional.empty();
+        } else {
+            bottomNonHashExpr = Optional.of(ExpressionUtils.and(newBottomNonHashJoinConjuncts));
+        }
         return new LogicalJoin(
                 bottomJoin.getJoinType(),
-                Optional.of(ExpressionUtils.and(newBottomJoinOnCondition)),
+                newBottomHashJoinConjuncts,
+                bottomNonHashExpr,
                 a, c);
     }
 
@@ -188,10 +215,16 @@ public class JoinLAsscomHelper {
         } else {
             right = b;
         }
-
+        Optional<Expression> topNonHashExpr;
+        if (newTopNonHashJoinConjuncts.isEmpty()) {
+            topNonHashExpr = Optional.empty();
+        } else {
+            topNonHashExpr = Optional.of(ExpressionUtils.and(newTopNonHashJoinConjuncts));
+        }
         return new LogicalJoin<>(
                 topJoin.getJoinType(),
-                Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                newTopHashJoinConjuncts,
+                topNonHashExpr,
                 left, right);
     }
 
@@ -203,10 +236,16 @@ public class JoinLAsscomHelper {
         // SlotReference bind() may have solved this problem.
         // source: | A       | B | C      |
         // target: | A       | C      | B |
-
+        Optional<Expression> topNonHashExpr;
+        if (newTopNonHashJoinConjuncts.isEmpty()) {
+            topNonHashExpr = Optional.empty();
+        } else {
+            topNonHashExpr = Optional.of(ExpressionUtils.and(newTopNonHashJoinConjuncts));
+        }
         return new LogicalJoin(
                 topJoin.getJoinType(),
-                Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                newTopHashJoinConjuncts,
+                topNonHashExpr,
                 newBottomJoin(), b);
     }
 

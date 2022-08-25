@@ -110,6 +110,31 @@ suite("aggregate") {
     qt_aggregate """ select variance(c_bigint), variance(distinct c_double) from ${tableName}  """
     qt_aggregate """ select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3 order by k1, k2, k3 """
     qt_aggregate """ select (k1 + k2) * k3 k4 from (select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3) t order by k4 """
+    qt_aggregate """
+                SELECT c_bigint,  
+                    CASE
+                    WHEN c_string IN ('sample', 'Sample') THEN
+                    'sample'
+                    WHEN c_string IN ('Again', 'AGAIN') THEN
+                    'again'
+                    ELSE 'other' end, avg(c_double)
+                FROM ${tableName}
+                GROUP BY  c_bigint,
+                    CASE
+                    WHEN c_string IN ('sample', 'Sample') THEN
+                    'sample'
+                    WHEN c_string IN ('Again', 'AGAIN') THEN
+                    'again'
+                    ELSE 'other'
+                    END
+                ORDER BY  c_bigint,
+                    CASE
+                    WHEN c_string IN ('sample', 'Sample') THEN
+                    'sample'
+                    WHEN c_string IN ('Again', 'AGAIN') THEN
+                    'again'
+                    ELSE 'other' end
+                 """
 
     sql "use test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]

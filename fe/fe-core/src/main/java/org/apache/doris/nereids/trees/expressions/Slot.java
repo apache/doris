@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+
 import java.util.List;
 
 /**

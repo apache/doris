@@ -61,7 +61,8 @@ struct AggregateFunctionSortData {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
-        block.serialize(&pblock, &uncompressed_bytes, &compressed_bytes);
+        block.serialize(&pblock, &uncompressed_bytes, &compressed_bytes,
+                        segment_v2::CompressionTypePB::SNAPPY);
 
         write_string_binary(pblock.SerializeAsString(), buf);
     }

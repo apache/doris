@@ -26,4 +26,9 @@ suite("test_subquery") {
                 ) t 
             where c1>0 order by 2 , 1 limit 3
             """
+
+        qt_sql2 """
+        with base as (select k1, k2 from test_query_db.test as t where k1 in (select k1 from test_query_db.baseall
+        where k7 = 'wangjuoo4' group by 1 having count(distinct k7) > 0)) select * from base limit 10;
+        """
 }

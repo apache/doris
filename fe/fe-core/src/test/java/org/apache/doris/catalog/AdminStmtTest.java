@@ -64,7 +64,7 @@ public class AdminStmtTest extends TestWithFeService {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        tabletToBackendList.add(Pair.create(tablet.getId(), replica.getBackendId()));
+                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
                     }
                 }
             }

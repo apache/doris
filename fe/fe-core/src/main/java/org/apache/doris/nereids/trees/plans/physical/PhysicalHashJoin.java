@@ -26,10 +26,12 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang.StringUtils;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+
 
 /**
  * Physical hash join plan.
@@ -42,8 +44,10 @@ public class PhysicalHashJoin<
     private final List<RuntimeFilter> runtimeFilter;
 
     public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, LogicalProperties logicalProperties,
+    public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            Optional<Expression> condition, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, condition, Optional.empty(), logicalProperties, leftChild, rightChild, Collections.emptyList());
+        this(joinType, hashJoinConjuncts, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /**
@@ -52,11 +56,13 @@ public class PhysicalHashJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition,
+    public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts, Optional<Expression> condition,
                             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
                             List<RuntimeFilter> runtimeFilter) {
         super(PlanType.PHYSICAL_HASH_JOIN, joinType, condition,
+                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, condition,
                 groupExpression, logicalProperties, leftChild, rightChild);
         this.runtimeFilter = runtimeFilter;
     }
@@ -74,8 +80,11 @@ public class PhysicalHashJoin<
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalHashJoin ([").append(joinType).append("]");
-        condition.ifPresent(
-                expression -> sb.append(", [").append(expression).append("]")
+        sb.append("hashJoinCondition:[");
+        sb.append(StringUtils.join(hashJoinConjuncts, ", "));
+        sb.append("] ");
+        otherJoinCondition.ifPresent(
+                expression -> sb.append(", nonHashJoinCondition [").append(expression).append("]")
         );
         sb.append(")");
         return sb.toString();
@@ -84,12 +93,16 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
+                logicalProperties, children.get(0), children.get(1));
         return new PhysicalHashJoin<>(joinType, condition, groupExpression,
                 logicalProperties, children.get(0), children.get(1), runtimeFilter);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
+                groupExpression, logicalProperties, left(), right());
         return new PhysicalHashJoin<>(joinType, condition, groupExpression, logicalProperties, left(), right(),
                 runtimeFilter);
     }
@@ -103,5 +116,7 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<Plan, Plan> withRuntimeFilter(List<RuntimeFilter> runtimeFilter) {
         return new PhysicalHashJoin<>(joinType, condition, Optional.empty(),
                 logicalProperties, left(), right(), runtimeFilter);
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
+                Optional.empty(), logicalProperties.get(), left(), right());
     }
 }

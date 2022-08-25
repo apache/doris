@@ -239,7 +239,8 @@ private:
     bool _valid = false;
     mutable bool _skip = false;
     size_t _index_in_block = -1;
-    int _block_row_max = 4096;
+    // 4096 minus 16 + 16 bytes padding that in padding pod array
+    int _block_row_max = 4064;
     int _num_columns;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;

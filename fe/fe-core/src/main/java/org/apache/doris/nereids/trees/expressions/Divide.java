@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 
@@ -26,15 +29,10 @@ import java.util.List;
 /**
  * Divide Expression.
  */
-public class Divide extends Arithmetic implements BinaryExpression {
-    public Divide(Expression left, Expression right) {
-        super(ArithmeticOperator.DIVIDE, left, right);
-    }
+public class Divide extends BinaryArithmetic {
 
-    @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+    public Divide(Expression left, Expression right) {
+        super(left, right, Operator.DIVIDE);
     }
 
     @Override
@@ -46,5 +44,10 @@ public class Divide extends Arithmetic implements BinaryExpression {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDivide(this, context);
+    }
+
+    @Override
+    public AbstractDataType inputType() {
+        return NumericType.INSTANCE;
     }
 }

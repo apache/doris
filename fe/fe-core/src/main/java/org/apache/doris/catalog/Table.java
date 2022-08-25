@@ -389,10 +389,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.createTime = in.readLong();
     }
 
-    public boolean equals(Table table) {
-        return true;
-    }
-
     // return if this table is partitioned.
     // For OlapTable ture when is partitioned, or distributed by hash when no partition
     public boolean isPartitioned() {

@@ -63,6 +63,9 @@ public:
         PrimitiveType type;
         int size;
         bool is_null;
+        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
+        int precision = -1;
+        int scale = -1;
     };
     SchemaScanner(ColumnDesc* columns, int column_num);
     virtual ~SchemaScanner();
