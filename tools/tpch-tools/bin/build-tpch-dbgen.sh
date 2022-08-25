@@ -27,18 +27,18 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-    cd "$ROOT"
+    cd "${ROOT}"
     pwd
 )
 
-CURDIR=${ROOT}
-TPCH_DBGEN_DIR=$CURDIR/TPC-H_Tools_v3.0.0/dbgen
+CURDIR="${ROOT}"
+TPCH_DBGEN_DIR="${CURDIR}/TPC-H_Tools_v3.0.0/dbgen"
 
 check_prerequest() {
     local CMD=$1
     local NAME=$2
-    if ! $CMD; then
-        echo "$NAME is missing. This script depends on unzip to extract files from TPC-H_Tools_v3.0.0.zip"
+    if ! ${CMD}; then
+        echo "${NAME} is missing. This script depends on unzip to extract files from TPC-H_Tools_v3.0.0.zip"
         exit 1
     fi
 }
@@ -46,16 +46,16 @@ check_prerequest() {
 check_prerequest "unzip -h" "unzip"
 
 # download tpch tools pacage first
-if [[ -d $TPCH_DBGEN_DIR ]]; then
-    echo "Dir $TPCH_DBGEN_DIR already exists. No need to download."
+if [[ -d ${TPCH_DBGEN_DIR} ]]; then
+    echo "Dir ${TPCH_DBGEN_DIR} already exists. No need to download."
     echo "If you want to download TPC-H_Tools_v3.0.0 again, please delete this dir first."
 else
     wget "https://tools-chengdu.oss-cn-chengdu.aliyuncs.com/TPC-H_Tools_v3.0.0.zip"
-    unzip TPC-H_Tools_v3.0.0.zip -d "$CURDIR"/
+    unzip TPC-H_Tools_v3.0.0.zip -d "${CURDIR}/"
 fi
 
 # modify tpcd.h
-cd "$TPCH_DBGEN_DIR"/
+cd "${TPCH_DBGEN_DIR}/"
 printf '%s' '
 #ifdef MYSQL
 #define GEN_QUERY_PLAN ""
@@ -79,12 +79,12 @@ make >/dev/null
 cd -
 
 # check
-if [[ -f $TPCH_DBGEN_DIR/dbgen ]]; then
+if [[ -f ${TPCH_DBGEN_DIR}/dbgen ]]; then
     echo "
 ################
 Build succeed!
 ################
-Run $TPCH_DBGEN_DIR/dbgen -h"
+Run ${TPCH_DBGEN_DIR}/dbgen -h"
     exit 0
 else
     echo "Build failed!"

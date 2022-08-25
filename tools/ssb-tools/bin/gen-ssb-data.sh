@@ -24,16 +24,16 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-  cd "$ROOT"
-  pwd
+    cd "${ROOT}"
+    pwd
 )
 
 CURDIR=${ROOT}
-SSB_DBGEN_DIR=$CURDIR/ssb-dbgen/
-SSB_DATA_DIR=$CURDIR/ssb-data/
+SSB_DBGEN_DIR=${CURDIR}/ssb-dbgen/
+SSB_DATA_DIR=${CURDIR}/ssb-data/
 
 usage() {
-  echo "
+    echo "
 Usage: $0 <options>
   Optional options:
      -s             scale factor, default is 100
@@ -44,87 +44,87 @@ Usage: $0 <options>
     $0 -s 10        generate data with scale factor 10.
     $0 -s 10 -c 5   generate data with scale factor 10. And using 5 threads to generate data concurrently.
   "
-  exit 1
+    exit 1
 }
 
 OPTS=$(getopt \
-  -n "$0" \
-  -o '' \
-  -o 'hs:c:' \
-  -- "$@")
+    -n "$0" \
+    -o '' \
+    -o 'hs:c:' \
+    -- "$@")
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
 SCALE_FACTOR=100
 PARALLEL=10
 HELP=0
 
-if [ $# == 0 ]; then
-  usage
+if [[ $# == 0 ]]; then
+    usage
 fi
 
 while true; do
-  case "$1" in
-  -h)
-    HELP=1
-    shift
-    ;;
-  -s)
-    SCALE_FACTOR=$2
-    shift 2
-    ;;
-  -c)
-    PARALLEL=$2
-    shift 2
-    ;;
-  --)
-    shift
-    break
-    ;;
-  *)
-    echo "Internal error"
-    exit 1
-    ;;
-  esac
+    case "$1" in
+    -h)
+        HELP=1
+        shift
+        ;;
+    -s)
+        SCALE_FACTOR=$2
+        shift 2
+        ;;
+    -c)
+        PARALLEL=$2
+        shift 2
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error"
+        exit 1
+        ;;
+    esac
 done
 
 if [[ ${HELP} -eq 1 ]]; then
-  usage
-  exit
+    usage
+    exit
 fi
 
-echo "Scale Factor: $SCALE_FACTOR"
-echo "Parallelism: $PARALLEL"
+echo "Scale Factor: ${SCALE_FACTOR}"
+echo "Parallelism: ${PARALLEL}"
 
 # check if dbgen exists
-if [[ ! -f $SSB_DBGEN_DIR/dbgen ]]; then
-  echo "$SSB_DBGEN_DIR/dbgen does not exist. Run build-ssb-dbgen.sh first to build it first."
-  exit 1
+if [[ ! -f ${SSB_DBGEN_DIR}/dbgen ]]; then
+    echo "${SSB_DBGEN_DIR}/dbgen does not exist. Run build-ssb-dbgen.sh first to build it first."
+    exit 1
 fi
 
-if [[ -d $SSB_DATA_DIR/ ]]; then
-  echo "$SSB_DATA_DIR exists. Remove it before generating data"
-  exit 1
+if [[ -d ${SSB_DATA_DIR}/ ]]; then
+    echo "${SSB_DATA_DIR} exists. Remove it before generating data"
+    exit 1
 fi
 
-mkdir "$SSB_DATA_DIR/"
+mkdir "${SSB_DATA_DIR}/"
 
 # gen data
-cd "$SSB_DBGEN_DIR"
+cd "${SSB_DBGEN_DIR}"
 echo "Begin to generate data for table: customer"
-"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T c
+"${SSB_DBGEN_DIR}/dbgen" -f -s "${SCALE_FACTOR}" -T c
 echo "Begin to generate data for table: part"
-"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T p
+"${SSB_DBGEN_DIR}/dbgen" -f -s "${SCALE_FACTOR}" -T p
 echo "Begin to generate data for table: supplier"
-"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T s
+"${SSB_DBGEN_DIR}/dbgen" -f -s "${SCALE_FACTOR}" -T s
 echo "Begin to generate data for table: date"
-"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T d
+"${SSB_DBGEN_DIR}/dbgen" -f -s "${SCALE_FACTOR}" -T d
 echo "Begin to generate data for table: lineorder"
-"$SSB_DBGEN_DIR/dbgen" -f -s "$SCALE_FACTOR" -T l -C "$PARALLEL"
+"${SSB_DBGEN_DIR}/dbgen" -f -s "${SCALE_FACTOR}" -T l -C "${PARALLEL}"
 cd -
 
 # move data to $SSB_DATA_DIR
-mv "$SSB_DBGEN_DIR"/*.tbl* "$SSB_DATA_DIR/"
+mv "${SSB_DBGEN_DIR}"/*.tbl* "${SSB_DATA_DIR}/"
 
 # check data
-du -sh "$SSB_DATA_DIR"/*.tbl*
+du -sh "${SSB_DATA_DIR}"/*.tbl*
