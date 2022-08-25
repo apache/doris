@@ -68,7 +68,6 @@ suite("test_json_load", "p0") {
         // multi-line sql
         def result1 = sql """
                         CREATE TABLE IF NOT EXISTS ${testTable} (
-                        CREATE TABLE IF NOT EXISTS ${testTable} (
                             k1 TINYINT NOT NULL,
                             k2 SMALLINT NOT NULL,
                             k3 INT NOT NULL,
