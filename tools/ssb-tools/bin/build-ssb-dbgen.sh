@@ -41,11 +41,13 @@ if [[ -d ${SSB_DBGEN_DIR} ]]; then
     exit 1
 else
     cd "${CURDIR}"
-    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/ssb-dbgen-linux.tar.gz && tar -xzvf ssb-dbgen-linux.tar.gz -C "${CURDIR}"/
+    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/ssb-dbgen-linux.tar.gz
+    tar -xzvf ssb-dbgen-linux.tar.gz -C "${CURDIR}"/
 fi
 
 # compile ssb-dbgen
-cd "${SSB_DBGEN_DIR}/" && make
+cd "${SSB_DBGEN_DIR}/"
+make
 cd -
 
 # check
