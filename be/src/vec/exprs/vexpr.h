@@ -32,11 +32,12 @@
 namespace doris {
 namespace vectorized {
 
-#define RETURN_OR_SET_PREPARED \
-    if (_prepared) {           \
-        return Status::OK();   \
-    } else {                   \
-        _prepared = true;      \
+#define RETURN_IF_ERROR_OR_PREPARED(stmt) \
+    if (_prepared) {                      \
+        return Status::OK();              \
+    } else {                              \
+        _prepared = true;                 \
+        RETURN_IF_ERROR(stmt);            \
     }
 
 class VExpr {

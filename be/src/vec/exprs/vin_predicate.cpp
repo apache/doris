@@ -34,8 +34,7 @@ VInPredicate::VInPredicate(const TExprNode& node)
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {
-    RETURN_OR_SET_PREPARED
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
