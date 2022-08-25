@@ -45,7 +45,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -63,36 +62,28 @@ public class JobManager {
 
     private final TaskManager taskManager;
 
-    // The periodScheduler is used to generate the corresponding task on time for the Periodical Task.
-    // This scheduler can use the time wheel to optimize later.
     private final ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
 
-    // The dispatchTaskScheduler is responsible for periodically checking whether the running  Task is completed
-    // and updating the status. It is also responsible for placing pending  Task in the running  Task queue.
-    // This operation need to consider concurrency.
-    // This scheduler can use notify/wait to optimize later.
+    private final ScheduledExecutorService cleanerScheduler = Executors.newScheduledThreadPool(1);
 
-    private final ScheduledExecutorService cleaner = Executors.newScheduledThreadPool(1);
+    private final ReentrantLock reentrantLock;
 
-    // Use to concurrency control
-    private final ReentrantLock taskLock;
-
-    private final AtomicBoolean isStart = new AtomicBoolean(false);
+    private final AtomicBoolean isStarted = new AtomicBoolean(false);
 
     public JobManager() {
         idToJobMap = Maps.newConcurrentMap();
         nameToJobMap = Maps.newConcurrentMap();
         periodFutureMap = Maps.newConcurrentMap();
-        taskManager = new TaskManager();
-        taskLock = new ReentrantLock(true);
+        reentrantLock = new ReentrantLock(true);
+        taskManager = new TaskManager(this);
     }
 
     public void start() {
-        if (isStart.compareAndSet(false, true)) {
+        if (isStarted.compareAndSet(false, true)) {
             taskManager.clearUnfinishedTasks();
             registerJobs();
 
-            cleaner.scheduleAtFixedRate(() -> {
+            cleanerScheduler.scheduleAtFixedRate(() -> {
                 if (!Env.getCurrentEnv().isMaster()) {
                     return;
                 }
@@ -109,7 +100,7 @@ public class JobManager {
                 }
             }, 0, 1, TimeUnit.DAYS);
 
-            taskManager.startTaskDispatcher();
+            taskManager.startTaskScheduler();
         }
     }
 
@@ -147,7 +138,7 @@ public class JobManager {
 
     public void createJob(Job job, boolean isReplay) throws DdlException {
         if (!tryLock()) {
-            throw new DdlException("Failed to get task lock when create Task [" + job.getName() + "]");
+            throw new DdlException("Failed to get job manager lock when create Job [" + job.getName() + "]");
         }
         try {
             if (nameToJobMap.containsKey(job.getName())) {
@@ -197,17 +188,17 @@ public class JobManager {
         JobSchedule jobSchedule = job.getSchedule();
         // this will not happen
         if (jobSchedule == null) {
-            LOG.warn("fail to obtain scheduled info for task [{}]", job.getName());
+            LOG.warn("fail to obtain scheduled info for job [{}]", job.getName());
             return true;
         }
         ScheduledFuture<?> future = periodFutureMap.get(job.getId());
         if (future == null) {
-            LOG.warn("fail to obtain scheduled info for task [{}]", job.getName());
+            LOG.warn("fail to obtain scheduled info for job [{}]", job.getName());
             return true;
         }
         boolean isCancel = future.cancel(true);
         if (!isCancel) {
-            LOG.warn("fail to cancel scheduler for task [{}]", job.getName());
+            LOG.warn("fail to cancel scheduler for job [{}]", job.getName());
         }
         return isCancel;
     }
@@ -232,8 +223,24 @@ public class JobManager {
         return taskManager.submitTask(Utils.buildTask(job), option);
     }
 
-    public void changeJobs(List<Long> jobIds, boolean isReplay) {
-
+    public void updateJob(ChangeJob changeJob, boolean isReplay) {
+        if (!tryLock()) {
+            return;
+        }
+        try {
+            Job job = idToJobMap.get(changeJob.getJobId());
+            if (job == null) {
+                LOG.warn("change jobId {} failed because job is null", changeJob.getJobId());
+                return;
+            }
+            job.setState(changeJob.getToStatus());
+            if (!isReplay) {
+                Env.getCurrentEnv().getEditLog().logChangeScheduleJob(changeJob);
+            }
+        } finally {
+            unlock();
+        }
+        LOG.info("change job:{}", changeJob.getJobId());
     }
 
     public void dropJobs(List<Long> jobIds, boolean isReplay) {
@@ -245,7 +252,7 @@ public class JobManager {
             for (long jobId : jobIds) {
                 Job job = idToJobMap.get(jobId);
                 if (job == null) {
-                    LOG.warn("drop taskId {} failed because task is null", jobId);
+                    LOG.warn("drop jobId {} failed because job is null", jobId);
                     continue;
                 }
                 if (job.getTriggerMode() == TriggerMode.PERIODICAL && !isReplay) {
@@ -266,7 +273,7 @@ public class JobManager {
         } finally {
             unlock();
         }
-        LOG.info("drop tasks:{}", jobIds);
+        LOG.info("drop jobs:{}", jobIds);
     }
 
     public List<Job> showJobs(String dbName) {
@@ -282,22 +289,22 @@ public class JobManager {
 
     private boolean tryLock() {
         try {
-            return taskLock.tryLock(5, TimeUnit.SECONDS);
+            return reentrantLock.tryLock(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
-            LOG.warn("got exception while getting task lock", e);
+            LOG.warn("got exception while getting job manager lock", e);
         }
         return false;
     }
 
     public void unlock() {
-        this.taskLock.unlock();
+        this.reentrantLock.unlock();
     }
 
     public void replayCreateJob(Job job) {
         if (job.getTriggerMode() == TriggerMode.PERIODICAL) {
             JobSchedule jobSchedule = job.getSchedule();
             if (jobSchedule == null) {
-                LOG.warn("replay a null schedule period Task [{}]", job.getName());
+                LOG.warn("replay a null schedule period job [{}]", job.getName());
                 return;
             }
         }
@@ -307,7 +314,7 @@ public class JobManager {
         try {
             createJob(job, true);
         } catch (DdlException e) {
-            LOG.warn("failed to replay create task [{}]", job.getName(), e);
+            LOG.warn("failed to replay create job [{}]", job.getName(), e);
         }
     }
 
@@ -316,98 +323,15 @@ public class JobManager {
     }
 
     public void replayUpdateJob(ChangeJob changeJob) {
-
-    }
-
-    public TaskManager getTaskManager() {
-        return taskManager;
+        updateJob(changeJob, true);
     }
 
     public void replayCreateJobTask(Task task) {
-        if (task.getState() == Utils.TaskState.SUCCESS || task.getState() == Utils.TaskState.FAILED) {
-            if (System.currentTimeMillis() > task.getExpireTime()) {
-                return;
-            }
-        }
-
-        switch (task.getState()) {
-            case PENDING:
-                String taskName = task.getJobName();
-                Job job = nameToJobMap.get(taskName);
-                if (job == null) {
-                    LOG.warn("fail to obtain task name {} because task is null", taskName);
-                    return;
-                }
-                TaskExecutor taskExecutor = Utils.buildTask(job);
-                taskExecutor.initRecord(task.getTaskId(), task.getCreateTime());
-                taskManager.arrangeTask(taskExecutor, task.isMergeRedundant());
-                break;
-            // this will happen in build image
-            case RUNNING:
-                task.setState(Utils.TaskState.FAILED);
-                taskManager.addHistory(task);
-                break;
-            case FAILED:
-            case SUCCESS:
-                taskManager.addHistory(task);
-                break;
-            default:
-                break;
-        }
+        taskManager.replayCreateJobTask(task);
     }
 
     public void replayUpdateTask(ChangeTask changeTask) {
-        Utils.TaskState fromStatus = changeTask.getFromStatus();
-        Utils.TaskState toStatus = changeTask.getToStatus();
-        Long taskId = changeTask.getTaskId();
-        if (fromStatus == Utils.TaskState.PENDING) {
-            Queue<TaskExecutor> taskQueue = taskManager.getPendingTaskMap().get(taskId);
-            if (taskQueue == null) {
-                return;
-            }
-            if (taskQueue.size() == 0) {
-                taskManager.getPendingTaskMap().remove(taskId);
-                return;
-            }
-
-            TaskExecutor pendingTask = taskQueue.poll();
-            Task status = pendingTask.getTask();
-
-            if (toStatus == Utils.TaskState.RUNNING) {
-                if (status.getTaskId().equals(changeTask.getQueryId())) {
-                    status.setState(Utils.TaskState.RUNNING);
-                    taskManager.getRunningTaskMap().put(taskId, pendingTask);
-                }
-                // for fe restart, should keep logic same as clearUnfinishedTask
-            } else if (toStatus == Utils.TaskState.FAILED) {
-                status.setErrorMessage(changeTask.getErrorMessage());
-                status.setErrorCode(changeTask.getErrorCode());
-                status.setState(Utils.TaskState.FAILED);
-                taskManager.addHistory(status);
-            }
-            if (taskQueue.size() == 0) {
-                taskManager.getPendingTaskMap().remove(taskId);
-            }
-        } else if (fromStatus == Utils.TaskState.RUNNING && (toStatus == Utils.TaskState.SUCCESS
-                || toStatus == Utils.TaskState.FAILED)) {
-            TaskExecutor runningTask = taskManager.getRunningTaskMap().remove(taskId);
-            if (runningTask == null) {
-                return;
-            }
-            Task status = runningTask.getTask();
-            if (status.getTaskId().equals(changeTask.getQueryId())) {
-                if (toStatus == Utils.TaskState.FAILED) {
-                    status.setErrorMessage(changeTask.getErrorMessage());
-                    status.setErrorCode(changeTask.getErrorCode());
-                }
-                status.setState(toStatus);
-                status.setFinishTime(changeTask.getFinishTime());
-                taskManager.addHistory(status);
-            }
-        } else {
-            LOG.warn("Illegal  Task queryId:{} status transform from {} to {}", changeTask.getQueryId(),
-                    fromStatus, toStatus);
-        }
+        taskManager.replayUpdateTask(changeTask);
     }
 
     public void replayDropJobTasks(List<String> taskIds) {
@@ -421,41 +345,36 @@ public class JobManager {
     public void removeExpiredJobs() {
         long currentTimeMs = System.currentTimeMillis();
 
-        List<Long> taskIdToDelete = Lists.newArrayList();
+        List<Long> jobIdsToDelete = Lists.newArrayList();
         if (!tryLock()) {
             return;
         }
         try {
             List<Job> jobs = showJobs(null);
             for (Job job : jobs) {
+                // active periodical job should not clean
+                if (job.getState() == Utils.JobState.ACTIVE) {
+                    continue;
+                }
                 if (job.getTriggerMode() == Utils.TriggerMode.PERIODICAL) {
                     JobSchedule jobSchedule = job.getSchedule();
                     if (jobSchedule == null) {
-                        taskIdToDelete.add(job.getId());
+                        jobIdsToDelete.add(job.getId());
                         LOG.warn("clean up a null schedule periodical Task [{}]", job.getName());
                         continue;
                     }
-                    // active periodical task should not clean
-                    if (job.getState() == Utils.JobState.ACTIVE) {
-                        continue;
-                    }
+
                 }
                 long expireTime = job.getExpireTime();
                 if (expireTime > 0 && currentTimeMs > expireTime) {
-                    taskIdToDelete.add(job.getId());
+                    jobIdsToDelete.add(job.getId());
                 }
             }
         } finally {
             unlock();
         }
-        // this will do in checkpoint thread and does not need write log
-        dropJobs(taskIdToDelete, true);
-    }
 
-
-
-    public boolean containJob(String jobName) {
-        return nameToJobMap.containsKey(jobName);
+        dropJobs(jobIdsToDelete, true);
     }
 
     public Job getJob(String jobName) {
@@ -492,7 +411,7 @@ public class JobManager {
             }
             LOG.info("finished replaying JobManager from image");
         } catch (EOFException e) {
-            LOG.info("no TaskManager to replay.");
+            LOG.info("no job or task to replay.");
         }
         return jobManager;
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.scheduler.metadata.Job;
@@ -36,7 +37,7 @@ import java.util.concurrent.Future;
 public class TaskExecutor implements Comparable<TaskExecutor> {
     private static final Logger LOG = LogManager.getLogger(TaskExecutor.class);
 
-    private long taskId;
+    private long jobId;
 
     private Map<String, String> properties;
 
@@ -58,12 +59,12 @@ public class TaskExecutor implements Comparable<TaskExecutor> {
 
     private Task task;
 
-    public long getTaskId() {
-        return taskId;
+    public long getJobId() {
+        return jobId;
     }
 
-    public void setTaskId(long taskId) {
-        this.taskId = taskId;
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
     }
 
     public Map<String, String> getProperties() {
@@ -127,21 +128,21 @@ public class TaskExecutor implements Comparable<TaskExecutor> {
         return task;
     }
 
-    public Task initRecord(String queryId, Long createTime) {
-        Task record = new Task();
-        record.setTaskId(queryId);
-        record.setJobName(job.getName());
+    public Task initTask(String taskId, Long createTime) {
+        Task task = new Task();
+        task.setTaskId(taskId);
+        task.setJobName(job.getName());
         if (createTime == null) {
-            record.setCreateTime(System.currentTimeMillis());
+            task.setCreateTime(System.currentTimeMillis());
         } else {
-            record.setCreateTime(createTime);
+            task.setCreateTime(createTime);
         }
-        record.setUser(job.getCreateUser());
-        record.setDbName(job.getDbName());
-        record.setDefinition(job.getDefinition());
-        record.setExpireTime(System.currentTimeMillis() + 7 * 24 * 3600 * 1000L);
-        this.task = record;
-        return record;
+        task.setUser(job.getCreateUser());
+        task.setDbName(job.getDbName());
+        task.setDefinition(job.getDefinition());
+        task.setExpireTime(System.currentTimeMillis() + Config.scheduler_task_expire_ms);
+        this.task = task;
+        return task;
     }
 
     @Override

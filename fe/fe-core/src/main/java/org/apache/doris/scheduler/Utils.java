@@ -35,9 +35,10 @@ public class Utils {
     }
 
     public enum JobState {
-        // For TaskType NORMAL TaskState is UNKNOWN.
-        UNKNOWN, // For TaskType PERIODICAL when TaskState is ACTIVE it means scheduling works.
-        ACTIVE, PAUSE
+        UNKNOWN,
+        ACTIVE,
+        PAUSE,
+        COMPLETE
     }
 
     public enum RetryPolicy {
@@ -50,12 +51,12 @@ public class Utils {
         PENDING, RUNNING, FAILED, SUCCESS,
     }
 
-    public enum TaskRunPriority {
+    public enum TaskPriority {
         LOWEST(0), LOW(20), NORMAL(50), HIGH(80), HIGHEST(100);
 
         private final int value;
 
-        TaskRunPriority(int value) {
+        TaskPriority(int value) {
             this.value = value;
         }
 
@@ -94,12 +95,12 @@ public class Utils {
     }
 
     public static TaskExecutor buildTask(Job job) {
-        TaskExecutor taskRun = new TaskExecutor();
-        taskRun.setTaskId(job.getId());
-        taskRun.setProperties(job.getProperties());
-        taskRun.setJob(job);
+        TaskExecutor taskExecutor = new TaskExecutor();
+        taskExecutor.setJobId(job.getId());
+        taskExecutor.setProperties(job.getProperties());
+        taskExecutor.setJob(job);
 
 
-        return taskRun;
+        return taskExecutor;
     }
 }

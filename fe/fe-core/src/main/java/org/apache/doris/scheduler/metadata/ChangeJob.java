@@ -47,6 +47,44 @@ public class ChangeJob implements Writable {
     @SerializedName("errorMessage")
     private String errorMessage;
 
+    public ChangeJob(long jobId, JobState toStatus) {
+        this.jobId = jobId;
+        this.toStatus = toStatus;
+        this.finishTime = System.currentTimeMillis();
+    }
+
+    public long getJobId() {
+        return jobId;
+    }
+
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
+    }
+
+    public long getFinishTime() {
+        return finishTime;
+    }
+
+    public void setFinishTime(long finishTime) {
+        this.finishTime = finishTime;
+    }
+
+    public JobState getFromStatus() {
+        return fromStatus;
+    }
+
+    public void setFromStatus(JobState fromStatus) {
+        this.fromStatus = fromStatus;
+    }
+
+    public JobState getToStatus() {
+        return toStatus;
+    }
+
+    public void setToStatus(JobState toStatus) {
+        this.toStatus = toStatus;
+    }
+
     public static ChangeJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ChangeJob.class);

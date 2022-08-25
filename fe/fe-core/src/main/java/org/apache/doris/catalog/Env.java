@@ -1930,7 +1930,9 @@ public class Env {
      * Load schedule jobs.
      **/
     public long loadJobManager(DataInputStream in, long checksum) throws IOException {
-        this.jobManager = JobManager.read(in, checksum);
+        if (Config.enable_scheduler_framework) {
+            this.jobManager = JobManager.read(in, checksum);
+        }
         LOG.info("finished replay job and tasks from image");
         return checksum;
     }
@@ -2209,7 +2211,9 @@ public class Env {
     }
 
     public long saveJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        Env.getCurrentEnv().getJobManager().write(out, checksum);
+        if (Config.enable_scheduler_framework) {
+            Env.getCurrentEnv().getJobManager().write(out, checksum);
+        }
         return checksum;
     }
 

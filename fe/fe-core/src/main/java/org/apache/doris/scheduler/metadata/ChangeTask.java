@@ -30,11 +30,11 @@ import java.io.IOException;
 
 public class ChangeTask implements Writable {
 
-    @SerializedName("taskId")
-    private long taskId;
+    @SerializedName("jobId")
+    private long jobId;
 
-    @SerializedName("queryId")
-    private String queryId;
+    @SerializedName("taskId")
+    private String taskId;
 
     @SerializedName("finishTime")
     private long finishTime;
@@ -52,9 +52,9 @@ public class ChangeTask implements Writable {
     private String errorMessage;
 
 
-    public ChangeTask(long taskId, Task task, TaskState fromStatus, TaskState toStatus) {
-        this.taskId = taskId;
-        this.queryId = task.getTaskId();
+    public ChangeTask(long jobId, Task task, TaskState fromStatus, TaskState toStatus) {
+        this.jobId = jobId;
+        this.taskId = task.getTaskId();
         this.fromStatus = fromStatus;
         this.toStatus = toStatus;
         this.finishTime = task.getFinishTime();
@@ -64,20 +64,20 @@ public class ChangeTask implements Writable {
         }
     }
 
-    public long getTaskId() {
+    public long getJobId() {
+        return jobId;
+    }
+
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
+    }
+
+    public String getTaskId() {
         return taskId;
     }
 
-    public void setTaskId(long taskId) {
+    public void setTaskId(String taskId) {
         this.taskId = taskId;
-    }
-
-    public String getQueryId() {
-        return queryId;
-    }
-
-    public void setQueryId(String queryId) {
-        this.queryId = queryId;
     }
 
     public TaskState getFromStatus() {

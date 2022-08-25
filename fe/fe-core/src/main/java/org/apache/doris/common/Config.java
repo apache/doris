@@ -1744,4 +1744,19 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_new_es_dsl = true;
+
+    /**
+     * scheduler framework is still under dev, remote this config when it is graduate.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_scheduler_framework = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int running_scheduler_task_size = 1000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int pending_scheduler_task_size = 1000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
 }

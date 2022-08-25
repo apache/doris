@@ -1550,6 +1550,10 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_SCHEDULER_JOB, new DropJob(jobIds));
     }
 
+    public void logChangeScheduleJob(ChangeJob changeJob) {
+        logEdit(OperationType.OP_ALTER_SCHEDULER_JOB, changeJob);
+    }
+
     public void logCreateScheduleTask(Task task) {
         logEdit(OperationType.OP_CREATE_SCHEDULER_TASK, task);
     }

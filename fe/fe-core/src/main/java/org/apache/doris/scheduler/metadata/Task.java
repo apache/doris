@@ -66,8 +66,8 @@ public class Task implements Writable {
     @SerializedName("priority")
     private int priority = 0;
 
-    @SerializedName("mergeRedundant")
-    private boolean mergeRedundant = false;
+    @SerializedName("markJobFinished")
+    private boolean markJobFinished = false;
 
     public String getTaskId() {
         return taskId;
@@ -165,12 +165,12 @@ public class Task implements Writable {
         this.priority = priority;
     }
 
-    public boolean isMergeRedundant() {
-        return mergeRedundant;
+    public boolean isMarkJobFinished() {
+        return markJobFinished;
     }
 
-    public void setMergeRedundant(boolean mergeRedundant) {
-        this.mergeRedundant = mergeRedundant;
+    public void setMarkJobFinished(boolean markJobFinished) {
+        this.markJobFinished = markJobFinished;
     }
 
     public static Task read(DataInput in) throws IOException {
@@ -182,14 +182,5 @@ public class Task implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    @Override
-    public String toString() {
-        return "TaskRunStatus{" + "queryId='" + taskId + '\'' + ", taskName='" + jobName + '\'' + ", createTime="
-                + createTime + ", finishTime=" + finishTime + ", state=" + state + ", dbName='" + dbName + '\''
-                + ", definition='" + definition + '\'' + ", user='" + user + '\'' + ", errorCode=" + errorCode
-                + ", errorMessage='" + errorMessage + '\'' + ", expireTime=" + expireTime + ", priority=" + priority
-                + ", mergeRedundant=" + mergeRedundant + '}';
     }
 }

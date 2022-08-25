@@ -18,8 +18,13 @@
 package org.apache.doris.scheduler;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.scheduler.Utils.JobState;
+import org.apache.doris.scheduler.Utils.TaskState;
+import org.apache.doris.scheduler.metadata.ChangeJob;
 import org.apache.doris.scheduler.metadata.ChangeTask;
+import org.apache.doris.scheduler.metadata.Job;
 import org.apache.doris.scheduler.metadata.Task;
 
 import com.google.common.collect.Lists;
@@ -47,36 +52,39 @@ public class TaskManager {
 
     private static final Logger LOG = LogManager.getLogger(TaskManager.class);
 
-    // taskId -> pending Task Queue, for each Task only support 1 running task currently,
-    // so the map value is priority queue need to be sorted by priority from large to small
+    // jobId -> pending tasks, one job can dispatch many tasks
     private final Map<Long, PriorityBlockingQueue<TaskExecutor>> pendingTaskMap = Maps.newConcurrentMap();
 
-    // taskId -> running task, for each Task only support 1 running task currently,
-    // so the map value is not queue
+    // jobId -> running tasks, only one task will be running for one job.
     private final Map<Long, TaskExecutor> runningTaskMap = Maps.newConcurrentMap();
 
-    // Use to execute actual task
     private final TaskExecutorPool taskExecutorPool = new TaskExecutorPool();
 
-    private final ReentrantLock taskLock = new ReentrantLock(true);
+    private final ReentrantLock reentrantLock = new ReentrantLock(true);
 
-    // keep track of all the SUCCESS/FAILED/CANCEL task records
-    private final Deque<Task> historyDeque = Queues.newLinkedBlockingDeque();
+    // keep track of all the tasks
+    private final Deque<Task> historyQueue = Queues.newLinkedBlockingDeque();
 
-    private final ScheduledExecutorService taskDispatcher = Executors.newScheduledThreadPool(1);
+    private final ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
 
-    public void startTaskDispatcher() {
-        taskDispatcher.scheduleAtFixedRate(() -> {
-            if (!tryTaskLock()) {
+    private final JobManager jobManager;
+
+    public TaskManager(JobManager jobManager) {
+        this.jobManager = jobManager;
+    }
+
+    public void startTaskScheduler() {
+        taskScheduler.scheduleAtFixedRate(() -> {
+            if (!tryLock()) {
                 return;
             }
             try {
                 checkRunningTask();
                 scheduledPendingTask();
             } catch (Exception ex) {
-                LOG.warn("failed to dispatch task.", ex);
+                LOG.warn("failed to schedule task.", ex);
             } finally {
-                taskUnlock();
+                unlock();
             }
         }, 0, 1, TimeUnit.SECONDS);
     }
@@ -88,92 +96,66 @@ public class TaskManager {
         }
 
         int validPendingCount = 0;
-        for (Long taskId : pendingTaskMap.keySet()) {
-            if (!pendingTaskMap.get(taskId).isEmpty()) {
+        for (Long jobId : pendingTaskMap.keySet()) {
+            if (!pendingTaskMap.get(jobId).isEmpty()) {
                 validPendingCount++;
             }
         }
 
-        if (validPendingCount >= 1000) {
-            LOG.warn("pending task exceeds task_runs_queue_length:{}, reject the submit.", 1000);
+        if (validPendingCount >= Config.pending_scheduler_task_size) {
+            LOG.warn("pending task exceeds pending_scheduler_task_size:{}, reject the submit.",
+                    Config.pending_scheduler_task_size);
             return new SubmitResult(null, SubmitResult.SubmitStatus.REJECTED);
         }
 
-        String queryId = UUID.randomUUID().toString();
-        Task task = taskExecutor.initRecord(queryId, System.currentTimeMillis());
+        String taskId = UUID.randomUUID().toString();
+        Task task = taskExecutor.initTask(taskId, System.currentTimeMillis());
         task.setPriority(option.getPriority());
-        task.setMergeRedundant(option.isMergeRedundant());
+        task.setMarkJobFinished(option.isMarkJobFinished());
         Env.getCurrentEnv().getEditLog().logCreateScheduleTask(task);
-        arrangeTask(taskExecutor, option.isMergeRedundant());
-        return new SubmitResult(queryId, SubmitResult.SubmitStatus.SUBMITTED);
+        arrangeToPendingTask(taskExecutor);
+        return new SubmitResult(taskId, SubmitResult.SubmitStatus.SUBMITTED);
     }
 
-
-    public boolean killTask(Long taskId, boolean clearPending) {
+    public boolean killTask(Long jobId, boolean clearPending) {
         if (clearPending) {
-            if (!tryTaskLock()) {
+            if (!tryLock()) {
                 return false;
             }
             try {
-                getPendingTaskMap().remove(taskId);
+                getPendingTaskMap().remove(jobId);
             } catch (Exception ex) {
                 LOG.warn("failed to kill task.", ex);
             } finally {
-                taskUnlock();
+                unlock();
             }
         }
-        TaskExecutor task = runningTaskMap.get(taskId);
+        TaskExecutor task = runningTaskMap.get(jobId);
         if (task == null) {
             return false;
         }
-        ConnectContext runCtx = task.getCtx();
-        if (runCtx != null) {
-            runCtx.kill(false);
+        ConnectContext connectContext = task.getCtx();
+        if (connectContext != null) {
+            connectContext.kill(false);
             return true;
         }
         return false;
     }
 
-    // At present, only the manual and automatic tasks of the materialized view have different priorities.
-    // The manual priority is higher. For manual tasks, we do not merge operations.
-    // For automatic tasks, we will compare the definition, and if they are the same,
-    // we will perform the merge operation.
-    public void arrangeTask(TaskExecutor task, boolean mergeRedundant) {
-        if (!tryTaskLock()) {
+    public void arrangeToPendingTask(TaskExecutor task) {
+        if (!tryLock()) {
             return;
         }
         try {
-            long taskId = task.getTaskId();
+            long jobId = task.getJobId();
             PriorityBlockingQueue<TaskExecutor> tasks =
-                    pendingTaskMap.computeIfAbsent(taskId, u -> Queues.newPriorityBlockingQueue());
-            if (mergeRedundant) {
-                TaskExecutor oldTask = getTask(tasks, task);
-                if (oldTask != null) {
-                    // The remove here is actually remove the old task.
-                    // Note that the old task and new task may have the same definition,
-                    // but other attributes may be different, such as priority, creation time.
-                    // higher priority and create time will be result after merge is complete
-                    // and queryId will be change.
-                    boolean isRemove = tasks.remove(task);
-                    if (!isRemove) {
-                        LOG.warn("failed to remove task definition is [{}]", task.getTask().getDefinition());
-                    }
-                    if (oldTask.getTask().getPriority() > task.getTask().getPriority()) {
-                        task.getTask().setPriority(oldTask.getTask().getPriority());
-                    }
-                    if (oldTask.getTask().getCreateTime() > task.getTask().getCreateTime()) {
-                        task.getTask().setCreateTime(oldTask.getTask().getCreateTime());
-                    }
-                }
-            }
+                    pendingTaskMap.computeIfAbsent(jobId, u -> Queues.newPriorityBlockingQueue());
             tasks.offer(task);
         } finally {
-            taskUnlock();
+            unlock();
         }
     }
 
-    // Because java PriorityQueue does not provide an interface for searching by element,
-    // so find it by code O(n), which can be optimized later
     @Nullable
     private TaskExecutor getTask(PriorityBlockingQueue<TaskExecutor> tasks, TaskExecutor task) {
         TaskExecutor oldTask = null;
@@ -186,71 +168,76 @@ public class TaskManager {
         return oldTask;
     }
 
-    // check if a running Task is complete and remove it from running task map
-    public void checkRunningTask() {
+    private void checkRunningTask() {
         Iterator<Long> runningIterator = runningTaskMap.keySet().iterator();
         while (runningIterator.hasNext()) {
-            Long taskId = runningIterator.next();
-            TaskExecutor task = runningTaskMap.get(taskId);
-            if (task == null) {
-                LOG.warn("failed to get running Task by taskId:{}", taskId);
+            Long jobId = runningIterator.next();
+            TaskExecutor taskExecutor = runningTaskMap.get(jobId);
+            if (taskExecutor == null) {
+                LOG.warn("failed to get running task by jobId:{}", jobId);
                 runningIterator.remove();
                 return;
             }
-            Future<?> future = task.getFuture();
+            Future<?> future = taskExecutor.getFuture();
             if (future.isDone()) {
                 runningIterator.remove();
-                addHistory(task.getTask());
-                ChangeTask changeTask = new ChangeTask(task.getTaskId(), task.getTask(), Utils.TaskState.RUNNING,
-                        task.getTask().getState());
-                Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+                addHistory(taskExecutor.getTask());
+                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,
+                        taskExecutor.getTask().getState());
+
+                // update the run once job status
+                if (taskExecutor.getTask().isMarkJobFinished()) {
+                    ChangeJob changeJob = new ChangeJob(taskExecutor.getJobId(), JobState.COMPLETE);
+                    jobManager.updateJob(changeJob, false);
+                }
             }
         }
     }
 
-    // schedule the pending task that can be run into running task map
-    public void scheduledPendingTask() {
+    private void scheduledPendingTask() {
         int currentRunning = runningTaskMap.size();
 
         Iterator<Long> pendingIterator = pendingTaskMap.keySet().iterator();
         while (pendingIterator.hasNext()) {
-            Long taskId = pendingIterator.next();
-            TaskExecutor runningTaskExecutor = runningTaskMap.get(taskId);
+            Long jobId = pendingIterator.next();
+            TaskExecutor runningTaskExecutor = runningTaskMap.get(jobId);
             if (runningTaskExecutor == null) {
-                Queue<TaskExecutor> taskQueue = pendingTaskMap.get(taskId);
+                Queue<TaskExecutor> taskQueue = pendingTaskMap.get(jobId);
                 if (taskQueue.size() == 0) {
                     pendingIterator.remove();
                 } else {
-                    if (currentRunning >= 1000) {
+                    if (currentRunning >= Config.running_scheduler_task_size) {
                         break;
                     }
                     TaskExecutor pendingTaskExecutor = taskQueue.poll();
                     taskExecutorPool.executeTask(pendingTaskExecutor);
-                    runningTaskMap.put(taskId, pendingTaskExecutor);
-                    // RUNNING state persistence is for FE FOLLOWER update state
-                    ChangeTask changeTask =
-                            new ChangeTask(taskId, pendingTaskExecutor.getTask(), Utils.TaskState.PENDING,
-                                    Utils.TaskState.RUNNING);
-                    Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+                    runningTaskMap.put(jobId, pendingTaskExecutor);
+                    // change status from PENDING to Running
+                    changeAndLogTaskStatus(jobId, pendingTaskExecutor.getTask(), TaskState.PENDING, TaskState.RUNNING);
                     currentRunning++;
                 }
             }
         }
     }
 
-    public boolean tryTaskLock() {
+    private void changeAndLogTaskStatus(long jobId, Task task, TaskState fromStatus, TaskState toStatus) {
+        ChangeTask changeTask = new ChangeTask(jobId, task, fromStatus, toStatus);
+        Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+    }
+
+    public boolean tryLock() {
         try {
-            return taskLock.tryLock(5, TimeUnit.SECONDS);
+            return reentrantLock.tryLock(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
-            LOG.warn("got exception while getting task run lock", e);
+            LOG.warn("got exception while getting task lock", e);
             Thread.currentThread().interrupt();
         }
         return false;
     }
 
 
-    public void taskUnlock() {
-        this.taskLock.unlock();
+    public void unlock() {
+        this.reentrantLock.unlock();
     }
 
     public Map<Long, PriorityBlockingQueue<TaskExecutor>> getPendingTaskMap() {
@@ -262,11 +249,11 @@ public class TaskManager {
     }
 
     public void addHistory(Task task) {
-        historyDeque.addFirst(task);
+        historyQueue.addFirst(task);
     }
 
     public Deque<Task> getAllHistory() {
-        return historyDeque;
+        return historyQueue;
     }
 
     public List<Task> showTasks(String dbName) {
@@ -292,12 +279,96 @@ public class TaskManager {
         return taskList;
     }
 
+    public void replayCreateJobTask(Task task) {
+        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILED) {
+            if (System.currentTimeMillis() > task.getExpireTime()) {
+                return;
+            }
+        }
+
+        switch (task.getState()) {
+            case PENDING:
+                String jobName = task.getJobName();
+                Job job = jobManager.getJob(jobName);
+                if (job == null) {
+                    LOG.warn("fail to obtain task name {} because task is null", jobName);
+                    return;
+                }
+                TaskExecutor taskExecutor = Utils.buildTask(job);
+                taskExecutor.initTask(task.getTaskId(), task.getCreateTime());
+                arrangeToPendingTask(taskExecutor);
+                break;
+            case RUNNING:
+                task.setState(TaskState.FAILED);
+                addHistory(task);
+                break;
+            case FAILED:
+            case SUCCESS:
+                addHistory(task);
+                break;
+            default:
+                break;
+        }
+    }
+
+    public void replayUpdateTask(ChangeTask changeTask) {
+        TaskState fromStatus = changeTask.getFromStatus();
+        TaskState toStatus = changeTask.getToStatus();
+        Long jobId = changeTask.getJobId();
+        if (fromStatus == TaskState.PENDING) {
+            Queue<TaskExecutor> taskQueue = getPendingTaskMap().get(jobId);
+            if (taskQueue == null) {
+                return;
+            }
+            if (taskQueue.size() == 0) {
+                getPendingTaskMap().remove(jobId);
+                return;
+            }
+
+            TaskExecutor pendingTask = taskQueue.poll();
+            Task status = pendingTask.getTask();
+
+            if (toStatus == TaskState.RUNNING) {
+                if (status.getTaskId().equals(changeTask.getTaskId())) {
+                    status.setState(TaskState.RUNNING);
+                    getRunningTaskMap().put(jobId, pendingTask);
+                }
+            } else if (toStatus == TaskState.FAILED) {
+                status.setErrorMessage(changeTask.getErrorMessage());
+                status.setErrorCode(changeTask.getErrorCode());
+                status.setState(TaskState.FAILED);
+                addHistory(status);
+            }
+            if (taskQueue.size() == 0) {
+                getPendingTaskMap().remove(jobId);
+            }
+        } else if (fromStatus == TaskState.RUNNING && (toStatus == TaskState.SUCCESS || toStatus == TaskState.FAILED)) {
+            TaskExecutor runningTask = getRunningTaskMap().remove(jobId);
+            if (runningTask == null) {
+                return;
+            }
+            Task status = runningTask.getTask();
+            if (status.getTaskId().equals(changeTask.getTaskId())) {
+                if (toStatus == TaskState.FAILED) {
+                    status.setErrorMessage(changeTask.getErrorMessage());
+                    status.setErrorCode(changeTask.getErrorCode());
+                }
+                status.setState(toStatus);
+                status.setFinishTime(changeTask.getFinishTime());
+                addHistory(status);
+            }
+        } else {
+            LOG.warn("Illegal  Task queryId:{} status transform from {} to {}", changeTask.getTaskId(), fromStatus,
+                    toStatus);
+        }
+    }
+
     public void removeExpiredTasks() {
         long currentTimeMs = System.currentTimeMillis();
 
         List<String> historyToDelete = Lists.newArrayList();
 
-        if (!tryTaskLock()) {
+        if (!tryLock()) {
             return;
         }
         try {
@@ -312,13 +383,13 @@ public class TaskManager {
                 }
             }
         } finally {
-            taskUnlock();
+            unlock();
         }
-        LOG.info("remove run history:{}", historyToDelete);
+        LOG.info("remove task history:{}", historyToDelete);
     }
 
     public void clearUnfinishedTasks() {
-        if (!tryTaskLock()) {
+        if (!tryLock()) {
             return;
         }
         try {
@@ -329,12 +400,10 @@ public class TaskManager {
                     TaskExecutor taskExecutor = tasks.poll();
                     taskExecutor.getTask().setErrorMessage("Fe abort the task");
                     taskExecutor.getTask().setErrorCode(-1);
-                    taskExecutor.getTask().setState(Utils.TaskState.FAILED);
+                    taskExecutor.getTask().setState(TaskState.FAILED);
                     addHistory(taskExecutor.getTask());
-                    ChangeTask changeTask =
-                            new ChangeTask(taskExecutor.getTaskId(), taskExecutor.getTask(), Utils.TaskState.PENDING,
-                                    Utils.TaskState.FAILED);
-                    Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+                    changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.PENDING,
+                            TaskState.FAILED);
                 }
                 pendingIter.remove();
             }
@@ -343,17 +412,15 @@ public class TaskManager {
                 TaskExecutor taskExecutor = getRunningTaskMap().get(runningIter.next());
                 taskExecutor.getTask().setErrorMessage("Fe abort the task");
                 taskExecutor.getTask().setErrorCode(-1);
-                taskExecutor.getTask().setState(Utils.TaskState.FAILED);
+                taskExecutor.getTask().setState(TaskState.FAILED);
                 taskExecutor.getTask().setFinishTime(System.currentTimeMillis());
                 runningIter.remove();
                 addHistory(taskExecutor.getTask());
-                ChangeTask changeTask =
-                        new ChangeTask(taskExecutor.getTaskId(), taskExecutor.getTask(), Utils.TaskState.RUNNING,
-                                Utils.TaskState.FAILED);
-                Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,
+                        TaskState.FAILED);
             }
         } finally {
-            taskUnlock();
+            unlock();
         }
     }
 }

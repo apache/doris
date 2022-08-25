@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler;
 
+import org.apache.doris.scheduler.Utils.TaskState;
 import org.apache.doris.scheduler.metadata.Task;
 
 import org.apache.logging.log4j.LogManager;
@@ -38,23 +39,23 @@ public class TaskExecutorPool {
         if (task == null) {
             return;
         }
-        if (task.getState() == Utils.TaskState.SUCCESS || task.getState() == Utils.TaskState.FAILED) {
-            LOG.warn("TaskRun {} is in final status {} ", task.getTaskId(), task.getState());
+        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILED) {
+            LOG.warn("Task {} is in final status {} ", task.getTaskId(), task.getState());
             return;
         }
 
         Future<?> future = taskPool.submit(() -> {
-            task.setState(Utils.TaskState.RUNNING);
+            task.setState(TaskState.RUNNING);
             try {
                 boolean isSuccess = taskExecutor.executeTask();
                 if (isSuccess) {
-                    task.setState(Utils.TaskState.SUCCESS);
+                    task.setState(TaskState.SUCCESS);
                 } else {
-                    task.setState(Utils.TaskState.FAILED);
+                    task.setState(TaskState.FAILED);
                 }
             } catch (Exception ex) {
-                LOG.warn("failed to execute TaskRun.", ex);
-                task.setState(Utils.TaskState.FAILED);
+                LOG.warn("failed to execute task.", ex);
+                task.setState(TaskState.FAILED);
                 task.setErrorCode(-1);
                 task.setErrorMessage(ex.toString());
             } finally {
