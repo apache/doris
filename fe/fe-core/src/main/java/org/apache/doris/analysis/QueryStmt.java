@@ -454,18 +454,17 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         }
         if (pos > resultExprs.size()) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal exceeds number of items in select list: "
-                            + expr.toSql());
+                    errorPrefix + ": ordinal exceeds number of items in select list: " + expr.toSql());
         }
 
         // Create copy to protect against accidentally shared state.
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         if (withClause != null) {
-            withClause.getTables(analyzer, tableMap, parentViewNameSet);
+            withClause.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
@@ -542,8 +541,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet.
     // issue link: https://github.com/apache/doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, TableIf> tables, Set<String> parentViewNameSet)
-            throws AnalysisException;
+    public abstract void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tables,
+            Set<String> parentViewNameSet) throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.

@@ -630,11 +630,11 @@ public class StmtExecutor implements ProfileWriter {
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
                 queryStmt = parsedStmt.getQueryStmt();
-                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
