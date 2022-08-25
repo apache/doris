@@ -530,7 +530,7 @@
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-LEAD",
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-ROW-NUMBER",
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-NTILE",
-                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-WINDOW_FUNNEL"
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-WINDOW-FUNNEL"
                             ]
                         },
                         "sql-manual/sql-functions/cast",
