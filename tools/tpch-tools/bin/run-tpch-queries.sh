@@ -24,12 +24,12 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-    cd "$ROOT"
+    cd "${ROOT}"
     pwd
 )
 
-CURDIR=${ROOT}
-QUERIES_DIR=$CURDIR/../queries
+CURDIR="${ROOT}"
+QUERIES_DIR="${CURDIR}/../queries"
 
 usage() {
     echo "
@@ -45,10 +45,10 @@ OPTS=$(getopt \
     -o '' \
     -- "$@")
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 HELP=0
 
-if [ $# == 0 ]; then
+if [[ $# == 0 ]]; then
     usage
 fi
 
@@ -77,28 +77,27 @@ fi
 check_prerequest() {
     local CMD=$1
     local NAME=$2
-    if ! $CMD; then
-        echo "$NAME is missing. This script depends on mysql to create tables in Doris."
+    if ! ${CMD}; then
+        echo "${NAME} is missing. This script depends on mysql to create tables in Doris."
         exit 1
     fi
 }
 
 check_prerequest "mysql --version" "mysql"
 
-# shellcheck source=/dev/null
-source "$CURDIR/../conf/doris-cluster.conf"
-export MYSQL_PWD=$PASSWORD
+source "${CURDIR}/../conf/doris-cluster.conf"
+export MYSQL_PWD=${PASSWORD}
 
-echo "FE_HOST: $FE_HOST"
-echo "FE_QUERY_PORT: $FE_QUERY_PORT"
-echo "USER: $USER"
-echo "PASSWORD: $PASSWORD"
-echo "DB: $DB"
+echo "FE_HOST: ${FE_HOST}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
+echo "USER: ${USER}"
+echo "PASSWORD: ${PASSWORD}"
+echo "DB: ${DB}"
 echo "Time Unit: ms"
 
 pre_set() {
     echo "$*"
-    mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
 
 echo '============================================'
@@ -112,14 +111,14 @@ for i in $(seq 1 22); do
     total=0
     run=3
     # Each query is executed ${run} times and takes the average time
-    for j in $(seq 1 ${run}); do
+    for ((j = 0; j < run; j++)); do
         start=$(date +%s%3N)
-        mysql -h"$FE_HOST" -u "$USER" -P"$FE_QUERY_PORT" -D"$DB" --comments <"$QUERIES_DIR"/q"$i".sql >/dev/null
+        mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
         end=$(date +%s%3N)
         total=$((total + end - start))
     done
     cost=$((total / run))
-    echo "q$i: ${cost}"
+    echo "q${i}: ${cost}"
     sum=$((sum + cost))
 done
-echo "Total cost: $sum"
+echo "Total cost: ${sum}"

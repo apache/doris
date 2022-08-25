@@ -24,77 +24,76 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-  cd "$ROOT"
-  pwd
+    cd "${ROOT}"
+    pwd
 )
 
 CURDIR=${ROOT}
 
 usage() {
-  echo "
+    echo "
 This script is used to create TPC-H tables, 
 will use mysql client to connect Doris server which is specified in doris-cluster.conf file.
 Usage: $0 
   "
-  exit 1
+    exit 1
 }
 
 OPTS=$(getopt \
-  -n "$0" \
-  -o '' \
-  -- "$@")
+    -n "$0" \
+    -o '' \
+    -- "$@")
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 HELP=0
 
-if [ $# == 0 ]; then
-  usage
+if [[ $# == 0 ]]; then
+    usage
 fi
 
 while true; do
-  case "$1" in
-  -h)
-    HELP=1
-    shift
-    ;;
-  --)
-    shift
-    break
-    ;;
-  *)
-    echo "Internal error"
-    exit 1
-    ;;
-  esac
+    case "$1" in
+    -h)
+        HELP=1
+        shift
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error"
+        exit 1
+        ;;
+    esac
 done
 
 if [[ ${HELP} -eq 1 ]]; then
-  usage
-  exit
+    usage
+    exit
 fi
 
 check_prerequest() {
-  local CMD=$1
-  local NAME=$2
-  if ! $CMD; then
-    echo "$NAME is missing. This script depends on mysql to create tables in Doris."
-    exit 1
-  fi
+    local CMD=$1
+    local NAME=$2
+    if ! ${CMD}; then
+        echo "${NAME} is missing. This script depends on mysql to create tables in Doris."
+        exit 1
+    fi
 }
 
 check_prerequest "mysql --version" "mysql"
 
-# shellcheck source=/dev/null
-source "$CURDIR/../conf/doris-cluster.conf"
-export MYSQL_PWD=$PASSWORD
+source "${CURDIR}/../conf/doris-cluster.conf"
+export MYSQL_PWD=${PASSWORD}
 
-echo "FE_HOST: $FE_HOST"
-echo "FE_QUERY_PORT: $FE_QUERY_PORT"
-echo "USER: $USER"
-echo "PASSWORD: $PASSWORD"
-echo "DB: $DB"
+echo "FE_HOST: ${FE_HOST}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
+echo "USER: ${USER}"
+echo "PASSWORD: ${PASSWORD}"
+echo "DB: ${DB}"
 
-mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
 
-echo "Run SQLs from $CURDIR/create-tpch-tables.sql"
-mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" <"$CURDIR"/../ddl/create-tpch-tables.sql
+echo "Run SQLs from ${CURDIR}/create-tpch-tables.sql"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables.sql
