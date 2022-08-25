@@ -1679,10 +1679,10 @@ public class StmtExecutor implements ProfileWriter {
         // after success create table insert data
         if (MysqlStateType.OK.equals(context.getState().getStateType())) {
             try {
-                parsedStmt = setParsedStmt(ctasStmt.getInsertStmt());
+                parsedStmt = ctasStmt.getInsertStmt();
                 execute();
             } catch (Exception e) {
-                LOG.warn("CTAS insert data error, stmt={}", parsedStmt.toSql(), e);
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
                 // insert error drop table
                 DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
                 try {
