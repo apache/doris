@@ -68,7 +68,7 @@ public class LogicalOlapScan extends LogicalRelation  {
         return "ScanOlapTable ("
                 + qualifiedName()
                 + ", output: "
-                + computeOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[",  "]"))
+                + getOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[",  "]"))
                 + ")";
     }
 

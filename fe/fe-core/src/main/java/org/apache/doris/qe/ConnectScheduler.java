@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -102,13 +101,7 @@ public class ConnectScheduler {
         // Check user
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
         AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-        if (ctx.getIsTempUser()) {
-            if (conns.incrementAndGet() > LdapAuthenticate.getMaxConn()) {
-                conns.decrementAndGet();
-                numberConnection.decrementAndGet();
-                return false;
-            }
-        } else if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
