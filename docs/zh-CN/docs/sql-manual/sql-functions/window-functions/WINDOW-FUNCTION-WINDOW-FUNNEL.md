@@ -18,7 +18,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 - window ：滑动时间窗口大小，单位为秒。
 - mode ：保留，目前只支持default。
-- timestamp_column ：指定时间列，类型为DATE或者DATETIME。
+- timestamp_column ：指定时间列，类型为DATETIME, 滑动窗口沿着此列工作。
 - eventN ：表示事件的布尔表达式。
 
 漏斗分析函数按照如下算法工作：

@@ -18,7 +18,7 @@ Searches the longest event chain happened in order (event1, event2, ... , eventN
 
 - window is the length of time window in seconds.
 - mode is reserved for future, not used for now.
-- timestamp_column specifies column of DATE or DATETIME type.
+- timestamp_column specifies column of DATETIME type, sliding time window works on it.
 - evnetN is boolean expression like eventID = 1004.
 
 The function works according to the algorithm:
