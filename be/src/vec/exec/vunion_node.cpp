@@ -42,7 +42,6 @@ VUnionNode::VUnionNode(ObjectPool* pool, const TPlanNode& tnode, const Descripto
 Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
-    DCHECK_EQ(_conjunct_ctxs.size(), 0);
     // Create const_expr_ctx_lists_ from thrift exprs.
     auto& const_texpr_lists = tnode.union_node.const_expr_lists;
     for (auto& texprs : const_texpr_lists) {
