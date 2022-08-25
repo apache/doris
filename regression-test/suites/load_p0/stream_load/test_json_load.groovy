@@ -63,6 +63,33 @@ suite("test_json_load", "p0") {
         assertTrue(result2[0].size() == 1)
         assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
     }
+
+    def test_invalid_json_array_table = { testTablex ->
+        // multi-line sql
+        def result1 = sql """
+                        CREATE TABLE IF NOT EXISTS ${testTable} (
+                        CREATE TABLE IF NOT EXISTS ${testTable} (
+                            k1 TINYINT NOT NULL,
+                            k2 SMALLINT NOT NULL,
+                            k3 INT NOT NULL,
+                            k4 BIGINT NOT NULL,
+                            k5 DATETIME NOT NULL,
+                            v1 DATE REPLACE NOT NULL,
+                            v2 CHAR REPLACE NOT NULL,
+                            v3 VARCHAR(4096) REPLACE NOT NULL,
+                            v4 FLOAT SUM NOT NULL,
+                            v5 DOUBLE SUM NOT NULL,
+                            v6 DECIMAL(20,7) SUM NOT NULL
+                            ) AGGREGATE KEY(k1,k2,k3,k4,k5)
+                            DISTRIBUTED BY HASH(k1) BUCKETS 15
+                            PROPERTIES("replication_num" = "1");
+                        """
+
+        // DDL/DML return 1 row and 3 column, the only value is update row count
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
+    }
     
     def load_json_data = {strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false ->
@@ -324,12 +351,26 @@ suite("test_json_load", "p0") {
             sql "DROP TABLE IF EXISTS ${testTable}"
             
             create_test_table1.call(testTable)
-            
+
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
             load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
                                 brokerName, hdfsUser, hdfsPasswd)
             
             check_load_result.call(test_load_label, testTable)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case13: invalid json
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            test_invalid_json_array_table.call(testTable)
+            load_json_data.call('true', '', 'json', '', '',
+                    '', '', '', 'invalid_json_array.json', true)
+
+            qt_select "select * from ${testTable} order by id"
+
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
