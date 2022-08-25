@@ -1288,9 +1288,11 @@ build_simdjson() {
     cd "${BUILD_DIR}"
 
     CXXFLAGS="-O3" \
-        CFLAGS="-O3" \
-        "${CMAKE_CMD}" ..
-    "${CMAKE_CMD}" --build .
+    CFLAGS="-O3" \
+    "${CMAKE_CMD}" -DSIMDJSON_EXCEPTIONS=OFF \
+    -DSIMDJSON_DEVELOPER_MODE=OFF -DSIMDJSON_BUILD_STATIC=ON \
+    -DSIMDJSON_JUST_LIBRARY=ON -DSIMDJSON_ENABLE_THREADS=ON ..
+    "${CMAKE_CMD}" --build . --config Release
 
     cp "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/${BUILD_DIR}/libsimdjson.a" "${TP_INSTALL_DIR}/lib64"
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
