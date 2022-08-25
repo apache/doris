@@ -45,7 +45,7 @@ public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
             .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
-            .add("DataSize").add("RowCount").add("State")
+            .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion")
             .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
@@ -84,6 +84,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // lst failed version hash
                     tabletInfo.add(-1); // lst failed time
                     tabletInfo.add(-1); // data size
+                    tabletInfo.add(-1); // remote data size
                     tabletInfo.add(-1); // row count
                     tabletInfo.add(FeConstants.null_string); // state
                     tabletInfo.add(-1); // lst consistency check time
@@ -113,6 +114,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getLastFailedVersion());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
                         tabletInfo.add(replica.getDataSize());
+                        tabletInfo.add(replica.getRemoteDataSize());
                         tabletInfo.add(replica.getRowCount());
                         tabletInfo.add(replica.getState());
 
