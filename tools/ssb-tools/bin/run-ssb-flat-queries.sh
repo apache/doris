@@ -24,12 +24,12 @@ set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
-    cd "$ROOT"
+    cd "${ROOT}"
     pwd
 )
 
 CURDIR="${ROOT}"
-QUERIES_DIR="$CURDIR/../ssb-flat-queries"
+QUERIES_DIR="${CURDIR}/../ssb-flat-queries"
 
 usage() {
     echo "
@@ -46,10 +46,10 @@ OPTS=$(getopt \
     -o 'h' \
     -- "$@")
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 HELP=0
 
-if [ $# == 0 ]; then
+if [[ $# == 0 ]]; then
     usage
 fi
 
@@ -78,27 +78,26 @@ fi
 check_prerequest() {
     local CMD=$1
     local NAME=$2
-    if ! $CMD; then
-        echo "$NAME is missing. This script depends on mysql to create tables in Doris."
+    if ! ${CMD}; then
+        echo "${NAME} is missing. This script depends on mysql to create tables in Doris."
         exit 1
     fi
 }
 
 check_prerequest "mysqlslap --version" "mysqlslap"
 
-# shellcheck source=/dev/null
-source "$CURDIR/../conf/doris-cluster.conf"
-export MYSQL_PWD=$PASSWORD
+source "${CURDIR}/../conf/doris-cluster.conf"
+export MYSQL_PWD=${PASSWORD}
 
-echo "FE_HOST: $FE_HOST"
-echo "FE_QUERY_PORT: $FE_QUERY_PORT"
-echo "USER: $USER"
-echo "PASSWORD: $PASSWORD"
-echo "DB: $DB"
+echo "FE_HOST: ${FE_HOST}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
+echo "USER: ${USER}"
+echo "PASSWORD: ${PASSWORD}"
+echo "DB: ${DB}"
 
 pre_set() {
     echo "$@"
-    mysql -h"$FE_HOST" -P"$FE_QUERY_PORT" -u"$USER" -D"$DB" -e "$@"
+    mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@"
 }
 
 pre_set "set global enable_vectorized_engine=1;"
@@ -113,8 +112,8 @@ echo '============================================'
 
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
     # First run to prevent the affect of cold start
-    mysql -h"$FE_HOST" -P"$FE_QUERY_PORT" -u"$USER" -D "$DB" <"$QUERIES_DIR"/q${i}.sql >/dev/null 2>&1
+    mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D "${DB}" <"${QUERIES_DIR}/q${i}.sql" >/dev/null 2>&1
     # Then run 3 times and takes the average time
-    res=$(mysqlslap -h"$FE_HOST" -P"$FE_QUERY_PORT" -u"$USER" --create-schema="$DB" --query="$QUERIES_DIR"/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
-    echo "q$i: $res"
+    res=$(mysqlslap -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" --create-schema="${DB}" --query="${QUERIES_DIR}/q${i}.sql" -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
+    echo "q${i}: ${res}"
 done
