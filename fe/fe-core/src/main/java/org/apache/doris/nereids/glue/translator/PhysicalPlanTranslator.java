@@ -388,6 +388,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
                     srcToOutput, outputDescriptor, outputDescriptor);
 
+            hashJoin.getRuntimeFilter()
+                    .forEach(filter -> {
+                        filter.setBuilderNode(hashJoinNode);
+                        filter.toOriginRuntimeFilter(context).assignToPlanNodes();
+                    });
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
             hashJoinNode.setChild(0, leftFragmentPlanRoot);
             connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);

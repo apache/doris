@@ -17,12 +17,18 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Supplier;
@@ -38,6 +44,8 @@ public class PlanChecker {
     private CascadesContext cascadesContext;
 
     private Plan parsedPlan;
+
+    private Plan implementedPlan;
 
     public PlanChecker(ConnectContext connectContext) {
         this.connectContext = connectContext;
@@ -91,6 +99,24 @@ public class PlanChecker {
     public void matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+    }
+
+    /**
+     * generate physical plan
+     * @param plan logical plan that only parsed
+     * @return this
+     * @throws AnalysisException exception in plan
+     */
+    public PlanChecker implement(LogicalPlan plan) throws AnalysisException {
+        implementedPlan = new NereidsPlanner(new StatementContext(connectContext, null)).plan(plan, PhysicalProperties.ANY);
+        return this;
+    }
+
+    public void matchesPhysicalPlan(PatternDescriptor<? extends PhysicalPlan> patternDesc) {
+        Assertions.assertTrue(PhysicalPlanMatchingUtils.topDownFindMatching(implementedPlan, patternDesc.pattern),
+                "pattern not match, plan :\n"
+                        + implementedPlan.treeString()
+        );
     }
 
     private void assertMatches(Memo memo, Supplier<Boolean> asserter) {
