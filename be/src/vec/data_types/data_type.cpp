@@ -197,7 +197,8 @@ DataTypePtr IDataType::from_thrift(const doris::PrimitiveType& type, const bool 
             result = std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
             break;
         case TYPE_NULL:
-            result = std::make_shared<DataTypeNothing>();
+            // Just Mock A NULL Type in Vec Exec Engine
+            result = std::make_shared<vectorized::DataTypeUInt8>();
             break;
         case INVALID_TYPE:
         default:
