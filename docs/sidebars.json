@@ -939,7 +939,8 @@
                                 "admin-manual/http-actions/fe/show-proc-action",
                                 "admin-manual/http-actions/fe/check-decommission-action",
                                 "admin-manual/http-actions/fe/health-action",
-                                "admin-manual/http-actions/fe/check-storage-type-action"
+                                "admin-manual/http-actions/fe/check-storage-type-action",
+                                "admin-manual/http-actions/fe/query-schema-action"
                             ]
                         },
                         "admin-manual/http-actions/restore-tablet",

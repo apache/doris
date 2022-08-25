@@ -42,7 +42,7 @@ suite("test_array_show_create", "query") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "storage_format" = "V2"
-            )
+            );
             """
         
         // DDL/DML return 1 row and 3 column, the only value is update row count
