@@ -161,7 +161,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
 }
 
 Status ColumnReader::get_row_ranges_by_zone_map(
-        std::vector<ColumnPredicate*>& col_predicates,
+        const AndBlockColumnPredicate* col_predicates,
         std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
@@ -171,8 +171,8 @@ Status ColumnReader::get_row_ranges_by_zone_map(
     return Status::OK();
 }
 
-bool ColumnReader::match_condition(const std::vector<ColumnPredicate*>& col_predicates) const {
-    if (_zone_map_index_meta == nullptr || col_predicates.empty()) {
+bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates) const {
+    if (_zone_map_index_meta == nullptr) {
         return true;
     }
     FieldType type = _type_info->type();
@@ -203,29 +203,22 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
     }
 }
 
-bool ColumnReader::_zone_map_match_condition(
-        const ZoneMapPB& zone_map, WrapperField* min_value_container,
-        WrapperField* max_value_container,
-        const std::vector<ColumnPredicate*>& col_predicates) const {
+bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
+                                             WrapperField* min_value_container,
+                                             WrapperField* max_value_container,
+                                             const AndBlockColumnPredicate* col_predicates) const {
     if (!zone_map.has_not_null() && !zone_map.has_null()) {
         return false; // no data in this zone
     }
 
-    if (col_predicates.empty() || zone_map.pass_all()) {
+    if (zone_map.pass_all() || min_value_container == nullptr || max_value_container == nullptr) {
         return true;
     }
 
-    AndBlockColumnPredicate condition_predicates;
-
-    for (auto& cond : col_predicates) {
-        auto single_column_block_predicate = new SingleColumnBlockPredicate(cond);
-        condition_predicates.add_column_predicate(single_column_block_predicate);
-    }
-
-    return condition_predicates.evaluate_and({min_value_container, max_value_container});
+    return col_predicates->evaluate_and({min_value_container, max_value_container});
 }
 
-Status ColumnReader::_get_filtered_pages(std::vector<ColumnPredicate*>& col_predicates,
+Status ColumnReader::_get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                          std::vector<const ColumnPredicate*>* delete_predicates,
                                          std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
@@ -243,7 +236,8 @@ Status ColumnReader::_get_filtered_pages(std::vector<ColumnPredicate*>& col_pred
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
-                        if (del_pred->evaluate_and({min_value.get(), max_value.get()})) {
+                        if (min_value.get() == nullptr || max_value.get() == nullptr ||
+                            del_pred->evaluate_and({min_value.get(), max_value.get()})) {
                             should_read = false;
                             break;
                         }
@@ -272,21 +266,13 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_bloom_filter(std::vector<ColumnPredicate*>& col_predicates,
+Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                                     RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter));
     size_t range_size = row_ranges->range_size();
-
-    AndBlockColumnPredicate condition_predicates;
-
-    for (auto& cond : col_predicates) {
-        auto single_column_block_predicate = new SingleColumnBlockPredicate(cond);
-        condition_predicates.add_column_predicate(single_column_block_predicate);
-    }
-
     // get covered page ids
     std::set<uint32_t> page_ids;
     for (int i = 0; i < range_size; ++i) {
@@ -303,7 +289,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(std::vector<ColumnPredicate*
     for (auto& pid : page_ids) {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
-        if (condition_predicates.evaluate_and(bf.get())) {
+        if (col_predicates->evaluate_and(bf.get())) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
                                        _ordinal_index->get_last_ordinal(pid) + 1));
         }
@@ -866,7 +852,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
 }
 
 Status FileColumnIterator::get_row_ranges_by_zone_map(
-        std::vector<ColumnPredicate*>& col_predicates,
+        const AndBlockColumnPredicate* col_predicates,
         std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(
@@ -876,12 +862,8 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
 }
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(
-        std::vector<ColumnPredicate*>& col_predicates, RowRanges* row_ranges) {
-    bool can_do_bloom_filter = true;
-    for (auto pred : col_predicates) {
-        can_do_bloom_filter = can_do_bloom_filter && pred->can_do_bloom_filter();
-    }
-    if (!col_predicates.empty() && can_do_bloom_filter && _reader->has_bloom_filter_index()) {
+        const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges) {
+    if (col_predicates->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges));
     }
     return Status::OK();

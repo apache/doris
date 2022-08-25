@@ -122,17 +122,17 @@ public:
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
     // Return true if segment zone map is absent or `cond' could be satisfied, false otherwise.
-    bool match_condition(const std::vector<ColumnPredicate*>& col_predicates) const;
+    bool match_condition(const AndBlockColumnPredicate* col_predicates) const;
 
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(std::vector<ColumnPredicate*>& col_predicates,
+    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
                                       std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
-    Status get_row_ranges_by_bloom_filter(std::vector<ColumnPredicate*>& col_predicates,
+    Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
@@ -174,12 +174,12 @@ private:
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container,
-                                   const std::vector<ColumnPredicate*>& col_predicates) const;
+                                   const AndBlockColumnPredicate* col_predicates) const;
 
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(std::vector<ColumnPredicate*>& col_predicates,
+    Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                std::vector<const ColumnPredicate*>* delete_predicates,
                                std::vector<uint32_t>* page_indexes);
 
@@ -263,12 +263,12 @@ public:
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(
-            std::vector<ColumnPredicate*>& col_predicates,
+            const AndBlockColumnPredicate* col_predicates,
             std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
         return Status::OK();
     }
 
-    virtual Status get_row_ranges_by_bloom_filter(std::vector<ColumnPredicate*>& col_predicates,
+    virtual Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                                   RowRanges* row_ranges) {
         return Status::OK();
     }
@@ -306,11 +306,11 @@ public:
     // get row ranges by zone map
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
-    Status get_row_ranges_by_zone_map(std::vector<ColumnPredicate*>& _col_predicates,
+    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
                                       std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges) override;
 
-    Status get_row_ranges_by_bloom_filter(std::vector<ColumnPredicate*>& col_predicates,
+    Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;
 
     ParsedPage* get_current_page() { return &_page; }

@@ -52,9 +52,6 @@ public:
                       bool* flags) const override;
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first == nullptr || statistic.second == nullptr) {
-            return true;
-        }
         if (_is_null) {
             return statistic.first->is_null();
         } else {

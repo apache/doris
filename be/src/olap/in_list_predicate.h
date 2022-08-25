@@ -83,6 +83,34 @@ template <PrimitiveType Type, PredicateType PT>
 class InListPredicateBase : public ColumnPredicate {
 public:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    template <typename ConditionType, typename ConvertFunc>
+    InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
+                        const ConvertFunc& convert, bool is_opposite = false,
+                        const TabletColumn* col = nullptr, MemPool* pool = nullptr)
+            : ColumnPredicate(column_id, is_opposite),
+              _min_value(type_limit<T>::max()),
+              _max_value(type_limit<T>::min()) {
+        for (const auto& condition : conditions) {
+            T tmp;
+            if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
+                tmp = convert(*col, condition, pool);
+            } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
+                                 Type == TYPE_DECIMAL128) {
+                tmp = convert(*col, condition);
+            } else {
+                tmp = convert(condition);
+            }
+            _values.insert(tmp);
+            if (tmp > _max_value) {
+                _max_value = tmp;
+            }
+            if (tmp < _min_value) {
+                _min_value = tmp;
+            }
+        }
+    }
+
+    // Only for test
     InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>&& values,
                         T min_value = type_limit<T>::min(), T max_value = type_limit<T>::max(),
                         bool is_opposite = false)
@@ -189,9 +217,6 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first == nullptr || statistic.second == nullptr) {
-            return true;
-        }
         if (statistic.first->is_null()) {
             return true;
         }
@@ -204,11 +229,6 @@ public:
                 memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
                        sizeof(uint24_t));
                 return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
-            } else if constexpr (std::is_same_v<T, StringValue>) {
-                auto min = reinterpret_cast<const Slice*>(statistic.first->cell_ptr());
-                auto max = reinterpret_cast<const Slice*>(statistic.second->cell_ptr());
-                return StringValue(min->data, min->size) <= _max_value &&
-                       StringValue(max->data, max->size) >= _min_value;
             } else {
                 return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _max_value &&
                        *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _min_value;
@@ -221,16 +241,18 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             for (auto value : _values) {
-                bool existed = false;
                 if constexpr (std::is_same_v<T, StringValue>) {
-                    existed = bf->test_bytes(value.ptr, value.len);
+                    if (bf->test_bytes(value.ptr, value.len)) {
+                        return true;
+                    }
                 } else if constexpr (Type == TYPE_DATE) {
-                    existed = bf->test_bytes(reinterpret_cast<char*>(&value), sizeof(uint24_t));
+                    if (bf->test_bytes(reinterpret_cast<char*>(&value), sizeof(uint24_t))) {
+                        return true;
+                    }
                 } else {
-                    existed = bf->test_bytes(reinterpret_cast<char*>(&value), sizeof(value));
-                }
-                if (existed) {
-                    return true;
+                    if (bf->test_bytes(reinterpret_cast<char*>(&value), sizeof(value))) {
+                        return true;
+                    }
                 }
             }
             return false;

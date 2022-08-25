@@ -63,14 +63,15 @@ public:
                               bool* flags) const {};
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        DCHECK(false) << "should not reach here";
+        LOG(FATAL) << "should not reach here";
         return true;
     };
 
     virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
-        DCHECK(false) << "should not reach here";
+        LOG(FATAL) << "should not reach here";
         return true;
     };
+    virtual bool can_do_bloom_filter() const { return false; }
 };
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
@@ -99,6 +100,8 @@ public:
                      bool* flags) const override;
 
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
+
+    bool can_do_bloom_filter() const override { return _predicate->can_do_bloom_filter(); }
 
 private:
     const ColumnPredicate* _predicate;
@@ -178,6 +181,15 @@ public:
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
+
+    bool can_do_bloom_filter() const override {
+        for (auto& pred : _block_column_predicate_vec) {
+            if (!pred->can_do_bloom_filter()) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 } //namespace doris

@@ -105,9 +105,11 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         for (auto pred : *(read_context->predicates)) {
             if (read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                 read_options.col_id_to_predicates.insert(
-                        {pred->column_id(), std::vector<ColumnPredicate*> {}});
+                        {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
             }
-            read_options.col_id_to_predicates[pred->column_id()].push_back(pred);
+            auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+            read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                    single_column_block_predicate);
         }
     }
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
@@ -132,9 +134,11 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
             for (auto pred : *(read_context->value_predicates)) {
                 if (read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                     read_options.col_id_to_predicates.insert(
-                            {pred->column_id(), std::vector<ColumnPredicate*> {}});
+                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
                 }
-                read_options.col_id_to_predicates[pred->column_id()].push_back(pred);
+                auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+                read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                        single_column_block_predicate);
             }
         }
     }

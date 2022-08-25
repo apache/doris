@@ -89,7 +89,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
             continue;
         }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
-            !_column_readers.at(uid)->match_condition(entry.second)) {
+            !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(schema));
             read_options.stats->filtered_segment_number++;

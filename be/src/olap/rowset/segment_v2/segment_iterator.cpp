@@ -314,11 +314,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& cid : cids) {
         // get row ranges by bf index of this column,
         RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
-        if (_opts.col_id_to_predicates.count(cid) < 1) {
-            continue;
-        }
+        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_bloom_filter(
-                _opts.col_id_to_predicates[cid], &column_bf_row_ranges));
+                _opts.col_id_to_predicates[cid].get(), &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
     size_t pre_size = condition_row_ranges->count();
@@ -330,11 +328,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& cid : cids) {
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-        if (_opts.col_id_to_predicates.count(cid) < 1) {
-            continue;
-        }
+        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
-                _opts.col_id_to_predicates[cid],
+                _opts.col_id_to_predicates[cid].get(),
                 _opts.col_id_to_del_predicates.count(cid) > 0
                         ? &(_opts.col_id_to_del_predicates[cid])
                         : nullptr,
