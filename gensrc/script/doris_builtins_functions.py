@@ -134,6 +134,7 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -149,6 +150,7 @@ visible_functions = [
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    [['array_contains'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
@@ -181,6 +183,7 @@ visible_functions = [
     [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
     [['cardinality', 'size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
@@ -196,6 +199,7 @@ visible_functions = [
     [['array_distinct'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
     
+    [['array_sort'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
     [['array_sort'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
     [['array_sort'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
     [['array_sort'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
@@ -212,6 +216,7 @@ visible_functions = [
     [['array_sort'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
 
     # array_join takes two params
+    [['array_join'], 'STRING',   ['ARRAY_BOOLEAN','VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',   ['ARRAY_TINYINT','VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',  ['ARRAY_SMALLINT','VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',       ['ARRAY_INT','VARCHAR'], '', '', '', 'vec', ''],
@@ -227,6 +232,7 @@ visible_functions = [
     [['array_join'], 'STRING',   ['ARRAY_VARCHAR','VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',    ['ARRAY_STRING','VARCHAR'], '', '', '', 'vec', ''],
     # array_join takes three params
+    [['array_join'], 'STRING',   ['ARRAY_BOOLEAN','VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',   ['ARRAY_TINYINT','VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',  ['ARRAY_SMALLINT','VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_join'], 'STRING',       ['ARRAY_INT','VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
@@ -268,6 +274,7 @@ visible_functions = [
     [['array_product'], 'DOUBLE',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    [['array_remove'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', ''],
     [['array_remove'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['array_remove'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
     [['array_remove'], 'ARRAY_INT',       ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
@@ -283,6 +290,7 @@ visible_functions = [
     [['array_remove'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_remove'], 'ARRAY_STRING',    ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],    
 
+    [['array_union'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  '', '', '', 'vec', ''],
     [['array_union'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  '', '', '', 'vec', ''],
     [['array_union'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', ''],
     [['array_union'], 'ARRAY_INT',      ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', ''],
@@ -298,6 +306,7 @@ visible_functions = [
     [['array_union'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_union'], 'ARRAY_STRING',    ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', ''],
 
+    [['array_except'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  '', '', '', 'vec', ''],
     [['array_except'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  '', '', '', 'vec', ''],
     [['array_except'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', ''],
     [['array_except'], 'ARRAY_INT',      ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', ''],
@@ -313,6 +322,7 @@ visible_functions = [
     [['array_except'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_except'], 'ARRAY_STRING',    ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', ''],
 
+    [['array_intersect'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  '', '', '', 'vec', ''],
     [['array_intersect'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  '', '', '', 'vec', ''],
     [['array_intersect'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', ''],
     [['array_intersect'], 'ARRAY_INT',      ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', ''],
