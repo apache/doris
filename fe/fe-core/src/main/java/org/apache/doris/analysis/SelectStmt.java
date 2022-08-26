@@ -740,6 +740,17 @@ public class SelectStmt extends QueryStmt {
                 // Unsupported reorder outer join
                 return;
             }
+            if (tblRef.getOnClause() != null) {
+                List<TupleId> tids = Lists.newArrayList();
+                tblRef.getOnClause().getIds(tids, null);
+                Set<TupleId> tupleIds = Sets.newHashSet();
+                tupleIds.addAll(tids);
+                if (tupleIds.size() > 2) {
+                    // means this table must join with other two tables' join result
+                    // can't reorder, return for simplicity.
+                    return;
+                }
+            }
             long rowCount = 0;
             if (tblRef.getTable().getType() == TableType.OLAP) {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
