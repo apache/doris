@@ -444,15 +444,12 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
-    for (const auto& condition : read_params.conditions) {
-        ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
-                DCHECK_EQ(Status::OK(), status);
             }
         }
     }
