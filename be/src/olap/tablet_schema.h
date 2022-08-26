@@ -125,7 +125,7 @@ public:
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
-    void append_column(TabletColumn column);
+    void append_column(TabletColumn column, bool is_dropped_column = false);
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     uint32_t mem_size() const;
@@ -134,6 +134,8 @@ public:
     int32_t field_index(const std::string& field_name) const;
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
+    const TabletColumn& column(const std::string& field_name) const;
+    const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
@@ -164,16 +166,28 @@ public:
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    vectorized::Block create_block() const;
+    vectorized::Block create_block(bool ignore_dropped_col = true) const;
 
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const POlapTableIndexSchema& index,
                                      const TabletSchema& out_tablet_schema);
 
-private:
-    // Only for unit test.
-    void init_field_index_for_test();
+    // Merge columns that not exit in current schema, these column is dropped in current schema
+    // but they are useful in some cases. For example,
+    // 1. origin schema is  ColA, ColB
+    // 2. insert values     1, 2
+    // 3. delete where ColB = 2
+    // 4. drop ColB
+    // 5. insert values  3
+    // 6. add column ColB, although it is name ColB, but it is different with previous ColB, the new ColB we name could call ColB'
+    // 7. insert value  4, 5
+    // Then the read schema should be ColA, ColB, ColB' because the delete predicate need ColB to remove related data.
+    // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
+    void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
+    bool is_dropped_column(const TabletColumn& col) const;
+
+private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 

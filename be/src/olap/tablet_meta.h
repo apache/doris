@@ -148,6 +148,8 @@ public:
 
     TabletSchemaSPtr tablet_schema() const;
 
+    const TabletSchemaSPtr tablet_schema(Version version) const;
+
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
@@ -232,7 +234,7 @@ private:
     TabletState _tablet_state = TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
-    std::shared_ptr<TabletSchema> _schema;
+    TabletSchemaSPtr _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
