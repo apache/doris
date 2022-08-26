@@ -46,7 +46,7 @@ We should turn on ARRAY switch with the following command before use:
 $ mysql-client > admin set frontend config("enable_array_type"="true");
 ```
 
-or add config `enable_array_type=true` inside fe.conf.
+In this way the config will be reset after the FE process restarts. For permanent setting, you can add config `enable_array_type=true` inside fe.conf.
 
 ### example
 

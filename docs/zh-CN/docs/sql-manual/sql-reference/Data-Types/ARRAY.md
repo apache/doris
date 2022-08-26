@@ -47,7 +47,7 @@ DATETIME, CHAR, VARCHAR, STRING
 $ mysql-client > admin set frontend config("enable_array_type"="true");
 ```
 
-或在fe.conf中添加`enable_array_type=true`配置项。
+这种方式下Array开关会在Fe进程重启后重置，或者在fe.conf中添加`enable_array_type=true`配置项可永久生效。
 
 ### example
 
