@@ -31,4 +31,9 @@ suite("test_subquery") {
         with base as (select k1, k2 from test_query_db.test as t where k1 in (select k1 from test_query_db.baseall
         where k7 = 'wangjuoo4' group by 1 having count(distinct k7) > 0)) select * from base limit 10;
         """
+
+        qt_sql3 """
+        SELECT k1 FROM test_query_db.test GROUP BY k1 HAVING k1 IN (SELECT k1 FROM test_query_db.baseall WHERE
+        k2 >= (SELECT min(k3) FROM test_query_db.bigtable WHERE k2 = baseall.k2)) order by k1;
+        """
 }
