@@ -40,7 +40,13 @@ DATETIME, CHAR, VARCHAR, STRING
 ```
 ### notice
 
-We should add config `enable_array_type=true` inside fe.conf before use ARRAY
+We should turn on ARRAY switch with the following command before use:
+
+```
+$ mysql-client > admin set frontend config("enable_array_type"="true");
+```
+
+or add config `enable_array_type=true` inside fe.conf.
 
 ### example
 
@@ -84,4 +90,4 @@ mysql> SELECT * FROM `array_test`;
 
 ### keywords
 
-    ARRAY, array_contains, array_position, element_at
+    ARRAY
