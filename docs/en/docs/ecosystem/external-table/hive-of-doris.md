@@ -148,6 +148,7 @@ PROPERTIES (
     - `hive.metastore.uris`: Hive Metastore service address
     - `database`: the name of the database to which Hive is mounted
     - `table`: the name of the table to which Hive is mounted
+    - `hadoop.username`: the username to visit hdfs, when the authentication type is sample need to set 
     - `dfs.nameservices`: the logical name for this new nameservice. See hdfs-site.xml
     - `dfs.ha.namenodes.[nameservice ID]`：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
     - `dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
