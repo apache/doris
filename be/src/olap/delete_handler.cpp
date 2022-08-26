@@ -262,7 +262,6 @@ Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tabl
             }
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
-            Status res = temp.del_cond->append_condition(condition);
             auto predicate =
                     parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
             if (predicate != nullptr) {
