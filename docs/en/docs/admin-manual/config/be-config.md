@@ -61,7 +61,7 @@ There are two ways to configure BE configuration items:
     In version 0.13 and before, the configuration items modified in this way will become invalid after the BE process restarts. In 0.14 and later versions, the modified configuration can be persisted through the following command. The modified configuration items are stored in the `be_custom.conf` file.
 
     ```
-    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true'
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true
     ```
 
 ## Examples

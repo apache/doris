@@ -59,7 +59,7 @@ BE 的配置项有两种方式进行配置：
   在 0.13 版本及之前，通过该方式修改的配置项将在 BE 进程重启后失效。在 0.14 及之后版本中，可以通过以下命令持久化修改后的配置。修改后的配置项存储在 `be_custom.conf` 文件中。
 
   ```
-  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true'
+  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true
   ```
 
 ## 应用举例
