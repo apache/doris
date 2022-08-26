@@ -29,8 +29,10 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Wraps a list of TableRef instances that form a FROM clause, allowing them to be
@@ -43,6 +45,8 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     private boolean analyzed = false;
     private boolean needToSql = false;
+
+    private final Map<Integer, TableRef> tableRefPositions = new HashMap<Integer, TableRef>();
 
     public FromClause(List<TableRef> tableRefs) {
         tablerefs = Lists.newArrayList(tableRefs);
@@ -129,6 +133,11 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         changeTblRefToNullable(analyzer);
 
         analyzed = true;
+
+        // save the tableRef's order, will use in reset method later
+        for (int i = 0; i < tablerefs.size(); ++i) {
+            tableRefPositions.put(i, tablerefs.get(i));
+        }
     }
 
     // set null-side inlinve view column
@@ -154,12 +163,19 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         for (TableRef tblRef : tablerefs) {
             clone.add(tblRef.clone());
         }
-        return new FromClause(clone);
+        FromClause result = new FromClause(clone);
+        for (int i = 0; i < clone.size(); ++i) {
+            result.tableRefPositions.put(i, clone.get(i));
+        }
+        return result;
     }
 
     public void reset() {
         for (int i = 0; i < size(); ++i) {
             get(i).reset();
+        }
+        for (int i = 0; i < size(); ++i) {
+            tablerefs.set(i, tableRefPositions.get(i));
         }
         this.analyzed = false;
     }
@@ -206,17 +222,32 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public void set(int i, TableRef tableRef) {
         tablerefs.set(i, tableRef);
+        tableRefPositions.put(i, tableRef);
     }
 
     public void add(TableRef t) {
         tablerefs.add(t);
+        // join reorder will call add method after call clear method.
+        // we want to keep tableRefPositions unchanged in that case
+        // in other cases, tablerefs.size() would larger than tableRefPositions.size()
+        // then we can update tableRefPositions. same logic in addAll method.
+        if (tablerefs.size() > tableRefPositions.size()) {
+            tableRefPositions.put(tablerefs.size() - 1, t);
+        }
     }
 
     public void addAll(List<TableRef> t) {
         tablerefs.addAll(t);
+        if (tablerefs.size() > tableRefPositions.size()) {
+            for (int i = tableRefPositions.size(); i < tablerefs.size(); ++i) {
+                tableRefPositions.put(i, t.get(i));
+            }
+        }
     }
 
     public void clear() {
+        // this method on be called in reorder table
+        // we want to keep tableRefPositions, only clear tablerefs
         tablerefs.clear();
     }
 }

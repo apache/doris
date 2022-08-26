@@ -740,17 +740,6 @@ public class SelectStmt extends QueryStmt {
                 // Unsupported reorder outer join
                 return;
             }
-            if (tblRef.getOnClause() != null) {
-                List<TupleId> tids = Lists.newArrayList();
-                tblRef.getOnClause().getIds(tids, null);
-                Set<TupleId> tupleIds = Sets.newHashSet();
-                tupleIds.addAll(tids);
-                if (tupleIds.size() > 2) {
-                    // means this table must join with other two tables' join result
-                    // can't reorder, return for simplicity.
-                    return;
-                }
-            }
             long rowCount = 0;
             if (tblRef.getTable().getType() == TableType.OLAP) {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
@@ -830,18 +819,7 @@ public class SelectStmt extends QueryStmt {
                     List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
                     for (Expr candidateEqJoinPredicate : candidateEqJoinPredicates) {
                         List<TupleId> candidateTupleList = Lists.newArrayList();
-                        List<Expr> candidateEqJoinPredicateList = Lists.newArrayList(candidateEqJoinPredicate);
-                        // If a large table or view has joinClause is ranked first,
-                        // and the joinClause is not judged here,
-                        // the column in joinClause may not be found during reanalyzing.
-                        // for example:
-                        // select * from t1 inner join t2 on t1.a = t2.b inner join t3 on t3.c = t2.b;
-                        // If t3 is a large table, it will be placed first after the reorderTable,
-                        // and the problem that t2.b does not exist will occur in reanalyzing
-                        if (candidateTableRef.getOnClause() != null) {
-                            candidateEqJoinPredicateList.add(candidateTableRef.getOnClause());
-                        }
-                        Expr.getIds(candidateEqJoinPredicateList, candidateTupleList, null);
+                        Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
                         int count = candidateTupleList.size();
                         for (TupleId tupleId : candidateTupleList) {
                             if (validTupleId.contains(tupleId) || tid.equals(tupleId)) {
