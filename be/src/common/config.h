@@ -454,7 +454,7 @@ CONF_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "true");
+CONF_mBool(disable_chunk_allocator_in_vec, "false");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
