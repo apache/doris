@@ -226,7 +226,7 @@ Status OlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status OlapScanner::_init_return_columns(bool need_seq_col, bool &has_replace_col) {
+Status OlapScanner::_init_return_columns(bool need_seq_col, bool& has_replace_col) {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
