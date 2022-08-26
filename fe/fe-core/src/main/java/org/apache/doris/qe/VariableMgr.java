@@ -180,6 +180,7 @@ public class VariableMgr {
                     // Unsupported type variable.
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
             }
+
         } catch (NumberFormatException e) {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
         } catch (IllegalAccessException e) {
@@ -515,9 +516,6 @@ public class VariableMgr {
 
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
-
-        // Set to true if the variables need to be set in TQueryOptions
-        boolean isQueryOption() default false;
     }
 
     private static class VarContext {
@@ -587,8 +585,7 @@ public class VariableMgr {
             }
 
             field.setAccessible(true);
-            builder.put(attr.name(),
-                    new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
+            builder.put(attr.name(), new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
     }

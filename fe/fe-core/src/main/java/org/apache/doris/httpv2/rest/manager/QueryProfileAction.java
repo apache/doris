@@ -71,7 +71,7 @@ import javax.servlet.http.HttpServletResponse;
  * 4. /trace_id/{trace_id}
  * 5. /profile/fragments/{query_id}
  * 6. /current_queries
- * 7. /kill/{connection_id}
+ * 7. /kill/{query_id}
  */
 @RestController
 @RequestMapping("/rest/v2/manager/query")
@@ -491,7 +491,7 @@ public class QueryProfileAction extends RestBaseController {
     }
 
     /**
-     * kill queries with specified connection id
+     * kill queries with specific query id
      *
      * @param request
      * @param response
@@ -510,7 +510,6 @@ public class QueryProfileAction extends RestBaseController {
             String httpPath = "/rest/v2/manager/query/kill/" + queryId;
             Map<String, String> arguments = Maps.newHashMap();
             arguments.put(IS_ALL_NODE_PARA, "false");
-            List<List<String>> queries = Lists.newArrayList();
             requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION), HttpMethod.POST);
             return ResponseEntityBuilder.ok();
         }
