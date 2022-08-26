@@ -257,7 +257,7 @@ public class FunctionCallExpr extends Expr {
     @Override
     protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
             throws AnalysisException {
-        if (aggFnParams != null) {
+        if (aggFnParams != null && aggFnParams.exprs() != null) {
             ArrayList<Expr> newParams = new ArrayList<Expr>();
             for (Expr expr : aggFnParams.exprs()) {
                 Expr substExpr = smap.get(expr);
