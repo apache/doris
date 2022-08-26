@@ -1612,3 +1612,22 @@ webserver默认工作线程数
 * 描述: 最少进行合并的版本数，当选中的小数据量的rowset个数，大于这个值是才会进行真正的合并
 * 默认值: 10
 
+### `generate_cache_cleaner_task_interval_sec`
+* 类型：int64
+* 描述：缓存文件的清理间隔，单位：秒
+* 默认值：43200（12小时）
+
+### `file_cache_type`
+* 类型：string
+* 描述：缓存文件的类型。whole_file_cache：将segment文件整个下载，sub_file_cache：将segment文件按大小切分成多个文件。
+* 默认值：""
+
+### `max_sub_cache_file_size`
+* 类型：int64
+* 描述：缓存文件使用sub_file_cache时，切分文件的最大大小，单位B
+* 默认值：104857600（100MB）
+
+### `file_cache_alive_time_sec`
+* 类型：int64
+* 描述：缓存文件的保存时间，单位：秒
+* 默认值：604800（1个星期）
