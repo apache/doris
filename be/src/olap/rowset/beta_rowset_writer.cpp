@@ -170,8 +170,7 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                             const SchemaMapping& schema_mapping) {
+Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) {
     // TODO use schema_mapping to transfer zonemap
     return add_rowset(rowset);
 }

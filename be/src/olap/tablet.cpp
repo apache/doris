@@ -753,19 +753,8 @@ Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
     return Status::OK();
 }
 
-void Tablet::add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version) {
-    _tablet_meta->add_delete_predicate(delete_predicate, version);
-}
-
-// TODO(lingbin): what is the difference between version_for_delete_predicate() and
-// version_for_load_deletion()? should at least leave a comment
 bool Tablet::version_for_delete_predicate(const Version& version) {
     return _tablet_meta->version_for_delete_predicate(version);
-}
-
-bool Tablet::version_for_load_deletion(const Version& version) {
-    RowsetSharedPtr rowset = _rs_version_map.at(version);
-    return rowset->delete_flag();
 }
 
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
@@ -1765,8 +1754,8 @@ Status Tablet::cooldown() {
         if (!has_shutdown) {
             modify_rowsets(to_add, to_delete);
             if (new_rowset_meta->has_delete_predicate()) {
-                add_delete_predicate(new_rowset_meta->delete_predicate(),
-                                     new_rowset_meta->start_version());
+                _tablet_meta->add_delete_predicate(new_rowset_meta->delete_predicate(),
+                                                   new_rowset_meta->start_version());
             }
             _self_owned_remote_rowsets.insert(to_add.front());
             save_meta();
