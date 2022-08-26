@@ -20,13 +20,13 @@
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
+                                     tparquet::ColumnMetaData& metadata, FieldSchema* field_schema,
                                      cctz::time_zone* ctz)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
-          _metadata(column_chunk->meta_data),
+          _metadata(metadata),
           _ctz(ctz) {}
 
 Status ColumnChunkReader::init() {
