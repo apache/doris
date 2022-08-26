@@ -61,7 +61,5 @@ private:
     constexpr static double EXPECTED_FILTER_RATE = 0.2;
 
     std::string _expr_name;
-
-    bool _is_closed;
 };
 } // namespace doris::vectorized

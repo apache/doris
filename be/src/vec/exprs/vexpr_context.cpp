@@ -150,10 +150,4 @@ Block VExprContext::get_output_block_after_execute_exprs(
     return {result_columns};
 }
 
-void VExprContext::debug_valid() {
-#ifndef NDEBUG
-    _root->debug_valid(this);
-#endif
-}
-
 } // namespace doris::vectorized
