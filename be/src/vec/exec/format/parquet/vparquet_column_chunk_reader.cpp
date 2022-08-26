@@ -119,7 +119,43 @@ Status ColumnChunkReader::load_page_data() {
 Status ColumnChunkReader::_decode_dict_page() {
     const tparquet::PageHeader& header = *_page_reader->get_page_header();
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
-    // TODO(gaoxin): decode dictionary page
+
+    // Using the PLAIN_DICTIONARY enum value is deprecated in the Parquet 2.0 specification.
+    // Prefer using RLE_DICTIONARY in a data page and PLAIN in a dictionary page for Parquet 2.0+ files.
+    // refer: https://github.com/apache/parquet-format/blob/master/Encodings.md
+    tparquet::Encoding::type dict_encoding = header.dictionary_page_header.encoding;
+    if (dict_encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
+        dict_encoding != tparquet::Encoding::PLAIN) {
+        return Status::InternalError("Unsupported dictionary encoding {}",
+                                     tparquet::to_string(dict_encoding));
+    }
+
+    // Prepare dictionary data
+    int32_t uncompressed_size = header.uncompressed_page_size;
+    std::unique_ptr<uint8_t[]> dict_data(new uint8_t[uncompressed_size]);
+    if (_block_compress_codec != nullptr) {
+        Slice compressed_data;
+        RETURN_IF_ERROR(_page_reader->get_page_date(compressed_data));
+        Slice dict_slice(dict_data.get(), uncompressed_size);
+        RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
+    } else {
+        Slice dict_slice;
+        RETURN_IF_ERROR(_page_reader->get_page_date(dict_slice));
+        // The data is stored by BufferedStreamReader, we should copy it out
+        memcpy(dict_data.get(), dict_slice.data, dict_slice.size);
+    }
+
+    // Cache page decoder
+    std::unique_ptr<Decoder> page_decoder;
+    Decoder::get_decoder(_metadata.type, tparquet::Encoding::RLE_DICTIONARY, page_decoder);
+    // Set type length
+    page_decoder->set_type_length(_get_type_length());
+    // Initialize the time convert context
+    page_decoder->init(_field_schema, _ctz);
+    // Set the dictionary data
+    RETURN_IF_ERROR(page_decoder->set_dict(dict_data, header.dictionary_page_header.num_values));
+    _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)] = std::move(page_decoder);
+
     return Status::OK();
 }
 
@@ -136,6 +172,16 @@ Status ColumnChunkReader::skip_values(size_t num_values) {
     }
     _remaining_num_values -= num_values;
     return _page_decoder->skip_values(num_values);
+}
+
+void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_values) {
+    DCHECK_GE(_remaining_num_values, num_values);
+    CHECK(doris_column->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+            (*std::move(doris_column)).mutate().get());
+    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
+    data_column->insert_default();
+    _remaining_num_values -= num_values;
 }
 
 size_t ColumnChunkReader::get_rep_levels(level_t* levels, size_t n) {
@@ -164,14 +210,6 @@ Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataType
     }
     _remaining_num_values -= num_values;
     return _page_decoder->decode_values(doris_column, data_type, num_values);
-}
-
-Status ColumnChunkReader::decode_values(Slice& slice, size_t num_values) {
-    if (UNLIKELY(_remaining_num_values < num_values)) {
-        return Status::IOError("Decode too many values in current page");
-    }
-    _remaining_num_values -= num_values;
-    return _page_decoder->decode_values(slice, num_values);
 }
 
 int32_t ColumnChunkReader::_get_type_length() {

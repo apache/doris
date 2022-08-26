@@ -235,7 +235,16 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
-    get_data().insert_range_from(src.get_data(), offset, size);
+    if (!get_data().is_nullable() && src.get_data().is_nullable()) {
+        // Note: we can't process the case of 'Array(Nullable(nest))'
+        DCHECK(false);
+    } else if (get_data().is_nullable() && !src.get_data().is_nullable()) {
+        // Note: here we should process the case of 'Array(NotNullable(nest))'
+        reinterpret_cast<ColumnNullable*>(&get_data())
+                ->insert_range_from_not_nullable(src.get_data(), offset, size);
+    } else {
+        get_data().insert_range_from(src.get_data(), offset, size);
+    }
     get_offsets().push_back(get_offsets().back() + size);
 }
 

@@ -44,12 +44,16 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {
     case tparquet::Encoding::PLAIN:
+    case tparquet::Encoding::RLE_DICTIONARY:
         switch (type) {
         case tparquet::Type::BOOLEAN:
+            if (encoding != tparquet::Encoding::PLAIN) {
+                return Status::InternalError("Bool type can't has dictionary page");
+            }
             decoder.reset(new BoolPlainDecoder());
             break;
         case tparquet::Type::BYTE_ARRAY:
-            decoder.reset(new ByteArrayPlainDecoder());
+            decoder.reset(new ByteArrayDecoder());
             break;
         case tparquet::Type::INT32:
         case tparquet::Type::INT64:
@@ -57,14 +61,12 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         case tparquet::Type::FLOAT:
         case tparquet::Type::DOUBLE:
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new PlainDecoder(type));
+            decoder.reset(new FixLengthDecoder(type));
             break;
         default:
-            return Status::InternalError("Unsupported plain type {} in parquet decoder",
+            return Status::InternalError("Unsupported type {} in parquet decoder",
                                          tparquet::to_string(type));
         }
-    case tparquet::Encoding::RLE_DICTIONARY:
-        break;
     default:
         return Status::InternalError("Unsupported encoding {} in parquet decoder",
                                      tparquet::to_string(encoding));
@@ -118,39 +120,55 @@ Status Decoder::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, s
     return decode_values(data_column, data_type, num_values);
 }
 
-Status PlainDecoder::decode_values(Slice& slice, size_t num_values) {
-    size_t to_read_bytes = _type_length * num_values;
-    if (UNLIKELY(to_read_bytes > slice.size)) {
-        return Status::IOError("Slice does not have enough space to write out the decoding data");
-    }
-    memcpy(slice.data, _data->data + _offset, to_read_bytes);
-    _offset += to_read_bytes;
+Status FixLengthDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+    _has_dict = true;
+    _dict = std::move(dict);
     return Status::OK();
 }
 
-Status PlainDecoder::skip_values(size_t num_values) {
-    _offset += _type_length * num_values;
-    if (UNLIKELY(_offset > _data->size)) {
-        return Status::IOError("Out-of-bounds access in parquet data decoder");
+void FixLengthDecoder::set_data(Slice* data) {
+    _data = data;
+    _offset = 0;
+    if (_has_dict) {
+        uint8_t bit_width = *data->data;
+        _index_batch_decoder.reset(
+                new RleBatchDecoder<uint32_t>(reinterpret_cast<uint8_t*>(data->data) + 1,
+                                              static_cast<int>(data->size) - 1, bit_width));
+    }
+}
+
+Status FixLengthDecoder::skip_values(size_t num_values) {
+    if (_has_dict) {
+        _indexes.resize(num_values);
+        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
+    } else {
+        _offset += _type_length * num_values;
+        if (UNLIKELY(_offset > _data->size)) {
+            return Status::IOError("Out-of-bounds access in parquet data decoder");
+        }
     }
     return Status::OK();
 }
 
-Status PlainDecoder::_decode_short_int(MutableColumnPtr& doris_column, size_t num_values,
-                                       size_t real_length) {
+Status FixLengthDecoder::_decode_short_int(MutableColumnPtr& doris_column, size_t num_values,
+                                           size_t real_length) {
     if (UNLIKELY(_physical_type != tparquet::Type::INT32)) {
         return Status::InternalError("Short int can only be decoded from INT32");
     }
     for (int i = 0; i < num_values; ++i) {
-        doris_column->insert_data(_data->data + _offset, real_length);
-        _offset += _type_length;
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+        doris_column->insert_data(buf_start, real_length);
+        _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
 }
 
-Status PlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                   size_t num_values) {
-    if (UNLIKELY(_offset + _type_length * num_values > _data->size)) {
+Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                       size_t num_values) {
+    if (_has_dict) {
+        _indexes.resize(num_values);
+        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
+    } else if (UNLIKELY(_offset + _type_length * num_values > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
@@ -228,8 +246,9 @@ Status PlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& 
     case TypeIndex::FixedString:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
             for (int i = 0; i < num_values; ++i) {
-                doris_column->insert_data(_data->data + _offset, _type_length);
-                _offset += _type_length;
+                char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+                doris_column->insert_data(buf_start, _type_length);
+                _FIXED_SHIFT_DATA_OFFSET();
             }
             return Status::OK();
         }
@@ -243,48 +262,37 @@ Status PlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& 
                                    getTypeName(data_type->get_type_id()));
 }
 
-Status ByteArrayPlainDecoder::decode_values(Slice& slice, size_t num_values) {
-    uint32_t slice_offset = 0;
-    for (int i = 0; i < num_values; ++i) {
-        if (UNLIKELY(_offset + 4 > _data->size)) {
-            return Status::IOError("Can't read byte array length from plain decoder");
-        }
-        uint32_t length =
-                decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-        _offset += 4;
-        if (UNLIKELY(_offset + length) > _data->size) {
-            return Status::IOError("Can't read enough bytes in plain decoder");
-        }
-        memcpy(slice.data + slice_offset, _data->data + _offset, length);
-        slice_offset += length + 1;
-        slice.data[slice_offset - 1] = '\0';
-        _offset += length;
+Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+    _has_dict = true;
+    _dict = std::move(dict);
+    _dict_offsets.resize(dict_size + 1);
+    uint32_t offset_cursor = 0;
+    for (int i = 0; i < dict_size; ++i) {
+        uint32_t length = decode_fixed32_le(_dict.get() + offset_cursor);
+        offset_cursor += 4;
+        _dict_offsets[i] = offset_cursor;
+        offset_cursor += length;
     }
+    _dict_offsets[dict_size] = offset_cursor + 4;
     return Status::OK();
 }
 
-Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
-    for (int i = 0; i < num_values; ++i) {
-        if (UNLIKELY(_offset + 4 > _data->size)) {
-            return Status::IOError("Can't read byte array length from plain decoder");
-        }
-        uint32_t length =
-                decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-        _offset += 4;
-        if (UNLIKELY(_offset + length) > _data->size) {
-            return Status::IOError("Can't skip enough bytes in plain decoder");
-        }
-        _offset += length;
+void ByteArrayDecoder::set_data(Slice* data) {
+    _data = data;
+    _offset = 0;
+    if (_has_dict) {
+        uint8_t bit_width = *data->data;
+        _index_batch_decoder.reset(
+                new RleBatchDecoder<uint32_t>(reinterpret_cast<uint8_t*>(data->data) + 1,
+                                              static_cast<int>(data->size) - 1, bit_width));
     }
-    return Status::OK();
 }
 
-Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                            size_t num_values) {
-    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
-    switch (logical_type) {
-    case TypeIndex::String:
-    case TypeIndex::FixedString:
+Status ByteArrayDecoder::skip_values(size_t num_values) {
+    if (_has_dict) {
+        _indexes.resize(num_values);
+        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
+    } else {
         for (int i = 0; i < num_values; ++i) {
             if (UNLIKELY(_offset + 4 > _data->size)) {
                 return Status::IOError("Can't read byte array length from plain decoder");
@@ -293,10 +301,43 @@ Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
                     decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
             _offset += 4;
             if (UNLIKELY(_offset + length) > _data->size) {
-                return Status::IOError("Can't read enough bytes in plain decoder");
+                return Status::IOError("Can't skip enough bytes in plain decoder");
             }
-            doris_column->insert_data(_data->data + _offset, length);
             _offset += length;
+        }
+    }
+    return Status::OK();
+}
+
+Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                       size_t num_values) {
+    if (_has_dict) {
+        _indexes.resize(num_values);
+        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
+    }
+    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    switch (logical_type) {
+    case TypeIndex::String:
+    case TypeIndex::FixedString:
+        for (int i = 0; i < num_values; ++i) {
+            if (_has_dict) {
+                uint32_t idx = _indexes[i];
+                uint32_t idx_cursor = _dict_offsets[idx];
+                char* buff_start = reinterpret_cast<char*>(_dict.get() + idx_cursor);
+                doris_column->insert_data(buff_start, _dict_offsets[idx + 1] - idx_cursor - 4);
+            } else {
+                if (UNLIKELY(_offset + 4 > _data->size)) {
+                    return Status::IOError("Can't read byte array length from plain decoder");
+                }
+                uint32_t length =
+                        decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+                _offset += 4;
+                if (UNLIKELY(_offset + length) > _data->size) {
+                    return Status::IOError("Can't read enough bytes in plain decoder");
+                }
+                doris_column->insert_data(_data->data + _offset, length);
+                _offset += length;
+            }
         }
         return Status::OK();
     case TypeIndex::Decimal32:
@@ -311,17 +352,6 @@ Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
     return Status::InvalidArgument(
             "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
             getTypeName(data_type->get_type_id()));
-}
-
-Status BoolPlainDecoder::decode_values(Slice& slice, size_t num_values) {
-    bool value;
-    for (int i = 0; i < num_values; ++i) {
-        if (UNLIKELY(!_decode_value(&value))) {
-            return Status::IOError("Can't read enough booleans in plain decoder");
-        }
-        slice.data[i] = value ? 1 : 0;
-    }
-    return Status::OK();
 }
 
 Status BoolPlainDecoder::skip_values(size_t num_values) {

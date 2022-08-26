@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,13 +38,17 @@ import java.util.stream.Collectors;
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalRelation  {
+public class LogicalOlapScan extends LogicalRelation {
 
-    public LogicalOlapScan(Table table) {
+    private final long selectedIndexId;
+    private final List<Long> selectedTabletId;
+    private final List<Long> selectedPartitionId;
+
+    public LogicalOlapScan(OlapTable table) {
         this(table, ImmutableList.of());
     }
 
-    public LogicalOlapScan(Table table, List<String> qualifier) {
+    public LogicalOlapScan(OlapTable table, List<String> qualifier) {
         this(table, qualifier, Optional.empty(), Optional.empty());
     }
 
@@ -53,8 +59,26 @@ public class LogicalOlapScan extends LogicalRelation  {
      * @param qualifier table name qualifier
      */
     public LogicalOlapScan(Table table, List<String> qualifier,
-                           Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier, groupExpression, logicalProperties);
+        this.selectedIndexId = getTable().getBaseIndexId();
+        this.selectedTabletId = Lists.newArrayList();
+        this.selectedPartitionId = getTable().getPartitionIds();
+        for (Partition partition : getTable().getAllPartitions()) {
+            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
+        }
+    }
+
+    public List<Long> getSelectedTabletId() {
+        return selectedTabletId;
+    }
+
+    public long getSelectedIndexId() {
+        return selectedIndexId;
+    }
+
+    public List<Long> getSelectedPartitionId() {
+        return selectedPartitionId;
     }
 
     @Override
@@ -68,7 +92,7 @@ public class LogicalOlapScan extends LogicalRelation  {
         return "ScanOlapTable ("
                 + qualifiedName()
                 + ", output: "
-                + getOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[",  "]"))
+                + getOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[", "]"))
                 + ")";
     }
 
