@@ -71,7 +71,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
                 if (offset_begin + req_size > _remote_file_reader->size()) {
                     req_size = _remote_file_reader->size() - offset_begin;
                 }
-                RETURN_IF_ERROR(_generate_cache_reader(*iter, req_size));
+                RETURN_IF_ERROR(_generate_cache_reader(offset_begin, req_size));
             }
         }
         _cache_file_size = _get_cache_file_size();
@@ -82,7 +82,6 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
         for (vector<size_t>::const_iterator iter = need_cache_offsets.cbegin();
              iter != need_cache_offsets.cend(); ++iter) {
             size_t offset_begin = *iter;
-            size_t req_size = config::max_sub_cache_file_size;
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end()) {
                 LOG(ERROR) << "Local cache file reader can't be found: " << offset_begin << ", "
                            << offset_begin;
@@ -91,6 +90,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             if (offset_begin < offset) {
                 offset_begin = offset;
             }
+            size_t req_size = *iter + config::max_sub_cache_file_size - offset_begin;
             if (offset + result.size < *iter + config::max_sub_cache_file_size) {
                 req_size = offset + result.size - offset_begin;
             }
@@ -157,7 +157,7 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                     Slice file_slice(file_buf.get(), req_size);
                     size_t bytes_read = 0;
                     RETURN_NOT_OK_STATUS_WITH_WARN(
-                            _remote_file_reader->read_at(0, file_slice, &bytes_read),
+                            _remote_file_reader->read_at(offset, file_slice, &bytes_read),
                             fmt::format("read remote file failed. {}. offset: {}, size: {}",
                                         _remote_file_reader->path().native(), offset, req_size));
                     if (bytes_read != req_size) {
