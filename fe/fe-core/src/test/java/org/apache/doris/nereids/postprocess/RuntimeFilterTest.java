@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.postprocess;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -29,13 +32,13 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TQueryOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -114,15 +117,19 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
     }
 
     @Test
-    public void testTranslateSSB() throws AnalysisException {
+    public void testTranslateSSB() throws UserException {
         String[] sqls = {SSBUtils.Q1_1, SSBUtils.Q1_2, SSBUtils.Q1_3,
                 SSBUtils.Q2_1, SSBUtils.Q2_2, SSBUtils.Q2_3,
                 SSBUtils.Q3_1, SSBUtils.Q3_2, SSBUtils.Q3_3, SSBUtils.Q3_4,
                 SSBUtils.Q4_1, SSBUtils.Q4_2, SSBUtils.Q4_3};
         for (String sql : sqls) {
-            System.out.println("*****sql: " + sql + "*****\n\n");
-            ExplainCommand plan = (ExplainCommand) new NereidsParser().parseSingle("explain " + sql);
-            System.out.println(plan.getLogicalPlan().treeString());
+            System.out.println("sql: " + sql);
+            NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
+            planner.plan(
+                    new LogicalPlanAdapter(new NereidsParser().parseSingle(sql)),
+                    new TQueryOptions()
+            );
+            System.out.println(planner.getExplainString(new ExplainOptions(false, false)));
         }
     }
 }

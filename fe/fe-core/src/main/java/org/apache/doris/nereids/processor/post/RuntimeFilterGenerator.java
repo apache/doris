@@ -151,8 +151,10 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 .forEach(slot -> {
                     filtersByExprId.get(slot.getExprId()).forEach(nereidsFilter -> {
                         SlotRef ref = ctx.findSlotRef(nereidsFilter.getTargetExpr().getExprId());
-                        filterTargetByTid.computeIfAbsent(nereidsFilter.getTargetExpr().getExprId(), k -> new ArrayList<>()).add(
-                                new RuntimeFilterTarget(node, ref, false, false));
+                        filterTargetByTid.computeIfAbsent(
+                                nereidsFilter.getTargetExpr().getExprId(),
+                                k -> new ArrayList<>()).add(
+                                        new RuntimeFilterTarget(node, ref, false, false));
                     });
                 });
     }
