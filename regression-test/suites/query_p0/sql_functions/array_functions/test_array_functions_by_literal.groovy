@@ -28,6 +28,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains([], NULL)"
     qt_sql "select array_contains(NULL, 1)"
     qt_sql "select array_contains(NULL, NULL)"
+    qt_sql "select array_contains([true], false)"
 
     // array_position function
     qt_sql "select array_position([1,2,3], 1)"
@@ -39,6 +40,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_position([], NULL)"
     qt_sql "select array_position(NULL, 1)"
     qt_sql "select array_position(NULL, NULL)"
+    qt_sql "select array_position([false, NULL, true], true)"
 
     // element_at function
     qt_sql "select element_at([1,2,3], 1)"
@@ -49,6 +51,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select element_at([1,2,NULL], 3)"
     qt_sql "select element_at([1,2,NULL], 2)"
     qt_sql "select element_at([], -1)"
+    qt_sql "select element_at([true, NULL, false], 2)"
 
     // array subscript function
     qt_sql "select [1,2,3][1]"
@@ -59,6 +62,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,NULL][3]"
     qt_sql "select [1,2,NULL][2]"
     qt_sql "select [][-1]"
+    qt_sql "select [true, false]"
 
     // array_aggregation function
     qt_sql "select array_avg([1,2,3])"
@@ -75,12 +79,15 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_distinct([1,1,2,2,3,3,null])"
     qt_sql "select array_distinct(['a','a','a'])"
     qt_sql "select array_distinct(['a','a','a',null])"
+    qt_sql "select array_distinct([true, false, null, false])"
+
 
     // array_remove function
     qt_sql "select array_remove([1,2,3], 1)"
     qt_sql "select array_remove([1,2,3,null], 1)"
     qt_sql "select array_remove(['a','b','c'], 'a')"
     qt_sql "select array_remove(['a','b','c',null], 'a')"
+    qt_sql "select array_remove([true, false, false], false)"
  
     // array_sort function
     qt_sql "select array_sort([1,2,3])"
@@ -89,11 +96,13 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_sort([null,1,2,3])"
     qt_sql "select array_sort(['a','b','c'])"
     qt_sql "select array_sort(['c','b','a'])"
+    qt_sql "select array_sort([true, false, true])"
 
     // array_overlap function
     qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
     qt_sql "select arrays_overlap([1,2,3], [3,4,5])"
     qt_sql "select arrays_overlap([1,2,3,null], [3,4,5])"
+    qt_sql "select arrays_overlap([true], [false])"
 
     // array_binary function
     qt_sql "select array_union([1,2,3], [2,3,4])"
@@ -102,6 +111,9 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_union([1,2,3], [2,3,4,null])"
     qt_sql "select array_except([1,2,3], [2,3,4,null])"
     qt_sql "select array_intersect([1,2,3], [2,3,4,null])"
+    qt_sql "select array_union([true], [false])"
+    qt_sql "select array_except([true, false], [true])"
+    qt_sql "select array_intersect([false, true], [false])"
 
     // arrat_slice function
     qt_sql "select [1,2,3][1:1]"
@@ -112,4 +124,5 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,3][2:-1]"
     qt_sql "select [1,2,3][0:]"
     qt_sql "select [1,2,3][-5:]"
+    qt_sql "select [true, false, false][2:]"
 }
