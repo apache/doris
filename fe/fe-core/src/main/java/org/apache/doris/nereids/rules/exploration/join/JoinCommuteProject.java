@@ -51,7 +51,8 @@ public class JoinCommuteProject extends OneExplorationRuleFactory {
             LogicalJoin<GroupPlan, GroupPlan> join = project.child();
             LogicalJoin newJoin = new LogicalJoin(
                     join.getJoinType(),
-                    join.getCondition(),
+                    join.getHashJoinConjuncts(),
+                    join.getOtherJoinCondition(),
                     join.right(), join.left(),
                     join.getJoinReorderContext());
             newJoin.getJoinReorderContext().setHasCommute(true);

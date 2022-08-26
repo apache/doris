@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.CheckedMath;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -30,6 +32,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Estimate hash join stats.
@@ -45,11 +48,16 @@ public class JoinEstimation {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
         List<Expression> eqConjunctList = join.getHashJoinConjuncts();
+        List<Slot> leftSlot = leftStats.getSlotToColumnStats().entrySet().stream()
+                .map(slot -> slot.getKey()).collect(Collectors.toList());
+        List<Expression> execConjunctList = eqConjunctList.stream().map(EqualTo.class::cast)
+                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftSlot))
+                        .collect(Collectors.toList());
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
-            rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
+            rowCount = getSemiJoinRowCount(leftStats, rightStats, execConjunctList, joinType);
         } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
-            rowCount = getJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
+            rowCount = getJoinRowCount(leftStats, rightStats, execConjunctList, joinType);
         } else if (joinType.isCrossJoin()) {
             rowCount = CheckedMath.checkedMultiply(leftStats.getRowCount(),
                     rightStats.getRowCount());

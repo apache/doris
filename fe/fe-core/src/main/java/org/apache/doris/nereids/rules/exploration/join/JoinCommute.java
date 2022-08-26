@@ -22,14 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommuteHelper.SwapType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 /**
  * Join Commute
@@ -57,10 +50,10 @@ public class JoinCommute extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin().when(JoinCommuteHelper::check).then(join -> {
 
-            List<Slot> output = join.getOutput();
-            int rightFirstSlotIndex = output.indexOf(join.right().getOutput().get(0));
-            List<NamedExpression> newOutput = new ArrayList<>(output);
-            Collections.rotate(newOutput, rightFirstSlotIndex);
+            // List<Slot> output = join.getOutput();
+            // // int rightFirstSlotIndex = output.indexOf(join.right().getOutput().get(0));
+            // List<NamedExpression> newOutput = new ArrayList<>(output);
+            // Collections.rotate(newOutput, rightFirstSlotIndex * -1);
 
             LogicalJoin newJoin = new LogicalJoin(
                     join.getJoinType(),
@@ -73,8 +66,8 @@ public class JoinCommute extends OneExplorationRuleFactory {
             //     newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
             // }
 
-            LogicalProject<LogicalJoin> project = new LogicalProject<>(newOutput, newJoin);
-            return project;
+            // LogicalProject<LogicalJoin> project = new LogicalProject<>(newOutput, newJoin);
+            return newJoin;
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 }
