@@ -115,17 +115,6 @@
             "type": "category",
             "label": "Advanced Usage",
             "items": [    
-                "advanced/materialized-view",
-                "advanced/vectorized-execution-engine",
-                "advanced/broker",
-                "advanced/resource",
-                "advanced/orthogonal-bitmap-manual",
-                "advanced/orthogonal-hll-manual",
-                "advanced/using-hll",
-                "advanced/variables",
-                "advanced/time-zone",
-                "advanced/small-file-mgr",
-                "advanced/sql-mode",
                 {
                     "type": "category",
                     "label": "Alter Table",
@@ -133,43 +122,49 @@
                         "advanced/alter-table/schema-change",
                         "advanced/alter-table/replace-table"
                     ]
-                },
+                }, 
                 {
                     "type": "category",
                     "label": "Doris Partition",
                     "items": [
-                        "advanced/partition/table-temp-partition",
-                        "advanced/partition/dynamic-partition"
+                        "advanced/partition/dynamic-partition",
+                        "advanced/partition/table-temp-partition"
+                    ]
+                }, 
+                {
+                    "type": "category",
+                    "label": "Date Cache",
+                    "items": [
+                        "advanced/cache/partition-cache"
                     ]
                 },
                 {
                     "type": "category",
                     "label": "Join Optimization",
                     "items": [
-                        "advanced/join-optimization/runtime-filter",
-                        "advanced/join-optimization/doris-join-optimization",
+                        "advanced/join-optimization/bucket-shuffle-join",
                         "advanced/join-optimization/colocation-join",
-                        "advanced/join-optimization/bucket-shuffle-join"
+                        "advanced/join-optimization/runtime-filter",
+                        "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
-                {
-                    "type": "category",
-                    "label": "Date Cache",
-                    "items": [
-                        "advanced/cache/partition-cache",
-                        "advanced/cache/query-cache"
-                    ]
-                },
+                "advanced/materialized-view",
+                "advanced/broker",
                 {
                     "type": "category",
                     "label": "Best Practice",
                     "items": [
                         "advanced/best-practice/query-analysis",
-                        "advanced/best-practice/debug-log",
-                        "advanced/best-practice/import-analysis"
-
+                        "advanced/best-practice/import-analysis",
+                        "advanced/best-practice/debug-log"
                     ]
-                }
+                },  
+                "advanced/resource",
+                "advanced/orthogonal-bitmap-manual",
+                "advanced/using-hll",
+                "advanced/variables",
+                "advanced/time-zone",
+                "advanced/small-file-mgr"
             ]
         },
         {
