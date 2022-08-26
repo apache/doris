@@ -199,10 +199,13 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
         _tablet_meta = new_tablet_meta;
     } while (0);
 
+    RowsetVector rs_to_delete, rs_to_add;
+
     for (auto& version : versions_to_delete) {
         auto it = _rs_version_map.find(version);
         DCHECK(it != _rs_version_map.end());
         StorageEngine::instance()->add_unused_rowset(it->second);
+        rs_to_delete.push_back(it->second);
         _rs_version_map.erase(it);
     }
 
@@ -214,7 +217,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
             LOG(WARNING) << "fail to init rowset. version=" << version;
             return res;
         }
+        rs_to_add.push_back(rowset);
         _rs_version_map[version] = std::move(rowset);
+    }
+
+    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+        auto new_rowset_tree = std::make_unique<RowsetTree>();
+        ModifyRowSetTree(*_rowset_tree, rs_to_delete, rs_to_add, new_rowset_tree.get());
+        _rowset_tree = std::move(new_rowset_tree);
     }
 
     // reconstruct from tablet meta
