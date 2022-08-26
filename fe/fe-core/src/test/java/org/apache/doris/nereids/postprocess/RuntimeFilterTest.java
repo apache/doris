@@ -71,6 +71,7 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                                 })
                         )
                 );
+        connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
     }
 
     @Test

@@ -170,7 +170,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                         filterTargetByTid.computeIfAbsent(
                                 nereidsFilter.getTargetExpr().getExprId(),
                                 k -> new ArrayList<>()).add(
-                                        new RuntimeFilterTarget(node, ref, false, false));
+                                        new RuntimeFilterTarget(node, ref, true, false));
                     });
                 });
     }
