@@ -300,7 +300,8 @@ public class QueryProfileAction extends RestBaseController {
                 }
             }
         } else {
-            String queryId = ProfileManager.getInstance().getQueryIdByTraceId(traceId);
+            ExecuteEnv env = ExecuteEnv.getInstance();
+            String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
             if (Strings.isNullOrEmpty(queryId)) {
                 return ResponseEntityBuilder.badRequest("Not found");
             }

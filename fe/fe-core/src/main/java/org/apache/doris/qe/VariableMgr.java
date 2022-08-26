@@ -180,11 +180,14 @@ public class VariableMgr {
                     // Unsupported type variable.
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
             }
-
         } catch (NumberFormatException e) {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
         } catch (IllegalAccessException e) {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, attr.name(), value);
+        }
+
+        if (VariableVarCallbacks.hasCallback(attr.name())) {
+            VariableVarCallbacks.call(attr.name(), value);
         }
 
         return true;

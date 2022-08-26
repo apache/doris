@@ -53,6 +53,9 @@ public class ConnectScheduler {
     private final ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(
             Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
 
+    // valid trace id -> query id
+    private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
+
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
@@ -153,6 +156,15 @@ public class ConnectScheduler {
             infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
+    }
+
+    public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
+        traceId2QueryId.put(traceId, queryId);
+    }
+
+    public String getQueryIdByTraceId(String traceId) {
+        TUniqueId queryId = traceId2QueryId.get(traceId);
+        return queryId == null ? "" : DebugUtil.printId(queryId);
     }
 
     private class LoopHandler implements Runnable {
