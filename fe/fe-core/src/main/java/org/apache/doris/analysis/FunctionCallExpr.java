@@ -53,6 +53,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -173,12 +174,7 @@ public class FunctionCallExpr extends Expr {
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
-        if (other.fnParams.isStar()) {
-            Preconditions.checkState(children.isEmpty());
-            fnParams = FunctionParams.createStarParam();
-        } else {
-            fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
-        }
+        fnParams = other.fnParams.clone(children);
         aggFnParams = other.aggFnParams;
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
@@ -212,6 +208,25 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isMergeAggFn() {
         return isMergeAggFn;
+    }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
+            throws AnalysisException {
+        if (aggFnParams != null && aggFnParams.exprs() != null) {
+            ArrayList<Expr> newParams = new ArrayList<Expr>();
+            for (Expr expr : aggFnParams.exprs()) {
+                Expr substExpr = smap.get(expr);
+                if (substExpr != null) {
+                    newParams.add(substExpr.clone());
+                } else {
+                    newParams.add(expr);
+                }
+            }
+            aggFnParams = aggFnParams
+                    .clone(newParams);
+        }
+        return super.substituteImpl(smap, analyzer);
     }
 
     @Override
