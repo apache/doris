@@ -57,6 +57,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -254,13 +255,22 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    protected Expr substituteImpl(ExprSubstitutionMap sMap, Analyzer analyzer)
+    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
             throws AnalysisException {
         if (aggFnParams != null) {
+            ArrayList<Expr> newParams = new ArrayList<Expr>();
+            for (Expr expr : aggFnParams.exprs()) {
+                Expr substExpr = smap.get(expr);
+                if (substExpr != null) {
+                    newParams.add(substExpr.clone());
+                } else {
+                    newParams.add(expr);
+                }
+            }
             aggFnParams = aggFnParams
-                    .clone(Expr.substituteList(aggFnParams.exprs(), sMap, analyzer, false));
+                    .clone(newParams);
         }
-        return super.substituteImpl(sMap, analyzer);
+        return super.substituteImpl(smap, analyzer);
     }
 
     @Override

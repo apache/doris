@@ -20,7 +20,7 @@
 // and modified by Doris.
 
 suite("load") {
-    def tables=["test_join", "full_join_table", "test_bucket_shuffle_join", "table_1", "table_2"]
+    def tables=["test_join", "full_join_table", "test_bucket_shuffle_join", "table_1", "table_2", "left_table", "right_table"]
 
     for (String table in tables) {
         sql """ DROP TABLE IF EXISTS $table """
