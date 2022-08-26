@@ -41,6 +41,7 @@ VSlotRef::VSlotRef(const SlotDescriptor* desc)
 
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                          VExprContext* context) {
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
         return Status::OK();
