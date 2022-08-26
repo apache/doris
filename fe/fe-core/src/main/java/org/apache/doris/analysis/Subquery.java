@@ -190,6 +190,14 @@ public class Subquery extends Expr {
     }
 
     @Override
+    public Expr reset() {
+        super.reset();
+        stmt.reset();
+        analyzer = null;
+        return this;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {}
 }
 
