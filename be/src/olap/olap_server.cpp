@@ -28,15 +28,20 @@
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/cache/file_cache_manager.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "util/file_utils.h"
 #include "util/time.h"
 
 using std::string;
 
 namespace doris {
+
+using io::FileCacheManager;
+using io::Path;
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
@@ -142,6 +147,12 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_cooldown_tasks_producer_callback(); },
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
+            [this]() { this->_cache_file_cleaner_tasks_producer_callback(); },
+            &_cache_file_cleaner_tasks_producer_thread));
+    LOG(INFO) << "cache file cleaner tasks producer thread started";
 
     // add tablet publish version thread pool
     ThreadPoolBuilder("TabletPublishTxnThreadPool")
@@ -738,6 +749,35 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
 
             if (!st.ok()) {
                 LOG(INFO) << "failed to submit cooldown task, err msg: " << st.get_error_msg();
+            }
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
+    int64_t interval = config::generate_cache_cleaner_task_interval_sec;
+    do {
+        LOG(INFO) << "Begin to Clean cache files";
+        FileCacheManager::instance()->clean_timeout_caches();
+        std::vector<TabletSharedPtr> tablets =
+                StorageEngine::instance()->tablet_manager()->get_all_tablet();
+        for (const auto& tablet : tablets) {
+            std::vector<Path> seg_file_paths;
+            if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
+                for (Path seg_file : seg_file_paths) {
+                    std::string seg_filename = seg_file.native();
+                    // check if it is a dir name
+                    if (ends_with(seg_filename, ".dat")) {
+                        continue;
+                    }
+                    std::stringstream ss;
+                    ss << tablet->tablet_path() << "/" << seg_filename;
+                    std::string cache_path = ss.str();
+                    if (FileCacheManager::instance()->exist(cache_path)) {
+                        continue;
+                    }
+                    FileCacheManager::instance()->clean_timeout_file_not_in_mem(cache_path);
+                }
             }
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));

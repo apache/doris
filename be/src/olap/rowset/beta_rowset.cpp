@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/cache/file_cache_manager.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
@@ -33,6 +34,8 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+
+using io::FileCacheManager;
 
 std::string BetaRowset::segment_file_path(int segment_id) {
     if (is_local()) {
@@ -63,6 +66,12 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& r
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat
     return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id.to_string(),
                        segment_id);
+}
+
+std::string BetaRowset::local_cache_path(const std::string& tablet_path, const RowsetId& rowset_id,
+                                         int segment_id) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
+    return fmt::format("{}/{}_{}", tablet_path, rowset_id.to_string(), segment_id);
 }
 
 BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
@@ -150,6 +159,10 @@ Status BetaRowset::remove() {
         if (!st.ok()) {
             LOG(WARNING) << st.to_string();
             success = false;
+        }
+        if (fs->type() != io::FileSystemType::LOCAL) {
+            auto cache_path = segment_cache_path(i);
+            FileCacheManager::instance()->remove_file_cache(cache_path);
         }
     }
     if (!success) {

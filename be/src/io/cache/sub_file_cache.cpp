@@ -26,7 +26,6 @@ namespace io {
 using std::vector;
 
 const static std::string SUB_FILE_CACHE_PREFIX = "SUB_CACHE";
-const static std::string SUB_FILE_DONE_PREFIX = "SUB_CACHE_DONE";
 
 SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
                            io::FileReaderSPtr remote_file_reader)
@@ -116,7 +115,8 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
 
 Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     Path cache_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_CACHE_PREFIX, offset);
-    Path cache_done_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_DONE_PREFIX, offset);
+    Path cache_done_file = _cache_dir / fmt::format("{}_{}{}", SUB_FILE_CACHE_PREFIX, offset,
+                                                    CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(cache_done_file, &done_file_exist),
@@ -259,7 +259,8 @@ Status SubFileCache::_clean_cache_internal(size_t offset) {
     }
     _cache_file_size = 0;
     Path cache_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_CACHE_PREFIX, offset);
-    Path done_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_DONE_PREFIX, offset);
+    Path done_file = _cache_dir /
+                     fmt::format("{}_{}{}", SUB_FILE_CACHE_PREFIX, offset, CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(done_file, &done_file_exist),
