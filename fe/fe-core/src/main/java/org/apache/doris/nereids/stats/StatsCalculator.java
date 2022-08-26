@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -59,7 +60,6 @@ import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -225,10 +225,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
     private TableStats mockRowCountInStatistic(Scan scan) throws AnalysisException {
         long cardinality = 0;
-        if (scan instanceof PhysicalOlapScan) {
-            PhysicalOlapScan olapScan = (PhysicalOlapScan) scan;
-            for (long selectedPartitionId : olapScan.getSelectedPartitionId()) {
-                final Partition partition = olapScan.getTable().getPartition(selectedPartitionId);
+        if (scan instanceof PhysicalOlapScan || scan instanceof LogicalOlapScan) {
+            OlapTable table = (OlapTable) scan.getTable();
+            for (long selectedPartitionId : table.getPartitionIds()) {
+                final Partition partition = table.getPartition(selectedPartitionId);
                 final MaterializedIndex baseIndex = partition.getBaseIndex();
                 cardinality += baseIndex.getRowCount();
             }
@@ -283,15 +283,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     // TODO: Update data size and min/max value.
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> namedExpressionList = project.getProjects();
-        Set<Slot> slotSet = new HashSet<>();
-        for (NamedExpression namedExpression : namedExpressionList) {
-            List<SlotReference> slotReferenceList = namedExpression.collect(SlotReference.class::isInstance);
-            slotSet.addAll(slotReferenceList);
-        }
+        List<Slot> slotSet = namedExpressionList.stream().flatMap(namedExpression -> {
+            List<Slot> slotReferenceList = namedExpression.collect(SlotReference.class::isInstance);
+            return slotReferenceList.stream();
+        }).collect(Collectors.toList());
         StatsDeriveResult stat = groupExpression.getCopyOfChildStats(0);
         Map<Slot, ColumnStats> slotColumnStatsMap = stat.getSlotToColumnStats();
         slotColumnStatsMap.entrySet().removeIf(entry -> !slotSet.contains(entry.getKey()));
         return stat;
     }
-
 }

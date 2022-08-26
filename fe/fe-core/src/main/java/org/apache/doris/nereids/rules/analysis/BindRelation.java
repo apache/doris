@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
@@ -77,7 +78,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(table, ImmutableList.of(dbName));
+            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
@@ -94,7 +95,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(table, ImmutableList.of(dbName));
+            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
