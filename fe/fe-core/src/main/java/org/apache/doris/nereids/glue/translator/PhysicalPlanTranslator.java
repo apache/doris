@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -257,6 +258,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(olapScanNode::init);
         olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
+        // translate runtime filter
+        RuntimeFilterGenerator.INSTANCE.translateRuntimeFilterTarget(olapScan, olapScanNode, context);
         // Create PlanFragment
         // TODO: add data partition after we have physical properties
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);
@@ -385,16 +388,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
                     rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
                     srcToOutput, outputDescriptor, outputDescriptor);
-
-            hashJoin.getRuntimeFilter()
-                    .forEach(filter -> {
-                        filter.setBuilderNode(hashJoinNode);
-                        filter.toOriginRuntimeFilter(context).assignToPlanNodes();
-                    });
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
             hashJoinNode.setChild(0, leftFragmentPlanRoot);
             connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(hashJoinNode);
+            // translate runtime filter
+            RuntimeFilterGenerator.INSTANCE.translateRuntimeFilter(hashJoin, hashJoinNode, context);
             return leftFragment;
         }
     }

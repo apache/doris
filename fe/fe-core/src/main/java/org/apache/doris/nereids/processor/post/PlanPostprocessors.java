@@ -46,7 +46,7 @@ public class PlanPostprocessors {
     public List<PlanPostprocessor> getProcessors() {
         // add processor if we need
         return ImmutableList.of(
-                new RuntimeFilterGenerator()
+                RuntimeFilterGenerator.INSTANCE
         );
     }
 }

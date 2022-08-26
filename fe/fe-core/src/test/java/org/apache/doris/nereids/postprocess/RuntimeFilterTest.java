@@ -20,14 +20,18 @@ package org.apache.doris.nereids.postprocess;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
+import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PlanFragment;
@@ -52,17 +56,16 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                 .implement(new NereidsParser().parseSingle(sql))
                 .matchesPhysicalPlan(
                         physicalProject(
-                            physicalHashJoin(
-                                    physicalOlapScan(),
-                                    physicalOlapScan()
-                            ).when(join -> {
-                                List<RuntimeFilter> filters = join.getRuntimeFilter();
-                                if (filters.size() != 1) {
-                                    return false;
-                                }
-                                RuntimeFilter filter = filters.get(0);
-                                return FieldChecker.check("builderPlan", join).test(filter);
-                            })
+                                physicalHashJoin(
+                                        physicalOlapScan(),
+                                        physicalOlapScan()
+                                ).when(join -> {
+                                    Expression expr = join.getHashJoinConjuncts().get(0);
+                                    Assertions.assertTrue(expr instanceof EqualTo);
+                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getFiltersByExprId()
+                                            .get(((SlotReference) expr.child(1)).getExprId());
+                                    return filters.size() == 1;
+                                })
                         )
                 );
     }
@@ -74,17 +77,18 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                 .implement(new NereidsParser().parseSingle(sql))
                 .matchesPhysicalPlan(
                         physicalProject(
-                                physicalHashJoin(
+                                physicalNestedLoopJoin(
                                         physicalOlapScan(),
                                         physicalOlapScan()
-                                ).when(join -> join.getRuntimeFilter().size() == 0)
+                                )
                         )
                 );
     }
 
     @Test
     public void testComplexExpressionToRuntimeFilter() throws AnalysisException {
-        String sql = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";
+        String sql
+                = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";
         PlanChecker.from(connectContext)
                 .implement(new NereidsParser().parseSingle(sql))
                 .matchesPhysicalPlan(
@@ -92,10 +96,7 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                                 physicalHashJoin(
                                         physicalOlapScan(),
                                         physicalOlapScan()
-                                ).when(join -> {
-                                    List<RuntimeFilter> filters = join.getRuntimeFilter();
-                                    return filters.size() == 3;
-                                })
+                                ).when(join -> join.getRuntimeFilters().getFiltersByExprId().keySet().size() == 3)
                         )
                 );
     }
@@ -110,5 +111,18 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
         PlanFragment fragment = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         Assertions.assertTrue((fragment.getChild(0).getExplainString(TExplainLevel.NORMAL).contains("runtime filter")),
                 "No runtime filter on HashJoinNode");
+    }
+
+    @Test
+    public void testTranslateSSB() throws AnalysisException {
+        String[] sqls = {SSBUtils.Q1_1, SSBUtils.Q1_2, SSBUtils.Q1_3,
+                SSBUtils.Q2_1, SSBUtils.Q2_2, SSBUtils.Q2_3,
+                SSBUtils.Q3_1, SSBUtils.Q3_2, SSBUtils.Q3_3, SSBUtils.Q3_4,
+                SSBUtils.Q4_1, SSBUtils.Q4_2, SSBUtils.Q4_3};
+        for (String sql : sqls) {
+            System.out.println("*****sql: " + sql + "*****\n\n");
+            ExplainCommand plan = (ExplainCommand) new NereidsParser().parseSingle("explain " + sql);
+            System.out.println(plan.getLogicalPlan().treeString());
+        }
     }
 }

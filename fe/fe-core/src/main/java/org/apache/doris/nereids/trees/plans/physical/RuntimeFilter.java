@@ -17,75 +17,36 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.thrift.TRuntimeFilterMode;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
-import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 /**
  * runtime filter
  */
 public class RuntimeFilter {
-    private SlotReference src;
+    private final EqualTo expr;
 
-    private RuntimeFilterId id;
+    private final RuntimeFilterId id;
 
-    private PhysicalHashJoin<Plan, Plan> builderPlan;
+    private final TRuntimeFilterType type;
 
-    private TRuntimeFilterType type;
+    private int exprOrder;
 
     private boolean finalized = false;
 
-    private List<RuntimeFilterTarget> targets;
-
-    private HashJoinNode builderNode;
-
-    private FilterSizeLimits limits;
-
-    private class RuntimeFilterTarget {
-        public final SlotReference target;
-
-        public final PhysicalOlapScan scanNode;
-
-        public final boolean isBoundByKeyColumn;
-
-        public final boolean isLocalTarget;
-
-        private RuntimeFilterTarget(SlotReference target, PhysicalOlapScan scanNode,
-                boolean isBoundByKeyColumn, boolean isLocalTarget) {
-            this.target = target;
-            this.scanNode = scanNode;
-            this.isBoundByKeyColumn = isBoundByKeyColumn;
-            this.isLocalTarget = isLocalTarget;
-        }
-    }
-
-    private RuntimeFilter(RuntimeFilterId id, SlotReference src,
-            PhysicalHashJoin<Plan, Plan> builderPlan, TRuntimeFilterType type, FilterSizeLimits limits) {
+    private RuntimeFilter(RuntimeFilterId id, EqualTo expr,
+            TRuntimeFilterType type, int exprOrder) {
         this.id = id;
-        this.builderPlan = builderPlan;
-        this.src = src;
+        this.expr = expr;
         this.type = type;
-        this.limits = limits;
+        this.exprOrder = exprOrder;
     }
 
     public void setFinalized() {
@@ -106,27 +67,14 @@ public class RuntimeFilter {
      * @return s
      */
     public static RuntimeFilter createRuntimeFilter(RuntimeFilterId id, EqualTo conjunction,
-            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin<Plan, Plan> node, FilterSizeLimits limits) {
+            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin<Plan, Plan> node,
+            List<Expression> newHashConjuncts) {
         EqualTo expr = checkAndMaybeSwapChild(conjunction, node);
+        newHashConjuncts.add(expr);
         if (expr == null) {
             return null;
         }
-        return new RuntimeFilter(id, (SlotReference) expr.child(1), node, type, limits);
-    }
-
-    /**
-     * s
-     * @param ctx s
-     * @return s
-     */
-    public org.apache.doris.planner.RuntimeFilter toOriginRuntimeFilter(PlanTranslatorContext ctx) {
-        SlotRef srcRef = ctx.findSlotRef(src.getExprId());
-        SlotRef targetRef = ctx.findSlotRef(targets.get(0).target.getExprId());
-        Map<TupleId, List<SlotId>> map = ImmutableMap.<TupleId, List<SlotId>>builder()
-                .put(targetRef.getDesc().getParent().getId(), ImmutableList.of(targetRef.getSlotId())).build();
-        return org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
-                id, builderNode, srcRef, 0,
-                targetRef, map, type, limits);
+        return new RuntimeFilter(id, expr, type, exprOrder);
     }
 
     private static EqualTo checkAndMaybeSwapChild(EqualTo expr, PhysicalHashJoin<Plan, Plan> join) {
@@ -144,24 +92,19 @@ public class RuntimeFilter {
         return expr;
     }
 
-    public void setBuilderNode(HashJoinNode builderNode) {
-        this.builderNode = builderNode;
+    public SlotReference getSrcExpr() {
+        return (SlotReference) expr.child(1);
     }
 
-    /**
-     * s
-     * @param node s
-     */
-    public void addTargetFromNode(ScanNode node, PlanTranslatorContext ctx) {
-        if (filters.get(plan.getTable().getId()) == null) {
-            return plan;
-        }
-        String mode = sessionVariable.getRuntimeFilterMode();
-        Preconditions.checkState(Arrays.stream(TRuntimeFilterMode.values()).map(Enum::name).anyMatch(
-                p -> p.equals(mode.toUpperCase())), "runtimeFilterMode not expected");
-        filters.get(plan.getTable().getId()).forEach(filter -> {
-            filter.addTargetFromNode();
-        });
-        return plan;
+    public SlotReference getTargetExpr() {
+        return (SlotReference) expr.child(0);
+    }
+
+    public RuntimeFilterId getId() {
+        return id;
+    }
+
+    public TRuntimeFilterType getType() {
+        return type;
     }
 }

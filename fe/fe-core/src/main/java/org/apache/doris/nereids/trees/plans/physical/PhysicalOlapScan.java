@@ -43,7 +43,6 @@ public class PhysicalOlapScan extends PhysicalRelation {
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
 
-
     /**
      * Constructor for PhysicalOlapScan.
      *
