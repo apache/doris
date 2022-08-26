@@ -28,7 +28,6 @@ Type before bug fix: varchar(*)
              `id` int,
              `name` varchar(32) 
          ) ENGINE=OLAP
-         AGGREGATE KEY(`id`)
          COMMENT "OLAP"
          DISTRIBUTED BY HASH(`id`) BUCKETS 1
          PROPERTIES (
