@@ -62,7 +62,7 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
     _stream_reader =
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
     _row_ranges = &row_ranges;
-    _chunk_reader.reset(new ColumnChunkReader(_metadata->t_metadata(), chunk, field, _ctz));
+    _chunk_reader.reset(new ColumnChunkReader(_stream_reader, _metadata->t_metadata(), field, _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
     RETURN_IF_ERROR(_chunk_reader->next_page());
     if (_row_ranges->size() != 0) {
