@@ -124,6 +124,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
     if (config::disable_mem_pools) {
         // Disable pooling by sizing the chunk to fit only this allocation.
         // Make sure the alignment guarantees are respected.
+        // This will generate too many small chunks.
         chunk_size = std::max<size_t>(min_size, alignof(max_align_t));
     } else {
         DCHECK_GE(next_chunk_size_, INITIAL_CHUNK_SIZE);
