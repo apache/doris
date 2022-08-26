@@ -142,6 +142,10 @@ doris::Status doris::FileFactory::_new_file_reader(doris::ExecEnv* env, RuntimeP
     }
 
     switch (type) {
+    case TFileType::FILE_LOCAL: {
+        file_reader_ptr = new LocalFileReader(range.path, range.start_offset);
+        break;
+    }
     case TFileType::FILE_S3: {
         file_reader_ptr = new BufferedReader(
                 profile, new S3Reader(params.properties, range.path, range.start_offset));
