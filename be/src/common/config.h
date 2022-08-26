@@ -402,6 +402,8 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 CONF_Int32(max_free_io_buffers, "128");
 
+// Whether to disable the memory cache pool,
+// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // Whether to allocate chunk using mmap. If you enable this, you'd better to
@@ -417,7 +419,7 @@ CONF_Bool(use_mmap_allocate_chunk, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "20%");
+CONF_mString(chunk_reserved_bytes_limit, "2147483648");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
 
