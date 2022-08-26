@@ -373,7 +373,6 @@ public class OlapTable extends Table {
     }
 
     public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToMeta() {
-        // TODO: below variable name is wired
         Map<Long, MaterializedIndexMeta> visibleMVs = Maps.newHashMap();
         List<MaterializedIndex> mvs = getVisibleIndex();
         for (MaterializedIndex mv : mvs) {

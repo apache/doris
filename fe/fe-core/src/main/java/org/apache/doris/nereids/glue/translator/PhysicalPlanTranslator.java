@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
@@ -127,21 +126,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
-        // TODO: trick here, we need push project down
-        if (physicalPlan.getType() == PlanType.PHYSICAL_PROJECT) {
-            PhysicalProject<Plan> physicalProject = (PhysicalProject<Plan>) physicalPlan;
-            rootFragment.setOutputExprs(
-                    physicalProject
-                            .getOutput()
-                            .stream()
-                            .map(s -> ExpressionTranslator.translate(s, context))
-                            .collect(Collectors.toList()));
-        } else {
-            List<Expr> outputExprs = Lists.newArrayList();
-            physicalPlan.getOutput().stream().map(Slot::getExprId)
-                    .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-            rootFragment.setOutputExprs(outputExprs);
-        }
+        List<Expr> outputExprs = Lists.newArrayList();
+        physicalPlan.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        rootFragment.setOutputExprs(outputExprs);
         rootFragment.getPlanRoot().convertToVectoriezd();
         for (PlanFragment fragment : context.getPlanFragments()) {
             fragment.finalize(null);
@@ -264,6 +252,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: add data partition after we have physical properties
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);
+        // TODO: Nereids support duplicate table only for now, remove this when support aggregate/unique table.
         olapScanNode.setIsPreAggregation(true, "Nereids support duplicate table only for now");
         return planFragment;
     }
@@ -367,6 +356,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
         PlanFragment rightFragment = hashJoin.child(1).accept(this, context);
         PlanFragment leftFragment = hashJoin.child(0).accept(this, context);
+
+        if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
+            throw new RuntimeException("Physical hash join could not execute without equal join condition.");
+        }
+
         PlanNode leftPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightPlanRoot = rightFragment.getPlanRoot();
         JoinType joinType = hashJoin.getJoinType();
@@ -434,7 +428,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
-    public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
+    public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
 
         // TODO: handle p.child(0) is not NamedExpression.
@@ -442,7 +436,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SlotRef ref = context.findSlotRef(((NamedExpression) p.child(0)).getExprId());
             context.addExprIdSlotRefPair(p.getExprId(), ref);
         });
-
 
         List<Expr> execExprList = project.getProjects()
                 .stream()
@@ -452,6 +445,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slotList = project.getOutput();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
+        // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
+        // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
         if (inputPlanNode instanceof HashJoinNode) {
             HashJoinNode hashJoinNode = (HashJoinNode) inputPlanNode;
             hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
@@ -489,9 +485,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(context::getTupleDesc)
                 .map(TupleDescriptor::getSlots)
                 .flatMap(List::stream)
-                .forEach(s -> {
-                    s.setIsMaterialized(slotIdSet.contains(s.getId().asInt()));
-                });
+                .forEach(s -> s.setIsMaterialized(slotIdSet.contains(s.getId().asInt())));
     }
 
     @Override

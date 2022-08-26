@@ -155,8 +155,4 @@ public class SlotReference extends Slot {
         return new SlotReference(exprId, name, dataType, nullable, qualifiers);
     }
 
-    @Override
-    public boolean boundToColumn(String name) {
-        return this.name.equals(name);
-    }
 }

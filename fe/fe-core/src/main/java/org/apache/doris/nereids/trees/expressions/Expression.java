@@ -17,11 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -38,8 +33,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -49,10 +42,6 @@ import java.util.Objects;
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
     private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
-
-    protected Function function;
-
-    protected DataType dataType;
 
     public Expression(Expression... children) {
         super(children);
@@ -154,23 +143,4 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         return 0;
     }
 
-    /**
-     * Return true if all the SlotRef in the expr tree is bound to the same column.
-     */
-    public boolean boundToColumn(String column) {
-        for (Expression child : children) {
-            if (!child.boundToColumn(column)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public Expression leftMostNode() {
-        Expression leftChild = this;
-        while (leftChild.children.size() > 0) {
-            leftChild = leftChild.child(0);
-        }
-        return leftChild;
-    }
 }

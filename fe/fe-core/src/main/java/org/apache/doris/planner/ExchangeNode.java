@@ -84,11 +84,7 @@ public class ExchangeNode extends PlanNode {
             limit = inputNode.limit;
         }
         computeTupleIds();
-        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
-        if (outputTupleDesc != null) {
-            tupleIds.clear();
-            tupleIds.add(outputTupleDesc.getId());
-        }
+
     }
 
     public boolean isMergingExchange() {
@@ -100,8 +96,15 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     public final void computeTupleIds() {
-        clearTupleIds();
-        tupleIds.addAll(getChild(0).getTupleIds());
+        PlanNode inputNode = getChild(0);
+        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
+        if (outputTupleDesc != null) {
+            tupleIds.clear();
+            tupleIds.add(outputTupleDesc.getId());
+        } else {
+            clearTupleIds();
+            tupleIds.addAll(getChild(0).getTupleIds());
+        }
         tblRefIds.addAll(getChild(0).getTblRefIds());
         nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
     }

@@ -1080,17 +1080,16 @@ public class HashJoinNode extends PlanNode {
         }
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                // Enable it after we support new optimizers
+                // TODO: Enable it after we support new optimizers
                 // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
                 //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
                 // } else
                 msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
-        // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            // Enable it after we support new optimizers
+            // TODO Enable it after we support new optimizers
             // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         }
         if (vIntermediateTupleDescList != null) {

@@ -231,7 +231,6 @@ Status ExecNode::prepare(RuntimeState* state) {
         typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
-    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, _row_descriptor));
 
     for (int i = 0; i < _children.size(); ++i) {
@@ -297,7 +296,6 @@ Status ExecNode::close(RuntimeState* state) {
         typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         Expr::close(_conjunct_ctxs, state);
     }
-    Expr::close(_conjunct_ctxs, state);
     vectorized::VExpr::close(_projections, state);
 
     if (_buffer_pool_client.is_registered()) {

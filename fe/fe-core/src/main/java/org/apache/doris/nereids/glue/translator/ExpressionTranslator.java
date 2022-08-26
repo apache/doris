@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -262,7 +261,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         ArithmeticExpr arithmeticExpr =  new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
                 binaryArithmetic.child(1).accept(this, context));
-        Utils.execWithUncheckedException(() -> arithmeticExpr.analyzeImpl(null));
         return arithmeticExpr;
     }
 

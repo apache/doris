@@ -64,7 +64,6 @@ public enum RuleType {
     COLUMN_PRUNE_FILTER_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_SORT_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_JOIN_CHILD(RuleTypeClass.REWRITE),
-    COLUMN_PRUNE_REMOVE_SLOTS(RuleTypeClass.REWRITE),
     // expression of plan rewrite
     REWRITE_PROJECT_EXPRESSION(RuleTypeClass.REWRITE),
     REWRITE_AGG_EXPRESSION(RuleTypeClass.REWRITE),
@@ -78,7 +77,6 @@ public enum RuleType {
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
     OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
     SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
-    REWRITE_COLLAPSE_FILTER_PROJECT(RuleTypeClass.REWRITE),
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),
