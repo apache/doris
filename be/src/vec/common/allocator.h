@@ -195,7 +195,7 @@ public:
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.
-        } else if (old_size < MMAP_THRESHOLD && new_size < MMAP_THRESHOLD &&
+        } else if (old_size < CHUNK_THRESHOLD && new_size < CHUNK_THRESHOLD &&
                    alignment <= MALLOC_MIN_ALIGNMENT) {
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
@@ -233,6 +233,7 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
             }
         } else {
+            // CHUNK_THRESHOLD <= old_size <= MMAP_THRESHOLD use system realloc is slow, use ChunkAllocator.
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
