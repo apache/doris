@@ -300,13 +300,22 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                         SlotDescriptor* child_slot_desc = child_tuple_desc->slots()[j];
                         SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[j];
 
-                        if (_output_slot_ids[parent_slot_desc->id()] &&
-                            !child_tuple->is_null(child_slot_desc->null_indicator_offset()) &&
-                            child_slot_desc->type().is_string_type()) {
+                        if (child_tuple->is_null(child_slot_desc->null_indicator_offset())) {
+                            continue;
+                        }
+                        if (child_slot_desc->type().is_string_type()) {
                             void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
-                            RawValue::write(child_tuple->get_slot(child_slot_desc->tuple_offset()),
-                                            dest_slot, parent_slot_desc->type(),
-                                            row_batch->tuple_data_pool());
+                            if (_output_slot_ids[parent_slot_desc->id()]) {
+                                // deep coopy
+                                RawValue::write(
+                                        child_tuple->get_slot(child_slot_desc->tuple_offset()),
+                                        dest_slot, parent_slot_desc->type(),
+                                        row_batch->tuple_data_pool());
+                            } else {
+                                // clear for unused slot
+                                StringValue* dest = reinterpret_cast<StringValue*>(dest_slot);
+                                dest->replace(nullptr, 0);
+                            }
                         }
                     }
                     parent_tuple_row->set_tuple(tuple_idx, tuple_ptr);
