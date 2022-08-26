@@ -50,9 +50,6 @@ private:
     std::string _expr_name;
 
     const bool _is_not_in;
-    bool _is_prepare;
-
-private:
     static const constexpr char* function_name = "in";
 };
 } // namespace doris::vectorized

@@ -30,22 +30,18 @@
 namespace doris::vectorized {
 
 VInPredicate::VInPredicate(const TExprNode& node)
-        : VExpr(node), _is_not_in(node.in_predicate.is_not_in), _is_prepare(false) {}
+        : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
-    if (_is_prepare) {
-        return Status::OK();
-    }
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
     }
 
     _expr_name =
             fmt::format("({} {} set)", _children[0]->expr_name(), _is_not_in ? "not_in" : "in");
-    _is_prepare = true;
 
     DCHECK(_children.size() >= 1);
     ColumnsWithTypeAndName argument_template;
