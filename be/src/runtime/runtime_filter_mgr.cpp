@@ -185,7 +185,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
                                                  const char* data) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    // SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
     {

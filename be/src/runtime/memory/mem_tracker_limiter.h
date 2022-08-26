@@ -70,11 +70,12 @@ public:
         // of the process malloc.
         // for fast, expect MemInfo::initialized() to be true.
         if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
-            return Status::MemoryLimitExceeded(
-                    "{}: TryConsume failed, bytes={} process physical memory consumption={} and "
-                    "virtual memory consumption={}, mem limit={}",
-                    _label, bytes, PerfCounters::get_vm_rss(), MemInfo::current_mem(),
-                    MemInfo::mem_limit());
+            auto st = Status::MemoryLimitExceeded(
+                    "Memory limit exceeded, process memory used {}Bytes exceed limit {}B, "
+                    "consuming_tracker={}, failed_alloc_size={}",
+                    PerfCounters::get_vm_rss(), MemInfo::mem_limit(), _label, bytes);
+            ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(st.get_error_msg());
+            return st;
         }
         return Status::OK();
     }
@@ -197,7 +198,8 @@ private:
                                  const std::list<MemTrackerLimiter*>& trackers,
                                  int64_t* logged_consumption);
 
-    Status mem_limit_exceeded_log(const std::string& msg);
+    static Status mem_limit_exceeded_construct(const std::string& msg);
+    void print_log_usage(const std::string& msg);
 
 private:
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit. Used in log_usage。
@@ -280,7 +282,9 @@ inline Status MemTrackerLimiter::try_consume(int64_t bytes) {
     // Walk the tracker tree top-down.
     for (i = _all_ancestors.size() - 1; i >= 0; --i) {
         MemTrackerLimiter* tracker = _all_ancestors[i];
-        if (tracker->limit() < 0) {
+        // Process tracker does not participate in the process memory limit, process tracker consumption is virtual memory,
+        // and there is a diff between the real physical memory value of the process. It is replaced by check_sys_mem_info.
+        if (tracker->limit() < 0 || _label == "Process") {
             tracker->_consumption->add(bytes); // No limit at this tracker.
         } else {
             // If TryConsume fails, we can try to GC, but we may need to try several times if
@@ -309,14 +313,14 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     RETURN_IF_ERROR(check_sys_mem_info(bytes));
     int i;
     // Walk the tracker tree top-down.
-    for (i = _all_ancestors.size() - 1; i >= 0; --i) {
-        MemTrackerLimiter* tracker = _all_ancestors[i];
-        if (tracker->limit() > 0) {
-            while (true) {
-                if (LIKELY(tracker->_consumption->current_value() + bytes < tracker->limit()))
-                    break;
-                RETURN_IF_ERROR(tracker->try_gc_memory(bytes));
-            }
+    for (i = _limited_ancestors.size() - 1; i >= 0; --i) {
+        MemTrackerLimiter* tracker = _limited_ancestors[i];
+        // Process tracker does not participate in the process memory limit, process tracker consumption is virtual memory,
+        // and there is a diff between the real physical memory value of the process. It is replaced by check_sys_mem_info.
+        if (tracker->label() == "Process") continue;
+        while (true) {
+            if (LIKELY(tracker->_consumption->current_value() + bytes < tracker->limit())) break;
+            RETURN_IF_ERROR(tracker->try_gc_memory(bytes));
         }
     }
     return Status::OK();
