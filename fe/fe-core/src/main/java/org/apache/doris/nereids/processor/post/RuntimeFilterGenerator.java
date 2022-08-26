@@ -71,9 +71,22 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     private final Map<ExprId, List<RuntimeFilterTarget>> filterTargetByTid = Maps.newHashMap();
 
-    private final SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+    private SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
 
-    private final FilterSizeLimits limits = new FilterSizeLimits(sessionVariable);
+    private FilterSizeLimits limits = new FilterSizeLimits(sessionVariable);
+
+    /**
+     * clear runtime filter and return the INSTANCE
+     * @param ctx connect context
+     * @return the INSTANCE
+     */
+    public static RuntimeFilterGenerator getInstance(ConnectContext ctx) {
+        INSTANCE.filterTargetByTid.clear();
+        INSTANCE.filtersByExprId.clear();
+        INSTANCE.sessionVariable = ConnectContext.get().getSessionVariable();
+        INSTANCE.limits = new FilterSizeLimits(INSTANCE.sessionVariable);
+        return INSTANCE;
+    }
 
     @Override
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> join, CascadesContext ctx) {

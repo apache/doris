@@ -66,7 +66,7 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                                     Expression expr = join.getHashJoinConjuncts().get(0);
                                     Assertions.assertTrue(expr instanceof EqualTo);
                                     List<RuntimeFilter> filters = join.getRuntimeFilters().getFiltersByExprId()
-                                            .get(((SlotReference) expr.child(1)).getExprId());
+                                            .get(((SlotReference) expr.child(0)).getExprId());
                                     return filters.size() == 1;
                                 })
                         )
@@ -99,7 +99,7 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                                 physicalHashJoin(
                                         physicalOlapScan(),
                                         physicalOlapScan()
-                                ).when(join -> join.getRuntimeFilters().getFiltersByExprId().keySet().size() == 3)
+                                ).when(join -> join.getRuntimeFilters().getFiltersByExprId().size() == 3)
                         )
                 );
     }
