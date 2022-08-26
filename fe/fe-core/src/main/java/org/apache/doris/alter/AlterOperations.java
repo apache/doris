@@ -24,8 +24,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
 
-import java.util.List;
 import java.util.EnumSet;
+import java.util.List;
 
 /*
  * AlterOperations contains a set alter operations generated from a AlterStmt's alter clause.
