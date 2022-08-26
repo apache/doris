@@ -30,6 +30,7 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/push_handler.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/utils.h"
 #include "util/cpu_info.h"
@@ -813,6 +814,54 @@ protected:
 
         _data_row_cursor.init(tablet->tablet_schema());
         _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
+        _json_rowset_meta = R"({
+            "rowset_id": 540081,
+            "tablet_id": 15673,
+            "txn_id": 4042,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "BETA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 2,
+            "end_version": 2,
+            "num_rows": 3929,
+            "total_disk_size": 84699,
+            "data_disk_size": 84464,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": -5350970832824939812,
+                "lo": -6717994719194512122
+            },
+            "creation_time": 1553765670,
+            "alpha_rowset_extra_meta_pb": {
+                "segment_groups": [
+                {
+                    "segment_group_id": 0,
+                    "num_segments": 2,
+                    "index_size": 132,
+                    "data_size": 576,
+                    "num_rows": 5,
+                    "zone_maps": [
+                    {
+                        "min": "MQ==",
+                        "max": "NQ==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "MQ==",
+                        "max": "Mw==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "J2J1c2gn",
+                        "max": "J3RvbSc=",
+                        "null_flag": false
+                    }
+                    ],
+                    "empty": false
+                }]
+            }
+        })";
     }
 
     void TearDown() {
@@ -824,11 +873,31 @@ protected:
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+        pb1->init_from_json(_json_rowset_meta);
+        pb1->set_start_version(start);
+        pb1->set_end_version(end);
+        pb1->set_creation_time(10000);
+    }
+
+    void add_delete_predicate(DeletePredicatePB& del_pred, int64_t version) {
+        RowsetMetaSharedPtr rsm(new RowsetMeta());
+        init_rs_meta(rsm, version, version);
+        RowsetId id;
+        id.init(version * 1000);
+        rsm->set_rowset_id(id);
+        rsm->set_delete_predicate(del_pred);
+        rsm->set_tablet_schema(tablet->tablet_schema());
+        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
+        tablet->add_rowset(rowset);
+    }
+
     std::string _tablet_path;
     RowCursor _data_row_cursor;
     TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
     DeleteHandler _delete_handler;
+    std::string _json_rowset_meta;
 };
 
 TEST_F(TestDeleteHandler, InitSuccess) {
@@ -858,7 +927,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred, 1);
+    add_delete_predicate(del_pred, 2);
 
     conditions.clear();
     condition.column_name = "k1";
@@ -871,7 +940,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred_2, 2);
+    add_delete_predicate(del_pred_2, 3);
 
     conditions.clear();
     condition.column_name = "k2";
@@ -884,7 +953,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred_3, 3);
+    add_delete_predicate(del_pred_3, 4);
 
     conditions.clear();
     condition.column_name = "k2";
@@ -897,19 +966,19 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_4);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred_4, 4);
+    add_delete_predicate(del_pred_4, 5);
 
-    // 从header文件中取出版本号小于等于7的过滤条件
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    // Get delete conditions which version <= 5
+    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(4, _delete_handler.conditions_num());
     std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
     EXPECT_EQ(4, conds_version.size());
     sort(conds_version.begin(), conds_version.end());
-    EXPECT_EQ(1, conds_version[0]);
-    EXPECT_EQ(2, conds_version[1]);
-    EXPECT_EQ(3, conds_version[2]);
-    EXPECT_EQ(4, conds_version[3]);
+    EXPECT_EQ(2, conds_version[0]);
+    EXPECT_EQ(3, conds_version[1]);
+    EXPECT_EQ(4, conds_version[2]);
+    EXPECT_EQ(5, conds_version[3]);
 
     _delete_handler.finalize();
 }
@@ -938,10 +1007,10 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     DeletePredicatePB del_pred;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred, 1);
+    add_delete_predicate(del_pred, 2);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(1, _delete_handler.conditions_num());
 
@@ -995,7 +1064,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred, 1);
+    add_delete_predicate(del_pred, 2);
 
     // 过滤条件2
     conditions.clear();
@@ -1009,7 +1078,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred_2, 2);
+    add_delete_predicate(del_pred_2, 3);
 
     // 过滤条件3
     conditions.clear();
@@ -1023,10 +1092,10 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred_3, 3);
+    add_delete_predicate(del_pred_3, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(3, _delete_handler.conditions_num());
 
@@ -1072,7 +1141,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     DeletePredicatePB del_pred;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred, 3);
+    add_delete_predicate(del_pred, 3);
 
     // 过滤条件2
     conditions.clear();
@@ -1086,10 +1155,10 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
-    tablet->add_delete_predicate(del_pred_2, 4);
+    add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(2, _delete_handler.conditions_num());
 

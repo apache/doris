@@ -165,8 +165,6 @@ protected:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
-
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
 
@@ -201,10 +199,10 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     // contains condition on key columns in agg or unique table or all column in dup tables
-    Conditions _conditions;
+    std::unique_ptr<Conditions> _conditions;
     // contains _conditions and condition on value columns, used for push down
     // conditions to base rowset of unique table
-    Conditions _all_conditions;
+    std::unique_ptr<Conditions> _all_conditions;
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;

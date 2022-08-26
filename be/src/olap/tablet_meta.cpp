@@ -580,6 +580,19 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
+// Find the rowset with specified version and return its schema
+// Currently, this API is used by delete condition
+const TabletSchemaSPtr TabletMeta::tablet_schema(Version version) const {
+    auto it = _rs_metas.begin();
+    while (it != _rs_metas.end()) {
+        if ((*it)->version() == version) {
+            return (*it)->tablet_schema();
+        }
+        ++it;
+    }
+    return nullptr;
+}
+
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
