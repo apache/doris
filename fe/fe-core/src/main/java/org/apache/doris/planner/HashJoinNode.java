@@ -301,13 +301,25 @@ public class HashJoinNode extends PlanNode {
                 outputTupleDescList.add(analyzer.getTupleDesc(tupleId));
             }
         }
+        SlotId firstMaterializedSlotId = null;
         for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                if (slotDescriptor.isMaterialized()
-                        && (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
-                    outputSlotIds.add(slotDescriptor.getId());
+                if (slotDescriptor.isMaterialized()) {
+                    if ((requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                        outputSlotIds.add(slotDescriptor.getId());
+                    }
+                    if (firstMaterializedSlotId == null) {
+                        firstMaterializedSlotId = slotDescriptor.getId();
+                    }
                 }
             }
+        }
+
+        // be may be possible to output correct row number without any column data in future
+        // but for now, in order to have correct output row number, should keep at least one slot.
+        // use first materialized slot if outputSlotIds is empty.
+        if (outputSlotIds.isEmpty() && firstMaterializedSlotId != null) {
+            outputSlotIds.add(firstMaterializedSlotId);
         }
         initHashOutputSlotIds(outputSlotIds, analyzer);
     }
