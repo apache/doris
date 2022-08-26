@@ -558,65 +558,6 @@ Status VSIMDJsonReader::read_json_column(Block& block,
     return (this->*_vhandle_json_callback)(block, slot_descs, is_empty_row, eof);
 }
 
-Status VSIMDJsonReader::_vhandle_simple_json(Block& block,
-                                             const std::vector<SlotDescriptor*>& slot_descs,
-                                             bool* is_empty_row, bool* eof) {
-    simdjson::ondemand::value objectValue;
-    simdjson::ondemand::array array;
-    do {
-        bool valid = false;
-        if (_next_line >= _total_lines) { // parse json and generic document
-            Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
-                continue; // continue to read next
-            }
-            RETURN_IF_ERROR(st);
-            if (*is_empty_row == true) {
-                return Status::OK();
-            }
-            if (_json_value.type() == simdjson::ondemand::json_type::array) {
-                array = _json_value.get_array();
-                _array_iter = array.begin();
-                _total_lines = array.count_elements();
-                if (_total_lines == 0) {
-                    // may be passing an empty json, such as "[]"
-                    RETURN_IF_ERROR(_append_error_msg("Empty json line", "", nullptr));
-                    if (*_scanner_eof) {
-                        *is_empty_row = true;
-                        return Status::OK();
-                    }
-                    continue;
-                }
-            } else {
-                _total_lines = 1; // only one row
-                objectValue = _json_value;
-            }
-            _next_line = 0;
-        }
-
-        if (_json_value.type() == simdjson::ondemand::json_type::array) { // handle case 1
-            objectValue = *_array_iter;
-            RETURN_IF_ERROR(_set_column_value(objectValue, block, slot_descs, &valid));
-            ++_array_iter;
-        } else { // handle case 2
-            RETURN_IF_ERROR(_set_column_value(_json_value, block, slot_descs, &valid));
-        }
-        _next_line++;
-        if (!valid) {
-            if (*_scanner_eof) {
-                // When _scanner_eof is true and valid is false, it means that we have encountered
-                // unqualified data and decided to stop the scan.
-                *is_empty_row = true;
-                return Status::OK();
-            }
-            continue;
-        }
-        *is_empty_row = false;
-        break; // get a valid row, then break
-    } while (_next_line <= _total_lines);
-    return Status::OK();
-}
-
 #define RETURN_IF_SIMDJSON_ERROR(error, col_name, valid)                                           \
     if (UNLIKELY(error)) {                                                                         \
         RETURN_IF_ERROR(_append_error_msg("Encounter error while iterate json", col_name, valid)); \
@@ -811,7 +752,6 @@ Status VSIMDJsonReader::_parse_json_doc(size_t* size, bool* eof) {
             }
             return Status::DataQualityError(fmt::to_string(error_msg));
         }
-        // _json_value = real_doc.value();
         RETURN_IF_SIMDJSON_ERROR(real_doc.get(_json_value), "", nullptr);
     } else {
         RETURN_IF_SIMDJSON_ERROR(_original_json_doc.get(_json_value), "", nullptr);
@@ -852,7 +792,6 @@ Status VSIMDJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     }
-
     return Status::OK();
 }
 
@@ -881,37 +820,122 @@ Status VSIMDJsonReader::_append_error_msg(std::string error_msg, std::string col
     return Status::OK();
 }
 
+Status VSIMDJsonReader::_vhandle_simple_json(Block& block,
+                                             const std::vector<SlotDescriptor*>& slot_descs,
+                                             bool* is_empty_row, bool* eof) {
+    simdjson::ondemand::value objectValue;
+    simdjson::ondemand::array array;
+    do {
+        bool valid = false;
+        try {
+            if (_next_line >= _total_lines) { // parse json and generic document
+                Status st = _parse_json(is_empty_row, eof);
+                if (st.is_data_quality_error()) {
+                    continue; // continue to read next
+                }
+                RETURN_IF_ERROR(st);
+                if (*is_empty_row == true) {
+                    return Status::OK();
+                }
+                if (_json_value.type() == simdjson::ondemand::json_type::array) {
+                    array = _json_value.get_array();
+                    _array_iter = array.begin();
+
+                    _total_lines = array.count_elements();
+                    if (_total_lines == 0) {
+                        // may be passing an empty json, such as "[]"
+                        RETURN_IF_ERROR(_append_error_msg("Empty json line", "", nullptr));
+                        if (*_scanner_eof) {
+                            *is_empty_row = true;
+                            return Status::OK();
+                        }
+                        continue;
+                    }
+                } else {
+                    _total_lines = 1; // only one row
+                    objectValue = _json_value;
+                }
+                _next_line = 0;
+            }
+
+            if (_json_value.type() == simdjson::ondemand::json_type::array) { // handle case 1
+                objectValue = *_array_iter;
+                RETURN_IF_ERROR(_set_column_value(objectValue, block, slot_descs, &valid));
+                ++_array_iter;
+            } else { // handle case 2
+                RETURN_IF_ERROR(_set_column_value(_json_value, block, slot_descs, &valid));
+            }
+            _next_line++;
+            if (!valid) {
+                if (*_scanner_eof) {
+                    // When _scanner_eof is true and valid is false, it means that we have encountered
+                    // unqualified data and decided to stop the scan.
+                    *is_empty_row = true;
+                    return Status::OK();
+                }
+                continue;
+            }
+            *is_empty_row = false;
+            break; // get a valid row, then break
+        } catch (simdjson::simdjson_error& e) {
+            fmt::memory_buffer error_msg;
+            fmt::format_to(error_msg, "Parse json data for array failed. code: {}, error info: {}",
+                           e.error(), e.what());
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    [&]() -> std::string { return ""; },
+                    [&]() -> std::string { return fmt::to_string(error_msg); }, eof));
+            _counter->num_rows_filtered++;
+            RETURN_IF_ERROR(_append_error_msg("Empty json line", "", nullptr));
+            if (!valid) {
+                if (*_scanner_eof) {
+                    // When _scanner_eof is true and valid is false, it means that we have encountered
+                    // unqualified data and decided to stop the scan.
+                    *is_empty_row = true;
+                    return Status::OK();
+                }
+                continue;
+            }
+            continue;
+        }
+    } while (_next_line <= _total_lines);
+    return Status::OK();
+}
+
 Status VSIMDJsonReader::_vhandle_flat_array_complex_json(
         Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
         bool* eof) {
     do {
-        if (_next_line >= _total_lines) {
-            Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
-                continue; // continue to read next
-            }
-            RETURN_IF_ERROR(st);
-            if (*is_empty_row == true) {
-                if (st == Status::OK()) {
-                    return Status::OK();
+        try {
+            if (_next_line >= _total_lines) {
+                Status st = _parse_json(is_empty_row, eof);
+                if (st.is_data_quality_error()) {
+                    continue; // continue to read next
                 }
-                if (_total_lines == 0) {
-                    continue;
+                RETURN_IF_ERROR(st);
+                if (*is_empty_row == true) {
+                    if (st == Status::OK()) {
+                        return Status::OK();
+                    }
+                    if (_total_lines == 0) {
+                        continue;
+                    }
                 }
+                simdjson::ondemand::array array;
+                RETURN_IF_SIMDJSON_ERROR(_json_value.get(array), "", nullptr);
+                _array_iter = array.begin();
             }
-            simdjson::ondemand::array array;
-            RETURN_IF_SIMDJSON_ERROR(_json_value.get(array), "", nullptr);
-            _array_iter = array.begin();
+            bool valid = true;
+            RETURN_IF_ERROR(_write_columns_by_jsonpath(*_array_iter, slot_descs, block, &valid));
+            ++_array_iter;
+            ++_next_line;
+            if (!valid) {
+                continue; // process next line
+            }
+            *is_empty_row = false;
+            break; // get a valid row, then break
+        } catch (simdjson::simdjson_error& e) {
+            RETURN_IF_SIMDJSON_ERROR(e.error(), "", nullptr);
         }
-        bool valid = true;
-        RETURN_IF_ERROR(_write_columns_by_jsonpath(*_array_iter, slot_descs, block, &valid));
-        ++_array_iter;
-        ++_next_line;
-        if (!valid) {
-            continue; // process next line
-        }
-        *is_empty_row = false;
-        break; // get a valid row, then break
     } while (_next_line <= _total_lines);
     return Status::OK();
 }
@@ -920,16 +944,20 @@ Status VSIMDJsonReader::_vhandle_nested_complex_json(Block& block,
                                                      const std::vector<SlotDescriptor*>& slot_descs,
                                                      bool* is_empty_row, bool* eof) {
     while (true) {
-        Status st = _parse_json(is_empty_row, eof);
-        if (st.is_data_quality_error()) {
-            continue; // continue to read next
+        try {
+            Status st = _parse_json(is_empty_row, eof);
+            if (st.is_data_quality_error()) {
+                continue; // continue to read next
+            }
+            RETURN_IF_ERROR(st);
+            if (*is_empty_row == true) {
+                return Status::OK();
+            }
+            *is_empty_row = false;
+            break; // read a valid row
+        } catch (simdjson::simdjson_error& e) {
+            RETURN_IF_SIMDJSON_ERROR(e.error(), "", nullptr);
         }
-        RETURN_IF_ERROR(st);
-        if (*is_empty_row == true) {
-            return Status::OK();
-        }
-        *is_empty_row = false;
-        break; // read a valid row
     }
     bool valid = true;
     RETURN_IF_ERROR(_write_columns_by_jsonpath(_json_value, slot_descs, block, &valid));
