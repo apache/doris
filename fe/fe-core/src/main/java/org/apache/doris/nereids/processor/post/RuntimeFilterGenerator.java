@@ -131,6 +131,9 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
      */
     public void translateRuntimeFilter(PhysicalHashJoin<Plan, Plan> join,
             HashJoinNode node, PlanTranslatorContext ctx) {
+        if (!sessionVariable.isEnableNereidsRuntimeFilter()) {
+            return;
+        }
         join.getHashJoinConjuncts().forEach(expr -> {
             ExprId exprId = ((SlotReference) expr.child(0)).getExprId();
             SlotRef ref = ctx.findSlotRef(exprId);
