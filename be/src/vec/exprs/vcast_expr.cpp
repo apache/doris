@@ -29,7 +29,7 @@ namespace doris::vectorized {
 
 doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                  VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     DCHECK_EQ(_children.size(), 1);
     auto child = _children[0];

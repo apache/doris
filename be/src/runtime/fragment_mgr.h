@@ -96,6 +96,8 @@ public:
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
+    bool _is_scan_node(const TPlanNodeType::type& type);
+
     // This is input params
     ExecEnv* _exec_env;
 

@@ -44,7 +44,5 @@ public:
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;
     std::string _expr_name;
-
-    bool _prepared;
 };
 } // namespace doris::vectorized

@@ -24,7 +24,6 @@ namespace doris::vectorized {
 
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node),
-          _is_prepare(false),
           _has_case_expr(node.case_expr.has_case_expr),
           _has_else_expr(node.case_expr.has_else_expr) {
     if (_has_case_expr) {
@@ -37,12 +36,7 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
 
 Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
-
-    if (_is_prepare) {
-        return Status::OK();
-    }
-    _is_prepare = true;
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
     DataTypes arguments;

@@ -118,23 +118,26 @@ public class SelectStmt extends QueryStmt {
     // Members that need to be reset to origin
     private SelectList originSelectList;
 
-    public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
-        super(orderByElement, limitElement);
+    /**
+     * Constructor for SelectStmt. This is used for the following cases.
+     * 1. SELECT * FROM VALUES(a1, b1, c1), (a2, b2, c2);
+     *
+     * @param valueList value list
+     */
+    public SelectStmt(ValueList valueList) {
+        super(null, LimitElement.NO_LIMIT);
         this.valueList = valueList;
         this.selectList = new SelectList();
         this.fromClause = new FromClause();
         this.colLabels = Lists.newArrayList();
     }
 
-    SelectStmt(
-            SelectList selectList,
+    SelectStmt(SelectList selectList,
             FromClause fromClause,
             Expr wherePredicate,
             GroupByClause groupByClause,
-            Expr havingPredicate,
-            ArrayList<OrderByElement> orderByElements,
-            LimitElement limitElement) {
-        super(orderByElements, limitElement);
+            Expr havingPredicate) {
+        super(null, LimitElement.NO_LIMIT);
         this.selectList = selectList;
         this.originSelectList = selectList.clone();
         if (fromClause == null) {
@@ -292,18 +295,18 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
-        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, expandView, tableMap, parentViewNameSet);
         for (TableRef tblRef : fromClause) {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
-                inlineStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                inlineStmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
             } else if (tblRef instanceof TableValuedFunctionRef) {
                 TableValuedFunctionRef tblFuncRef = (TableValuedFunctionRef) tblRef;
                 tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
-                         tblFuncRef.getTableFunction().getTable());
+                        tblFuncRef.getTableFunction().getTable());
             } else {
                 String dbName = tblRef.getName().getDb();
                 String tableName = tblRef.getName().getTbl();
@@ -320,14 +323,19 @@ public class SelectStmt extends QueryStmt {
                         .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
-                // check auth
-                if (!Env.getCurrentEnv().getAuth()
-                        .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                            dbName + ": " + tableName);
+                if (expandView && (table instanceof View)) {
+                    View view = (View) table;
+                    view.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
+                } else {
+                    // check auth
+                    if (!Env.getCurrentEnv().getAuth()
+                            .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                                dbName + ": " + tableName);
+                    }
+                    tableMap.put(table.getId(), table);
                 }
-                tableMap.put(table.getId(), table);
             }
         }
     }

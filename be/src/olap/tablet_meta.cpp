@@ -212,6 +212,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _storage_policy(b._storage_policy),
+          _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
@@ -577,6 +578,19 @@ Version TabletMeta::max_version() const {
         }
     }
     return max_version;
+}
+
+// Find the rowset with specified version and return its schema
+// Currently, this API is used by delete condition
+const TabletSchemaSPtr TabletMeta::tablet_schema(Version version) const {
+    auto it = _rs_metas.begin();
+    while (it != _rs_metas.end()) {
+        if ((*it)->version() == version) {
+            return (*it)->tablet_schema();
+        }
+        ++it;
+    }
+    return nullptr;
 }
 
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {

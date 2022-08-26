@@ -203,7 +203,8 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _process_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Process");
+    _process_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
     thread_context()->_thread_mem_tracker_mgr->init();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \

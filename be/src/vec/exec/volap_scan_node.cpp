@@ -285,7 +285,6 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 _status = status;
                 break;
             }
-            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -450,7 +449,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::shared_lock<std::shared_mutex> l(_rf_lock);
             WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                           "Something wrong for runtime filters: ");
-            (*(scanner->vconjunct_ctx_ptr()))->debug_valid();
         }
     }
 
@@ -1789,7 +1787,14 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
 
 Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector<VExpr*>& vexprs) {
     if (!vexprs.empty()) {
-        auto last_expr = _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
+        VExpr* last_expr = nullptr;
+        if (_vconjunct_ctx_ptr) {
+            last_expr = (*_vconjunct_ctx_ptr)->root();
+        } else {
+            DCHECK(_rf_vexpr_set.find(vexprs[0]) == _rf_vexpr_set.end());
+            last_expr = vexprs[0];
+            _rf_vexpr_set.insert(vexprs[0]);
+        }
         for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
             if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
                 continue;
@@ -1832,7 +1837,6 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
         }
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
-        new_vconjunct_ctx_ptr->debug_valid();
     }
     return Status::OK();
 }

@@ -116,7 +116,7 @@ suite("test_compaction_agg_keys") {
 
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,DataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
@@ -182,7 +182,7 @@ suite("test_compaction_agg_keys") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 16
+            def compactionStatusUrlIndex = 17
             sb.append("curl -X GET ")
             sb.append(tablet[compactionStatusUrlIndex])
             String command = sb.toString()

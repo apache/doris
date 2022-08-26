@@ -30,7 +30,8 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
-#include "olap/reader.h"
+#include "olap/predicate_creator.h"
+#include "olap/tablet.h"
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;
@@ -237,52 +238,54 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-Status DeleteHandler::init(TabletSchemaSPtr schema,
-                           const std::vector<DeletePredicatePB>& delete_conditions, int64_t version,
-                           const TabletReader* reader) {
+Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tablet_schema,
+                           const std::vector<DeletePredicatePB>& delete_conditions,
+                           int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
+    _predicate_mem_pool.reset(new MemPool());
 
     for (const auto& delete_condition : delete_conditions) {
         // Skip the delete condition with large version
         if (delete_condition.version() > version) {
             continue;
         }
-
+        // Need the tablet schema at the delete condition to parse the accurate column unique id
+        TabletSchemaSPtr delete_pred_related_schema = tablet->tablet_schema(
+                Version(delete_condition.version(), delete_condition.version()));
         DeleteConditions temp;
         temp.filter_version = delete_condition.version();
-        temp.del_cond = new (std::nothrow) Conditions();
+        temp.del_cond = new (std::nothrow) Conditions(tablet_schema);
 
         if (temp.del_cond == nullptr) {
             LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
-
-        temp.del_cond->set_tablet_schema(schema);
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
                 LOG(WARNING) << "fail to parse condition. [condition=" << sub_predicate << "]";
                 return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
             }
-
+            condition.__set_column_unique_id(
+                    delete_pred_related_schema->column(condition.column_name).unique_id());
             Status res = temp.del_cond->append_condition(condition);
             if (!res.ok()) {
                 LOG(WARNING) << "fail to append condition.res = " << res;
                 return res;
             }
-
-            if (reader != nullptr) {
-                auto predicate = reader->_parse_to_predicate(condition, true);
-                if (predicate != nullptr) {
-                    temp.column_predicate_vec.push_back(predicate);
-                }
+            auto predicate =
+                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
+            if (predicate != nullptr) {
+                temp.column_predicate_vec.push_back(predicate);
             }
         }
 
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
+            condition.__set_column_unique_id(
+                    delete_pred_related_schema->column(condition.column_name).unique_id());
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
             } else {
@@ -296,10 +299,8 @@ Status DeleteHandler::init(TabletSchemaSPtr schema,
                 LOG(WARNING) << "fail to append condition.res = " << res;
                 return res;
             }
-
-            if (reader != nullptr) {
-                temp.column_predicate_vec.push_back(reader->_parse_to_predicate(condition, true));
-            }
+            temp.column_predicate_vec.push_back(
+                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));

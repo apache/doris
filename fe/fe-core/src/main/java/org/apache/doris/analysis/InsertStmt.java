@@ -188,7 +188,7 @@ public class InsertStmt extends DdlStmt {
     public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
         // get dbs of statement
-        queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+        queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());

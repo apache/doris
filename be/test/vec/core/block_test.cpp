@@ -501,5 +501,13 @@ TEST(BlockTest, dump_data) {
     fill_block_with_array_string(block1);
     // Note: here we should set 'row_num' in dump_data
     EXPECT_GT(block1.dump_data(10).size(), 1);
+
+    vectorized::IColumn::Filter filter;
+    int size = block1.rows() / 2;
+    for (int i = 0; i < block1.rows(); i++) {
+        filter.push_back(i % 2);
+    }
+    vectorized::Block::filter_block_internal(&block1, filter, block1.columns());
+    EXPECT_EQ(size, block1.rows());
 }
 } // namespace doris

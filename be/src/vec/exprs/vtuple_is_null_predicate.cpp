@@ -36,7 +36,7 @@ VTupleIsNullPredicate::VTupleIsNullPredicate(const TExprNode& node)
 
 Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(0, _children.size());
     _column_to_check =
             _is_left_null_side ? desc.num_materialized_slots() : desc.num_materialized_slots() + 1;

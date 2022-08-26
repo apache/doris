@@ -257,6 +257,9 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
+    static void filter_block_internal(Block* block, const IColumn::Filter& filter,
+                                      uint32_t column_to_keep);
+
     static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
