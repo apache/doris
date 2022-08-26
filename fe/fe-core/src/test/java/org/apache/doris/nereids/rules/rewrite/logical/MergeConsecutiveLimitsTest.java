@@ -43,7 +43,7 @@ public class MergeConsecutiveLimitsTest {
 
         Assertions.assertEquals(2, limit.getLimit());
         Assertions.assertEquals(5, limit.getOffset());
-        Assertions.assertEquals(1, limit.children());
+        Assertions.assertEquals(1, limit.children().size());
         Assertions.assertTrue(limit.child(0) instanceof UnboundRelation);
 
     }
