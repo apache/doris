@@ -156,7 +156,7 @@ Status VOlapScanner::_init_tablet_reader_params(
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
-    bool single_version =
+    bool single_non_overlapping_version =
             (_tablet_reader_params.rs_readers.size() == 1 &&
              _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
              !_tablet_reader_params.rs_readers[0]
@@ -171,14 +171,14 @@ Status VOlapScanner::_init_tablet_reader_params(
                       ->rowset_meta()
                       ->is_segments_overlapping());
 
-    _tablet_reader_params.direct_mode = _aggregation || single_version;
+    bool has_replace_col = false;
+    RETURN_IF_ERROR(_init_return_columns(!single_non_overlapping_version, has_replace_col));
 
-    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
-
+    _tablet_reader_params.aggregation = has_replace_col ? false : _aggregation;
+    _tablet_reader_params.direct_mode = single_non_overlapping_version || _tablet_reader_params.aggregation;
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
-    _tablet_reader_params.aggregation = _aggregation;
     _tablet_reader_params.version = Version(0, _version);
 
     // Condition
@@ -266,7 +266,7 @@ Status VOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status VOlapScanner::_init_return_columns(bool need_seq_col) {
+Status VOlapScanner::_init_return_columns(bool need_seq_col, bool& has_replace_col) {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -288,9 +288,8 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         }
     }
 
-    // expand the sequence column
-    if (_tablet_schema->has_sequence_col() && need_seq_col) {
-        bool has_replace_col = false;
+    has_replace_col = false;
+    if (_tablet->keys_type() == UNIQUE_KEYS || _tablet->keys_type() == AGG_KEYS) {
         for (auto col : _return_columns) {
             if (_tablet_schema->column(col).aggregation() ==
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
@@ -298,10 +297,14 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
                 break;
             }
         }
-        if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                         sequence_col_idx) == _return_columns.end()) {
-            _return_columns.push_back(sequence_col_idx);
+
+        // handle SEQ
+        if (_tablet_schema->has_sequence_col() && need_seq_col && has_replace_col) {
+            auto sequence_col_idx = _tablet_schema->sequence_col_idx();
+            if (std::find(_return_columns.begin(), _return_columns.end(),
+                      sequence_col_idx) == _return_columns.end()) {
+                _return_columns.push_back(sequence_col_idx);
+            }
         }
     }
 

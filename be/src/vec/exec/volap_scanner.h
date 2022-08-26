@@ -97,7 +97,7 @@ private:
             const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                     bloom_filters,
             const std::vector<FunctionFilter>& function_filters);
-    Status _init_return_columns(bool need_seq_col);
+    Status _init_return_columns(bool need_seq_col, bool &has_replace_col);
 
     // Update profile that need to be reported in realtime.
     void _update_realtime_counter();
