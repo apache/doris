@@ -34,9 +34,15 @@ under the License.
 
 `GET /rest/v2/manager/query/profile/text/{query_id}`
 
+`GET /rest/v2/manager/query/profile/graph/{query_id}`
+
+`GET /rest/v2/manager/query/profile/json/{query_id}`
+
 `GET /rest/v2/manager/query/profile/fragments/{query_id}`
 
-`GET /rest/v2/manager/query/profile/graph/{query_id}`
+`GET /rest/v2/manager/query/current_queries`
+
+`GET /rest/v2/manager/query/kill/{query_id}`
 
 ## Get the query information
 
@@ -342,7 +348,7 @@ Same as `show proc "/current_query_stmts"`, return current running queries.
 
 ## Cancel query
 
-`POST /rest/v2/manager/query/kill/{connection_id}`
+`POST /rest/v2/manager/query/kill/{query_id}`
 
 ### Description
 
@@ -350,9 +356,9 @@ Cancel query of specified connection.
     
 ### Path parameters
 
-* `{connection_id}`
+* `{query_id}`
 
-    connection id
+    query id. You can get query id by `trance_id` api.
 
 ### Query parameters
 
@@ -362,7 +368,7 @@ Cancel query of specified connection.
 {
     "msg": "success",
     "code": 0,
-    "data": "",
+    "data": null,
     "count": 0
 }
 ```
