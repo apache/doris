@@ -434,8 +434,6 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 }
 
 void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
-    _conditions = std::make_unique<Conditions>(_tablet_schema);
-    _all_conditions = std::make_unique<Conditions>(_tablet_schema);
     for (auto& condition : read_params.conditions) {
         // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
         // is too complicated to modify related interface
