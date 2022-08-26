@@ -45,6 +45,7 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     public PhysicalDistribution(DistributionSpec spec, Optional<GroupExpression> groupExpression,
                                 LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
+        this.distributionSpec = spec;
     }
 
     @Override

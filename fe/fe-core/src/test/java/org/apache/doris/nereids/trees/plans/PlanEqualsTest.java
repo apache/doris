@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -47,6 +48,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -193,7 +195,12 @@ public class PlanEqualsTest {
             @Mocked DistributionSpecHash distributionSpecHash) {
         List<String> qualifier = Lists.newArrayList();
 
-        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, distributionSpecHash, Optional.empty(),
+        ArrayList<Long> selectedTabletId = Lists.newArrayList();
+        for (Partition partition : olapTable.getAllPartitions()) {
+            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
+        }
+        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, olapTable.getBaseIndexId(),
+                selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash, Optional.empty(),
                 logicalProperties);
 
         Assertions.assertEquals(olapScan, olapScan);
