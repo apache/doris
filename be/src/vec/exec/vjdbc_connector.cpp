@@ -70,6 +70,7 @@ Status JdbcConnector::open() {
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Long", &_executor_int64_t_clazz));
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Float", &_executor_float_clazz));
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Float", &_executor_double_clazz));
+    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/String", &_executor_string_clazz));
     RETURN_IF_ERROR(_register_func_id(env));
 
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
@@ -78,9 +79,9 @@ Status JdbcConnector::open() {
         std::string local_location;
         std::hash<std::string> hash_str;
         auto function_cache = UserFunctionCache::instance();
-        RETURN_IF_ERROR(function_cache->get_jarpath(hash_str(_conn_param.resource_name),
-                                                    _conn_param.driver_path,
-                                                    _conn_param.driver_checksum, &local_location));
+        RETURN_IF_ERROR(function_cache->get_jarpath(
+                std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
+                _conn_param.driver_checksum, &local_location));
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_jar_location_path(local_location);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
@@ -196,6 +197,11 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
                                 _executor_get_list_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "size", "()I", _executor_get_list_size_id));
+    RETURN_IF_ERROR(register_id(_executor_string_clazz, "getBytes", "(Ljava/lang/String;)[B",
+                                _get_bytes_id));
+    RETURN_IF_ERROR(
+            register_id(_executor_object_clazz, "toString", "()Ljava/lang/String;", _to_string_id));
+
     return Status::OK();
 }
 
@@ -284,20 +290,25 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
                 decimal_slot.value());
         break;
     }
-    default:
-        DCHECK(false) << "bad slot type: " << slot_desc->type();
-        break;
+    default: {
+        std::string error_msg =
+                fmt::format("Fail to convert jdbc value to {} on column: {}.",
+                            slot_desc->type().debug_string(), slot_desc->col_name());
+        return Status::InternalError(std::string(error_msg));
     }
-
+    }
     return Status::OK();
 }
 
 std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
-    jmethodID obj_id = env->GetMethodID(_executor_object_clazz, "toString", "()Ljava/lang/String;");
-    jobject jstr = env->CallObjectMethod(jobj, obj_id);
-    const char* c_chars = env->GetStringUTFChars((jstring)jstr, nullptr);
-    std::string str(c_chars);
-    env->ReleaseStringUTFChars((jstring)jstr, c_chars);
+    jobject jstr = env->CallObjectMethod(jobj, _to_string_id);
+    const jbyteArray stringJbytes =
+            (jbyteArray)env->CallObjectMethod(jstr, _get_bytes_id, env->NewStringUTF("UTF-8"));
+    size_t length = (size_t)env->GetArrayLength(stringJbytes);
+    jbyte* pBytes = env->GetByteArrayElements(stringJbytes, nullptr);
+    std::string str = std::string((char*)pBytes, length);
+    env->ReleaseByteArrayElements(stringJbytes, pBytes, JNI_ABORT);
+    env->DeleteLocalRef(stringJbytes);
     return str;
 }
 

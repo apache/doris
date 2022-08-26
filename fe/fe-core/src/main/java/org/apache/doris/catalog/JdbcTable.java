@@ -56,6 +56,7 @@ public class JdbcTable extends Table {
     static {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
         tempMap.put("mysql", TOdbcTableType.MYSQL);
+        tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 

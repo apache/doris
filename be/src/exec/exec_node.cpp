@@ -25,7 +25,6 @@
 
 #include <sstream>
 
-
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/analytic_eval_node.h"

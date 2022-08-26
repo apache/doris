@@ -65,6 +65,7 @@ private:
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
+    jclass _executor_string_clazz;
     jobject _executor_obj;
     jmethodID _executor_ctor_id;
     jmethodID _executor_query_id;
@@ -75,6 +76,8 @@ private:
     jmethodID _executor_get_list_size_id;
     jmethodID _executor_convert_date_id;
     jmethodID _executor_convert_datetime_id;
+    jmethodID _get_bytes_id;
+    jmethodID _to_string_id;
 
 #define FUNC_VARI_DECLARE(RETURN_TYPE)                                \
     RETURN_TYPE _jobject_to_##RETURN_TYPE(JNIEnv* env, jobject jobj); \
