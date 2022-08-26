@@ -1588,3 +1588,22 @@ Translated with www.DeepL.com/Translator (free version)
 * Description: at least the number of versions to be compaction, and the number of rowsets with a small amount of data in the selection. If it is greater than this value, the real compaction will be carried out
 * Default: 10
 
+### `generate_cache_cleaner_task_interval_sec`
+* Type：int64
+* Description：Cleaning interval of cache files, in seconds
+* Default：43200（12 hours）
+
+### `file_cache_type`
+* Type：string
+* Description：Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
+* Default：""
+
+### `max_sub_cache_file_size`
+* Type：int64
+* Description：Cache files using sub_ file_ The maximum size of the split file during cache, unit: B
+* Default：104857600（100MB）
+
+### `file_cache_alive_time_sec`
+* Type：int64
+* Description：Save time of cache file, in seconds
+* Default：604800（1 week）
