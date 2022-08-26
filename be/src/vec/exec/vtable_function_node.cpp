@@ -166,6 +166,10 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
 
             // 1. copy data from child_block.
             for (int i = 0; i < _child_slots.size(); i++) {
+                if (!slot_need_copy(i)) {
+                    columns[i]->insert_default();
+                    continue;
+                }
                 auto src_column = _child_block->get_by_position(i).column;
                 columns[i]->insert_from(*src_column, _cur_child_offset);
             }

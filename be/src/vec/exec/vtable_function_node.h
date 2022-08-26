@@ -33,6 +33,26 @@ public:
 private:
     Status _process_next_child_row() override;
 
+    /*  Now the output tuples for table function node is base_table_tuple + tf1 + tf2 + ...
+        But not all slots are used, the real used slots are inside table_function_node.outputSlotIds.
+        For case like explode_bitmap:
+            SELECT a2,count(*) as a3 FROM A WHERE a1 IN
+                (SELECT c1 FROM B LATERAL VIEW explode_bitmap(b1) C as c1)
+            GROUP BY a2 ORDER BY a3;
+        Actually we only need to output column c1, no need to output columns in bitmap table B.
+        Copy large bitmap columns are very expensive and slow.
+
+        Here we check if the slot is realy used, otherwise we avoid copy it and just insert a default value.
+
+        A better solution is:
+            1. FE: create a new output tuple based on the real output slots;
+            2. BE: refractor (V)TableFunctionNode output rows based no the new tuple;
+    */
+    inline bool slot_need_copy(SlotId slot_id) const {
+        auto id = _output_slots[slot_id]->id();
+        return (id < _output_slot_ids.size()) && (_output_slot_ids[id]);
+    }
+
     using TableFunctionNode::get_next;
 
     Status get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
