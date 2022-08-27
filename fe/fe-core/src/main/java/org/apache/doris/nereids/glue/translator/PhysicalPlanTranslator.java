@@ -388,6 +388,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Nereids does not care about output order of join,
         // but BE need left child's output must be before right child's output.
         // So we need to swap the output order of left and right child if necessary.
+        // TODO: revert this after Nereids could ensure the output order is correct.
         TupleDescriptor outputDescriptor = context.generateTupleDesc();
         Map<ExprId, SlotReference> slotReferenceMap = Maps.newHashMap();
         hashJoin.getOutput().stream()
