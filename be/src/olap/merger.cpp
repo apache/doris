@@ -109,7 +109,8 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 
     TabletReader::ReaderParams reader_params;
     vectorized::Block block;
-    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(tablet, reader_type, input_rowsets, &reader_params, &block));
+    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
+            tablet, reader_type, input_rowsets, &reader_params, &block));
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;

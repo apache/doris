@@ -563,7 +563,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == READER_BASE_COMPACTION || read_params.reader_type == READER_CHECKSUM) {
+    if (read_params.reader_type == READER_BASE_COMPACTION ||
+        read_params.reader_type == READER_CHECKSUM) {
         _filter_delete = true;
     }
 
@@ -571,13 +572,14 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                                 read_params.version.second);
 }
 
-Status TabletReader::init_reader_params_and_create_block(TabletSharedPtr tablet, ReaderType reader_type,
-                                                         const std::vector<RowsetSharedPtr>& input_rowsets,
-                                                         TabletReader::ReaderParams* reader_params,
-                                                         vectorized::Block* block) {
+Status TabletReader::init_reader_params_and_create_block(
+        TabletSharedPtr tablet, ReaderType reader_type,
+        const std::vector<RowsetSharedPtr>& input_rowsets,
+        TabletReader::ReaderParams* reader_params, vectorized::Block* block) {
     reader_params->tablet = tablet;
     reader_params->reader_type = reader_type;
-    reader_params->version = Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
+    reader_params->version =
+            Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
 
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
