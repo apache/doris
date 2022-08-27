@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -33,9 +34,8 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,23 +43,28 @@ import java.util.Map;
  * Context of physical plan.
  */
 public class PlanTranslatorContext {
-    private final List<PlanFragment> planFragmentList = Lists.newArrayList();
+    private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private final DescriptorTable descTable = new DescriptorTable();
 
     /**
-     * Map expressions of new optimizer to the stale expr.
+     * index from Nereids' slot to legacy slot.
      */
-    private final Map<ExprId, SlotRef> exprIdSlotRefMap = new HashMap<>();
+    private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
 
-    private final List<ScanNode> scanNodeList = new ArrayList<>();
+    /**
+     * Inverted index from legacy slot to Nereids' slot.
+     */
+    private final Map<SlotId, ExprId> slotIdToExprId = Maps.newHashMap();
+
+    private final List<ScanNode> scanNodes = Lists.newArrayList();
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
-    public List<PlanFragment> getPlanFragmentList() {
-        return planFragmentList;
+    public List<PlanFragment> getPlanFragments() {
+        return planFragments;
     }
 
     public TupleDescriptor generateTupleDesc() {
@@ -79,23 +84,29 @@ public class PlanTranslatorContext {
     }
 
     public void addPlanFragment(PlanFragment planFragment) {
-        this.planFragmentList.add(planFragment);
+        this.planFragments.add(planFragment);
     }
 
-    public void addExprIdPair(ExprId exprId, SlotRef slotRef) {
-        exprIdSlotRefMap.put(exprId, slotRef);
+    public void addExprIdSlotRefPair(ExprId exprId, SlotRef slotRef) {
+        exprIdToSlotRef.put(exprId, slotRef);
+        slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
     public SlotRef findSlotRef(ExprId exprId) {
-        return exprIdSlotRefMap.get(exprId);
+        return exprIdToSlotRef.get(exprId);
     }
 
     public void addScanNode(ScanNode scanNode) {
-        scanNodeList.add(scanNode);
+        scanNodes.add(scanNode);
     }
 
-    public List<ScanNode> getScanNodeList() {
-        return scanNodeList;
+    public ExprId findExprId(SlotId slotId) {
+        return slotIdToExprId.get(slotId);
+    }
+
+
+    public List<ScanNode> getScanNodes() {
+        return scanNodes;
     }
 
     /**
@@ -110,7 +121,7 @@ public class PlanTranslatorContext {
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
-        this.addExprIdPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
+        this.addExprIdSlotRefPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
         return slotDescriptor;
     }
 
