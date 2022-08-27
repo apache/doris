@@ -83,7 +83,7 @@ public class StatsDeriveResult {
             }
         }
         if (!exist) {
-            return 1;
+            count = (float) 1.0;
         }
         return count * rowCount;
     }
