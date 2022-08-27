@@ -103,42 +103,19 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 }
 
 Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                              TabletSchemaSPtr cur_tablet_schema,
-                              const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                              const std::vector<RowsetSharedPtr>& input_rowsets,
                               RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
-    vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
-    reader_params.tablet = tablet;
-    reader_params.reader_type = reader_type;
-    reader_params.rs_readers = src_rowset_readers;
-    reader_params.version = dst_rowset_writer->version();
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
-                  std::inserter(reader_params.delete_predicates,
-                                reader_params.delete_predicates.begin()));
-    }
-    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
-    merge_tablet_schema->copy_from(*cur_tablet_schema);
-    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_pb : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(
-                tablet->tablet_schema(Version(del_pred_pb.version(), del_pred_pb.version())));
-    }
-    reader_params.tablet_schema = merge_tablet_schema;
-    if (tablet->enable_unique_key_merge_on_write()) {
-        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-    }
+    vectorized::Block block;
+    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(tablet, reader_type, input_rowsets, &reader_params, &block));
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
     }
 
-    reader_params.return_columns.resize(cur_tablet_schema->num_columns());
-    std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
-    reader_params.origin_return_columns = &reader_params.return_columns;
+    vectorized::BlockReader reader;
     RETURN_NOT_OK(reader.init(reader_params));
 
     if (reader_params.record_rowids) {
@@ -152,7 +129,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         }
     }
 
-    vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof) {

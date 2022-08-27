@@ -1652,17 +1652,9 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
 Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
                                                    RowsetWriter* rowset_writer,
                                                    TabletSharedPtr new_tablet) {
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    for (auto& rowset : src_rowsets) {
-        RowsetReaderSharedPtr rs_reader;
-        RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
-        rs_readers.push_back(rs_reader);
-    }
-
     Merger::Statistics stats;
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, READER_ALTER_TABLE,
-                                           new_tablet->tablet_schema(), rs_readers, rowset_writer,
-                                           &stats));
+                                           src_rowsets, rowset_writer, &stats));
 
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);

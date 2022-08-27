@@ -150,6 +150,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
+    // TODO: dataroaring. Remove below code after non vectorized code is removed.
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
@@ -171,8 +172,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     if (use_vectorized_compaction) {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
-                                     _input_rs_readers, _output_rs_writer.get(), &stats);
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rowsets, _output_rs_writer.get(), &stats);
     } else {
         res = Merger::merge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
                                     _input_rs_readers, _output_rs_writer.get(), &stats);

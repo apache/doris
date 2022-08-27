@@ -43,8 +43,7 @@ public:
                                 RowsetWriter* dst_rowset_writer, Statistics* stats_output);
 
     static Status vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                 TabletSchemaSPtr cur_tablet_schema,
-                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                 const std::vector<RowsetSharedPtr>& input_rowsets,
                                  RowsetWriter* dst_rowset_writer, Statistics* stats_output);
 };
 

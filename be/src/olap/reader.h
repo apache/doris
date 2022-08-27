@@ -146,6 +146,10 @@ public:
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
+    static Status init_reader_params_and_create_block(TabletSharedPtr tablet, ReaderType reader_type,
+                                                      const std::vector<RowsetSharedPtr>& input_rowsets,
+                                                      TabletReader::ReaderParams* reader_params,
+                                                      vectorized::Block* block);
 
 protected:
     friend class CollectIterator;

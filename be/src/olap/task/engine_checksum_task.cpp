@@ -20,6 +20,7 @@
 #include "olap/row.h"
 #include "olap/tuple_reader.h"
 #include "runtime/thread_context.h"
+#include "vec/olap/block_reader.h"
 
 namespace doris {
 
@@ -54,32 +55,20 @@ Status EngineChecksumTask::_compute_checksum() {
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
-    TupleReader reader;
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version version(0, _version);
+    Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
+    if (acquire_reader_st != Status::OK()) {
+        LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
+                     << "res=" << acquire_reader_st;
+        return acquire_reader_st;
+    }
+
+    vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
-    reader_params.tablet = tablet;
-    reader_params.reader_type = READER_CHECKSUM;
-    reader_params.version = Version(0, _version);
-
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        const RowsetSharedPtr message = tablet->rowset_with_max_version();
-        if (message == nullptr) {
-            LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
-            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
-        }
-
-        Status acquire_reader_st =
-                tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
-        if (acquire_reader_st != Status::OK()) {
-            LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
-                         << "res=" << acquire_reader_st;
-            return acquire_reader_st;
-        }
-    }
-
-    for (size_t i = 0; i < tablet->tablet_schema()->num_columns(); ++i) {
-        reader_params.return_columns.push_back(i);
-    }
+    vectorized::Block block;
+    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(tablet, READER_CHECKSUM,
+                                                                    input_rowsets, &reader_params, &block));
 
     res = reader.init(reader_params);
     if (!res.ok()) {
@@ -87,38 +76,37 @@ Status EngineChecksumTask::_compute_checksum() {
         return res;
     }
 
+    LOG(INFO) << "yyq columns " << reader_params.return_columns.size();
     RowCursor row;
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
-    std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
-    res = row.init(tablet->tablet_schema(), reader_params.return_columns);
+    res = row.init(reader_params.tablet_schema, reader_params.return_columns);
     if (!res.ok()) {
         LOG(WARNING) << "failed to init row cursor. res = " << res;
         return res;
     }
-    row.allocate_memory_for_string_type(tablet->tablet_schema());
+    row.allocate_memory_for_string_type(reader_params.tablet_schema);
 
     bool eof = false;
     uint32_t row_checksum = 0;
-    while (true) {
-        Status res =
-                reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
-        if (res.ok() && eof) {
-            VLOG_NOTICE << "reader reads to the end.";
-            break;
-        } else if (!res.ok()) {
+    SipHash block_hash;
+    uint64_t rows = 0;
+    while (!eof) {
+        res = reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof);
+        if (!res.ok()) {
             LOG(WARNING) << "fail to read in reader. res = " << res;
             return res;
         }
-        // The value of checksum is independent of the sorting of data rows.
-        row_checksum ^= hash_row(row, 0);
-        // the memory allocate by mem pool has been copied,
-        // so we should release memory immediately
-        mem_pool->clear();
-        agg_object_pool.reset(new ObjectPool());
+        if (VLOG_ROW_IS_ON) {
+            VLOG_ROW << "block " << block.dump_data();
+        }
+        block.update_hash(block_hash);
+        rows += block.rows();
+        block.clear_column_data();
     }
 
-    LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
-    *_checksum = row_checksum;
+    LOG(INFO) << "success to finish compute checksum. tablet_id = " << _tablet_id
+              << ", rows = " << rows << ", checksum=" << row_checksum;
+    uint64_t checksum64 = block_hash.get64();
+    *_checksum = (checksum64 >> 32) ^ (checksum64 & 0xffffffff);
     return Status::OK();
 }
 
