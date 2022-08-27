@@ -259,6 +259,10 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             status = SnapshotManager::instance()->convert_rowset_ids(
                     local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
                     _clone_req.schema_hash);
+        } else {
+            LOG_WARNING("failed to download snapshot from remote BE")
+                    .tag("url", remote_url_prefix)
+                    .error(status);
         }
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
