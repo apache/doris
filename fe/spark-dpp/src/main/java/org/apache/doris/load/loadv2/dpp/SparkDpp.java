@@ -572,11 +572,8 @@ public final class SparkDpp implements java.io.Serializable {
         }
         // 2. process the mapping columns
         for (String mappingColumn : mappingColumns) {
-            String mappingDescription = columnMappings.get(mappingColumn).toDescription();
-            if (mappingDescription.toLowerCase().contains("hll_hash")) {
-                continue;
-            }
-            // here should cast data type to dst column type
+            String mappingDescription = columnMappings.get(mappingColumn).toDescriptionForSpark();
+            // here should mapping columns and cast data type to dst column type
             dataframe = dataframe.withColumn(mappingColumn,
                     functions.expr(mappingDescription).cast(dstTableSchema.apply(mappingColumn).dataType()));
         }

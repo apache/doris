@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2.etl;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -591,6 +592,19 @@ public class EtlJobConfig implements Serializable {
                 sb.deleteCharAt(sb.length() - 1);
                 sb.append(")");
             }
+            return sb.toString();
+        }
+
+        public String toDescriptionForSpark() {
+            StringBuilder sb = new StringBuilder();
+            if (functionName == null || !(functionName.contains("bitmap") || functionName.contains("hll"))) {
+                return toDescription();
+            }
+            sb.append("(");
+            if (args != null) {
+                sb.append(Joiner.on(",").join(args));
+            }
+            sb.append(")");
             return sb.toString();
         }
 
