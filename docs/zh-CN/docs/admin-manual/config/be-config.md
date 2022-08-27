@@ -1100,7 +1100,7 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 
 * 类型：int32
 * 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
-* 默认值：256
+* 默认值：64
 
 ### `send_batch_thread_pool_queue_size`
 
@@ -1187,7 +1187,7 @@ BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
 
 ### `storage_flood_stage_usage_percent`
 
-默认值：95 （95%）
+默认值：90 （90%）
 
 storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两个配置限制了数据目录的磁盘容量的最大使用。 如果这两个阈值都达到，则无法将更多数据写入该数据目录。 数据目录的最大已用容量百分比
 
