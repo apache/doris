@@ -207,7 +207,7 @@ public class DecimalLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        return value.toString();
+        return value.stripTrailingZeros().toPlainString();
     }
 
     @Override

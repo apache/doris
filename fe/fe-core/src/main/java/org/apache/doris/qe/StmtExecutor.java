@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
@@ -972,8 +974,22 @@ public class StmtExecutor implements ProfileWriter {
             Expr expr = item.getExpr();
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
-                columns.add(new Column(columnName, PrimitiveType.VARCHAR));
-                data.add(expr.getStringValue());
+                columns.add(new Column(columnName, expr.getType()));
+                if (expr instanceof NullLiteral) {
+                    data.add(null);
+                } else if (expr instanceof FloatLiteral && (expr.getType() == Type.TIME
+                        || expr.getType() == Type.TIMEV2)) {
+                    // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
+                    String timeStr = expr.getStringValue();
+                    data.add(timeStr.substring(1, timeStr.length() - 1));
+                } else if (expr instanceof ArrayLiteral) {
+                    // arrayStr from ArrayLiteral need to be removed ARRAY keyword to be consistent with be
+                    // for example ARRAY[1, 2] -> [1, 2]
+                    String arrayStr = expr.getStringValue();
+                    data.add(arrayStr.substring(5));
+                } else {
+                    data.add(expr.getStringValue());
+                }
             } else {
                 return false;
             }
@@ -998,18 +1014,18 @@ public class StmtExecutor implements ProfileWriter {
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
+        if (queryStmt.isExplain()) {
+            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
+            handleExplainStmt(explainString);
+            return;
+        }
+
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (handleSelectRequestInFe(parsedSelectStmt)) {
                 return;
             }
-        }
-
-        if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(queryStmt.getExplainOptions());
-            handleExplainStmt(explainString);
-            return;
         }
 
         MysqlChannel channel = context.getMysqlChannel();

@@ -133,7 +133,7 @@ public class FloatLiteral extends LiteralExpr {
         if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
-        return Double.toString(value);
+        return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
