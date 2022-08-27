@@ -76,15 +76,6 @@ Status EngineChecksumTask::_compute_checksum() {
         return res;
     }
 
-    LOG(INFO) << "yyq columns " << reader_params.return_columns.size();
-    RowCursor row;
-    res = row.init(reader_params.tablet_schema, reader_params.return_columns);
-    if (!res.ok()) {
-        LOG(WARNING) << "failed to init row cursor. res = " << res;
-        return res;
-    }
-    row.allocate_memory_for_string_type(reader_params.tablet_schema);
-
     bool eof = false;
     uint32_t row_checksum = 0;
     SipHash block_hash;

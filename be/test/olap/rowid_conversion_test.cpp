@@ -355,14 +355,6 @@ protected:
             input_rowsets.push_back(rowset);
         }
 
-        // create input rowset reader
-        vector<RowsetReaderSharedPtr> input_rs_readers;
-        for (auto& rowset : input_rowsets) {
-            RowsetReaderSharedPtr rs_reader;
-            EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
-            input_rs_readers.push_back(std::move(rs_reader));
-        }
-
         // create output rowset writer
         RowsetWriterContext writer_context;
         create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
@@ -377,7 +369,7 @@ protected:
         Merger::Statistics stats;
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
-        s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema, input_rs_readers,
+        s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, input_rowsets,
                                    output_rs_writer.get(), &stats);
         EXPECT_TRUE(s.ok());
         RowsetSharedPtr out_rowset = output_rs_writer->build();
