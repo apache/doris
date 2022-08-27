@@ -51,11 +51,11 @@ void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count)
     auto [min, max] = std::minmax_element(vals, vals + count);
     if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
         _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
-                                                 reinterpret_cast<const void*>(&min));
+                                                 reinterpret_cast<const void*>(min));
     }
     if (unaligned_load<ValType>(max) > unaligned_load<ValType>(_page_zone_map.max_value)) {
         _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
-                                                 reinterpret_cast<const void*>(&max));
+                                                 reinterpret_cast<const void*>(max));
     }
 }
 
