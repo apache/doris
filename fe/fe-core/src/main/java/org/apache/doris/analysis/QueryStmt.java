@@ -28,7 +28,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -440,17 +439,17 @@ public abstract class QueryStmt extends StatementBase {
         }
         if (pos > resultExprs.size()) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal exceeds number of items in select list: "
-                            + expr.toSql());
+                    errorPrefix + ": ordinal exceeds number of items in select list: " + expr.toSql());
         }
 
         // Create copy to protect against accidentally shared state.
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, boolean expandView, Map<Long, Table> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         if (withClause_ != null) {
-            withClause_.getTables(analyzer, tableMap, parentViewNameSet);
+            withClause_.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
@@ -462,6 +461,7 @@ public abstract class QueryStmt extends StatementBase {
 
     /**
      * collect all exprs of a QueryStmt to a map
+     *
      * @param exprMap
      */
     public void collectExprs(Map<String, Expr> exprMap) {
@@ -526,7 +526,8 @@ public abstract class QueryStmt extends StatementBase {
     //                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet. issue link: https://github.com/apache/incubator-doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet) throws AnalysisException;
+    public abstract void getTables(Analyzer analyzer, boolean expandView, Map<Long, Table> tables,
+            Set<String> parentViewNameSet) throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.

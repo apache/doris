@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -95,21 +96,23 @@ public class WithClause implements ParseNode {
     private WithClause(WithClause other) {
         Preconditions.checkNotNull(other);
         views_ = Lists.newArrayList();
-        for (View view: other.views_) {
-            views_.add(new View(view.getName(), view.getQueryStmt().clone(),
-                    view.getOriginalColLabels()));
+        for (View view : other.views_) {
+            views_.add(new View(view.getName(), view.getQueryStmt().clone(), view.getOriginalColLabels()));
         }
     }
 
     public void reset() {
-        for (View view: views_) view.getQueryStmt().reset();
+        for (View view : views_) {
+            view.getQueryStmt().reset();
+        }
     }
 
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, Table> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         for (View view : views_) {
             QueryStmt stmt = view.getQueryStmt();
             parentViewNameSet.add(view.getName());
-            stmt.getTables(analyzer, tableMap, parentViewNameSet);
+            stmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 

@@ -290,13 +290,14 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
-        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, Table> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, expandView, tableMap, parentViewNameSet);
         for (TableRef tblRef : fromClause_) {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
-                inlineStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                inlineStmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
             } else {
                 String dbName = tblRef.getName().getDb();
                 String tableName = tblRef.getName().getTbl();
@@ -317,16 +318,19 @@ public class SelectStmt extends QueryStmt {
                 Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
                 Table table = db.getTableOrAnalysisException(tableName);
 
-                // check auth
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                        tableName,
-                        PrivPredicate.SELECT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(),
-                            dbName + ": " + tableName);
+                if (expandView && (table instanceof View)) {
+                    View view = (View) table;
+                    view.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
+                } else {
+                    // check auth
+                    if (!Catalog.getCurrentCatalog().getAuth()
+                            .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SELECT)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                                dbName + ": " + tableName);
+                    }
+                    tableMap.put(table.getId(), table);
                 }
-                tableMap.put(table.getId(), table);
             }
         }
     }
