@@ -2266,4 +2266,30 @@ public class Analyzer {
             }
         }
     }
+
+        /**
+     * Change all outer joined slots to nullable
+     * Returns the slots actually be changed from not nullable to nullable
+     */
+    public List<SlotDescriptor> changeSlotToNullableOfOuterJoinedTuples() {
+        List<SlotDescriptor> result = new ArrayList<>();
+        for (TupleId id : globalState.outerJoinedTupleIds.keySet()) {
+            TupleDescriptor tupleDescriptor = globalState.descTbl.getTupleDesc(id);
+            if (tupleDescriptor != null) {
+                for (SlotDescriptor desc : tupleDescriptor.getSlots()) {
+                    if (!desc.getIsNullable()) {
+                        desc.setIsNullable(true);
+                        result.add(desc);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    public void changeSlotsToNotNullable(List<SlotDescriptor> slots) {
+        for (SlotDescriptor slot : slots) {
+            slot.setIsNullable(false);
+        }
+    }
 }

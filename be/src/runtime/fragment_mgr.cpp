@@ -300,7 +300,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        ss << "couldn't get a client for " << _coord_addr;
+        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
+        LOG(WARNING) << "query_id: " << _query_id << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
     }
@@ -387,8 +388,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     TReportExecStatusResult res;
     Status rpc_status;
 
-    VLOG_ROW << "debug: reportExecStatus params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
+    VLOG_DEBUG << "reportExecStatus params is "
+               << apache::thrift::ThriftDebugString(params).c_str();
     try {
         try {
             coord->reportExecStatus(res, params);
@@ -618,6 +619,15 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->timeout_second = params.query_options.query_timeout;
             if (params.query_options.__isset.resource_limit) {
                 fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
+            }
+        }
+        if (params.__isset.fragment && params.fragment.__isset.plan &&
+            params.fragment.plan.nodes.size() > 0) {
+            for (auto& node : params.fragment.plan.nodes) {
+                if (node.limit > 0 && node.limit < 1024) {
+                    fragments_ctx->set_serial_thread_token();
+                    break;
+                }
             }
         }
 

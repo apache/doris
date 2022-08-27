@@ -57,7 +57,11 @@ RE2 VecDateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
         uint32_t minute, uint32_t second, uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59;
-    return time || check_date(year, month, day);
+    if (type == TIME_TIME) {
+        return time;
+    } else {
+        return time || check_date(year, month, day);
+    }
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
@@ -975,6 +979,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
     if (ptr >= end) {
         return false;
     }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
+        return false;
+    }
     // Skip '0'
     while (ptr < end && *ptr == '0') {
         ptr++;
@@ -1283,22 +1291,32 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 val = tmp;
                 time_part_used = true;
-                    already_set_time_part = true;
+                already_set_time_part = true;
                 break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 time_part_used = true;
-                    already_set_time_part = true;
+                already_set_time_part = true;
                 val = tmp;
                 break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;

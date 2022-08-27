@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Maps;
+
+import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -27,6 +30,7 @@ public class IcebergProperty {
     public static final String ICEBERG_TABLE = "iceberg.table";
     public static final String ICEBERG_HIVE_METASTORE_URIS = "iceberg.hive.metastore.uris";
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
+    public static final String ICEBERG_HDFS_PREFIX = "dfs";
 
     private boolean exist;
 
@@ -34,6 +38,17 @@ public class IcebergProperty {
     private String table;
     private String hiveMetastoreUris;
     private String catalogType;
+    private Map<String, String> dfsProperties = Maps.newHashMap();
+
+    private void initDfsProperties(Map<String, String> properties) {
+        Iterator<Map.Entry<String, String>> iterator = properties.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, String> entry = iterator.next();
+            if (entry.getKey().startsWith(ICEBERG_HDFS_PREFIX)) {
+                dfsProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+    }
 
     public IcebergProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -42,6 +57,7 @@ public class IcebergProperty {
             this.table = properties.get(ICEBERG_TABLE);
             this.hiveMetastoreUris = properties.get(ICEBERG_HIVE_METASTORE_URIS);
             this.catalogType = properties.get(ICEBERG_CATALOG_TYPE);
+            initDfsProperties(properties);
         } else {
             this.exist = false;
         }
@@ -54,6 +70,7 @@ public class IcebergProperty {
         this.table = otherProperty.table;
         this.hiveMetastoreUris = otherProperty.hiveMetastoreUris;
         this.catalogType = otherProperty.catalogType;
+        this.dfsProperties = otherProperty.dfsProperties;
     }
 
     public boolean isExist() {
@@ -82,5 +99,9 @@ public class IcebergProperty {
 
     public void setTable(String table) {
         this.table = table;
+    }
+
+    public Map<String, String> getDfsProperties() {
+        return dfsProperties;
     }
 }

@@ -305,7 +305,7 @@ public:
             return -2; // -1 is null code
         }
 
-        T get_null_code() { return -1; }
+        T get_null_code() const { return -1; }
 
         inline StringValue& get_value(T code) {
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
@@ -395,7 +395,12 @@ public:
             }
         }
 
-        inline T convert_code(const T& code) const { return _code_convert_map.find(code)->second; }
+        inline T convert_code(const T& code) const {
+            if (get_null_code() == code) {
+                return code;
+            }
+            return _code_convert_map.find(code)->second;
+        }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 

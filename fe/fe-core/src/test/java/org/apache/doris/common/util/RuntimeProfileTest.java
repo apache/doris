@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TUnit;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -65,8 +64,7 @@ public class RuntimeProfileTest {
     public void testInfoStrings() {
         RuntimeProfile profile = new RuntimeProfile("profileName");
 
-        // not exists key
-        Assert.assertNull(profile.getInfoString("key"));
+        Assert.assertEquals("", profile.getInfoString("key"));
         // normal add and get
         profile.addInfoString("key", "value");
         String value = profile.getInfoString("key");

@@ -293,6 +293,9 @@ public class DateLiteral extends LiteralExpr {
             minute = dateTime.getMinuteOfHour();
             second = dateTime.getSecondOfMinute();
             this.type = type;
+            if (checkRange() || checkDate()) {
+                throw new AnalysisException("Datetime value is out of range");
+            }
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid");
         }

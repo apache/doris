@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateResourceStmt;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
@@ -29,6 +30,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -92,12 +94,34 @@ public abstract class Resource implements Writable {
     public ResourceType getType() {
         return type;
     }
+    
+    /**
+     * Modify properties in child resources
+     * @param properties
+     * @throws DdlException
+     */
+    public abstract void modifyProperties(Map<String, String> properties) throws DdlException;
+
+    /**
+     * Check properties in child resources
+     * @param properties
+     * @throws AnalysisException
+     */
+    public abstract void checkProperties(Map<String, String> properties) throws AnalysisException;
+
+    protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
+        if (!Strings.isNullOrEmpty(value)) {
+            properties.put(key, value);
+        }
+    }
 
     /**
      * Set and check the properties in child resources
      */
     protected abstract void setProperties(Map<String, String> properties) throws DdlException;
 
+
+    public abstract Map<String, String> getCopiedProperties();
     /**
      * Fill BaseProcResult with different properties in child resources
      * ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES format:

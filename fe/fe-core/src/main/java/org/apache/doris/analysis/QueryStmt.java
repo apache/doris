@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -308,6 +309,12 @@ public abstract class QueryStmt extends StatementBase {
         if (!analyzer.isRootAnalyzer() && hasOffset() && !hasLimit()) {
             throw new AnalysisException("Order-by with offset without limit not supported" +
                     " in nested queries.");
+        }
+
+        for (Expr expr : orderingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         }
 
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);

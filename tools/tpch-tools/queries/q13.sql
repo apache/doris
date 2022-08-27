@@ -15,7 +15,9 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
     c_count,
     count(*) as custdist
 from
@@ -24,7 +26,7 @@ from
             c_custkey,
             count(o_orderkey) as c_count
         from
-            customer left outer join orders on
+            orders right outer join customer on
                 c_custkey = o_custkey
                 and o_comment not like '%special%requests%'
         group by

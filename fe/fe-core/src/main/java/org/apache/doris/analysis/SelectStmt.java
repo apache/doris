@@ -159,6 +159,8 @@ public class SelectStmt extends QueryStmt {
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
         groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
         havingClause = (other.havingClause != null) ? other.havingClause.clone() : null;
+        havingClauseAfterAnaylzed =
+                other.havingClauseAfterAnaylzed != null ? other.havingClauseAfterAnaylzed.clone() : null;
 
         colLabels = Lists.newArrayList(other.colLabels);
         aggInfo = (other.aggInfo != null) ? other.aggInfo.clone() : null;
@@ -958,6 +960,9 @@ public class SelectStmt extends QueryStmt {
             havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
+            if (groupingInfo != null) {
+                groupingInfo.substituteGroupingFn(Arrays.asList(havingClauseAfterAnaylzed), analyzer);
+            }
             // can't contain analytic exprs
             Expr analyticExpr = havingClauseAfterAnaylzed.findFirstOf(AnalyticExpr.class);
             if (analyticExpr != null) {

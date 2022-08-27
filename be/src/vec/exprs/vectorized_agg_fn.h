@@ -79,7 +79,7 @@ private:
     void _calc_argment_columns(Block* block);
 
     const TypeDescriptor _return_type;
-    const TypeDescriptor _intermediate_type;
+    DataTypes _argument_types;
 
     const SlotDescriptor* _intermediate_slot_desc;
     const SlotDescriptor* _output_slot_desc;

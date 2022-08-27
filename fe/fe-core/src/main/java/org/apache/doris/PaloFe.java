@@ -143,6 +143,9 @@ public class PaloFe {
             httpServer.setAcceptors(Config.jetty_server_acceptors);
             httpServer.setSelectors(Config.jetty_server_selectors);
             httpServer.setWorkers(Config.jetty_server_workers);
+            httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
+            httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
+            httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
             httpServer.start(dorisHomeDir);
             
             qeService.start();

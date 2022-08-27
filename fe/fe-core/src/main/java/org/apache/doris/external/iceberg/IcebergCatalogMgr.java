@@ -35,6 +35,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -126,6 +127,16 @@ public class IcebergCatalogMgr {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_TABLE, ICEBERG_TABLE));
             }
             copiedProps.remove(ICEBERG_TABLE);
+        }
+
+        if (!copiedProps.isEmpty()) {
+            Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<String, String> entry = iter.next();
+                if (entry.getKey().startsWith(IcebergProperty.ICEBERG_HDFS_PREFIX)) {
+                    iter.remove();
+                }
+            }
         }
 
         if (!copiedProps.isEmpty()) {

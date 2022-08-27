@@ -361,6 +361,13 @@ private:
     DescriptorTbl() : _tbl_desc_map(), _tuple_desc_map(), _slot_desc_map() {}
 };
 
+#define RETURN_IF_INVALID_TUPLE_IDX(tuple_id, tuple_idx)                                         \
+    do {                                                                                         \
+        if (UNLIKELY(RowDescriptor::INVALID_IDX == tuple_idx)) {                                 \
+            return Status::InternalError("failed to get tuple idx with tuple id: {}", tuple_id); \
+        }                                                                                        \
+    } while (false)
+
 // Records positions of tuples within row produced by ExecNode.
 // TODO: this needs to differentiate between tuples contained in row
 // and tuples produced by ExecNode (parallel to PlanNode.rowTupleIds and

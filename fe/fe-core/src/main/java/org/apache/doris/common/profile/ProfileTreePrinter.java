@@ -20,16 +20,14 @@ package org.apache.doris.common.profile;
 import hu.webarticum.treeprinter.BorderTreeNodeDecorator;
 import hu.webarticum.treeprinter.SimpleTreeNode;
 import hu.webarticum.treeprinter.TraditionalTreePrinter;
-
 import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
 public class ProfileTreePrinter {
 
-    public static enum PrintLevel {
-        FRAGMENT,
-        INSTANCE
+    public enum PrintLevel {
+        FRAGMENT, INSTANCE
     }
 
     // Fragment tree only print the entire query plan tree with node name
@@ -56,7 +54,6 @@ public class ProfileTreePrinter {
         }
         return node;
     }
-
 
     public static JSONObject printFragmentTreeInJson(ProfileTreeNode root, ProfileTreePrinter.PrintLevel level) {
         JSONObject object = new JSONObject();
@@ -88,5 +85,4 @@ public class ProfileTreePrinter {
             edges.add(edge);
         }
     }
-    
 }

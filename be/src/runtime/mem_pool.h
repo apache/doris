@@ -29,7 +29,9 @@
 #include "common/logging.h"
 #include "gutil/dynamic_annotations.h"
 #include "olap/olap_define.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/chunk.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -205,6 +207,14 @@ private:
     /// data. Otherwise the current chunk can be either empty or full.
     bool check_integrity(bool check_current_chunk_empty);
 
+    void reset_peak() {
+        if (total_allocated_bytes_ - peak_allocated_bytes_ > 4096) {
+            THREAD_MEM_TRACKER_TRANSFER_FROM(total_allocated_bytes_ - peak_allocated_bytes_,
+                                             ExecEnv::GetInstance()->new_process_mem_tracker().get());
+            peak_allocated_bytes_ = total_allocated_bytes_;
+        }
+    }
+
     /// Return offset to unoccupied space in current chunk.
     int64_t get_free_offset() const {
         if (current_chunk_idx_ == -1) return 0;
@@ -236,7 +246,7 @@ private:
             DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
             info.allocated_bytes += padding + size;
             total_allocated_bytes_ += padding + size;
-            peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
+            reset_peak();
             DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
             return result;
         }

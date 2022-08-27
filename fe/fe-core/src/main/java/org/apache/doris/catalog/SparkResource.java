@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
@@ -157,6 +158,11 @@ public class SparkResource extends Resource {
         return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
     }
 
+    @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(sparkConfigs);
+        return copiedProperties;
+    }
     // Each SparkResource has and only has one SparkRepository.
     // This method get the remote archive which matches the dpp version from remote repository
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
@@ -205,7 +211,11 @@ public class SparkResource extends Resource {
         if (properties == null) {
             return;
         }
+        // update properties
+        updateProperties(properties);
+    }
 
+    private void updateProperties(Map<String, String> properties) throws DdlException {
         // update spark configs
         if (properties.containsKey(SPARK_MASTER)) {
             throw new DdlException("Cannot change spark master");
@@ -291,6 +301,23 @@ public class SparkResource extends Resource {
         return brokerProperties;
     }
 
+    @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        updateProperties(properties);
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        copiedProperties.keySet().removeAll(getSparkConfig(properties).keySet());
+        copiedProperties.keySet().removeAll(getBrokerProperties(properties).keySet());
+        copiedProperties.remove(BROKER);
+        copiedProperties.remove(WORKING_DIR);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown spark resource properties: " + copiedProperties);
+        }
+    }
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();

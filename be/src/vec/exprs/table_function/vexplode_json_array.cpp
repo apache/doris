@@ -32,7 +32,8 @@ Status VExplodeJsonArrayTableFunction::process_init(vectorized::Block* block) {
             << _vexpr_context->root()->children().size();
 
     int text_column_idx = -1;
-    _vexpr_context->root()->children()[0]->execute(_vexpr_context, block, &text_column_idx);
+    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
+                                                                   &text_column_idx));
     _text_column = block->get_by_position(text_column_idx).column;
 
     return Status::OK();

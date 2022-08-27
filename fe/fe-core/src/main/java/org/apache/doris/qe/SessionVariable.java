@@ -24,6 +24,7 @@ import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -183,7 +184,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
-    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
+            = "trim_tailing_spaces_for_external_table_query";
+
+    static final String SESSION_CONTEXT = "session_context";
 
     public static final String NUM_FREE_BLOCK_IN_SCAN = "num_free_block_in_scan";
 
@@ -446,15 +450,24 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
-  
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
+    /**
+     * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
+     * For example, trace_id can be passed to trace the query request sent by the user.
+     * set session_context="trace_id:1234565678";
+     */
+    @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
+    public String sessionContext = "";
+   
     @VariableMgr.VarAttr(name = NUM_FREE_BLOCK_IN_SCAN)
     public int numFreeBlockInScan = 12;
+
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -463,6 +476,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
     }
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -1135,6 +1149,31 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetLoadMemLimit()) {
             setLoadMemLimit(queryOptions.getLoadMemLimit());
         }
+    }
+
+    /**
+     * The sessionContext is as follows:
+     * "k1:v1;k2:v2;..."
+     * Here we want to get value with key named "trace_id",
+     * Return empty string is not found.
+     *
+     * @return
+     */
+    public String getTraceId() {
+        if (Strings.isNullOrEmpty(sessionContext)) {
+            return "";
+        }
+        String[] parts = sessionContext.split(";");
+        for (String part : parts) {
+            String[] innerParts = part.split(":");
+            if (innerParts.length != 2) {
+                continue;
+            }
+            if (innerParts[0].equals("trace_id")) {
+                return innerParts[1];
+            }
+        }
+        return "";
     }
 }
 

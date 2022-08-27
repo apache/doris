@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
     supp_nation,
     cust_nation,
     l_year,

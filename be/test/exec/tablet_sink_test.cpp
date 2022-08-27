@@ -22,7 +22,6 @@
 #include "common/config.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
@@ -56,7 +55,6 @@ public:
         _env->_load_stream_mgr = new LoadStreamMgr();
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-        _env->_buffer_reservation = new ReservationTracker();
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
                 .set_max_threads(5)
@@ -72,7 +70,6 @@ public:
         SAFE_DELETE(_env->_load_stream_mgr);
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
-        SAFE_DELETE(_env->_buffer_reservation);
         if (_server) {
             _server->Stop(100);
             _server->Join();

@@ -996,6 +996,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
     if (ptr >= end) {
         return false;
     }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
+        return false;
+    }
     // Skip '0'
     while (ptr < end && *ptr == '0') {
         ptr++;

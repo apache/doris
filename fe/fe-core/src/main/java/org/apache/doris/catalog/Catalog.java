@@ -266,6 +266,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -3130,15 +3131,35 @@ public class Catalog {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
+                Type resultType = resultExpr.getType();
+                if (resultType.isStringType() && resultType.getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
+                } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
+                    typeDef = new TypeDef(ScalarType.createDecimalV2Type(27, 9));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
-                createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
-                        null, true,
-                        new DefaultValue(false, null),
-                        ""));
+                ColumnDef columnDef;
+                if (resultExpr.getSrcSlotRef() == null) {
+                    columnDef = new ColumnDef(name, typeDef, false, null, true, new DefaultValue(false, null), "");
+                } else {
+                    Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
+                    boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
+                    DefaultValue defaultValue;
+                    if (column.getDefaultValueExprDef() != null) {
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                                column.getDefaultValueExprDef().getExprName());
+                    } else {
+                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
+                    }
+                    // AggregateType.NONE cause the table to change to the AGGREGATE KEY when analyze is used,
+                    // cause CURRENT_TIMESTAMP to report an error.
+                    columnDef = new ColumnDef(name, typeDef, column.isKey(),
+                            AggregateType.NONE.equals(column.getAggregationType())
+                                    ? null : column.getAggregationType(),
+                            column.isAllowNull(), defaultValue, column.getComment());
+                }
+                createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
                 if (createTableStmt.getDistributionDesc() == null && i == 0) {
                     createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
@@ -4327,6 +4348,7 @@ public class Catalog {
                 sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
                 sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
                 sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+                sb.append("\"charest\" = \"").append(odbcTable.getCharset()).append("\",\n");
             } else {
                 sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName()).append("\",\n");
             }

@@ -56,6 +56,7 @@ private:
     // The life cycle of task MemTrackerLimiter in the process is the same as task runtime state,
     // MemTrackers will be removed from this map after query finish or cancel.
     TaskTrackersMap _task_mem_trackers;
+    std::mutex _task_tracker_lock;
 };
 
 } // namespace doris

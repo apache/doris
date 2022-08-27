@@ -254,6 +254,15 @@ public class Config extends ConfigBase {
     public static int bdbje_replica_ack_timeout_second = 10;
 
     /**
+     * The desired upper limit on the number of bytes of reserved space to
+     * retain in a replicated JE Environment.
+     * You only need to decrease this value if your FE meta disk is really small.
+     * And don't need to increase this value.
+     */
+    @ConfField
+    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
+    /**
      * num of thread to handle heartbeat events in heartbeat_mgr.
      */
     @ConfField(masterOnly = true)
@@ -343,10 +352,25 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
     @ConfField public static int jetty_server_workers = 0;
+    
+    /**
+     * Configure the default minimum and maximum number of threads for jetty.
+     * The default minimum and maximum number of threads for jetty is 10 and the maximum is 200.
+     * If this is relatively small in a high-concurrency import scenario,
+     * users can adjust it according to their own conditions.
+     */
+    @ConfField public static int jetty_threadPool_minThreads = 20;
+    @ConfField public static int jetty_threadPool_maxThreads = 400;
+
     /**
      * Jetty maximum number of bytes in put or post method,default:100MB
      */
     @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
+
+    /**
+     * http header size configuration parameter, the default value is 10K
+     */
+    @ConfField public static int jetty_server_max_http_header_size = 10240;
 
     /**
      * Mini load disabled by default

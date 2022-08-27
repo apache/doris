@@ -345,7 +345,6 @@ public class CastExpr extends Expr {
         } else if (type.isDecimalV2()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
-
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());

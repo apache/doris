@@ -19,6 +19,7 @@ package org.apache.doris.external.iceberg;
 
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -44,7 +45,10 @@ public class HiveCatalog implements IcebergCatalog {
     @Override
     public void initialize(IcebergProperty icebergProperty) {
         // set hadoop conf
-        Configuration conf = new Configuration();
+        Configuration conf = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : icebergProperty.getDfsProperties().entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();

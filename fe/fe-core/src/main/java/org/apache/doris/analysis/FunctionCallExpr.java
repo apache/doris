@@ -33,7 +33,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -54,6 +53,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +65,9 @@ public class FunctionCallExpr extends Expr {
     private FunctionName fnName;
     // private BuiltinAggregateFunction.Operator aggOp;
     private FunctionParams fnParams;
+
+    // represent original parament from aggregate function
+    private FunctionParams aggFnParams;
 
     // check analytic function
     private boolean isAnalyticFnCall = false;
@@ -88,6 +91,10 @@ public class FunctionCallExpr extends Expr {
     private Expr originStmtFnExpr;
 
     private boolean isRewrote = false;
+
+    public void setAggFnParams(FunctionParams aggFnParams) {
+        this.aggFnParams = aggFnParams;
+    }
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
@@ -150,6 +157,7 @@ public class FunctionCallExpr extends Expr {
         // aggOp = e.aggOp;
         isAnalyticFnCall = e.isAnalyticFnCall;
         fnParams = params;
+        aggFnParams = e.aggFnParams;
         // Just inherit the function object from 'e'.
         fn = e.fn;
         this.isMergeAggFn = e.isMergeAggFn;
@@ -166,12 +174,8 @@ public class FunctionCallExpr extends Expr {
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
-        if (other.fnParams.isStar()) {
-            Preconditions.checkState(children.isEmpty());
-            fnParams = FunctionParams.createStarParam();
-        } else {
-            fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
-        }
+        fnParams = other.fnParams.clone(children);
+        aggFnParams = other.aggFnParams;
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
@@ -204,6 +208,25 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isMergeAggFn() {
         return isMergeAggFn;
+    }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
+            throws AnalysisException {
+        if (aggFnParams != null && aggFnParams.exprs() != null) {
+            ArrayList<Expr> newParams = new ArrayList<Expr>();
+            for (Expr expr : aggFnParams.exprs()) {
+                Expr substExpr = smap.get(expr);
+                if (substExpr != null) {
+                    newParams.add(substExpr.clone());
+                } else {
+                    newParams.add(expr);
+                }
+            }
+            aggFnParams = aggFnParams
+                    .clone(newParams);
+        }
+        return super.substituteImpl(smap, analyzer);
     }
 
     @Override
@@ -354,7 +377,10 @@ public class FunctionCallExpr extends Expr {
         if (isAggregate() || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
             if (!isAnalyticFnCall) {
-                msg.setAggExpr(new TAggregateExpr(isMergeAggFn));
+                if (aggFnParams == null) {
+                    aggFnParams = fnParams;
+                }
+                msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
             }
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
@@ -1041,14 +1067,15 @@ public class FunctionCallExpr extends Expr {
     }
 
     public static FunctionCallExpr createMergeAggCall(
-            FunctionCallExpr agg, List<Expr> params) {
+            FunctionCallExpr agg, List<Expr> intermediateParams, List<Expr> realParams) {
         Preconditions.checkState(agg.isAnalyzed);
         Preconditions.checkState(agg.isAggregateFunction());
         FunctionCallExpr result = new FunctionCallExpr(
-                agg.fnName, new FunctionParams(false, params), true);
+                agg.fnName, new FunctionParams(false, intermediateParams), true);
         // Inherit the function object from 'agg'.
         result.fn = agg.fn;
         result.type = agg.type;
+        result.setAggFnParams(new FunctionParams(false, realParams));
         return result;
     }
 

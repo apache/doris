@@ -28,7 +28,6 @@
 #include "exec/exec_node.h"
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/bufferpool/reservation_tracker_counters.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
@@ -184,10 +183,6 @@ void MemTracker::AddChildTracker(const std::shared_ptr<MemTracker>& tracker) {
     tracker->child_tracker_it_ = child_trackers_.insert(child_trackers_.end(), tracker);
 }
 
-void MemTracker::EnableReservationReporting(const ReservationTrackerCounters& counters) {
-    delete reservation_counters_.swap(new ReservationTrackerCounters(counters));
-}
-
 int64_t MemTracker::GetLowestLimit(MemLimit mode) const {
     if (limit_trackers_.empty()) return -1;
     int64_t min_limit = numeric_limits<int64_t>::max();
@@ -263,8 +258,6 @@ std::shared_ptr<MemTracker> PoolMemTrackerRegistry::GetRequestPoolMemTracker(
 }
 
 MemTracker::~MemTracker() {
-    delete reservation_counters_.load();
-
     if (parent()) {
         DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
                                    << " has unreleased consumption " << consumption();

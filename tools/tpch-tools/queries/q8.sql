@@ -15,7 +15,9 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+-- Modified
+
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     o_year,
     sum(case
         when nation = 'BRAZIL' then volume
@@ -28,11 +30,11 @@ from
             l_extendedprice * (1 - l_discount) as volume,
             n2.n_name as nation
         from
-            part,
-            supplier,
             lineitem,
             orders,
             customer,
+            supplier,
+            part,
             nation n1,
             nation n2,
             region

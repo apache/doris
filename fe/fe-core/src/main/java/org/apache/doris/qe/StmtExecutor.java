@@ -230,6 +230,7 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
             summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
 
+            summaryProfile.addInfoString(ProfileManager.TRACE_ID, context.getSessionVariable().getTraceId());
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(queryProfile);
@@ -665,6 +666,18 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
+        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+            QueryStmt queryStmt = null;
+            if (parsedStmt instanceof QueryStmt) {
+                queryStmt = (QueryStmt) parsedStmt;
+            }
+            if (parsedStmt instanceof InsertStmt) {
+                queryStmt = (QueryStmt) ((InsertStmt) parsedStmt).getQueryStmt();
+            }
+            if (queryStmt.getOrderByElements() != null && queryStmt.getOrderByElements().isEmpty()) {
+                queryStmt.removeOrderByElements();
+            }
+        }
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             ExprRewriter rewriter = analyzer.getExprRewriter();

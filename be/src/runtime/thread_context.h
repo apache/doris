@@ -249,18 +249,22 @@ public:
     }
 };
 
+// The following macros are used to fix the tracking accuracy of caches etc.
 #define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
     auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
 #define CONSUME_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(-size)
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) \
-    doris::thread_context()->_thread_mem_tracker_mgr->transfer_to(size, tracker)
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                          \
+    doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to(size, \
+                                                                                         tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
-    doris::thread_context()->_thread_mem_tracker_mgr->transfer_from(size, tracker)
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...)               \
-    return doris::thread_context()                           \
-            ->_thread_mem_tracker_mgr->limiter_mem_tracker() \
-            ->mem_limit_exceeded(state, msg, ##__VA_ARGS__);
+    tracker->transfer_to(                               \
+            size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker().get())
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                      \
+    return doris::thread_context()                                                  \
+            ->_thread_mem_tracker_mgr->limiter_mem_tracker()                        \
+            ->mem_limit_exceeded(state, fmt::format("exec node:<{}>, {}", "", msg), \
+                                 ##__VA_ARGS__);
 } // namespace doris

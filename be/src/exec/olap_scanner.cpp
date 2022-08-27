@@ -60,8 +60,7 @@ Status OlapScanner::prepare(
                 bloom_filters) {
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
-    _tablet_reader->set_batch_size(_parent->limit() == -1 ? _parent->_runtime_state->batch_size() : std::min(
-            static_cast<int64_t>(_parent->_runtime_state->batch_size()), _parent->limit()));
+    _tablet_reader->set_batch_size(_parent->_batch_size);
 
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
@@ -269,9 +268,12 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     // 2. Allocate Row's Tuple buf
-    uint8_t* tuple_buf =
-            batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
-    bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
+    uint8_t* tuple_buf = batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size());
+    if (tuple_buf == nullptr) {
+        LOG(WARNING) << "Allocate mem for row batch failed.";
+        return Status::RuntimeError("Allocate mem for row batch failed.");
+    }
+    bzero(tuple_buf, _batch_size * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
     std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
@@ -284,6 +286,11 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool tmp_object_pool;
         // release the memory of the object which can't pass the conjuncts.
         ObjectPool unused_object_pool;
+        if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
+            return Status::RuntimeError(
+                    "Scanner row bytes buffer is too small, please try to increase be config "
+                    "'doris_scanner_row_bytes'.");
+        }
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
@@ -608,6 +615,7 @@ void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += stats.raw_rows_read;
+
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 

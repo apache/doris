@@ -137,7 +137,6 @@ public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
         return sb.toString();
     }
 
-
     public JSONObject debugStringInJson(ProfileTreePrinter.PrintLevel level, String nodeLevel) {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("id", nodeLevel);
