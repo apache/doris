@@ -27,7 +27,7 @@ public class StringType extends CharacterType {
 
     public static StringType INSTANCE = new StringType();
 
-    public StringType() {
+    private StringType() {
         super(-1);
     }
 
