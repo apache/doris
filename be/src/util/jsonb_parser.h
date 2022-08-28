@@ -122,7 +122,8 @@ public:
             skipChar(in);
             res = parseArray(in, handler);
         } else {
-            err_ = handle_parse_failure(in);
+            res = parsePrimitive(in, handler);
+            if (!res) err_ = handle_parse_failure(in);
         }
 
         trim(in);
@@ -209,6 +210,33 @@ private:
         }
 
         return error;
+    }
+
+    // parse primitive
+    bool parsePrimitive(std::istream& in, hDictInsert handler) {
+        bool res = false;
+        switch (in.peek()) {
+        case 'n':
+            skipChar(in);
+            res = parseNull(in);
+            break;
+        case 't':
+            skipChar(in);
+            res = parseTrue(in);
+            break;
+        case 'f':
+            skipChar(in);
+            res = parseFalse(in);
+            break;
+        case '"':
+            skipChar(in);
+            res = parseString(in);
+            break;
+        default:
+            res = parseNumber(in);
+        }
+
+        return res;
     }
 
     // parse a JSON object (comma-separated list of key-value pairs)
