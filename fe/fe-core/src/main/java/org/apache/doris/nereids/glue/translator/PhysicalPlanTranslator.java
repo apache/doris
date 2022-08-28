@@ -82,6 +82,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -397,6 +398,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> srcToOutput = Stream.concat(leftTuple.getSlots().stream(), rightTuple.getSlots().stream())
                 .map(sd -> context.findExprId(sd.getId()))
                 .map(slotReferenceMap::get)
+                .filter(Objects::nonNull)
                 .peek(s -> context.createSlotDesc(outputDescriptor, s))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
