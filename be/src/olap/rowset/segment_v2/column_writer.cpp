@@ -290,7 +290,7 @@ Status ScalarColumnWriter::init() {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
     }
     if (_opts.need_zone_map) {
-        _zone_map_index_builder.reset(new ZoneMapIndexWriter(get_field()));
+        RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder));
     }
     if (_opts.need_bitmap_index) {
         RETURN_IF_ERROR(
