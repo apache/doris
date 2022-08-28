@@ -102,6 +102,7 @@ public:
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
+    int num_free_block_in_scan() const { return _query_options.num_free_block_in_scan; }
     bool abort_on_error() const { return _query_options.abort_on_error; }
     bool abort_on_default_limit_exceeded() const {
         return _query_options.abort_on_default_limit_exceeded;

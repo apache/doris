@@ -163,8 +163,9 @@ struct TQueryOptions {
 
   // trim tailing spaces while querying external table and stream load
   44: optional bool trim_tailing_spaces_for_external_table_query = false
+
+  47: optional i32 num_free_block_in_scan
 }
-    
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
