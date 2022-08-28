@@ -44,14 +44,14 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     public Rule build() {
         return logicalOlapScan().then(olapScan ->
             new PhysicalOlapScan(
-                olapScan.getTable(),
-                olapScan.getQualifier(),
-                olapScan.getSelectedIndexId(),
-                olapScan.getSelectedTabletId(),
-                olapScan.getSelectedPartitionId(),
-                convertDistribution(olapScan),
-                Optional.empty(),
-                olapScan.getLogicalProperties())
+                    olapScan.getTable(),
+                    olapScan.getQualifier(),
+                    olapScan.getSelectedIndexId(),
+                    olapScan.getSelectedTabletId(),
+                    olapScan.getSelectedPartitionIds(),
+                    convertDistribution(olapScan),
+                    Optional.empty(),
+                    olapScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
