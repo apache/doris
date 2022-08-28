@@ -187,7 +187,7 @@ public:
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) {
+                               size_t num, uint32_t /*dict_num*/) override {
         for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
             int32_t codeword = data_array[start_index];
             insert_data(dict[codeword].data, dict[codeword].size);

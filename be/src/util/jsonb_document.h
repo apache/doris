@@ -202,8 +202,6 @@ private:
     } header_;
 
     char payload_[0];
-    char* ptr;
-    uint32_t len;
 };
 
 /*
