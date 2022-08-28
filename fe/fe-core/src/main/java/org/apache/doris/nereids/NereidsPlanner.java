@@ -61,8 +61,7 @@ public class NereidsPlanner extends Planner {
     }
 
     @Override
-    public void plan(StatementBase queryStmt,
-            org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+    public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
         }
@@ -80,8 +79,8 @@ public class NereidsPlanner extends Planner {
 
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());
-        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
-                .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
+        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
+                .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
     }
 
@@ -144,8 +143,8 @@ public class NereidsPlanner extends Planner {
     }
 
     private void deriveStats() {
-        cascadesContext
-                .pushJob(new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.pushJob(
+                new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 

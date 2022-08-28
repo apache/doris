@@ -352,8 +352,8 @@ public abstract class ScanNode extends PlanNode {
         return partitionColumnFilter;
     }
 
-    private static class ColumnRanges {
-        enum Type {
+    public static class ColumnRanges {
+        public enum Type {
             // Expression is `is null` predicate.
             IS_NULL,
             // Succeed to convert expression to ranges.
@@ -362,8 +362,8 @@ public abstract class ScanNode extends PlanNode {
             CONVERT_FAILURE
         }
 
-        final Type type;
-        final List<Range<ColumnBound>> ranges;
+        public final Type type;
+        public final List<Range<ColumnBound>> ranges;
 
         private ColumnRanges(Type type, List<Range<ColumnBound>> ranges) {
             this.type = type;

@@ -25,8 +25,10 @@ import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SwapFilterAndProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,15 +45,18 @@ public class RewriteJob extends BatchRulesJob {
     public RewriteJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
-                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
-                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveFilters())))
-                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
+                .add(topDownBatch(ImmutableList.of(new SwapFilterAndProject())))
+                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
+                .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
+                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
+                .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
                 .build();
+
         rulesJob.addAll(jobs);
     }
 }

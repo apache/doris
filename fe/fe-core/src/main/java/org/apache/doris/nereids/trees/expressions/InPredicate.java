@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -102,5 +103,17 @@ public class InPredicate extends Expression {
 
     public List<Expression> getOptions() {
         return options;
+    }
+
+    /**
+     * Return true when all children are Literal , otherwise, return false.
+     */
+    public boolean isLiteralChildren() {
+        for (Expression expression : options) {
+            if (!(expression instanceof Literal)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

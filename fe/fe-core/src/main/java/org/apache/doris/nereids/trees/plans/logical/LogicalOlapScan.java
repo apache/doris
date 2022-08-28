@@ -42,14 +42,20 @@ public class LogicalOlapScan extends LogicalRelation {
 
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
-    private final List<Long> selectedPartitionId;
+    private final boolean partitionPruned;
 
     public LogicalOlapScan(OlapTable table) {
         this(table, ImmutableList.of());
     }
 
     public LogicalOlapScan(OlapTable table, List<String> qualifier) {
-        this(table, qualifier, Optional.empty(), Optional.empty());
+        this(table, qualifier, Optional.empty(), Optional.empty(),
+                table.getPartitionIds(), false);
+    }
+
+    public LogicalOlapScan(Table table, List<String> qualifier) {
+        this(table, qualifier, Optional.empty(), Optional.empty(),
+                ((OlapTable) table).getPartitionIds(), false);
     }
 
     /**
@@ -58,27 +64,17 @@ public class LogicalOlapScan extends LogicalRelation {
      * @param table Doris table
      * @param qualifier table name qualifier
      */
-    public LogicalOlapScan(Table table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier, groupExpression, logicalProperties);
+    public LogicalOlapScan(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Long> selectedPartitionIdList,
+            boolean partitionPruned) {
+        super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
+                groupExpression, logicalProperties, selectedPartitionIdList);
         this.selectedIndexId = getTable().getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();
-        this.selectedPartitionId = getTable().getPartitionIds();
         for (Partition partition : getTable().getAllPartitions()) {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
-    }
-
-    public List<Long> getSelectedTabletId() {
-        return selectedTabletId;
-    }
-
-    public long getSelectedIndexId() {
-        return selectedIndexId;
-    }
-
-    public List<Long> getSelectedPartitionId() {
-        return selectedPartitionId;
+        this.partitionPruned = partitionPruned;
     }
 
     @Override
@@ -89,11 +85,8 @@ public class LogicalOlapScan extends LogicalRelation {
 
     @Override
     public String toString() {
-        return "ScanOlapTable ("
-                + qualifiedName()
-                + ", output: "
-                + getOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[", "]"))
-                + ")";
+        return "ScanOlapTable (" + qualifiedName() + ", output: " + getOutput().stream().map(Objects::toString)
+                .collect(Collectors.joining(", ", "[", "]")) + ")";
     }
 
     @Override
@@ -109,16 +102,35 @@ public class LogicalOlapScan extends LogicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(logicalProperties));
+        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(logicalProperties),
+                selectedPartitionIds, partitionPruned);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties);
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
+                partitionPruned);
+    }
+
+    public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(logicalProperties),
+                selectedPartitionId, true);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapScan(this, context);
+    }
+
+    public boolean isPartitionPruned() {
+        return partitionPruned;
+    }
+
+    public List<Long> getSelectedTabletId() {
+        return selectedTabletId;
+    }
+
+    public long getSelectedIndexId() {
+        return selectedIndexId;
     }
 }
