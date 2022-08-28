@@ -31,27 +31,6 @@
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 
-// namespace doris::vectorized {
-// class ColumnJson final : public ColumnString {
-// private:
-//     friend class COWHelper<IColumn, ColumnJson>;
-
-//     Offsets offsets;
-
-//     Chars chars;
-
-//     ColumnJson() = default;
-
-//     ColumnJson(const ColumnJson& src)
-//             : offsets(src.offsets.begin(), src.offsets.end()),
-//               chars(src.chars.begin(), src.chars.end()) {}
-
-// public:
-//     const char* get_family_name() const override { return "JSON"; }
-// };
-
-// } // namespace doris::vectorized
-
 namespace doris::vectorized {
 class ColumnJson final : public COWHelper<IColumn, ColumnJson> {
 public:
@@ -125,7 +104,9 @@ public:
         const size_t new_size = old_size + size_to_append;
 
         chars.resize(new_size);
-        memcpy(chars.data() + old_size, s.get_value(), size_to_append);
+
+        memcpy(chars.data() + old_size, s.get_value(), size_to_append - 1);
+        chars.data()[new_size - 1] = 0;
         offsets.push_back(new_size);
     }
 
@@ -277,6 +258,10 @@ public:
         return scatter_impl<ColumnJson>(num_columns, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnString>(res, selector);
+    }
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     void reserve(size_t n) override;

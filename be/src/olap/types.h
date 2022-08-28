@@ -1617,7 +1617,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
 
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = OLAP_JSON_MAX_LENGTH; // 10M
+        slice->size = OLAP_JSON_MAX_LENGTH; // 2G
     }
 };
 
