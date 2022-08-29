@@ -18,6 +18,7 @@
 suite("test_array_load", "p0") {
     // define a sql table
     def testTable = "tbl_test_array_load"
+    def testTable01 = "tbl_test_array_load01"
     
     def create_test_table = {testTablex, enable_vectorized_flag ->
         // multi-line sql
@@ -64,11 +65,52 @@ suite("test_array_load", "p0") {
         assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
     }
 
-    def load_array_data = {strip_flag, read_flag, format_flag, exprs, json_paths, 
+    def create_test_table01 = {testTablex ->
+        // multi-line sql
+        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
+
+        def result1 = sql """
+            CREATE TABLE IF NOT EXISTS ${testTable01} (
+              `k1` INT(11) NULL COMMENT "",
+              `k2` ARRAY<SMALLINT> NULL COMMENT "",
+              `k3` ARRAY<INT(11)> NULL COMMENT "",
+              `k4` ARRAY<BIGINT> NULL COMMENT "",
+              `k5` ARRAY<CHAR> NULL COMMENT "",
+              `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
+              `k7` ARRAY<DATE> NULL COMMENT "", 
+              `k8` ARRAY<DATETIME> NULL COMMENT "",
+              `k9` ARRAY<FLOAT> NULL COMMENT "",
+              `k10` ARRAY<DOUBLE> NULL COMMENT "",
+              `k11` ARRAY<DECIMAL(20, 6)> NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+            """
+        
+        // DDL/DML return 1 row and 3 column, the only value is update row count
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
+        
+        // insert 1 row to check whether the table is ok
+        def result2 = sql """ INSERT INTO ${testTable01} VALUES
+                        (100, [1, 2, 3], [32767, 32768, 32769], [65534, 65535, 65536], ['a', 'b', 'c'], ["hello", "world"], 
+                        ['2022-07-13'], ['2022-07-13 12:30:00'], [0.33, 0.67], [3.1415926, 0.878787878], [4, 5.5, 6.67])
+                        """
+        assertTrue(result2.size() == 1)
+        assertTrue(result2[0].size() == 1)
+        assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
+    }
+
+    def load_array_data = {table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
         // load the json data
         streamLoad {
-            table "tbl_test_array_load"
+            table table_name
             
             // set http request header params
             set 'strip_outer_array', strip_flag
@@ -160,7 +202,7 @@ suite("test_array_load", "p0") {
         
         create_test_table.call(testTable, true)
 
-        load_array_data.call('true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
+        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
         
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
@@ -175,7 +217,7 @@ suite("test_array_load", "p0") {
         
         create_test_table.call(testTable, false)
 
-        load_array_data.call('true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
+        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
         
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
@@ -190,7 +232,7 @@ suite("test_array_load", "p0") {
         
         create_test_table.call(testTable, true)
 
-        load_array_data.call('true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
+        load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
         
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
@@ -205,13 +247,28 @@ suite("test_array_load", "p0") {
         
         create_test_table.call(testTable, false)
 
-        load_array_data.call('true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
+        load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
         
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // case5: import array data not specify the format
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable01}"
+        
+        create_test_table01.call(testTable01)
+
+        load_array_data.call(testTable01, '', '', '', '', '', '', '', '', '/', 'simple_array.data')
+        
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable01} order by k1"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable01}")
     }
 
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
