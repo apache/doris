@@ -89,9 +89,9 @@ private:
 
         const IteratorRowRef* current_row_ref() const { return &_ref; }
 
-        virtual Status next(IteratorRowRef* ref) = 0;
-
         virtual Status next(Block* block) = 0;
+
+        virtual Status next(IteratorRowRef* ref) = 0;
 
         void set_same(bool same) { _ref.is_same = same; }
 
