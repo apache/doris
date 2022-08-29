@@ -177,9 +177,6 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
             new_tablet_meta->delete_rs_meta_by_version(version, nullptr);
-            if (new_tablet_meta->version_for_delete_predicate(version)) {
-                new_tablet_meta->remove_delete_predicate_by_version(version);
-            }
             LOG(INFO) << "delete version from new local tablet_meta when clone. [table="
                       << full_name() << ", version=" << version << "]";
         }
@@ -1137,17 +1134,16 @@ TabletInfo Tablet::get_tablet_info() const {
 }
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        std::vector<RowsetSharedPtr>* candidate_rowsets) {
+        std::vector<RowsetSharedPtr>* candidate_rowsets, std::shared_lock& /* meta lock*/) {
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
-    std::shared_lock rdlock(_meta_lock);
     _cumulative_compaction_policy->pick_candidate_rowsets(_rs_version_map, _cumulative_point,
                                                           candidate_rowsets);
 }
 
-void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
-    std::shared_lock rdlock(_meta_lock);
+void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets,
+                                                       std::shared_lock& /* meta lock*/) {
     for (auto& it : _rs_version_map) {
         // Do compaction on local rowsets only.
         if (it.first.first < _cumulative_point && it.second->is_local()) {
@@ -1753,10 +1749,6 @@ Status Tablet::cooldown() {
         has_shutdown = tablet_state() == TABLET_SHUTDOWN;
         if (!has_shutdown) {
             modify_rowsets(to_add, to_delete);
-            if (new_rowset_meta->has_delete_predicate()) {
-                _tablet_meta->add_delete_predicate(new_rowset_meta->delete_predicate(),
-                                                   new_rowset_meta->start_version());
-            }
             _self_owned_remote_rowsets.insert(to_add.front());
             save_meta();
         }

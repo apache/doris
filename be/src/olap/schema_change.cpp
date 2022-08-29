@@ -1850,15 +1850,15 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 res = Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
                 break;
             }
-            for (auto& delete_pred : base_tablet->delete_predicates()) {
+            auto& all_del_preds = base_tablet->delete_predicates();
+            for (auto& delete_pred : all_del_preds) {
                 if (delete_pred.version() > end_version) {
                     continue;
                 }
                 base_tablet_schema->merge_dropped_columns(base_tablet->tablet_schema(
                         Version(delete_pred.version(), delete_pred.version())));
             }
-            res = delete_handler.init(base_tablet, base_tablet_schema,
-                                      base_tablet->delete_predicates(), end_version);
+            res = delete_handler.init(base_tablet_schema, all_del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << base_tablet->full_name() << ", end_version=" << end_version;
@@ -2013,9 +2013,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     bool sc_directly = false;
 
     // a.Parse the Alter request and convert it into an internal representation
-    Status res = _parse_request(sc_params.base_tablet, sc_params.new_tablet, &rb_changer,
-                                &sc_sorting, &sc_directly, sc_params.materialized_params_map,
-                                *sc_params.desc_tbl, sc_params.base_tablet_schema);
+    Status res = _parse_request(sc_params, &rb_changer, &sc_sorting, &sc_directly);
 
     auto process_alter_exit = [&]() -> Status {
         {
@@ -2115,12 +2113,14 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
 // @static
 // Analyze the mapping of the column and the mapping of the filter key
-Status SchemaChangeHandler::_parse_request(
-        TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowBlockChanger* rb_changer,
-        bool* sc_sorting, bool* sc_directly,
-        const std::unordered_map<std::string, AlterMaterializedViewParam>&
-                materialized_function_map,
-        DescriptorTbl desc_tbl, TabletSchemaSPtr base_tablet_schema) {
+Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
+                                           RowBlockChanger* rb_changer, bool* sc_sorting,
+                                           bool* sc_directly) {
+    TabletSharedPtr base_tablet = sc_params.base_tablet;
+    TabletSharedPtr new_tablet = sc_params.new_tablet;
+    const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map =
+            sc_params.materialized_params_map;
+    DescriptorTbl desc_tbl = *sc_params.desc_tbl;
     // set column mapping
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
@@ -2232,7 +2232,7 @@ Status SchemaChangeHandler::_parse_request(
         }
     }
 
-    if (base_tablet->delete_predicates().size() != 0) {
+    if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
     }

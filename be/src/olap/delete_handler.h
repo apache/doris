@@ -89,8 +89,8 @@ public:
     // return:
     //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
-    Status init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tablet_schema,
-                const std::vector<DeletePredicatePB>& delete_conditions, int64_t version);
+    Status init(TabletSchemaSPtr tablet_schema,
+                const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
 
     bool empty() const { return _del_conds.empty(); }
 
