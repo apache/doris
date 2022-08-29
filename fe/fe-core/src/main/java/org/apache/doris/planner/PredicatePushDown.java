@@ -116,6 +116,7 @@ public class PredicatePushDown {
                         }
                     } else if (otherSlot.isBound(rightSlot.getSlotId())
                             && leftSlot.isBound(rightSideTuple)) {
+                        continue;
                         Expr pushDownConjunct = rewritePredicate(analyzer, conjunct, leftSlot);
                         LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
