@@ -35,7 +35,6 @@
 #include "olap/utils.h"
 #include "util/cpu_info.h"
 #include "util/file_utils.h"
-#include "util/logging.h"
 
 using namespace std;
 using namespace doris;

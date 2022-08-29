@@ -20,8 +20,9 @@
 
 #pragma once
 
+#include <functional>
+
 #include "common/compiler_util.h"
-#include "common/logging.h"
 
 // For cross compiling with clang, we need to be able to generate an IR file with
 // no sse instructions.  Attempting to load a precompiled IR file that contains

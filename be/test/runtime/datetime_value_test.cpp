@@ -22,7 +22,6 @@
 #include <string>
 
 #include "common/logging.h"
-#include "util/logging.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
