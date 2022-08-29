@@ -56,7 +56,7 @@ suite("schema_change_with_materizlized_index", "schema_change") {
 
     qt_sql "desc ${tbName} all;";
 
-    // when dropColumn is materizlized index, should do normal schema change
+    // when dropColumn is materizlized index primary key, should do normal schema change
     sql "alter table ${tbName} drop column value2;"
     result = "null"
     while (!result.contains("FINISHED")){
