@@ -23,7 +23,6 @@
 #include "runtime/cache/result_cache.h"
 #include "testutil/test_util.h"
 #include "util/cpu_info.h"
-#include "util/logging.h"
 
 namespace doris {
 

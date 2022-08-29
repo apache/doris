@@ -26,8 +26,8 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/ref_counted.h"
+#include "util/hash_util.hpp"
 #include "util/thread.h"
-#include "util/uid_util.h"
 
 namespace doris {
 

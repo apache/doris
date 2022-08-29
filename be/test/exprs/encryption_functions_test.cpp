@@ -24,7 +24,6 @@
 
 #include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
-#include "util/logging.h"
 
 namespace doris {
 class EncryptionFunctionsTest : public testing::Test {

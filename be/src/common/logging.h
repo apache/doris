@@ -57,3 +57,56 @@
                    << static_cast<int>(b) << " ]"
 
 #include <fmt/format.h>
+
+#include "util/uid_util.h"
+
+namespace doris {
+
+// glog doesn't allow multiple invocations of InitGoogleLogging. This method conditionally
+// calls InitGoogleLogging only if it hasn't been called before.
+bool init_glog(const char* basename);
+
+// Shuts down the google logging library. Call before exit to ensure that log files are
+// flushed. May only be called once.
+void shutdown_logging();
+
+/// Wrap a glog stream and tag on the log. usage:
+///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);
+#define LOG_INFO(...) doris::TaggableLogger(LOG(INFO), ##__VA_ARGS__)
+#define LOG_WARNING(...) doris::TaggableLogger(LOG(WARNING), ##__VA_ARGS__)
+#define LOG_ERROR(...) doris::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
+#define LOG_FATAL(...) doris::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
+
+class TaggableLogger {
+public:
+    template <typename... Args>
+    TaggableLogger(std::ostream& stream, std::string_view fmt, Args&&... args) : _stream(stream) {
+        if constexpr (sizeof...(args) == 0) {
+            _stream << fmt;
+        } else {
+            _stream << fmt::format(fmt, std::forward<Args>(args)...);
+        }
+    };
+
+    template <typename V>
+    TaggableLogger& tag(std::string_view key, const V& value) {
+        _stream << '|' << key << '=';
+        if constexpr (std::is_same_v<V, TUniqueId> || std::is_same_v<V, PUniqueId>) {
+            _stream << print_id(value);
+        } else {
+            _stream << value;
+        }
+        return *this;
+    }
+
+    template <typename E>
+    TaggableLogger& error(const E& error) {
+        _stream << "|error=" << error;
+        return *this;
+    }
+
+private:
+    std::ostream& _stream;
+};
+
+} // namespace doris
