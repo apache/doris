@@ -252,7 +252,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         TabletSchemaSPtr delete_pred_related_schema = delete_pred->tablet_schema();
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
-        temp.filter_version = delete_condition.version();
+        temp.filter_version = delete_pred->version().first;
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
