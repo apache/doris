@@ -91,6 +91,9 @@ distribution_info
                 定长字符串。长度范围：1 ~ 255。默认为1
             VARCHAR[(length)]
                 变长字符串。长度范围：1 ~ 65533。默认为1
+            STRING
+STRING（M）
+变长字符串。最大（默认）支持 1048576 字节（1MB）。String 类型的长度还受 be  中`string_type_length_soft_limit_bytes`参数控制, 实际能存储的最大长度取两者最小值，String类型只能用在 value 列，不能用在 key 列和分区/分桶列
             HLL (1~16385个字节)
                 HyperLogLog 列类型，不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
                 必须配合 HLL_UNION 聚合类型使用。

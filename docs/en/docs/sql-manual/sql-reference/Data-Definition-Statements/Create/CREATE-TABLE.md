@@ -91,6 +91,8 @@ distribution_info
                 Fixed-length character string. Length range: 1 ~ 255. Default is 1
             VARCHAR[(length)]
                 Variable length character string. Length range: 1 ~ 65533. Default is 1
+            STRING (M)
+                Variable length character string. Max legnth(default) is 1048576 byte(1MB). The length of the String type is also limited by the configuration `string_type_length_soft_limit_bytes` of be, the actual maximum length that can be stored take the minimum value of both, the String type can only be used in the value column, not in the key column and the partition and bucket columns
             HLL (1~16385 bytes)
                 HyperLogLog column type, do not need to specify the length and default value. The length is controlled within the system according to the degree of data aggregation.
                 Must be used with HLL_UNION aggregation type.
