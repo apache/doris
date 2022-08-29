@@ -427,7 +427,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ## Java example
 
-`samples/doris-demo/fink-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/flink-demo)
+`samples/doris-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/)
 
 ## Best Practices
 
