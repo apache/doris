@@ -1588,6 +1588,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // version and version hash
         if (versionInfo != null) {
             partition.updateVisibleVersion(versionInfo);
+            partition.setNextVersion(versionInfo + 1);
         }
         long version = partition.getVisibleVersion();
 

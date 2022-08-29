@@ -74,7 +74,6 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -5006,16 +5005,5 @@ public class Env {
             }
         }
         return count;
-    }
-
-    public TableName getTableNameByTableId(Long tableId) {
-        for (String dbName : getInternalCatalog().getDbNames()) {
-            DatabaseIf db = getInternalCatalog().getDbNullable(dbName);
-            Optional<Table> table = db.getTable(tableId);
-            if (table.isPresent()) {
-                return new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), table.get().getName());
-            }
-        }
-        return null;
     }
 }
