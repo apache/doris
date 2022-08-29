@@ -191,8 +191,8 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 ctx.findSlotRef(eid).getColumnName()
         );
         SlotRef newRef = new SlotRef(slotDesc);
-        newRef.setTblName(new TableName("", node.getOlapTable().getName(), ""));
-        newRef.setLabel(slotDesc.getLabel());
+        newRef.setTblName(new TableName(null, null, node.getOlapTable().getName()));
+        newRef.setLabel("`" + slotDesc.getColumn().getName() + "`");
         return newRef;
     }
 
