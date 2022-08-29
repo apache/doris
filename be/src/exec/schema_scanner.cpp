@@ -162,6 +162,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
             t_slot_desc.__set_nullIndicatorBit(-1);
         }
 
+        t_slot_desc.id = i;
         t_slot_desc.__set_slotIdx(i);
         t_slot_desc.__set_isMaterialized(true);
 

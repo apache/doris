@@ -466,10 +466,13 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
     FileScanner* scan = nullptr;
     switch (scan_range.params.format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                       scan_range.ranges, _pre_filter_texprs, counter);
-        //        scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
-        //                                       scan_range.ranges, _pre_filter_texprs, counter);
+        if (config::parquet_reader_using_internal) {
+            scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                              scan_range.ranges, _pre_filter_texprs, counter);
+        } else {
+            scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                           scan_range.ranges, _pre_filter_texprs, counter);
+        }
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,

@@ -329,158 +329,31 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
 }
 
-TEST_F(ParquetThriftReaderTest, column_reader) {
-    LocalFileReader file_reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
-    auto st = file_reader.open();
-    EXPECT_TRUE(st.ok());
-
-    // prepare metadata
-    std::shared_ptr<FileMetaData> meta_data;
-    parse_thrift_footer(&file_reader, meta_data);
-    tparquet::FileMetaData t_metadata = meta_data->to_thrift_metadata();
-
-    FieldDescriptor schema_descriptor;
-    // todo use schema of meta_data
-    schema_descriptor.parse_from_thrift(t_metadata.schema);
-    // create scalar column reader
-    std::unique_ptr<ParquetColumnReader> reader;
-    auto field = const_cast<FieldSchema*>(schema_descriptor.get_column(0));
-    // create read model
-    TDescriptorTable t_desc_table;
-    // table descriptors
-    TTableDescriptor t_table_desc;
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
-    t_table_desc.id = 0;
-    t_table_desc.tableType = TTableType::OLAP_TABLE;
-    t_table_desc.numCols = 0;
-    t_table_desc.numClusteringCols = 0;
-    t_desc_table.tableDescriptors.push_back(t_table_desc);
-    t_desc_table.__isset.tableDescriptors = true;
-    TSlotDescriptor tslot_desc;
-    {
-        tslot_desc.id = 0;
-        tslot_desc.parent = 0;
-        TTypeDesc type;
-        {
-            TTypeNode node;
-            node.__set_type(TTypeNodeType::SCALAR);
-            TScalarType scalar_type;
-            scalar_type.__set_type(TPrimitiveType::TINYINT);
-            node.__set_scalar_type(scalar_type);
-            type.types.push_back(node);
-        }
-        tslot_desc.slotType = type;
-        tslot_desc.columnPos = 0;
-        tslot_desc.byteOffset = 0;
-        tslot_desc.nullIndicatorByte = 0;
-        tslot_desc.nullIndicatorBit = -1;
-        tslot_desc.colName = "tinyint_col";
-        tslot_desc.slotIdx = 0;
-        tslot_desc.isMaterialized = true;
-        t_desc_table.slotDescriptors.push_back(tslot_desc);
-    }
-    t_desc_table.__isset.slotDescriptors = true;
-    {
-        // TTupleDescriptor dest
-        TTupleDescriptor t_tuple_desc;
-        t_tuple_desc.id = 0;
-        t_tuple_desc.byteSize = 16;
-        t_tuple_desc.numNullBytes = 0;
-        t_tuple_desc.tableId = 0;
-        t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
-    }
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
-    auto slot_desc = desc_tbl->get_slot_descriptor(0);
-    ParquetReadColumn column(slot_desc);
-    std::vector<RowRange> row_ranges = std::vector<RowRange>();
-    ParquetColumnReader::create(&file_reader, field, column, t_metadata.row_groups[0], row_ranges,
-                                &ctz, reader);
-    std::unique_ptr<vectorized::Block> block;
-    create_block(block);
-    auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
-    auto& column_ptr = column_with_type_and_name.column;
-    auto& column_type = column_with_type_and_name.type;
-    size_t batch_read_rows = 0;
-    bool batch_eof = false;
-    ASSERT_EQ(column_ptr->size(), 0);
-
-    reader->read_column_data(column_ptr, column_type, 1024, &batch_read_rows, &batch_eof);
-    EXPECT_TRUE(!batch_eof);
-    ASSERT_EQ(batch_read_rows, 10);
-    ASSERT_EQ(column_ptr->size(), 10);
-
-    auto* nullable_column =
-            reinterpret_cast<vectorized::ColumnNullable*>((*std::move(column_ptr)).mutate().get());
-    MutableColumnPtr nested_column = nullable_column->get_nested_column_ptr();
-    int int_sum = 0;
-    for (int i = 0; i < column_ptr->size(); i++) {
-        int_sum += (int8_t)column_ptr->get64(i);
-    }
-    ASSERT_EQ(int_sum, 5);
-}
-
 TEST_F(ParquetThriftReaderTest, group_reader) {
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-    std::vector<std::string> int_types = {"boolean_col", "tinyint_col", "smallint_col", "int_col",
-                                          "bigint_col",  "float_col",   "double_col"};
-    //        "string_col"
-    t_table_desc.id = 0;
-    t_table_desc.tableType = TTableType::OLAP_TABLE;
-    t_table_desc.numCols = 0;
-    t_table_desc.numClusteringCols = 0;
-    t_desc_table.tableDescriptors.push_back(t_table_desc);
-    t_desc_table.__isset.tableDescriptors = true;
-
-    for (int i = 0; i < int_types.size(); i++) {
-        TSlotDescriptor tslot_desc;
-        {
-            tslot_desc.id = i;
-            tslot_desc.parent = 0;
-            TTypeDesc type;
-            {
-                TTypeNode node;
-                node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType scalar_type;
-                scalar_type.__set_type(TPrimitiveType::type(i + 2));
-                node.__set_scalar_type(scalar_type);
-                type.types.push_back(node);
-            }
-            tslot_desc.slotType = type;
-            tslot_desc.columnPos = 0;
-            tslot_desc.byteOffset = 0;
-            tslot_desc.nullIndicatorByte = 0;
-            tslot_desc.nullIndicatorBit = -1;
-            tslot_desc.colName = int_types[i];
-            tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
-            t_desc_table.slotDescriptors.push_back(tslot_desc);
-        }
-    }
-
-    t_desc_table.__isset.slotDescriptors = true;
-    {
-        // TTupleDescriptor dest
-        TTupleDescriptor t_tuple_desc;
-        t_tuple_desc.id = 0;
-        t_tuple_desc.byteSize = 16;
-        t_tuple_desc.numNullBytes = 0;
-        t_tuple_desc.tableId = 0;
-        t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
-    }
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    SchemaScanner::ColumnDesc column_descs[] = {
+            {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
+            {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
+            {"int_col", TYPE_INT, sizeof(int32_t), true},
+            {"bigint_col", TYPE_BIGINT, sizeof(int64_t), true},
+            {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
+            {"float_col", TYPE_FLOAT, sizeof(float_t), true},
+            {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
+            {"string_col", TYPE_STRING, sizeof(StringValue), true},
+            {"binary_col", TYPE_STRING, sizeof(StringValue), true},
+            {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
+            {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
+            {"char_col", TYPE_CHAR, sizeof(StringValue), true},
+            {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
+            {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
+    int num_cols = sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc);
+    SchemaScanner schema_scanner(column_descs, num_cols);
+    ObjectPool object_pool;
+    SchemaScannerParam param;
+    schema_scanner.init(&param, &object_pool);
+    auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
     std::vector<ParquetReadColumn> read_columns;
-    for (int i = 0; i < int_types.size(); i++) {
-        auto slot_desc = desc_tbl->get_slot_descriptor(i);
-        ParquetReadColumn column(slot_desc);
+    for (const auto& slot : tuple_slots) {
+        ParquetReadColumn column(slot);
         read_columns.emplace_back(column);
     }
 
@@ -502,12 +375,19 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     auto stg = row_group_reader->init(meta_data->schema(), row_ranges);
     EXPECT_TRUE(stg.ok());
 
-    std::unique_ptr<vectorized::Block> block;
-    create_block(block);
+    vectorized::Block block;
+    for (const auto& slot_desc : tuple_slots) {
+        auto is_nullable = slot_desc->is_nullable();
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(),
+                                                                                  is_nullable);
+        MutableColumnPtr data_column = data_type->create_column();
+        block.insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+    }
     bool batch_eof = false;
-    auto stb = row_group_reader->next_batch(block.get(), 1024, &batch_eof);
+    auto stb = row_group_reader->next_batch(&block, 1024, &batch_eof);
     EXPECT_TRUE(stb.ok());
-    LOG(WARNING) << "block data: " << block->dump_structure();
+    LOG(WARNING) << "block data: " << block.dump_data(0, 10);
 }
 } // namespace vectorized
 
