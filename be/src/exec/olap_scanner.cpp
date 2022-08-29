@@ -186,8 +186,7 @@ Status OlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns(!single_non_overlapping_version, has_replace_col));
 
     _tablet_reader_params.aggregation = has_replace_col ? false : _aggregation;
-    _tablet_reader_params.direct_mode =
-            single_non_overlapping_version || _tablet_reader_params.aggregation;
+    _tablet_reader_params.direct_mode = single_non_overlapping_version || _tablet_reader_params.aggregation;
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
@@ -305,8 +304,8 @@ Status OlapScanner::_init_return_columns(bool need_seq_col, bool &has_replace_co
         // handle SEQ
         if (_tablet_schema->has_sequence_col() && need_seq_col && has_replace_col) {
             auto sequence_col_idx = _tablet_schema->sequence_col_idx();
-            if (std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) ==
-                _return_columns.end()) {
+            if (std::find(_return_columns.begin(), _return_columns.end(),
+                      sequence_col_idx) == _return_columns.end()) {
                 _return_columns.push_back(sequence_col_idx);
             }
         }
