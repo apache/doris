@@ -120,21 +120,21 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 
 ### 适用场景
 
-* 源数据在 支持S3协议的存储系统中，如 S3 等。
+* 源数据在 支持S3协议的存储系统中，如 S3,BOS 等。
 * 数据量在 几十到百GB 级别。
 
 ### 准备工作
 1. 准本AK 和 SK
-   首先需要找到或者重新生成 AWS `Access keys`，可以在 AWS console 的 `My Security Credentials` 找到生成方式， 如下图所示：
+   首先需要找到或者重新生成 AWS `Access keys`，可以在AWS console 的 `My Security Credentials` 找到生成方式， 如下图所示：
    [AK_SK](/images/aws_ak_sk.png)
    选择 `Create New Access Key` 注意保存生成 AK和SK.
 2. 准备 REGION 和 ENDPOINT
-   REGION 可以在创建桶的时候选择也可以在桶列表中查看到。ENDPOINT 可以通过如下页面通过 REGION 查到 [AWS 文档](https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region)
+   REGION 可以在创建桶的时候选择也可以在桶列表中查看到。ENDPOINT 可以通过如下页面通过REGION查到 [AWS 文档](https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region)
 
 其他云存储系统可以相应的文档找到与S3兼容的相关信息
 
 ### 开始导入
-导入方式和 [Broker Load](../../../data-operate/import/import-way/broker-load-manual.md) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual.md) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 ```
     WITH S3
     (
@@ -168,7 +168,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 
 ### 常见问题
 
-S3 SDK 默认使用 `virtual-hosted style` 方式。但某些对象存储系统可能没开启或没支持 `virtual-hosted style` 方式的访问，此时我们可以添加 `use_path_style` 参数来强制使用 `path style` 方式：
+S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或没支持 virtual-hosted style 方式的访问，此时我们可以添加 `use_path_style` 参数来强制使用 path style 方式：
 
 ```
   WITH S3

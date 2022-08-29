@@ -139,7 +139,7 @@ show frontends\G;
 然后你可以看到类似下面的结果：
 
 ```sql
-mysql> show frontends\G
+mysql> show frontends\G;
 *************************** 1. row ***************************
              Name: 172.21.32.5_9010_1660549353220
                IP: 172.21.32.5
@@ -195,7 +195,7 @@ priority_networks=172.23.16.0/24
 
 
 ```
-storage_root=/path/your/data_dir
+storage_root=/path/your/doris-meta
 ```
 
 >注意：
@@ -227,13 +227,13 @@ ALTER SYSTEM ADD BACKEND "be_host_ip:heartbeat_service_port";
 你可以在 MySQL 命令行下执行下面的命令查看 BE 的运行状态。
 
 ```sql
-SHOW BACKENDS\G
+SHOW BACKENDS\G;
 ```
 
 示例：
 
 ```sql
-mysql> SHOW BACKENDS\G
+mysql> SHOW BACKENDS\G;
 *************************** 1. row ***************************
             BackendId: 10003
               Cluster: default_cluster

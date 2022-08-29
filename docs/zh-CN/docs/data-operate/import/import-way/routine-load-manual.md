@@ -146,9 +146,8 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
    ```json
    [
-       {   
-           "category":"11",
-           "author":"4avc",
+       {"category":"11",
+           "title":"SayingsoftheCentury",
            "price":895,
            "timestamp":1589191587
        },
@@ -161,14 +160,14 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
        {
            "category":"33",
            "author":"3avc",
-           "price":342,
+           "title":"SayingsoftheCentury",
            "timestamp":1589191387
        }
    ]
    ```
-   
+
    创建待导入的Doris数据表
-   
+
    ```sql
    CREATE TABLE `example_tbl` (
       `category` varchar(24) NULL COMMENT "",
@@ -191,9 +190,9 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
        "replication_num" = "1"
    );
    ```
-   
+
    以简单模式导入json数据
-   
+
    ```sql
    CREATE ROUTINE LOAD example_db.test_json_label_1 ON table1
    COLUMNS(category,price,author)
@@ -214,9 +213,9 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
    	"kafka_offsets" = "0,0,0"
     );
    ```
-   
+
    精准导入json格式数据
-   
+
    ```sql
    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
    COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
@@ -239,10 +238,6 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
        "kafka_offsets" = "0,0,0"
    );
    ```
-
-**注意：** 表里的分区字段 `dt`  在我们的数据里并没有，而是在我们Routine load 语句里通过 `dt=from_unixtime(timestamp, '%Y%m%d')` 转换出来的
-
-
 
 **strict mode 与 source data 的导入关系**
 
