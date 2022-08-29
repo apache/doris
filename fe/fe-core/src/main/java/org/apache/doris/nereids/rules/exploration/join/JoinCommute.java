@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommuteHelper.SwapType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
@@ -49,13 +50,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return innerLogicalJoin().when(JoinCommuteHelper::check).then(join -> {
-
-            // List<Slot> output = join.getOutput();
-            // // int rightFirstSlotIndex = output.indexOf(join.right().getOutput().get(0));
-            // List<NamedExpression> newOutput = new ArrayList<>(output);
-            // Collections.rotate(newOutput, rightFirstSlotIndex * -1);
-
-            LogicalJoin newJoin = new LogicalJoin(
+            // TODO: add project for mapping column output.
+            // List<NamedExpression> newOutput = new ArrayList<>(join.getOutput());
+            LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
                     join.getOtherJoinCondition(),

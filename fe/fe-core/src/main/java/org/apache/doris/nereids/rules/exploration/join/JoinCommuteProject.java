@@ -49,7 +49,7 @@ public class JoinCommuteProject extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalProject(innerLogicalJoin()).when(JoinCommuteHelper::check).then(project -> {
             LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-            LogicalJoin newJoin = new LogicalJoin(
+            LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
                     join.getOtherJoinCondition(),
