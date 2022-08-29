@@ -689,13 +689,14 @@ public class Coordinator {
         }
     }
 
-    private void waitRpc(List<Pair<BackendExecStates, Future<PExecPlanFragmentResult>>> futures, long timeoutMs,
+    private void waitRpc(List<Pair<BackendExecStates, Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
-        if (timeoutMs <= 0) {
+        if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
                     (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
         }
 
+        Long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
         for (Pair<BackendExecStates, Future<PExecPlanFragmentResult>> pair : futures) {
             TStatusCode code;
             String errMsg = null;
@@ -720,8 +721,7 @@ public class Coordinator {
                 code = TStatusCode.INTERNAL_ERROR;
             } catch (TimeoutException e) {
                 exception = e;
-                errMsg = "timeout when waiting for " + operation + " RPC. Elapse(sec): "
-                        + ((System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout);
+                errMsg = "timeout when waiting for " + operation + " RPC. Wait(sec): " + timeoutMs / 1000;
                 code = TStatusCode.TIMEOUT;
             }
 
