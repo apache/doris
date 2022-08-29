@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -155,9 +154,6 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        if (!Config.enable_array_type) {
-            return false;
-        }
         return !itemType.isNull();
     }
 
@@ -180,7 +176,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean supportsTablePartitioning() {
-        return isSupported() && !isComplexType();
+        return false;
     }
 
     @Override
