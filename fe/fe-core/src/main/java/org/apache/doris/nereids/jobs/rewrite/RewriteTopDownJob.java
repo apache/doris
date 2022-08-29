@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
@@ -78,9 +78,10 @@ public class RewriteTopDownJob extends Job {
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    Pair<Boolean, GroupExpression> pair = context.getCascadesContext()
-                            .getMemo().copyIn(after, group, rule.isRewrite());
-                    if (pair.first) {
+                    CopyInResult result = context.getCascadesContext()
+                            .getMemo()
+                            .copyIn(after, group, rule.isRewrite());
+                    if (result.generateNewExpression) {
                         // new group-expr replaced the origin group-expr in `group`,
                         // run this rule against this `group` again.
                         pushTask(new RewriteTopDownJob(group, rules, context));

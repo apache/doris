@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.CascadesContext;
@@ -48,8 +65,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         unboundRelation().then(scan -> scan)
                 )
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(student)
-                .matches(unboundRelation().when(student::equals));
+                .matchesFromRoot(unboundRelation().when(student::equals));
     }
 
     /*
@@ -66,8 +82,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         unboundRelation().then(scan -> student)
                 )
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(student)
-                .matches(logicalOlapScan().when(student::equals));
+                .matchesFromRoot(logicalOlapScan().when(student::equals));
     }
 
     /*
@@ -86,8 +101,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                                 .then(scan -> new LogicalOlapScan(PlanConstructor.student))
                 )
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(student)
-                .matches(logicalOlapScan().when(student::equals));
+                .matchesFromRoot(logicalOlapScan().when(student::equals));
     }
 
     /*
@@ -107,8 +121,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         unboundRelation().then(unboundRelation -> limit.withChildren(student))
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
                         ).when(limit::equals)
@@ -143,8 +156,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                             unboundRelation().then(unboundRelation -> limit.withChildren(unboundRelation))
                     )
                     .checkGroupNum(2)
-                    .checkFirstRootLogicalPlan(limit)
-                    .matches(
+                    .matchesFromRoot(
                             logicalLimit(
                                     logicalOlapScan().when(student::equals)
                             ).when(limit::equals)
@@ -207,8 +219,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         )
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 unboundRelation().when(a2::equals)
                         ).when(limit::equals)
@@ -274,7 +285,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                 )
                 .checkGroupNum(3)
                 .checkFirstRootLogicalPlan(limit10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalLimit(
                                         logicalOlapScan().when(scan::equals)
@@ -566,9 +577,12 @@ public class MemoRewriteTest implements PatternMatchSupported {
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
                         logicalLimit(logicalLimit(unboundRelation())).when(limit10::equals).then(l ->
-                                l.child().withChildren(           // limit 5
-                                        l.withChildren(           // limit 10
-                                                l.child().child() // student
+                                // limit 5
+                                l.child().withChildren(
+                                        // limit 10
+                                        l.withChildren(
+                                                // student
+                                                l.child().child()
                                         )
                                 )
                         )
@@ -603,14 +617,15 @@ public class MemoRewriteTest implements PatternMatchSupported {
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
                         logicalLimit(logicalLimit(unboundRelation())).then(l ->
-                                l.withChildren(           // limit 10
-                                        l.child().child() // student
+                                // limit 10
+                                l.withChildren(
+                                        // student
+                                        l.child().child()
                                 )
                         )
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 unboundRelation().when(student::equals)
                         ).when(limit10::equals)
@@ -630,8 +645,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalOlapScan().when(scan -> Objects.equals(student, scan)).then(scan -> score)
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(score::equals)
                         ).when(limit::equals)
@@ -641,24 +655,22 @@ public class MemoRewriteTest implements PatternMatchSupported {
     @Test
     public void testRewriteBottomPlanToMultiPlan() {
         LogicalOlapScan student = new LogicalOlapScan(PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit_10 = new LogicalLimit<>(10, 0, student);
-
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
 
         LogicalOlapScan score = new LogicalOlapScan(PlanConstructor.score);
-        LogicalLimit<LogicalOlapScan> limit_1 = new LogicalLimit<>(1, 0, score);
+        LogicalLimit<LogicalOlapScan> limit1 = new LogicalLimit<>(1, 0, score);
 
-        PlanChecker.from(connectContext, limit_10)
+        PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
-                        logicalOlapScan().when(scan -> Objects.equals(student, scan)).then(scan -> limit_1)
+                        logicalOlapScan().when(scan -> Objects.equals(student, scan)).then(scan -> limit1)
                 )
                 .checkGroupNum(3)
-                .checkFirstRootLogicalPlan(limit_10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalLimit(
                                         any().when(score::equals)
-                                ).when(limit_1::equals)
-                        ).when(limit_10::equals)
+                                ).when(limit1::equals)
+                        ).when(limit10::equals)
                 );
     }
 
@@ -674,13 +686,12 @@ public class MemoRewriteTest implements PatternMatchSupported {
                 })
                 .applyBottomUp(unboundRelation().then(unboundRelation -> boundTable))
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(boundTable)
                 .checkMemo(memo -> {
                     LogicalProperties logicalProperties = memo.getRoot().getLogicalProperties();
                     Assertions.assertEquals(
                             boundTable.getLogicalProperties().getOutput(), logicalProperties.getOutput());
                 })
-                .matches(
+                .matchesFromRoot(
                         logicalOlapScan().when(boundTable::equals)
                 );
     }
@@ -705,13 +716,12 @@ public class MemoRewriteTest implements PatternMatchSupported {
                                 .then(LogicalPlan::recomputeLogicalProperties)
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(boundLimit)
                 .checkMemo(memo -> {
                     LogicalProperties logicalProperties = memo.getRoot().getLogicalProperties();
                     Assertions.assertEquals(
                             boundTable.getLogicalProperties().getOutput(), logicalProperties.getOutput());
                 })
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(boundTable::equals)
                         ).when(boundLimit::equals)
@@ -765,31 +775,29 @@ public class MemoRewriteTest implements PatternMatchSupported {
     @Test
     public void testEliminateTwoLevelsToTwoPlans() {
         LogicalOlapScan score = new LogicalOlapScan(PlanConstructor.score);
-        LogicalLimit<Plan> limit_1 = new LogicalLimit<>(1, 0, score);
+        LogicalLimit<Plan> limit1 = new LogicalLimit<>(1, 0, score);
 
         LogicalOlapScan student = new LogicalOlapScan(PlanConstructor.student);
-        LogicalLimit<Plan> limit_10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<Plan> limit10 = new LogicalLimit<>(10, 0, student);
 
-        PlanChecker.from(connectContext, limit_1)
-                .applyBottomUp(logicalLimit(any()).when(limit_1::equals).then(l -> limit_10))
+        PlanChecker.from(connectContext, limit1)
+                .applyBottomUp(logicalLimit(any()).when(limit1::equals).then(l -> limit10))
                 .checkGroupNum(2)
                 .checkGroupExpressionNum(2)
-                .checkFirstRootLogicalPlan(limit_10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
-                        ).when(limit_10::equals)
+                        ).when(limit10::equals)
                 );
 
-        PlanChecker.from(connectContext, limit_1)
-                .applyBottomUp(logicalLimit(group()).when(limit_1::equals).then(l -> limit_10))
+        PlanChecker.from(connectContext, limit1)
+                .applyBottomUp(logicalLimit(group()).when(limit1::equals).then(l -> limit10))
                 .checkGroupNum(2)
                 .checkGroupExpressionNum(2)
-                .checkFirstRootLogicalPlan(limit_10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
-                        ).when(limit_10::equals)
+                        ).when(limit10::equals)
                 );
     }
 
@@ -798,7 +806,8 @@ public class MemoRewriteTest implements PatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(new LogicalLimit<>(10, 0,
                         new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                                Optional.of(new EqualTo(new UnboundSlot("sid"), new UnboundSlot("id"))),
+                                ImmutableList.of(new EqualTo(new UnboundSlot("sid"), new UnboundSlot("id"))),
+                                Optional.empty(),
                                 new LogicalOlapScan(PlanConstructor.score),
                                 new LogicalOlapScan(PlanConstructor.student)
                         )
@@ -814,7 +823,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                             case CROSS_JOIN:
                                 return join.withChildren(limit.withChildren(join.left()), limit.withChildren(join.right()));
                             case INNER_JOIN:
-                                if (!join.getCondition().isPresent()) {
+                                if (!join.getHashJoinConjuncts().isEmpty()) {
                                     return join.withChildren(
                                             limit.withChildren(join.left()),
                                             limit.withChildren(join.right())
@@ -829,7 +838,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         }
                     })
                 )
-                .matches(
+                .matchesFromRoot(
                         logicalJoin(
                                 logicalLimit(
                                         logicalOlapScan()

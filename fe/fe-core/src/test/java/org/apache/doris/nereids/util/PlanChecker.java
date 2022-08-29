@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Supplier;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.function.Consumer;
@@ -88,6 +89,18 @@ public class PlanChecker {
         return this;
     }
 
+
+    public PlanChecker applyTopDown(PatternMatcher patternMatcher) {
+        cascadesContext.topDownRewrite(new OneRewriteRuleFactory() {
+            @Override
+            public Rule build() {
+                return patternMatcher.toRule(RuleType.TEST_REWRITE);
+            }
+        });
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
     public PlanChecker applyBottomUp(RuleFactory rule) {
         cascadesContext.bottomUpRewrite(rule);
         MemoValidator.validate(cascadesContext.getMemo());
@@ -103,10 +116,6 @@ public class PlanChecker {
         });
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
-    }
-
-    public void findGroup(PatternMatcher patternMatcher) {
-
     }
 
     public PlanChecker transform(PatternMatcher patternMatcher) {
@@ -144,17 +153,6 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker applyTopDown(PatternMatcher patternMatcher) {
-        cascadesContext.topDownRewrite(new OneRewriteRuleFactory() {
-            @Override
-            public Rule build() {
-                return patternMatcher.toRule(RuleType.TEST_REWRITE);
-            }
-        });
-        MemoValidator.validate(cascadesContext.getMemo());
-        return this;
-    }
-
     public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
@@ -168,7 +166,7 @@ public class PlanChecker {
         return this;
     }
 
-    private void assertMatches(Memo memo, Supplier<Boolean> asserter) {
+    private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
         Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
                         + memo.getRoot().getLogicalExpression().getPlan().treeString()

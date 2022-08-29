@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
@@ -64,14 +64,14 @@ public class ApplyRuleJob extends Job {
             context.onInvokeRule(rule.getRuleType());
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
-                Pair<Boolean, GroupExpression> pair = context.getCascadesContext()
+                CopyInResult result = context.getCascadesContext()
                         .getMemo()
                         .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
-                if (!pair.first) {
+                if (!result.generateNewExpression) {
                     continue;
                 }
-                GroupExpression newGroupExpression = pair.second;
 
+                GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
                     if (exploredOnly) {
                         pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
