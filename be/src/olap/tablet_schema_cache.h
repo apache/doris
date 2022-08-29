@@ -23,6 +23,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
@@ -33,6 +34,8 @@ public:
         DCHECK(_s_instance == nullptr);
         static TabletSchemaCache instance;
         _s_instance = &instance;
+        std::thread t(&TabletSchemaCache::recycle, _s_instance);
+        t.detach();
     }
 
     static TabletSchemaCache* instance() { return _s_instance; }
@@ -50,6 +53,24 @@ public:
             return tablet_schema_ptr;
         }
         return iter->second;
+    }
+
+    /**
+     * @brief recycle when TabletSchemaSPtr use_count equals 1.
+     */
+    void recycle() {
+        for (;;) {
+            std::this_thread::sleep_for(
+                    std::chrono::seconds(config::tablet_schema_cache_recycle_interval));
+            std::lock_guard guard(_mtx);
+            for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
+                if (iter->second.use_count() == 1) {
+                    iter = _cache.erase(iter);
+                } else {
+                    ++iter;
+                }
+            }
+        }
     }
 
 private:
