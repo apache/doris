@@ -1237,21 +1237,6 @@ public class Analyzer {
     }
 
     /**
-     * Return all unassigned registered conjuncts that are fully bound by given
-     * list of tuple ids
-     */
-    public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
-        List<Expr> result = Lists.newArrayList();
-        for (Expr e : globalState.conjuncts.values()) {
-            if (!e.isAuxExpr() && e.isBoundByTupleIds(tupleIds) && !globalState.assignedConjuncts.contains(e.getId())
-                    && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
-                result.add(e);
-            }
-        }
-        return result;
-    }
-
-    /**
      * Return all unassigned conjuncts of the outer join referenced by
      * right-hand side table ref.
      */
