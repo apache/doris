@@ -86,6 +86,39 @@ public class TimestampArithmeticExpr extends Expr {
         children.add(e2);
     }
 
+    /**
+     * used for Nereids ONLY.
+     * C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
+     */
+    public TimestampArithmeticExpr(String funcName, Expr e1, Expr e2, String timeUnitIdent, Type dataType) {
+        this.funcName = funcName;
+        this.timeUnitIdent = timeUnitIdent;
+        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent);
+        this.intervalFirst = false;
+        children.add(e1);
+        children.add(e2);
+        this.type = dataType;
+    }
+
+    /**
+     * used for Nereids ONLY.
+     * C'tor for non-function-call like arithmetic, e.g., 'a + interval b year'.
+     * e1 always refers to the timestamp to be added/subtracted from, and e2
+     * to the time value (even in the interval-first case).
+     */
+    public TimestampArithmeticExpr(ArithmeticExpr.Operator op, Expr e1, Expr e2,
+            String timeUnitIdent, boolean intervalFirst, Type dataType) {
+        Preconditions.checkState(op == Operator.ADD || op == Operator.SUBTRACT);
+        this.funcName = null;
+        this.op = op;
+        this.timeUnitIdent = timeUnitIdent;
+        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent);
+        this.intervalFirst = intervalFirst;
+        children.add(e1);
+        children.add(e2);
+        this.type = dataType;
+    }
+
     protected TimestampArithmeticExpr(TimestampArithmeticExpr other) {
         super(other);
         funcName = other.funcName;
@@ -424,7 +457,7 @@ public class TimestampArithmeticExpr extends Expr {
         if (StringUtils.isEmpty(funcName)) {
             throw new AnalysisException("function name is null");
         }
-        type = getChild(0).getType();
+        timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
         opcode = getOpCode();
         fn = getBuiltinFunction(funcName.toLowerCase(), collectChildReturnTypes(),
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
