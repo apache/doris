@@ -79,19 +79,22 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
                              std::unique_ptr<RowwiseIterator>* iter) {
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
-    if (read_options.conditions != nullptr) {
-        for (auto& column_condition : read_options.conditions->columns()) {
-            int32_t column_unique_id = column_condition.first;
-            if (_column_readers.count(column_unique_id) < 1 ||
-                !_column_readers.at(column_unique_id)->has_zone_map()) {
-                continue;
-            }
-            if (!_column_readers.at(column_unique_id)->match_condition(column_condition.second)) {
-                // any condition not satisfied, return.
-                iter->reset(new EmptySegmentIterator(schema));
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
-            }
+    for (auto& entry : read_options.col_id_to_predicates) {
+        int32_t column_id = entry.first;
+        // schema change
+        if (_tablet_schema->num_columns() <= column_id) {
+            continue;
+        }
+        int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
+        if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
+            continue;
+        }
+        if (read_options.col_id_to_predicates.count(column_id) > 0 &&
+            !_column_readers.at(uid)->match_condition(entry.second.get())) {
+            // any condition not satisfied, return.
+            iter->reset(new EmptySegmentIterator(schema));
+            read_options.stats->filtered_segment_number++;
+            return Status::OK();
         }
     }
 

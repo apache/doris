@@ -49,7 +49,6 @@ add_library(Olap STATIC
     memtable_flush_executor.cpp
     merger.cpp
     null_predicate.cpp
-    olap_cond.cpp
     olap_meta.cpp
     olap_server.cpp
     options.cpp

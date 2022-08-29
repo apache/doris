@@ -31,7 +31,6 @@ namespace doris {
 class RowCursor;
 class RowBlockV2;
 class Schema;
-class Conditions;
 class ColumnPredicate;
 
 class StorageReadOptions {
@@ -64,14 +63,6 @@ public:
     // used by short key index to filter row blocks
     std::vector<KeyRange> key_ranges;
 
-    // reader's column predicates, nullptr if not existed.
-    // used by column index to filter pages and rows
-    // TODO use vector<ColumnPredicate*> instead
-    const Conditions* conditions = nullptr;
-
-    // delete conditions used by column index to filter pages
-    std::vector<const Conditions*> delete_conditions;
-
     // For unique-key merge-on-write, the effect is similar to delete_conditions
     // that filters out rows that are deleted in realtime.
     // For a particular row, if delete_bitmap.contains(rowid) means that row is
@@ -83,9 +74,9 @@ public:
             std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
-    // TODO(hkp): refactor the column predicate framework
-    // to unify Conditions and ColumnPredicate
     std::vector<ColumnPredicate*> column_predicates;
+    std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
+    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;

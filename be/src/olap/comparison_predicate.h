@@ -20,6 +20,8 @@
 #include <cstdint>
 
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
@@ -198,6 +200,78 @@ public:
                       bool* flags) const override {
         _evaluate_bit<true>(column, sel, size, flags);
     }
+
+#define COMPARE_TO_MIN_OR_MAX(ELE)                                                        \
+    if constexpr (Type == TYPE_DATE) {                                                    \
+        T tmp_uint32_value = 0;                                                           \
+        memcpy((char*)(&tmp_uint32_value), statistic.ELE->cell_ptr(), sizeof(uint24_t));  \
+        return _operator(tmp_uint32_value, _value);                                       \
+    } else {                                                                              \
+        return _operator(*reinterpret_cast<const T*>(statistic.ELE->cell_ptr()), _value); \
+    }
+
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null()) {
+            return true;
+        }
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return _operator(tmp_min_uint32_value <= _value && tmp_max_uint32_value >= _value,
+                                 true);
+            } else {
+                return _operator(
+                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _value &&
+                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _value,
+                        true);
+            }
+        } else if constexpr (PT == PredicateType::NE) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
+                                 true);
+            } else {
+                return _operator(
+                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
+                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value,
+                        true);
+            }
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            COMPARE_TO_MIN_OR_MAX(first)
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            COMPARE_TO_MIN_OR_MAX(second)
+        }
+    }
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                return bf->test_bytes(_value.ptr, _value.len);
+            } else if constexpr (Type == TYPE_DATE) {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                      sizeof(uint24_t));
+            } else {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                      sizeof(_value));
+            }
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
+    }
+
+    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
