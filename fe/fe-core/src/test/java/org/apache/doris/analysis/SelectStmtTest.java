@@ -780,7 +780,7 @@ public class SelectStmtTest {
         Assert.assertEquals("SELECT `t`.`k1` AS `k1` "
                 + "FROM (WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t1),"
                 + "v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2) "
-                + "(SELECT `v1`.`k1` AS `k1` FROM `v1`) UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t", stmt1.toSql());
+                + "SELECT `v1`.`k1` AS `k1` FROM `v1` UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t", stmt1.toSql());
 
         String sql2 =
                 "with\n"

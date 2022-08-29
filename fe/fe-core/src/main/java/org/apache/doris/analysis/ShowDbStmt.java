@@ -87,7 +87,7 @@ public class ShowDbStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null);
+                where, null, null, null, LimitElement.NO_LIMIT);
 
         return selectStmt;
     }
