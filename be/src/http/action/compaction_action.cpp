@@ -28,13 +28,11 @@
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "util/json_util.h"
 
 namespace doris {
 
@@ -153,11 +151,11 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
             "msg" : "$1",
             "tablet_id" : $2,
             "compact_type" : "$3"
-})";
+        })";
 
         std::string msg = "compaction task for this tablet is not running";
-        std::string compaction_type = "";
-        bool run_status = 0;
+        std::string compaction_type;
+        bool run_status = false;
 
         {
             // use try lock to check this tablet is running cumulative compaction
@@ -166,7 +164,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
             if (!lock_cumulative.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "cumulative";
-                run_status = 1;
+                run_status = true;
                 *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
                                                    compaction_type);
                 return Status::OK();
@@ -180,7 +178,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
             if (!lock_base.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "base";
-                run_status = 1;
+                run_status = true;
                 *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
                                                    compaction_type);
                 return Status::OK();
@@ -195,6 +193,9 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 
 Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                                       const std::string& compaction_type) {
+    MonotonicStopWatch timer;
+    timer.start();
+
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             _create_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
@@ -234,10 +235,12 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         }
     }
 
-    LOG(INFO) << "Manual compaction task finish, status = " << res;
     std::lock_guard<std::mutex> lock(_compaction_running_mutex);
     _is_compaction_running = false;
 
+    timer.stop();
+    LOG(INFO) << "Manual compaction task finish, status=" << res
+              << " ,compaction_use_time=" << timer.elapsed_time() / 1000000 << "ms";
     return res;
 }
 
@@ -273,7 +276,7 @@ void CompactionAction::handle(HttpRequest* req) {
 
 std::shared_ptr<CumulativeCompactionPolicy>
 CompactionAction::_create_cumulative_compaction_policy() {
-    std::string current_policy = "";
+    std::string current_policy;
     {
         std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
         current_policy = config::cumulative_compaction_policy;
