@@ -64,16 +64,15 @@ public:
                        size_t upper_level) const;
 
 public:
-    Status check_sys_mem_info(int64_t bytes) {
+    static Status check_sys_mem_info(int64_t bytes) {
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
         // for fast, expect MemInfo::initialized() to be true.
         if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             auto st = Status::MemoryLimitExceeded(
-                    "Memory limit exceeded, process memory used {} exceed limit {}, "
-                    "consuming_tracker={}, failed_alloc_size={}",
-                    PerfCounters::get_vm_rss(), MemInfo::mem_limit(), _label, bytes);
+                    "process memory used {} exceed limit {}, failed_alloc_size={}",
+                    PerfCounters::get_vm_rss(), MemInfo::mem_limit(), bytes);
             ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(st.get_error_msg());
             return st;
         }
