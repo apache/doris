@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
@@ -178,11 +179,21 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 });
     }
 
+    /**
+     * s
+     * @param eid s
+     * @param node s
+     * @param ctx s
+     * @return s
+     */
     public static SlotRef slotRefTransfer(ExprId eid, OlapScanNode node, PlanTranslatorContext ctx) {
         SlotDescriptor slotDesc = node.getTupleDesc().getColumnSlot(
                 ctx.findSlotRef(eid).getColumnName()
         );
-        return new SlotRef(slotDesc);
+        SlotRef newRef = new SlotRef(slotDesc);
+        newRef.setTblName(new TableName("", node.getOlapTable().getName(), ""));
+        newRef.setLabel(slotDesc.getLabel());
+        return newRef;
     }
 
     public Map<ExprId, List<RuntimeFilter>> getFiltersByExprId() {
