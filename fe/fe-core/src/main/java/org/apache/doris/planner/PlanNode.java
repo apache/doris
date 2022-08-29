@@ -653,9 +653,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      */
     protected void assignConjuncts(Analyzer analyzer) {
         List<Expr> unassigned = analyzer.getUnassignedConjuncts(this);
-        for (Expr unassignedConjunct : unassigned) {
+        /*for (Expr unassignedConjunct : unassigned) {
             addConjunct(unassignedConjunct);
-        }
+        }*/
         analyzer.markConjunctsAssigned(unassigned);
     }
 
