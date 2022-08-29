@@ -146,10 +146,10 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
 
-                PhysicalProperties childOutputProperty = lowestCostExpr.getPropertyFromMap(requestChildProperty);
-                // add childOutputProperty of children into childrenOutputProperty
-                childrenOutputProperty.add(childOutputProperty);
-                requestChildrenProperty.set(curChildIndex, childOutputProperty);
+                PhysicalProperties outputProperties = lowestCostExpr.getOutputProperties(requestChildProperty);
+                // add outputProperties of children into childrenOutputProperty
+                childrenOutputProperty.add(outputProperties);
+                requestChildrenProperty.set(curChildIndex, outputProperties);
 
                 curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
                 if (curTotalCost > context.getCostUpperBound()) {
