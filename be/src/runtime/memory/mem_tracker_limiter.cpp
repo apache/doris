@@ -258,7 +258,7 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
 Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
                                              int64_t failed_allocation_size) {
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-    std::string detail = fmt::format("Memory limit exceeded, <consuming_tracker={}, ", _label);
+    std::string detail = fmt::format("Memory limit exceeded:<consuming_tracker={}, ", _label);
     MemTrackerLimiter* exceeded_tracker = nullptr;
     MemTrackerLimiter* max_consumption_tracker = nullptr;
     int64_t free_size = INT64_MAX;
