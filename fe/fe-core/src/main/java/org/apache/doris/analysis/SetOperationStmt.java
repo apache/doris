@@ -681,12 +681,18 @@ public class SetOperationStmt extends QueryStmt {
             strBuilder.append(" ");
         }
         Preconditions.checkState(operands.size() > 0);
-        strBuilder.append("(").append(operands.get(0).getQueryStmt().toSql()).append(")");
+        strBuilder.append(operands.get(0).getQueryStmt().toSql());
         for (int i = 1; i < operands.size() - 1; ++i) {
             strBuilder.append(" "
                     + operands.get(i).getOperation().toString() + " "
                     + ((operands.get(i).getQualifier() == Qualifier.ALL) ? "ALL " : ""));
-            strBuilder.append("(").append(operands.get(i).getQueryStmt().toSql()).append(")");
+            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
+                strBuilder.append("(");
+            }
+            strBuilder.append(operands.get(i).getQueryStmt().toSql());
+            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
+                strBuilder.append(")");
+            }
         }
         // Determine whether we need parenthesis around the last Set operand.
         SetOperand lastOperand = operands.get(operands.size() - 1);

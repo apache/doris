@@ -66,7 +66,7 @@ public class CreateMaterializedViewStmtTest {
         SelectListItem selectListItem = new SelectListItem(arithmeticExpr, null);
         selectList.addItem(selectListItem);
         FromClause fromClause = new FromClause();
-        SelectStmt selectStmt = new SelectStmt(selectList, fromClause, null, null, null);
+        SelectStmt selectStmt = new SelectStmt(selectList, fromClause, null, null, null, null, LimitElement.NO_LIMIT);
 
         new Expectations() {
             {
