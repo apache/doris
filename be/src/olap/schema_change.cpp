@@ -1852,11 +1852,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
             auto& all_del_preds = base_tablet->delete_predicates();
             for (auto& delete_pred : all_del_preds) {
-                if (delete_pred.version() > end_version) {
+                if (delete_pred->version() > end_version) {
                     continue;
                 }
-                base_tablet_schema->merge_dropped_columns(base_tablet->tablet_schema(
-                        Version(delete_pred.version(), delete_pred.version())));
+                base_tablet_schema->merge_dropped_columns(
+                        base_tablet->tablet_schema(delete_pred->version()));
             }
             res = delete_handler.init(base_tablet_schema, all_del_preds, end_version);
             if (!res) {
