@@ -203,7 +203,7 @@ SHOW RESTORE FROM `${getRealDbName()}`
                     break
                 }
             }
-            sleep(500)
+            sleep(10000)
         }
     }
 
