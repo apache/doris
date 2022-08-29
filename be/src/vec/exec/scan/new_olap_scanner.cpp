@@ -174,6 +174,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.delete_predicates,
                             _tablet_reader_params.delete_predicates.begin()));
 
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_pb : _tablet_reader_params.delete_predicates) {
+        _tablet_schema->merge_dropped_columns(
+                _tablet->tablet_schema(Version(del_pred_pb.version(), del_pred_pb.version())));
+    }
+
     // Range
     for (auto key_range : key_ranges) {
         if (key_range->begin_scan_range.size() == 1 &&
