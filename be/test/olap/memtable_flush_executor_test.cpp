@@ -38,7 +38,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/tuple.h"
 #include "util/file_utils.h"
-#include "util/logging.h"
 
 namespace doris {
 

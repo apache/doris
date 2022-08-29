@@ -24,18 +24,18 @@
 #include "gen_cpp/Types_constants.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/stringpiece.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_client.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/snapshot_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/thrift_rpc_helper.h"
 
 using std::set;
 using std::stringstream;
-using strings::Substitute;
 using strings::Split;
 using strings::SkipWhitespace;
 
@@ -49,12 +49,9 @@ const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 const uint32_t GET_LENGTH_TIMEOUT = 10;
 
 EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info,
-                                 int64_t signature, std::vector<string>* error_msgs,
-                                 std::vector<TTabletInfo>* tablet_infos, Status* res_status)
+                                 int64_t signature, std::vector<TTabletInfo>* tablet_infos)
         : _clone_req(clone_req),
-          _error_msgs(error_msgs),
           _tablet_infos(tablet_infos),
-          _res_status(res_status),
           _signature(signature),
           _master_info(master_info) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
@@ -96,176 +93,108 @@ Status EngineCloneTask::_do_clone() {
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
-        if (missed_versions.size() == 0) {
-            LOG(INFO) << "missed version size = 0, skip clone and return success. tablet id="
+        if (missed_versions.empty()) {
+            LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id;
-            _set_tablet_info(Status::OK(), is_new_tablet);
+            _set_tablet_info(is_new_tablet);
             return Status::OK();
         }
+
+        LOG(INFO) << "clone to existed tablet. missed_versions_size=" << missed_versions.size()
+                  << ", allow_incremental_clone=" << allow_incremental_clone
+                  << ", signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
+                  << ", committed_version=" << _clone_req.committed_version;
 
         // try to download missing version from src backend.
         // if tablet on src backend does not contains missing version, it will download all versions,
         // and set allow_incremental_clone to false
-        status = _make_and_download_snapshots(*(tablet->data_dir()), local_data_path, &src_host,
-                                              &src_file_path, _error_msgs, &missed_versions,
-                                              &allow_incremental_clone);
+        RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet->data_dir()), local_data_path,
+                                                     &src_host, &src_file_path, &missed_versions,
+                                                     &allow_incremental_clone));
 
-        LOG(INFO) << "tablet exist with number of missing version: " << missed_versions.size()
-                  << ", try to incremental clone succeed: " << allow_incremental_clone
-                  << ", signature: " << _signature << ", tablet id: " << _clone_req.tablet_id
-                  << ", schema hash: " << _clone_req.schema_hash
-                  << ", clone version: " << _clone_req.committed_version
-                  << ", download snapshot: " << status;
-
-        if (status.ok()) {
-            Status olap_status =
-                    _finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
-                                  allow_incremental_clone);
-            if (!olap_status.ok()) {
-                LOG(WARNING) << "failed to finish clone. [table=" << tablet->full_name()
-                             << " res=" << olap_status << "]";
-                _error_msgs->push_back("clone error.");
-                status = Status::InternalError("Failed to finish clone");
-            }
-        }
-
+        RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
+                                      allow_incremental_clone));
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
-                  << "signature:" << _signature << ", tablet_id:" << _clone_req.tablet_id
-                  << ", schema_hash:" << _clone_req.schema_hash
-                  << ", committed_version:" << _clone_req.committed_version;
+                  << "signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
+                  << ", committed_version=" << _clone_req.committed_version;
         // create a new tablet in this be
         // Get local disk from olap
         string local_shard_root_path;
         DataDir* store = nullptr;
-        Status olap_status = StorageEngine::instance()->obtain_shard_path(
-                _clone_req.storage_medium, &local_shard_root_path, &store);
-        if (!olap_status.ok()) {
-            LOG(WARNING) << "clone get local root path failed. signature: " << _signature;
-            _error_msgs->push_back("clone get local root path failed.");
-            status = Status::InternalError("Clone to get local root path failed");
-        }
-        std::stringstream tablet_dir_stream;
-        tablet_dir_stream << local_shard_root_path << "/" << _clone_req.tablet_id << "/"
-                          << _clone_req.schema_hash;
+        RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
+                _clone_req.storage_medium, &local_shard_root_path, &store));
+        auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
+                                      _clone_req.schema_hash);
 
-        if (status.ok()) {
-            bool allow_incremental_clone = false;
-            status = _make_and_download_snapshots(*store, tablet_dir_stream.str(), &src_host,
-                                                  &src_file_path, _error_msgs, nullptr,
-                                                  &allow_incremental_clone);
-        }
-
-        if (status.ok()) {
-            LOG(INFO) << "clone copy done. src_host: " << src_host.host
-                      << " src_file_path: " << src_file_path;
-            std::stringstream schema_hash_path_stream;
-            schema_hash_path_stream << local_shard_root_path << "/" << _clone_req.tablet_id << "/"
-                                    << _clone_req.schema_hash;
-            string header_path = TabletMeta::construct_header_file_path(
-                    schema_hash_path_stream.str(), _clone_req.tablet_id);
-            Status reset_id_status = TabletMeta::reset_tablet_uid(header_path);
-            if (reset_id_status != Status::OK()) {
-                LOG(WARNING) << "errors while set tablet uid: '" << header_path;
-                _error_msgs->push_back("errors while set tablet uid.");
-                status = Status::InternalError("Errors while set tablet uid");
-            } else {
-                Status load_header_status =
-                        StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-                                store, _clone_req.tablet_id, _clone_req.schema_hash,
-                                schema_hash_path_stream.str(), false);
-                if (load_header_status != Status::OK()) {
-                    LOG(WARNING) << "load header failed. local_shard_root_path: '"
-                                 << local_shard_root_path
-                                 << "' schema_hash: " << _clone_req.schema_hash
-                                 << ". status: " << load_header_status
-                                 << ". signature: " << _signature;
-                    _error_msgs->push_back("load header failed.");
-                    status = Status::InternalError("Load tablet header failed");
-                }
+        Defer remove_useless_dir {[&] {
+            if (status.ok()) {
+                return;
             }
-            // clone success, delete .hdr file because tablet meta is stored in rocksdb
-            string cloned_meta_file =
-                    tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";
-            FileUtils::remove(cloned_meta_file);
-        }
-        // Clean useless dir, if failed, ignore it.
-        if (!status.ok()) {
-            std::stringstream local_data_path_stream;
-            local_data_path_stream << local_shard_root_path << "/" << _clone_req.tablet_id;
-            string local_data_path = local_data_path_stream.str();
-            LOG(INFO) << "clone failed. want to delete local dir: " << local_data_path
+            LOG(INFO) << "clone failed. want to delete local dir: " << tablet_dir
                       << ". signature: " << _signature;
-            try {
-                std::filesystem::path local_path(local_data_path);
-                if (std::filesystem::exists(local_path)) {
-                    std::filesystem::remove_all(local_path);
-                }
-            } catch (std::filesystem::filesystem_error& e) {
-                // Ignore the error, OLAP will delete it
-                LOG(WARNING) << "clone delete useless dir failed. "
-                             << " error: " << e.what() << " local dir: " << local_data_path.c_str()
-                             << " signature: " << _signature;
-            }
+            WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir),
+                          "failed to delete useless clone dir ");
+        }};
+
+        bool allow_incremental_clone = false;
+        status = _make_and_download_snapshots(*store, tablet_dir, &src_host, &src_file_path,
+                                              nullptr, &allow_incremental_clone);
+        if (!status.ok()) {
+            return status;
         }
+
+        LOG(INFO) << "clone copy done. src_host: " << src_host.host
+                  << " src_file_path: " << src_file_path;
+        string header_path =
+                TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
+        status = TabletMeta::reset_tablet_uid(header_path);
+        if (!status.ok()) {
+            return status;
+        }
+        status = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+                store, _clone_req.tablet_id, _clone_req.schema_hash, tablet_dir, false);
+        if (!status.ok()) {
+            return status;
+        }
+        // clone success, delete .hdr file because tablet meta is stored in rocksdb
+        FileUtils::remove(header_path);
     }
-    _set_tablet_info(status, is_new_tablet);
-    return Status::OK();
+    return _set_tablet_info(is_new_tablet);
 }
 
-void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
+Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     // Get clone tablet info
-    if (status.ok()) {
-        TTabletInfo tablet_info;
-        tablet_info.__set_tablet_id(_clone_req.tablet_id);
-        tablet_info.__set_replica_id(_clone_req.replica_id);
-        tablet_info.__set_schema_hash(_clone_req.schema_hash);
-        Status get_tablet_info_status =
-                StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
-        if (get_tablet_info_status != Status::OK()) {
-            LOG(WARNING) << "clone success, but get tablet info failed."
-                         << " tablet id: " << _clone_req.tablet_id
-                         << ", replica_id:" << _clone_req.replica_id
-                         << " schema hash: " << _clone_req.schema_hash
-                         << " signature: " << _signature;
-            _error_msgs->push_back("clone success, but get tablet info failed.");
-            status = Status::InternalError("Clone success but get tablet info failed");
-        } else if (_clone_req.__isset.committed_version &&
-                   tablet_info.version < _clone_req.committed_version) {
-            LOG(WARNING) << "failed to clone tablet. tablet_id:" << _clone_req.tablet_id
+    TTabletInfo tablet_info;
+    tablet_info.__set_tablet_id(_clone_req.tablet_id);
+    tablet_info.__set_replica_id(_clone_req.replica_id);
+    tablet_info.__set_schema_hash(_clone_req.schema_hash);
+    RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
+    if (_clone_req.__isset.committed_version &&
+        tablet_info.version < _clone_req.committed_version) {
+        // if it is a new tablet and clone failed, then remove the tablet
+        // if it is incremental clone, then must not drop the tablet
+        if (is_new_tablet) {
+            // we need to check if this cloned table's version is what we expect.
+            // if not, maybe this is a stale remaining table which is waiting for drop.
+            // we drop it.
+            LOG(WARNING) << "begin to drop the stale tablet. tablet_id:" << _clone_req.tablet_id
                          << ", replica_id:" << _clone_req.replica_id
                          << ", schema_hash:" << _clone_req.schema_hash
                          << ", signature:" << _signature << ", version:" << tablet_info.version
                          << ", expected_version: " << _clone_req.committed_version;
-            // if it is a new tablet and clone failed, then remove the tablet
-            // if it is incremental clone, then must not drop the tablet
-            if (is_new_tablet) {
-                // we need to check if this cloned table's version is what we expect.
-                // if not, maybe this is a stale remaining table which is waiting for drop.
-                // we drop it.
-                LOG(WARNING) << "begin to drop the stale tablet. tablet_id:" << _clone_req.tablet_id
-                             << ", replica_id:" << _clone_req.replica_id
-                             << ", schema_hash:" << _clone_req.schema_hash
-                             << ", signature:" << _signature << ", version:" << tablet_info.version
-                             << ", expected_version: " << _clone_req.committed_version;
-                Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                        _clone_req.tablet_id, _clone_req.replica_id, false);
-                if (drop_status != Status::OK() &&
-                    drop_status.precise_code() != OLAP_ERR_TABLE_NOT_FOUND) {
-                    // just log
-                    LOG(WARNING) << "drop stale cloned table failed! tablet id: "
-                                 << _clone_req.tablet_id;
-                }
-            }
-            status = Status::InternalError("Failed to clone tablet");
-        } else {
-            LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
-                      << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
-                      << ", version:" << tablet_info.version;
-            _tablet_infos->push_back(tablet_info);
+            WARN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
+                                  _clone_req.tablet_id, _clone_req.replica_id, false),
+                          "drop stale cloned table failed");
         }
+        return Status::InternalError("unexpected version. tablet version: {}, expected version: {}",
+                                     tablet_info.version, _clone_req.committed_version);
     }
-    *_res_status = status;
+    LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
+              << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
+              << ", version:" << tablet_info.version;
+    _tablet_infos->push_back(tablet_info);
+    return Status::OK();
 }
 
 /// This method will do following things:
@@ -276,7 +205,6 @@ void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
 Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                                                      const std::string& local_data_path,
                                                      TBackend* src_host, string* snapshot_path,
-                                                     std::vector<string>* error_msgs,
                                                      const std::vector<Version>* missed_versions,
                                                      bool* allow_incremental_clone) {
     Status status = Status::OK();
@@ -292,23 +220,22 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         // Make snapshot in remote olap engine
         *src_host = src;
         // make snapshot
-        auto st =
-                _make_snapshot(src.host, src.be_port, _clone_req.tablet_id, _clone_req.schema_hash,
-                               timeout_s, missed_versions, snapshot_path, allow_incremental_clone);
-        if (st.ok()) {
-            LOG(INFO) << "success to make snapshot. ip=" << src.host << ", port=" << src.be_port
-                      << ", tablet=" << _clone_req.tablet_id
-                      << ", schema_hash=" << _clone_req.schema_hash
-                      << ", snapshot_path=" << *snapshot_path << ", signature=" << _signature;
-            status = Status::OK();
+        status = _make_snapshot(src.host, src.be_port, _clone_req.tablet_id, _clone_req.schema_hash,
+                                timeout_s, missed_versions, snapshot_path, allow_incremental_clone);
+        if (status.ok()) {
+            LOG_INFO("successfully make snapshot in remote BE")
+                    .tag("host", src.host)
+                    .tag("port", src.be_port)
+                    .tag("tablet", _clone_req.tablet_id)
+                    .tag("snapshot_path", *snapshot_path)
+                    .tag("signature", _signature);
         } else {
-            LOG(WARNING) << "fail to make snapshot, ip=" << src.host << ", port=" << src.be_port
-                         << ", tablet=" << _clone_req.tablet_id
-                         << ", schema_hash=" << _clone_req.schema_hash
-                         << ", signature=" << _signature << ", error=" << st.to_string();
-            error_msgs->push_back("make snapshot failed. backend_ip: " + src_host->host);
-
-            status = Status::InternalError("Failed to make snapshot");
+            LOG_WARNING("failed to make snapshot in remote BE")
+                    .tag("host", src.host)
+                    .tag("port", src.be_port)
+                    .tag("tablet", _clone_req.tablet_id)
+                    .tag("signature", _signature)
+                    .error(status);
             continue;
         }
 
@@ -324,36 +251,28 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             remote_url_prefix = ss.str();
         }
 
-        st = _download_files(&data_dir, remote_url_prefix, local_data_path);
-        if (!st.ok()) {
-            LOG(WARNING) << "fail to download and convert tablet, remote=" << remote_url_prefix
-                         << ", error=" << st.to_string();
-            status = Status::InternalError("Fail to download and convert tablet");
-            // when there is an error, keep this program executing to release snapshot
-        }
+        status = _download_files(&data_dir, remote_url_prefix, local_data_path);
+        // when there is an error, keep this program executing to release snapshot
 
         if (status.ok()) {
             // change all rowset ids because they maybe its id same with local rowset
-            auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
+            status = SnapshotManager::instance()->convert_rowset_ids(
                     local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
                     _clone_req.schema_hash);
-            if (olap_st != Status::OK()) {
-                LOG(WARNING) << "fail to convert rowset ids, path=" << local_data_path
-                             << ", tablet_id=" << _clone_req.tablet_id
-                             << ", replica_id=" << _clone_req.replica_id
-                             << ", schema_hash=" << _clone_req.schema_hash << ", error=" << olap_st;
-                status = Status::InternalError("Failed to convert rowset ids");
-            }
+        } else {
+            LOG_WARNING("failed to download snapshot from remote BE")
+                    .tag("url", remote_url_prefix)
+                    .error(status);
         }
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
-        st = _release_snapshot(src.host, src.be_port, *snapshot_path);
-        if (st.ok()) {
-            LOG(INFO) << "success to release snapshot, ip=" << src.host << ", port=" << src.be_port
-                      << ", snapshot_path=" << *snapshot_path;
-        } else {
-            LOG(WARNING) << "fail to release snapshot, ip=" << src.host << ", port=" << src.be_port
-                         << ", snapshot_path=" << *snapshot_path << ", error=" << st.to_string();
+        auto st = _release_snapshot(src.host, src.be_port, *snapshot_path);
+        if (!st.ok()) {
+            LOG_WARNING("failed to release snapshot in remote BE")
+                    .tag("host", src.host)
+                    .tag("port", src.be_port)
+                    .tag("snapshot_path", *snapshot_path)
+                    .error(status);
             // DON'T change the status
         }
         if (status.ok()) {
@@ -392,14 +311,14 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
         return Status(result.status);
     }
 
-    if (result.__isset.snapshot_path) {
-        *snapshot_path = result.snapshot_path;
-        if (snapshot_path->at(snapshot_path->length() - 1) != '/') {
-            snapshot_path->append("/");
-        }
-    } else {
-        return Status::InternalError("success snapshot without snapshot path");
+    if (!result.__isset.snapshot_path) {
+        return Status::InternalError("success snapshot request without snapshot path");
     }
+    *snapshot_path = result.snapshot_path;
+    if (snapshot_path->at(snapshot_path->length() - 1) != '/') {
+        snapshot_path->append("/");
+    }
+
     if (result.__isset.allow_incremental_clone) {
         // During upgrading, some BE nodes still be installed an old previous old.
         // which incremental clone is not ready in those nodes.
@@ -529,111 +448,77 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir,
                                       int64_t committed_version, bool is_incremental_clone) {
-    Status res = Status::OK();
-    std::vector<string> linked_success_files;
+    Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
+
     // clone and compaction operation should be performed sequentially
-    {
-        std::lock_guard<std::mutex> base_compaction_lock(tablet->get_base_compaction_lock());
-        std::lock_guard<std::mutex> cumulative_compaction_lock(
-                tablet->get_cumulative_compaction_lock());
-        tablet->set_clone_occurred(true);
-        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
-        do {
-            // check clone dir existed
-            if (!FileUtils::check_exist(clone_dir)) {
-                res = Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST);
-                LOG(WARNING) << "clone dir not existed when clone. clone_dir=" << clone_dir;
-                break;
-            }
+    std::lock_guard<std::mutex> base_compaction_lock(tablet->get_base_compaction_lock());
+    std::lock_guard<std::mutex> cumulative_compaction_lock(
+            tablet->get_cumulative_compaction_lock());
+    tablet->set_clone_occurred(true);
+    std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
+    std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+    // check clone dir existed
+    if (!FileUtils::check_exist(clone_dir)) {
+        return Status::InternalError("clone dir not existed. clone_dir={}", clone_dir);
+    }
 
-            // Load src header.
-            // The tablet meta info is downloaded from source BE as .hdr file.
-            // So we load it and generate cloned_tablet_meta.
-            auto cloned_tablet_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet->tablet_id());
-            TabletMeta cloned_tablet_meta;
-            res = cloned_tablet_meta.create_from_file(cloned_tablet_meta_file);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to load src header when clone. "
-                             << ", cloned_tablet_meta_file=" << cloned_tablet_meta_file;
-                break;
-            }
-            // remove the cloned meta file
-            FileUtils::remove(cloned_tablet_meta_file);
+    // Load src header.
+    // The tablet meta info is downloaded from source BE as .hdr file.
+    // So we load it and generate cloned_tablet_meta.
+    auto cloned_tablet_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet->tablet_id());
+    TabletMeta cloned_tablet_meta;
+    RETURN_IF_ERROR(cloned_tablet_meta.create_from_file(cloned_tablet_meta_file));
 
-            // check all files in /clone and /tablet
-            set<string> clone_files;
-            Status ret =
-                    FileUtils::list_dirs_files(clone_dir, nullptr, &clone_files, Env::Default());
-            if (!ret.ok()) {
-                LOG(WARNING) << "failed to list clone dir when clone. [clone_dir=" << clone_dir
-                             << "]"
-                             << " error: " << ret.to_string();
-                res = Status::OLAPInternalError(OLAP_ERR_DISK_FAILURE);
-                break;
-            }
+    // remove the cloned meta file
+    FileUtils::remove(cloned_tablet_meta_file);
 
-            set<string> local_files;
-            const auto& tablet_dir = tablet->tablet_path();
-            ret = FileUtils::list_dirs_files(tablet_dir, nullptr, &local_files, Env::Default());
-            if (!ret.ok()) {
-                LOG(WARNING) << "failed to list local tablet dir when clone. [tablet_dir="
-                             << tablet_dir << "]"
-                             << " error: " << ret.to_string();
-                res = Status::OLAPInternalError(OLAP_ERR_DISK_FAILURE);
-                break;
-            }
+    // check all files in /clone and /tablet
+    set<string> clone_files;
+    RETURN_IF_ERROR(FileUtils::list_dirs_files(clone_dir, nullptr, &clone_files, Env::Default()));
 
-            /// Traverse all downloaded clone files in CLONE dir.
-            /// If it does not exist in local tablet dir, link the file to local tablet dir
-            /// And save all linked files in linked_success_files.
-            for (const string& clone_file : clone_files) {
-                if (local_files.find(clone_file) != local_files.end()) {
-                    VLOG_NOTICE << "find same file when clone, skip it. "
-                                << "tablet=" << tablet->full_name()
-                                << ", clone_file=" << clone_file;
-                    continue;
-                }
+    set<string> local_files;
+    const auto& tablet_dir = tablet->tablet_path();
+    RETURN_IF_ERROR(FileUtils::list_dirs_files(tablet_dir, nullptr, &local_files, Env::Default()));
 
-                auto from = fmt::format("{}/{}", clone_dir, clone_file);
-                auto to = fmt::format("{}/{}", tablet_dir, clone_file);
-                LOG(INFO) << "src file:" << from << " dest file:" << to;
-                if (link(from.c_str(), to.c_str()) != 0) {
-                    LOG(WARNING) << "fail to create hard link when clone. "
-                                 << " from=" << from << " to=" << to;
-                    res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
-                    break;
-                }
-                linked_success_files.emplace_back(std::move(to));
-            }
-
-            if (!res.ok()) {
-                break;
-            }
-
-            if (is_incremental_clone) {
-                res = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
-            } else {
-                res = _finish_full_clone(tablet, const_cast<TabletMeta*>(&cloned_tablet_meta));
-            }
-
-            // if full clone success, need to update cumulative layer point
-            if (!is_incremental_clone && res.ok()) {
-                tablet->set_cumulative_layer_point(Tablet::K_INVALID_CUMULATIVE_POINT);
-            }
-
-        } while (0);
-
-        // clear linked files if errors happen
-        if (!res.ok()) {
+    Status status;
+    std::vector<string> linked_success_files;
+    Defer remove_linked_files {[&]() { // clear linked files if errors happen
+        if (!status.ok()) {
             FileUtils::remove_paths(linked_success_files);
         }
+    }};
+    /// Traverse all downloaded clone files in CLONE dir.
+    /// If it does not exist in local tablet dir, link the file to local tablet dir
+    /// And save all linked files in linked_success_files.
+    for (const string& clone_file : clone_files) {
+        if (local_files.find(clone_file) != local_files.end()) {
+            VLOG_NOTICE << "find same file when clone, skip it. "
+                        << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
+            continue;
+        }
+
+        auto from = fmt::format("{}/{}", clone_dir, clone_file);
+        auto to = fmt::format("{}/{}", tablet_dir, clone_file);
+        if (link(from.c_str(), to.c_str()) != 0) {
+            status = Status::InternalError("failed to create hard link. from={}, to={}", from, to);
+            return status;
+        }
+        linked_success_files.emplace_back(std::move(to));
     }
+
+    if (is_incremental_clone) {
+        status = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
+    } else {
+        status = _finish_full_clone(tablet, const_cast<TabletMeta*>(&cloned_tablet_meta));
+    }
+
+    // if full clone success, need to update cumulative layer point
+    if (!is_incremental_clone && status.ok()) {
+        tablet->set_cumulative_layer_point(Tablet::K_INVALID_CUMULATIVE_POINT);
+    }
+
     // clear clone dir
-    std::filesystem::remove_all(clone_dir);
-    LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
-              << ", tablet=" << tablet->full_name() << ", clone_dir=" << clone_dir;
-    return res;
+    return status;
 }
 
 /// This method will do:
@@ -643,7 +528,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMeta& cloned_tablet_meta,
                                                   int64_t committed_version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
-              << ", clone version=" << committed_version;
+              << ", committed_version=" << committed_version;
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
@@ -658,11 +543,9 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     for (Version version : missed_versions) {
         RowsetMetaSharedPtr rs_meta = cloned_tablet_meta.acquire_rs_meta_by_version(version);
         if (rs_meta == nullptr) {
-            LOG(WARNING) << "missed version is not found in cloned tablet meta."
-                         << ", missed_version=" << version.first << "-" << version.second;
-            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+            return Status::InternalError("missed version {} is not found in cloned tablet meta",
+                                         version.to_string());
         }
-
         rowsets_to_clone.push_back(rs_meta);
     }
 
@@ -670,10 +553,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     /// For incremental clone, nothing will be deleted.
     /// So versions_to_delete is empty.
     std::vector<Version> versions_to_delete;
-    Status clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
-    LOG(INFO) << "finish to incremental clone. [tablet=" << tablet->full_name()
-              << " res=" << clone_res << "]";
-    return clone_res;
+    return tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
 }
 
 /// This method will do:
@@ -713,10 +593,9 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
         // do compaction.
         if (local_version.first <= cloned_max_version.second &&
             local_version.second > cloned_max_version.second) {
-            LOG(WARNING) << "stop to full clone, version cross src latest."
-                         << "tablet=" << tablet->full_name() << ", local_version=" << local_version;
-            return Status::OLAPInternalError(OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR);
-
+            return Status::InternalError(
+                    "version cross src latest. cloned_max_version={}, local_version={}",
+                    cloned_max_version.to_string(), local_version.to_string());
         } else if (local_version.second <= cloned_max_version.second) {
             // if local version smaller than src, check if existed in src, will not clone it
             bool existed_in_src = false;
@@ -761,7 +640,6 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
     // 3. local tablet cloned rowset from other nodes
     // 4. if cleared alter task info, then push will not write to new tablet, the report info is error
     Status clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
-    LOG(INFO) << "finish to full clone. tablet=" << tablet->full_name() << ", res=" << clone_res;
     // in previous step, copy all files from CLONE_DIR to tablet dir
     // but some rowset is useless, so that remove them here
     for (auto& rs_meta_ptr : rs_metas_found_in_src) {
@@ -777,7 +655,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
         s = rowset_to_remove->remove();
         if (!s.ok()) {
             LOG(WARNING) << "failed to remove rowset " << rs_meta_ptr->rowset_id().to_string()
-                         << ", res=" << s;
+                         << ": " << s;
         }
     }
     return clone_res;

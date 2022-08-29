@@ -33,7 +33,6 @@
 #include "runtime/sorted_run_merger.h"
 #include "runtime/thread_context.h"
 #include "util/debug_util.h"
-#include "util/logging.h"
 #include "util/runtime_profile.h"
 
 using std::list;

@@ -24,8 +24,6 @@
 #include <cstdio>
 #include <string>
 
-#include "util/logging.h"
-
 namespace doris {
 
 std::string space[] = {"", "   ", "\t\t\t", "\n\n\n", "\v\v\v", "\f\f\f", "\r\r\r"};
