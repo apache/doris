@@ -1,6 +1,6 @@
 ---
 {
-    "title": "prefix index",
+    "title": "Index",
     "language": "en"
 }
 ---
@@ -24,17 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Prefix Index
+# Index
 
-## Basic concept
+Indexes are used to help quickly filter or find data.
 
-Unlike traditional database designs, Doris does not support creating indexes on arbitrary columns. OLAP databases with MPP architectures such as Doris usually process large amounts of data by improving concurrency.
+Doris currently supports two main types of indexes: built-in smart indexes, including prefix indexes and ZoneMap indexes. User-created secondary indexes, including the [Bloom Filter index](. /bloomfilter) and [Bitmap inverted index](. /bitmap-index).
 
-Essentially, Doris' data is stored in a data structure similar to SSTable (Sorted String Table). This structure is an ordered data structure that can be sorted and stored according to the specified column. In this data structure, it is very efficient to use the sorted column as a condition to search.
+The ZoneMap index is the index information automatically maintained for each column in the column storage format, including Min/Max, the number of Null values, and so on. This index is transparent to the user.
 
-In the three data models of Aggregate, Unique and Duplicate. The underlying data storage is sorted and stored according to the columns specified in the AGGREGATE KEY, UNIQUE KEY and DUPLICATE KEY in the respective table creation statements.
+## Prefix Index
 
-The prefix index, that is, on the basis of sorting, implements an index method to quickly query data according to a given prefix column.
+Unlike traditional database designs, Doris does not support creating indexes on arbitrary columns. an OLAP database with an MPP architecture like Doris is typically designed to handle large amounts of data by increasing concurrency.
+
+Essentially, Doris data is stored in a data structure similar to an SSTable (Sorted String Table). This structure is an ordered data structure that can be stored sorted by specified columns. On this data structure, it will be very efficient to perform lookups with sorted columns as a condition.
+
+In the Aggregate, Unique and Duplicate data models. The underlying data storage is sorted and stored according to the columns specified in the respective table building statements, AGGREGATE KEY, UNIQUE KEY and DUPLICATE KEY.
+
+The prefix index, which is based on sorting, is an indexing method to query data quickly based on a given prefix column.
 
 ## Example
 
