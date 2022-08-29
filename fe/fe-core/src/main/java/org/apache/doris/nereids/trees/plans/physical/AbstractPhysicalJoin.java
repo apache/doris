@@ -78,9 +78,8 @@ public abstract class AbstractPhysicalJoin<
         return otherJoinCondition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 
-    //TODO:
-    // 1. consider the order of conjucts in otherJoinCondition
-    // 2. compare hashJoinConditions
+    // TODO:
+    // 1. consider the order of conjucts in otherJoinCondition and hashJoinConditions
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -89,17 +88,23 @@ public abstract class AbstractPhysicalJoin<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        AbstractPhysicalJoin that = (AbstractPhysicalJoin) o;
-        return joinType == that.joinType && Objects.equals(otherJoinCondition, that.otherJoinCondition);
+        if (!super.equals(o)) {
+            return false;
+        }
+        AbstractPhysicalJoin<?, ?> that = (AbstractPhysicalJoin<?, ?>) o;
+        return joinType == that.joinType
+                && hashJoinConjuncts.equals(that.hashJoinConjuncts)
+                && otherJoinCondition.equals(that.otherJoinCondition);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(joinType, otherJoinCondition);
+        return Objects.hash(super.hashCode(), joinType, hashJoinConjuncts, otherJoinCondition);
     }
 
     /**
      * hashJoinConjuncts and otherJoinCondition
+     *
      * @return the combination of hashJoinConjuncts and otherJoinCondition
      */
     public Optional<Expression> getOnClauseCondition() {

@@ -184,6 +184,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return sb.toString();
     }
 
+    //TODO:
+    // 1. consider the order of conjucts in otherJoinCondition and hashJoinConditions
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -195,6 +197,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         LogicalJoin that = (LogicalJoin) o;
 
         return joinType == that.joinType
+                // TODO: why use containsAll?
                 && that.getHashJoinConjuncts().containsAll(hashJoinConjuncts)
                 && hashJoinConjuncts.containsAll(that.getHashJoinConjuncts())
                 && Objects.equals(otherJoinCondition, that.otherJoinCondition);

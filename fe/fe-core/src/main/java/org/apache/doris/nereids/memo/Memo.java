@@ -44,7 +44,7 @@ public class Memo {
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private Group root;
+    private final Group root;
 
     public Memo(Plan plan) {
         root = copyIn(plan, null, false).second.getOwnerGroup();
