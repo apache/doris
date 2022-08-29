@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class TinyIntType extends IntegralType {
     public static TinyIntType INSTANCE = new TinyIntType();
 
+    private TinyIntType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.TINYINT;
