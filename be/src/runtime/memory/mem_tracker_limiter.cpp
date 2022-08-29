@@ -283,7 +283,7 @@ Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
     MemTrackerLimiter* print_log_usage_tracker = nullptr;
     if (exceeded_tracker != nullptr) {
         detail += fmt::format(
-                "exceeded_tracker={}, limit={}B, peak_used={}B, current_used={B}>, "
+                "exceeded_tracker={}, limit={}B, peak_used={}B, current_used={}B>, "
                 "executing_msg:<{}>",
                 exceeded_tracker->label(), exceeded_tracker->limit(),
                 exceeded_tracker->peak_consumption(), exceeded_tracker->consumption(), msg);
