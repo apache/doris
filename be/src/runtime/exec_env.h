@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <unordered_map>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
@@ -133,6 +136,18 @@ public:
     ThreadPoolToken* get_serial_download_cache_thread_token() {
         return _serial_download_cache_thread_token.get();
     }
+    void init_download_cache_buf() {
+        std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
+        memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
+        _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
+                std::move(download_cache_buf);
+    }
+    char* get_download_cache_buf(ThreadPoolToken* token) {
+        if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
+            return nullptr;
+        }
+        return _download_cache_buf_map[token].get();
+    }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -220,7 +235,8 @@ private:
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
-
+    // ThreadPoolToken -> buffer
+    std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;
