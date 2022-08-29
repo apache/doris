@@ -89,7 +89,7 @@ DISTRIBUTED BY HASH(sessionid, visitorid) BUCKETS 10;
 
 ### 1.2 Wide Table vs. Star Schema
 
-In order to adapt to the front-end business, business side often does not distinguish dimension information from indicator information, but defines Schema as a wide table. For Doris, the performance of such wide gauges is often unsatisfactory:
+When the business side builds tables, in order to adapt to the front-end business, they often do not distinguish between dimension information and indicator information, and define the Schema as a large wide table, this operation is actually not so friendly to the database, we recommend users to use the star model.
 
 * There are many fields in Schema, and there may be more key columns in the aggregation model. The number of columns that need to be sorted in the import process will increase.
 * Dimensional information updates are reflected in the whole table, and the frequency of updates directly affects the efficiency of queries.
@@ -170,29 +170,14 @@ In addition to visitorid analysis, there are Brower and province analysis cases,
 ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLICATE KEY(brower,province);
 ```
 
-## 2 Schema Change
+## Schema Change
 
-There are three Schema Change in doris: Sorted Schema Change, Direct Schema Change, Linked Schema Change.
+Users can modify the Schema of an existing table through the Schema Change operation, currently Doris supports the following modifications:
 
-2.1. Sorted Schema Change
+- Adding and deleting columns
+- Modify column types
+- Reorder columns
+- Adding or modifying Bloom Filter
+- Adding or removing bitmap index
 
-The sorting of columns has been changed and the data needs to be reordered. For example, delete a column in a sorted column and reorder the fields.
-
-```
-ALTER TABLE site_visit DROP COLUMN city;
-```
-
-2.2. Direct Schema Change: There is no need to reorder, but there is a need to convert the data. For example, modify
- the type of column, add a column to the sparse index, etc.
-
-```
-ALTER TABLE site_visit MODIFY COLUMN username varchar(64);
-```
-
-2.3. Linked Schema Change: No need to transform data, for example add columns.
-
-```
-ALTER TABLE site_visit ADD COLUMN click bigint SUM default '0';
-```
-
-Schema is recommended to be considered when creating tables so that Schema can be changed more quickly.
+For details, please refer to [Schema Change](

@@ -37,7 +37,6 @@
                 "data-table/data-model",
                 "data-table/data-partition",
                 "data-table/basic-usage",
-                "data-table/advance-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
                 {
