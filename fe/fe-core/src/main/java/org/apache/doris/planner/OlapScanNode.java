@@ -1043,6 +1043,7 @@ public class OlapScanNode extends ScanNode {
             deleteSignSlot.getDesc().setIsMaterialized(true);
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
+            analyzer.registerConjuncts(conjunct, false);
             conjuncts.add(conjunct);
         }
     }
