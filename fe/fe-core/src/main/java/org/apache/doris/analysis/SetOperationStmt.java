@@ -24,7 +24,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -179,10 +178,11 @@ public class SetOperationStmt extends QueryStmt {
     public List<Expr> getSetOpsResultExprs() { return setOpsResultExprs_; }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
-        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, Table> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, expandView, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getTables(analyzer, tableMap, parentViewNameSet);
+            op.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 

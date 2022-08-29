@@ -55,7 +55,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -190,7 +189,7 @@ public class InsertStmt extends DdlStmt {
 
     public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         // get dbs of statement
-        queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+        queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();

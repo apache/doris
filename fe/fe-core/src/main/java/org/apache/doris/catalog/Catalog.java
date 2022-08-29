@@ -264,7 +264,6 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
@@ -272,7 +271,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import javax.annotation.Nullable;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -298,6 +296,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -4132,8 +4131,7 @@ public class Catalog {
         if (table.getType() == TableType.VIEW) {
             View view = (View) table;
             sb.append("CREATE VIEW `").append(table.getName()).append("` AS ").append(view.getInlineViewDef());
-            sb.append(";");
-            createTableStmt.add(sb.toString());
+            createTableStmt.add(sb + ";");
             return;
         }
 
@@ -4431,7 +4429,7 @@ public class Catalog {
             sb.append("\n)");
         }
 
-        createTableStmt.add(sb.toString());
+        createTableStmt.add(sb + ";");
 
         // 2. add partition
         if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
@@ -4464,7 +4462,7 @@ public class Catalog {
                     sb.append(partition.getVisibleVersion())
                             .append("\"");
                     sb.append(");");
-                    addPartitionStmt.add(sb.toString());
+                    addPartitionStmt.add(sb + ";");
                 }
             }
         }
@@ -4491,7 +4489,7 @@ public class Catalog {
                     }
                 }
                 sb.append(");");
-                createRollupStmt.add(sb.toString());
+                createRollupStmt.add(sb + ";");
             }
         }
     }
