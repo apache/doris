@@ -155,7 +155,6 @@ Status ScannerContext::_close_and_clear_scanners() {
 }
 
 void ScannerContext::clear_and_join() {
-
     std::unique_lock<std::mutex> l(_transfer_lock);
     do {
         if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
