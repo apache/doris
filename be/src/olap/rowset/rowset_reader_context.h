@@ -25,7 +25,6 @@
 namespace doris {
 
 class RowCursor;
-class Conditions;
 class DeleteBitmap;
 class DeleteHandler;
 class TabletSchema;
@@ -42,14 +41,6 @@ struct RowsetReaderContext {
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
-    // columns to load bloom filter index
-    // including columns in "=" or "in" conditions
-    const std::set<uint32_t>* load_bf_columns = nullptr;
-    const std::set<uint32_t>* load_bf_all_columns = nullptr;
-    // column filter conditions by delete sql
-    const Conditions* conditions = nullptr;
-    // value column predicate in UNIQUE table
-    const Conditions* all_conditions = nullptr;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<ColumnPredicate*>* predicates = nullptr;

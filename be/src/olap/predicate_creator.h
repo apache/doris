@@ -23,8 +23,8 @@
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
-#include "olap/olap_cond.h"
 #include "olap/tablet_schema.h"
+#include "runtime/type_limit.h"
 #include "util/date_func.h"
 #include "util/string_util.h"
 
@@ -46,11 +46,7 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            phmap::flat_hash_set<CppType> values;
-            for (const auto& condition : conditions) {
-                values.insert(convert(condition));
-            }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(conditions), opposite);
@@ -58,7 +54,7 @@ public:
     }
 
 private:
-    CppType convert(const std::string& condition) {
+    static CppType convert(const std::string& condition) {
         CppType value = 0;
         std::from_chars(condition.data(), condition.data() + condition.size(), value);
         return value;
@@ -72,11 +68,7 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            phmap::flat_hash_set<CppType> values;
-            for (const auto& condition : conditions) {
-                values.insert(convert(column, condition));
-            }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite, &column);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions),
@@ -85,7 +77,7 @@ public:
     }
 
 private:
-    CppType convert(const TabletColumn& column, const std::string& condition) {
+    static CppType convert(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
         return StringParser::string_to_decimal<int128_t>(
@@ -96,16 +88,11 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class StringPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    StringPredicateCreator(bool should_padding) : _should_padding(should_padding) {};
-
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            phmap::flat_hash_set<StringValue> values;
-            for (const auto& condition : conditions) {
-                values.insert(convert(column, condition, pool));
-            }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, conditions, convert, opposite, &column,
+                                                     pool);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions, pool),
@@ -114,10 +101,10 @@ public:
     }
 
 private:
-    bool _should_padding;
-    StringValue convert(const TabletColumn& column, const std::string& condition, MemPool* pool) {
+    static StringValue convert(const TabletColumn& column, const std::string& condition,
+                               MemPool* pool) {
         size_t length = condition.length();
-        if (_should_padding) {
+        if constexpr (Type == TYPE_CHAR) {
             length = std::max(static_cast<size_t>(column.length()), length);
         }
 
@@ -139,11 +126,7 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            phmap::flat_hash_set<CppType> values;
-            for (const auto& condition : conditions) {
-                values.insert(_convert(condition));
-            }
-            return new InListPredicateBase<Type, PT>(index, std::move(values), opposite);
+            return new InListPredicateBase<Type, PT>(index, conditions, _convert, opposite);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, _convert(conditions), opposite);
@@ -190,11 +173,11 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_CHAR: {
-        return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>(true);
+        return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING: {
-        return std::make_unique<StringPredicateCreator<TYPE_STRING, PT, ConditionType>>(false);
+        return std::make_unique<StringPredicateCreator<TYPE_STRING, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DATE: {
         return std::make_unique<CustomPredicateCreator<TYPE_DATE, PT, ConditionType>>(
