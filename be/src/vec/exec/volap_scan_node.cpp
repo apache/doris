@@ -1840,4 +1840,9 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
     }
     return Status::OK();
 }
+
+std::string VOlapScanNode::get_name() {
+    return fmt::format("VOlapScanNode({0})", _olap_scan_node.table_name);
+}
+
 } // namespace doris::vectorized
