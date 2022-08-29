@@ -41,7 +41,13 @@ DATETIME, CHAR, VARCHAR, STRING
 
 ### notice
 
-使用前需要在fe.conf中添加`enable_array_type=true`配置项
+使用前可以通过如下命令打开Array开关:
+
+```
+$ mysql-client > admin set frontend config("enable_array_type"="true");
+```
+
+这种方式下Array开关会在Fe进程重启后重置，或者在fe.conf中添加`enable_array_type=true`配置项可永久生效。
 
 ### example
 
@@ -85,4 +91,4 @@ mysql> SELECT * FROM `array_test`;
 
 ### keywords
 
-    ARRAY, array_contains, array_position, element_at
+    ARRAY
