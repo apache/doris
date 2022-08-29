@@ -1134,7 +1134,8 @@ TabletInfo Tablet::get_tablet_info() const {
 }
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        std::vector<RowsetSharedPtr>* candidate_rowsets, std::shared_lock& /* meta lock*/) {
+        std::vector<RowsetSharedPtr>* candidate_rowsets,
+        std::shared_lock<std::shared_mutex>& /* meta lock*/) {
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
@@ -1142,8 +1143,9 @@ void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
                                                           candidate_rowsets);
 }
 
-void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets,
-                                                       std::shared_lock& /* meta lock*/) {
+void Tablet::pick_candidate_rowsets_to_base_compaction(
+        vector<RowsetSharedPtr>* candidate_rowsets,
+        std::shared_lock<std::shared_mutex>& /* meta lock*/) {
     for (auto& it : _rs_version_map) {
         // Do compaction on local rowsets only.
         if (it.first.first < _cumulative_point && it.second->is_local()) {
