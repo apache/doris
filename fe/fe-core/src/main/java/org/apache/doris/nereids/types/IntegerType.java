@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class IntegerType extends IntegralType {
     public static IntegerType INSTANCE = new IntegerType();
 
+    private IntegerType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.INT;

@@ -45,8 +45,8 @@ public class JoinCommuteTest {
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         Expression onCondition = new EqualTo(
-                new SlotReference("id", new BigIntType(), true, ImmutableList.of("table1")),
-                new SlotReference("id", new BigIntType(), true, ImmutableList.of("table2")));
+                new SlotReference("id", BigIntType.INSTANCE, true, ImmutableList.of("table1")),
+                new SlotReference("id", BigIntType.INSTANCE, true, ImmutableList.of("table2")));
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
                 JoinType.INNER_JOIN, Lists.newArrayList(onCondition),
                 Optional.empty(), scan1, scan2);

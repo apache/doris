@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 public class DoubleType extends FractionalType {
     public static DoubleType INSTANCE = new DoubleType();
 
+    private DoubleType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.DOUBLE;
