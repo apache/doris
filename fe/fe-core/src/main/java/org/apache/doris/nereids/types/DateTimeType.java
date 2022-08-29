@@ -27,6 +27,9 @@ public class DateTimeType extends PrimitiveType {
 
     public static DateTimeType INSTANCE = new DateTimeType();
 
+    private DateTimeType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.DATETIME;
