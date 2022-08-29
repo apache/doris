@@ -40,7 +40,7 @@ DATETIME, CHAR, VARCHAR, STRING
 ```
 ### notice
 
-We should turn on ARRAY switch with the following command before use:
+We should turn on the switch for the ARRAY types feature with the following command before use:
 
 ```
 $ mysql-client > admin set frontend config("enable_array_type"="true");
