@@ -805,6 +805,7 @@ CONF_Int32(object_pool_buffer_size, "100");
 CONF_Int32(parquet_reader_max_buffer_size, "50");
 CONF_Bool(parquet_predicate_push_down, "true");
 CONF_Int32(parquet_header_max_size, "8388608");
+CONF_Bool(parquet_reader_using_internal, "false");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -824,10 +825,11 @@ CONF_Int32(quick_compaction_min_rowsets, "10");
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
-CONF_mInt64(cooldown_lag_time_sec, "10800");        // 3h
-CONF_mInt64(max_sub_cache_file_size, "1073741824"); // 1GB
-CONF_mInt64(file_cache_alive_time_sec, "604800");   // 1 week
+CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
+CONF_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
+CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.

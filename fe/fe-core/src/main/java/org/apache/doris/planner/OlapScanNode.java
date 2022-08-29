@@ -231,7 +231,7 @@ public class OlapScanNode extends ScanNode {
         this.tupleIds = tupleIds;
     }
 
-    // only used for UT
+    // only used for UT and Nereids
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
     }

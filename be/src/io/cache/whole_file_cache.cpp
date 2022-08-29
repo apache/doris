@@ -23,7 +23,6 @@ namespace doris {
 namespace io {
 
 const static std::string WHOLE_FILE_CACHE_NAME = "WHOLE_FILE_CACHE";
-const static std::string WHOLE_FILE_CACHE_DONE_NAME = "WHOLE_FILE_CACHE_DONE";
 
 WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
                                io::FileReaderSPtr remote_file_reader)
@@ -55,7 +54,8 @@ Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) 
 Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
-    Path cache_done_file = _cache_dir / WHOLE_FILE_CACHE_DONE_NAME;
+    Path cache_done_file =
+            _cache_dir / fmt::format("{}{}", WHOLE_FILE_CACHE_NAME, CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(cache_done_file, &done_file_exist),
@@ -175,7 +175,8 @@ Status WholeFileCache::_clean_cache_internal() {
     _cache_file_reader.reset();
     _cache_file_size = 0;
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
-    Path done_file = _cache_dir / WHOLE_FILE_CACHE_DONE_NAME;
+    Path done_file =
+            _cache_dir / fmt::format("{}{}", WHOLE_FILE_CACHE_NAME, CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(done_file, &done_file_exist),

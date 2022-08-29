@@ -325,6 +325,11 @@ struct ConvertImplGenericFromString {
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
+                // Note: here we should handle the null element
+                if (val.size == 0) {
+                    col_to->insert_default();
+                    continue;
+                }
                 ReadBuffer read_buffer((char*)(val.data), val.size);
                 RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
             }

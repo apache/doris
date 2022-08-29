@@ -63,18 +63,17 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
     _row_ranges = &row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field, _ctz));
-    RETURN_IF_ERROR(_chunk_reader->init());
-    RETURN_IF_ERROR(_chunk_reader->next_page());
-    if (_row_ranges->size() != 0) {
-        _skipped_pages();
-    }
-    RETURN_IF_ERROR(_chunk_reader->load_page_data());
-    return Status::OK();
+    return _chunk_reader->init();
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, size_t* read_rows, bool* eof) {
-    if (_chunk_reader->remaining_num_values() <= 0) {
+    if (_chunk_reader->remaining_num_values() == 0) {
+        if (!_chunk_reader->has_next_page()) {
+            *eof = true;
+            *read_rows = 0;
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_chunk_reader->next_page());
         if (_row_ranges->size() != 0) {
             _skipped_pages();
@@ -84,8 +83,53 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     size_t read_values = _chunk_reader->remaining_num_values() < batch_size
                                  ? _chunk_reader->remaining_num_values()
                                  : batch_size;
-    RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, read_values));
+    // get definition levels, and generate null values
+    level_t definitions[read_values];
+    if (_chunk_reader->max_def_level() == 0) { // required field
+        std::fill(definitions, definitions + read_values, 1);
+    } else {
+        _chunk_reader->get_def_levels(definitions, read_values);
+    }
+    // fill NullMap
+    CHECK(doris_column->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+            (*std::move(doris_column)).mutate().get());
+    NullMap& map_data = nullable_column->get_null_map_data();
+    for (int i = 0; i < read_values; ++i) {
+        map_data.emplace_back(definitions[i] == 0);
+    }
+    // decode data
+    if (_chunk_reader->max_def_level() == 0) {
+        RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, read_values));
+    } else if (read_values > 0) {
+        // column with null values
+        level_t level_type = definitions[0];
+        int num_values = 1;
+        for (int i = 1; i < read_values; ++i) {
+            if (definitions[i] != level_type) {
+                if (level_type == 0) {
+                    // null values
+                    _chunk_reader->insert_null_values(doris_column, num_values);
+                } else {
+                    RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, num_values));
+                }
+                level_type = definitions[i];
+                num_values = 1;
+            } else {
+                num_values++;
+            }
+        }
+        if (level_type == 0) {
+            // null values
+            _chunk_reader->insert_null_values(doris_column, num_values);
+        } else {
+            RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, num_values));
+        }
+    }
     *read_rows = read_values;
+    if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
+        *eof = true;
+    }
     return Status::OK();
 }
 

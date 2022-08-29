@@ -146,4 +146,24 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     public int hashCode() {
         return 0;
     }
+
+    /**
+     * Return true if all the SlotRef in the expr tree is bound to the same column.
+     */
+    public boolean boundToColumn(String column) {
+        for (Expression child : children) {
+            if (!child.boundToColumn(column)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public Expression leftMostNode() {
+        Expression leftChild = this;
+        while (leftChild.children.size() > 0) {
+            leftChild = leftChild.child(0);
+        }
+        return leftChild;
+    }
 }

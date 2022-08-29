@@ -21,9 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -50,6 +52,9 @@ public class ConnectScheduler {
     private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
     private final ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(
             Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
+
+    // valid trace id -> query id
+    private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
@@ -125,6 +130,16 @@ public class ConnectScheduler {
         return connectionMap.get(connectionId);
     }
 
+    public void cancelQuery(String queryId) {
+        for (ConnectContext ctx : connectionMap.values()) {
+            TUniqueId qid = ctx.queryId();
+            if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
+                ctx.cancelQuery();
+                break;
+            }
+        }
+    }
+
     public int getConnectionNum() {
         return numberConnection.get();
     }
@@ -141,6 +156,15 @@ public class ConnectScheduler {
             infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
+    }
+
+    public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
+        traceId2QueryId.put(traceId, queryId);
+    }
+
+    public String getQueryIdByTraceId(String traceId) {
+        TUniqueId queryId = traceId2QueryId.get(traceId);
+        return queryId == null ? "" : DebugUtil.printId(queryId);
     }
 
     private class LoopHandler implements Runnable {

@@ -31,7 +31,6 @@ RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
           _read_columns(read_columns),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
-          _total_rows(row_group.num_rows),
           _ctz(ctz) {}
 
 RowGroupReader::~RowGroupReader() {
@@ -72,9 +71,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
         RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
                 column_ptr, column_type, batch_size, &batch_read_rows, _batch_eof));
         _read_rows += batch_read_rows;
-        if (_read_rows >= _total_rows) {
-            *_batch_eof = true;
-        }
     }
     // use data fill utils read column data to column ptr
     return Status::OK();

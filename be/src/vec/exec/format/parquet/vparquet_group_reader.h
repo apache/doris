@@ -48,7 +48,6 @@ private:
     const int32_t _row_group_id;
     tparquet::RowGroup& _row_group_meta;
     int64_t _read_rows = 0;
-    int64_t _total_rows;
     cctz::time_zone* _ctz;
 };
 } // namespace doris::vectorized
