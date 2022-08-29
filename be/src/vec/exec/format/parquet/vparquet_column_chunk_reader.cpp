@@ -20,7 +20,7 @@
 namespace doris::vectorized {
 
 ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
-                                     tparquet::ColumnMetaData& metadata, FieldSchema* field_schema,
+                                     const tparquet::ColumnMetaData& metadata, FieldSchema* field_schema,
                                      cctz::time_zone* ctz)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),

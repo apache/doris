@@ -57,7 +57,7 @@ namespace doris::vectorized {
  */
 class ColumnChunkReader {
 public:
-    ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnMetaData& metadata,
+    ColumnChunkReader(BufferedStreamReader* reader, const tparquet::ColumnMetaData& metadata,
                       FieldSchema* field_schema, cctz::time_zone* ctz);
     ~ColumnChunkReader() = default;
 
@@ -122,7 +122,7 @@ private:
 
     BufferedStreamReader* _stream_reader;
     // tparquet::ColumnChunk* _column_chunk;
-    tparquet::ColumnMetaData& _metadata;
+    const tparquet::ColumnMetaData& _metadata;
     // FieldSchema* _field_schema;
     cctz::time_zone* _ctz;
 

@@ -143,7 +143,7 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz);
+    ColumnChunkReader chunk_reader(&stream_reader, chunk_meta, field_schema, &ctz);
     // initialize chunk reader
     chunk_reader.init();
     // seek to next page header
@@ -342,7 +342,7 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
         BufferedFileStreamReader stream_reader(&reader, start_offset, chunk_size);
         cctz::time_zone ctz;
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-        ColumnChunkReader chunk_reader(&stream_reader, &column_chunk,
+        ColumnChunkReader chunk_reader(&stream_reader, chunk_meta,
                                        const_cast<FieldSchema*>(schema_descriptor.get_column(7)),
                                        &ctz);
         // initialize chunk reader
