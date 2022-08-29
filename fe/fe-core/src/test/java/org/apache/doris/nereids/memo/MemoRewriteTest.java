@@ -105,7 +105,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
     }
 
     /*
-     * A -> B(C): will run into dead loop
+     * A -> B(C):
      *
      *  unboundRelation(student)               limit(1)
      *                              ->           |
