@@ -51,6 +51,8 @@ public class LiteralUtils {
                 list.add(((DecimalLiteral) v).getValue().stripTrailingZeros().toPlainString());
             } else if (v instanceof StringLiteral) {
                 list.add("'" + v.getStringValue() + "'");
+            } else if (v instanceof ArrayLiteral) {
+                list.add(getStringValue((ArrayLiteral) v));
             } else {
                 list.add(v.getStringValue());
             }
