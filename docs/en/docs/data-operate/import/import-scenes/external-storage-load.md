@@ -114,7 +114,7 @@ Starting from version 0.14, Doris supports the direct import of data from online
 This document mainly introduces how to import data stored in AWS S3. It also supports the import of other object storage systems that support the S3 protocol.
 ### Applicable scenarios
 
-* Source data in S3 protocol accessible storage systems, such as S3, BOS.
+* Source data in S3 protocol accessible storage systems, such as S3.
 * Data volumes range from tens to hundreds of GB.
 
 ### Preparing
