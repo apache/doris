@@ -50,7 +50,6 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
     read_options.stats = _stats;
-    read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
             read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
@@ -65,10 +64,10 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // or predicates when it is not inited.
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
-                _rowset->end_version(), &read_options.delete_conditions,
-                read_options.delete_condition_predicates.get());
+                _rowset->end_version(), read_options.delete_condition_predicates.get(),
+                &read_options.col_id_to_del_predicates);
         // if del cond is not empty, schema may be different in multiple rowset
-        can_reuse_schema = read_options.delete_conditions.empty();
+        can_reuse_schema = read_options.col_id_to_del_predicates.empty();
     }
 
     if (!can_reuse_schema || _context->reuse_input_schema == nullptr) {
@@ -103,6 +102,15 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),
                                               read_context->predicates->begin(),
                                               read_context->predicates->end());
+        for (auto pred : *(read_context->predicates)) {
+            if (read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
+                read_options.col_id_to_predicates.insert(
+                        {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+            }
+            auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+            read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                    single_column_block_predicate);
+        }
     }
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
@@ -123,9 +131,15 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
             read_options.column_predicates.insert(read_options.column_predicates.end(),
                                                   read_context->value_predicates->begin(),
                                                   read_context->value_predicates->end());
-        }
-        if (read_context->all_conditions != nullptr && !read_context->all_conditions->empty()) {
-            read_options.conditions = read_context->all_conditions;
+            for (auto pred : *(read_context->value_predicates)) {
+                if (read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
+                    read_options.col_id_to_predicates.insert(
+                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                }
+                auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+                read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                        single_column_block_predicate);
+            }
         }
     }
     read_options.use_page_cache = read_context->use_page_cache;

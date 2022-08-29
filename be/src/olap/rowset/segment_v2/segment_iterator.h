@@ -25,7 +25,6 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
-#include "olap/olap_cond.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
