@@ -118,26 +118,23 @@ public class SelectStmt extends QueryStmt {
     // Members that need to be reset to origin
     private SelectList originSelectList;
 
-    /**
-     * Constructor for SelectStmt. This is used for the following cases.
-     * 1. SELECT * FROM VALUES(a1, b1, c1), (a2, b2, c2);
-     *
-     * @param valueList value list
-     */
-    public SelectStmt(ValueList valueList) {
-        super(null, LimitElement.NO_LIMIT);
+    public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
+        super(orderByElement, limitElement);
         this.valueList = valueList;
         this.selectList = new SelectList();
         this.fromClause = new FromClause();
         this.colLabels = Lists.newArrayList();
     }
 
-    SelectStmt(SelectList selectList,
+    SelectStmt(
+            SelectList selectList,
             FromClause fromClause,
             Expr wherePredicate,
             GroupByClause groupByClause,
-            Expr havingPredicate) {
-        super(null, LimitElement.NO_LIMIT);
+            Expr havingPredicate,
+            ArrayList<OrderByElement> orderByElements,
+            LimitElement limitElement) {
+        super(orderByElements, limitElement);
         this.selectList = selectList;
         this.originSelectList = selectList.clone();
         if (fromClause == null) {
