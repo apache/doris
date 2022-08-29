@@ -240,7 +240,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
 
     timer.stop();
     LOG(INFO) << "Manual compaction task finish, status=" << res
-              << " ,compaction_use_time=" << timer.elapsed_time() / 1000000 << "ms";
+              << ", compaction_use_time=" << timer.elapsed_time() / 1000000 << "ms";
     return res;
 }
 
