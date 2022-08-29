@@ -98,7 +98,7 @@ protected:
             const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                     bloom_filters,
             const std::vector<FunctionFilter>& function_filters);
-    Status _init_return_columns(bool need_seq_col, bool& has_replace_col);
+    Status _init_return_columns(bool need_seq_col);
     void _convert_row_to_tuple(Tuple* tuple);
 
     // Update profile that need to be reported in realtime.
