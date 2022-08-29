@@ -810,6 +810,9 @@ DateTimeV2Val CastFunctions::cast_to_datetimev2_val(FunctionContext* ctx, const 
 }
 
 CollectionVal CastFunctions::cast_to_array_val(FunctionContext* context, const StringVal& val) {
+    if (val.is_null) {
+        return CollectionVal::null();
+    }
     CollectionVal array_val;
     Status status = ArrayParser::parse(array_val, context, val);
     return status.ok() ? array_val : CollectionVal::null();
