@@ -382,9 +382,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
-        // in Nereids, all node only has one TupleDescriptor, so we can use the first one.
-        TupleDescriptor leftTuple = context.getTupleDesc(leftPlanRoot.getTupleIds().get(0));
-        TupleDescriptor rightTuple = context.getTupleDesc(rightPlanRoot.getTupleIds().get(0));
+        TupleDescriptor leftTuple = context.getTupleDesc(leftPlanRoot);
+        TupleDescriptor rightTuple = context.getTupleDesc(rightPlanRoot);
 
         // Nereids does not care about output order of join,
         // but BE need left child's output must be before right child's output.

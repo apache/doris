@@ -22,7 +22,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -30,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
@@ -133,8 +133,15 @@ public class PlanTranslatorContext {
         slotDescriptor.setType(expression.getDataType().toCatalogDataType());
     }
 
-    public TupleDescriptor getTupleDesc(TupleId tupleId) {
-        return descTable.getTupleDesc(tupleId);
+    /**
+     * in Nereids, all node only has one TupleDescriptor, so we can use the first one.
+     *
+     * @param planNode the node to get the TupleDescriptor
+     *
+     * @return plan node's tuple descriptor
+     */
+    public TupleDescriptor getTupleDesc(PlanNode planNode) {
+        return descTable.getTupleDesc(planNode.getOutputTupleIds().get(0));
     }
 
     public DescriptorTable getDescTable() {
