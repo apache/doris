@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -152,6 +153,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                     targets.stream()
                             .map(nereidsTarget -> nereidsTarget.toOriginRuntimeFilterTarget(ctx, node))
                             .forEach(origFilter::addTarget);
+                    origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
                     origFilter.markFinalized();
                     origFilter.assignToPlanNodes();
                 });

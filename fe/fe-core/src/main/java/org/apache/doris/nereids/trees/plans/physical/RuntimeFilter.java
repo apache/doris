@@ -132,7 +132,7 @@ public class RuntimeFilter {
                     this.node, RuntimeFilterGenerator.slotRefTransfer(
                             ((SlotReference) expr).getExprId(), this.node, ctx
                     ), true,
-                    node.getFragmentId() == this.node.getFragmentId()
+                    node.getFragmentId().equals(this.node.getFragmentId())
             );
         }
     }
