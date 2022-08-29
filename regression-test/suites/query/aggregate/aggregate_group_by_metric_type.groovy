@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("aggregate_group_by_hll_and_bitmap") {
+suite("aggregate_group_by_metric_type") {
+    def error_msg = "column must use with specific function, and don't support filter or group by"
     sql "DROP TABLE IF EXISTS test_group_by_hll_and_bitmap"
 
     sql """
@@ -27,23 +28,46 @@ suite("aggregate_group_by_hll_and_bitmap") {
 
     test {
         sql "select distinct user_ids from test_group_by_hll_and_bitmap"
-        exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
+        exception "${error_msg}"
     }
 
     test {
         sql "select distinct hll_set from test_group_by_hll_and_bitmap"
-        exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
+        exception "${error_msg}"
     }
 
     test {
         sql "select user_ids from test_group_by_hll_and_bitmap order by user_ids"
-        exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
+        exception "${error_msg}"
     }
 
     test {
         sql "select hll_set from test_group_by_hll_and_bitmap order by hll_set"
-        exception "Doris hll and bitmap column must use with specific function, and don't support filter or group by.please run 'help hll' or 'help bitmap' in your mysql client"
+        exception "${error_msg}"
     }
 
     sql "DROP TABLE test_group_by_hll_and_bitmap"
+
+    sql "DROP TABLE IF EXISTS test_group_by_array"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
+    sql """
+        CREATE TABLE test_group_by_array (id int, c_array array<int>) ENGINE=OLAP DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
+        """
+    sql "insert into test_group_by_array values(1, [1,2,3])"
+
+    test {
+        sql "select distinct c_array from test_group_by_array"
+        exception "${error_msg}"
+    }
+    test {
+        sql "select c_array from test_group_by_array order by c_array"
+        exception "${error_msg}"
+    }
+    test {
+        sql "select c_array,count(*) from test_group_by_array group by c_array"
+        exception "${error_msg}"
+    }
+
+    sql "DROP TABLE test_group_by_array"
 }

@@ -270,14 +270,12 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        // now only_metric_type is the same to object_stored_type
-        // but actually they are not same in semantics.
-        return isObjectStored();
+        return isObjectStored() || isArrayType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll and bitmap column must use with specific function, and don't support filter or group by."
-                    + "please run 'help hll' or 'help bitmap' in your mysql client.";
+            "Doris hll, bitmap and array column must use with specific function, and don't support filter or group by."
+                    + "please run 'help hll' or 'help bitmap' or 'help array' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
