@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -132,12 +133,14 @@ import com.google.protobuf.ByteString;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -977,16 +980,31 @@ public class StmtExecutor implements ProfileWriter {
                 columns.add(new Column(columnName, expr.getType()));
                 if (expr instanceof NullLiteral) {
                     data.add(null);
-                } else if (expr instanceof FloatLiteral && (expr.getType() == Type.TIME
-                        || expr.getType() == Type.TIMEV2)) {
-                    // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
-                    String timeStr = expr.getStringValue();
-                    data.add(timeStr.substring(1, timeStr.length() - 1));
+                } else if (expr instanceof FloatLiteral) {
+                    if (expr.getType() == Type.TIME || expr.getType() == Type.TIMEV2) {
+                        // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
+                        // for example '11:22:33' -> 11:22:33
+                        String timeStr = expr.getStringValue();
+                        data.add(timeStr.substring(1, timeStr.length() - 1));
+                    } else {
+                        data.add(BigDecimal.valueOf(((FloatLiteral) expr).getValue())
+                                .stripTrailingZeros().toPlainString());
+                    }
+                } else if (expr instanceof DecimalLiteral) {
+                    data.add(((DecimalLiteral) expr).getValue().stripTrailingZeros().toPlainString());
                 } else if (expr instanceof ArrayLiteral) {
-                    // arrayStr from ArrayLiteral need to be removed ARRAY keyword to be consistent with be
-                    // for example ARRAY[1, 2] -> [1, 2]
-                    String arrayStr = expr.getStringValue();
-                    data.add(arrayStr.substring(5));
+                    List<String> list = new ArrayList<>(expr.getChildren().size());
+                    expr.getChildren().forEach(v -> {
+                        if (v instanceof FloatLiteral) {
+                            list.add(BigDecimal.valueOf(((FloatLiteral) v).getValue()).stripTrailingZeros()
+                                    .toPlainString());
+                        } else if (v instanceof DecimalLiteral) {
+                            list.add(((DecimalLiteral) v).getValue().stripTrailingZeros().toPlainString());
+                        } else {
+                            list.add(v.getStringValue());
+                        }
+                    });
+                    data.add("[" + StringUtils.join(list, ", ") + "]");
                 } else {
                     data.add(expr.getStringValue());
                 }
