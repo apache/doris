@@ -51,16 +51,15 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
         return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
     }
     _column_id = desc.get_column_id(_slot_id);
+    if (_column_id < 0) {
+        LOG(INFO) << "VSlotRef - invalid slot id: " << _slot_id << " desc:" << desc.debug_string();
+        return Status::InternalError("VSlotRef - invalid slot id {}", _slot_id);
+    }
     _column_name = &slot_desc->col_name();
     return Status::OK();
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    // comment DCHECK temporarily to make fuzzy test run smoothly
-    // DCHECK_GE(_column_id, 0);
-    if (_column_id < 0) {
-        return Status::InternalError("invalid column id {}", _column_id);
-    }
     *result_column_id = _column_id;
     return Status::OK();
 }
