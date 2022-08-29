@@ -20,7 +20,6 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
@@ -190,10 +189,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         SlotDescriptor slotDesc = node.getTupleDesc().getColumnSlot(
                 ctx.findSlotRef(eid).getColumnName()
         );
-        SlotRef newRef = new SlotRef(slotDesc);
-        newRef.setTblName(new TableName(null, null, node.getOlapTable().getName()));
-        newRef.setLabel("`" + slotDesc.getColumn().getName() + "`");
-        return newRef;
+        return new SlotRef(slotDesc);
     }
 
     public Map<ExprId, List<RuntimeFilter>> getFiltersByExprId() {
