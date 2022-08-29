@@ -155,7 +155,6 @@ Status ScannerContext::_close_and_clear_scanners() {
 }
 
 void ScannerContext::clear_and_join() {
-    _close_and_clear_scanners();
 
     std::unique_lock<std::mutex> l(_transfer_lock);
     do {
@@ -167,6 +166,10 @@ void ScannerContext::clear_and_join() {
             break;
         }
     } while (false);
+
+    // Must wait all running scanners stop running.
+    // So that we can make sure to close all scanners.
+    _close_and_clear_scanners();
 
     std::for_each(blocks_queue.begin(), blocks_queue.end(),
                   std::default_delete<vectorized::Block>());
