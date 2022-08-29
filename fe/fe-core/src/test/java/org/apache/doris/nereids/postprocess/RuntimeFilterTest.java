@@ -52,6 +52,12 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
         NamedExpressionUtil.clear();
     }
 
+    @Override
+    public void runBeforeAll() throws Exception {
+        super.runBeforeAll();
+        connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
+    }
+
     @Test
     public void testGenerateRuntimeFilter() throws AnalysisException {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
@@ -71,7 +77,6 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                                 })
                         )
                 );
-        connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
     }
 
     @Test

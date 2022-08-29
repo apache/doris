@@ -17,11 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -37,16 +41,12 @@ public class RuntimeFilter {
 
     private final TRuntimeFilterType type;
 
-    private int exprOrder;
-
     private boolean finalized = false;
 
-    private RuntimeFilter(RuntimeFilterId id, EqualTo expr,
-            TRuntimeFilterType type, int exprOrder) {
+    private RuntimeFilter(RuntimeFilterId id, EqualTo expr, TRuntimeFilterType type) {
         this.id = id;
         this.expr = expr;
         this.type = type;
-        this.exprOrder = exprOrder;
     }
 
     public void setFinalized() {
@@ -74,7 +74,7 @@ public class RuntimeFilter {
         if (expr == null) {
             return null;
         }
-        return new RuntimeFilter(id, expr, type, exprOrder);
+        return new RuntimeFilter(id, expr, type);
     }
 
     private static EqualTo checkAndMaybeSwapChild(EqualTo expr, PhysicalHashJoin<Plan, Plan> join) {
@@ -106,5 +106,34 @@ public class RuntimeFilter {
 
     public TRuntimeFilterType getType() {
         return type;
+    }
+
+    /**
+     * runtime filter target
+     */
+    public static class RuntimeFilterTarget {
+        OlapScanNode node;
+        Expression expr;
+
+        public RuntimeFilterTarget(OlapScanNode node, Expression expr) {
+            this.node = node;
+            this.expr = expr;
+        }
+
+        /**
+         * s
+         * @param ctx s
+         * @param node s
+         * @return s
+         */
+        public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toOriginRuntimeFilterTarget(
+                PlanTranslatorContext ctx, HashJoinNode node) {
+            return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(
+                    this.node, RuntimeFilterGenerator.slotRefTransfer(
+                            ((SlotReference) expr).getExprId(), this.node, ctx
+                    ), true,
+                    node.getFragmentId() == this.node.getFragmentId()
+            );
+        }
     }
 }
