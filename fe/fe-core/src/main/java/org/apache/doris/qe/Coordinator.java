@@ -696,7 +696,7 @@ public class Coordinator {
                     (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
         }
 
-        Long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
+        long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
         for (Pair<BackendExecStates, Future<PExecPlanFragmentResult>> pair : futures) {
             TStatusCode code;
             String errMsg = null;
