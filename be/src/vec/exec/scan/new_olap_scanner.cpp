@@ -307,9 +307,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // so that it will core
     _tablet_reader_params.rs_readers.clear();
     _tablet_reader.reset();
-    // Expr::close(_conjunct_ctxs, state);
-    _is_closed = true;
-    return Status::OK();
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
