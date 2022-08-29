@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -85,20 +85,27 @@ public class BaseViewStmt extends DdlStmt {
             if (cols.size() != viewDefStmt.getColLabels().size()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
-            // TODO(zc): type
             for (int i = 0; i < cols.size(); ++i) {
-                PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                Column col = new Column(cols.get(i).getColName(), ScalarType.createType(type));
+                Type type = viewDefStmt.getBaseTblResultExprs().get(i).getType();
+                Column col = new Column(cols.get(i).getColName(),
+                        ScalarType.createType(
+                                type.getPrimitiveType(),
+                                type.getLength(),
+                                type.getPrecision() != null ? type.getPrecision() : -1,
+                                type.getDecimalDigits() != null ? type.getDecimalDigits() : 0));
                 col.setComment(cols.get(i).getComment());
                 finalCols.add(col);
             }
         } else {
-            // TODO(zc): type
             for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
-                PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
+                Type type = viewDefStmt.getBaseTblResultExprs().get(i).getType();
                 finalCols.add(new Column(
                         viewDefStmt.getColLabels().get(i),
-                        ScalarType.createType(type)));
+                        ScalarType.createType(
+                                type.getPrimitiveType(),
+                                type.getLength(),
+                                type.getPrecision() != null ? type.getPrecision() : -1,
+                                type.getDecimalDigits() != null ? type.getDecimalDigits() : 0)));
             }
         }
         // Set for duplicate columns
