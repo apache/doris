@@ -69,6 +69,7 @@ mysql to doris code [here](https://github.com/apache/doris/tree/master/extension
    master_host=
    master_port=
    doris_password=
+   doris_odbc_name=''
    
    #mysql.conf
    mysql_host=
@@ -80,6 +81,7 @@ mysql to doris code [here](https://github.com/apache/doris/tree/master/extension
    | master_host    | Doris FE master node IP |
    | master_port    | Doris FE query_port port |
    | doris_password | Doris Password (default root user) |
+   | doris_odbc_name | The name of mysql odbc in the odbcinst.ini configuration file under be/conf |
    | mysql_host     | Mysql IP |
    | mysql_password | Mysql Password (default root user) |
    
