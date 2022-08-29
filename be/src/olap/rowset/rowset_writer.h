@@ -50,8 +50,7 @@ public:
     virtual Status add_rowset(RowsetSharedPtr rowset) = 0;
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
-    virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                       const SchemaMapping& schema_mapping) = 0;
+    virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) = 0;
 
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
@@ -67,6 +66,11 @@ public:
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
+
+    // we have to load segment data to build delete_bitmap for current segment,
+    // so we  build a tmp rowset ptr to load segment data.
+    // real build will be called in DeltaWriter close_wait.
+    virtual RowsetSharedPtr build_tmp() = 0;
 
     virtual Version version() = 0;
 

@@ -99,14 +99,14 @@ public class UserPropertyTest {
     @Test
     public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
-        properties.add(Pair.create("MAX_USER_CONNECTIONS", "100"));
-        properties.add(Pair.create("resource.cpu_share", "101"));
-        properties.add(Pair.create("quota.normal", "102"));
-        properties.add(Pair.create("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
-        properties.add(Pair.create("default_load_cluster", "dpp-cluster"));
-        properties.add(Pair.create("max_qUERY_instances", "3000"));
-        properties.add(Pair.create("sql_block_rules", "rule1,rule2"));
-        properties.add(Pair.create("cpu_resource_limit", "2"));
+        properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
+        properties.add(Pair.of("resource.cpu_share", "101"));
+        properties.add(Pair.of("quota.normal", "102"));
+        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
+        properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
+        properties.add(Pair.of("max_qUERY_instances", "3000"));
+        properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
+        properties.add(Pair.of("cpu_resource_limit", "2"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -150,13 +150,13 @@ public class UserPropertyTest {
 
         // set palo path null
         properties.clear();
-        properties.add(Pair.create("load_cluster.dpp-cluster.hadoop_palo_path", null));
+        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", null));
         userProperty.update(properties);
         Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
 
         // remove dpp-cluster
         properties.clear();
-        properties.add(Pair.create("load_cluster.dpp-cluster", null));
+        properties.add(Pair.of("load_cluster.dpp-cluster", null));
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         userProperty.update(properties);
         Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
@@ -164,11 +164,11 @@ public class UserPropertyTest {
 
         // sql block rule
         properties.clear();
-        properties.add(Pair.create("sql_block_rules", ""));
+        properties.add(Pair.of("sql_block_rules", ""));
         userProperty.update(properties);
         Assert.assertEquals(1, userProperty.getSqlBlockRules().length);
         properties.clear();
-        properties.add(Pair.create("sql_block_rules", "test1, test2,test3"));
+        properties.add(Pair.of("sql_block_rules", "test1, test2,test3"));
         userProperty.update(properties);
         Assert.assertEquals(3, userProperty.getSqlBlockRules().length);
     }
@@ -176,13 +176,13 @@ public class UserPropertyTest {
     @Test
     public void testValidation() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
-        properties.add(Pair.create("cpu_resource_limit", "-1"));
+        properties.add(Pair.of("cpu_resource_limit", "-1"));
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
 
         properties = Lists.newArrayList();
-        properties.add(Pair.create("cpu_resource_limit", "-2"));
+        properties.add(Pair.of("cpu_resource_limit", "-2"));
         userProperty = new UserProperty();
         try {
             userProperty.update(properties);

@@ -26,7 +26,6 @@
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/block.h"
@@ -125,7 +124,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.1);
 
     // for vectorized::Block no null
-    auto pred_col = PredicateColumnType<vectorized::Float32>::create();
+    auto pred_col = PredicateColumnType<TYPE_FLOAT>::create();
     pred_col->reserve(size);
     for (int i = 0; i < size; ++i) {
         *(col_data + i) = i + 0.1f;
@@ -151,7 +150,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
             vectorized::ColumnNullable::create(std::move(pred_col), std::move(null_map));
     select_size = pred->evaluate(*nullable_col, _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 1);
-    auto nested_col = check_and_get_column<PredicateColumnType<vectorized::Float32>>(
+    auto nested_col = check_and_get_column<PredicateColumnType<TYPE_FLOAT>>(
             nullable_col->get_nested_column());
     EXPECT_FLOAT_EQ((float)nested_col->get_data()[_row_block->selection_vector()[0]], 5.1);
 

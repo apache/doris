@@ -83,6 +83,9 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _node_info = *node;
 
+    _load_info = "load_id=" + print_id(_parent->_load_id) +
+                 ", txn_id=" + std::to_string(_parent->_txn_id);
+
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
 
@@ -90,7 +93,7 @@ Status NodeChannel::init(RuntimeState* state) {
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info.host
-                     << ", port=" << _node_info.brpc_port;
+                     << ", port=" << _node_info.brpc_port << ", " << channel_info();
         _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
@@ -112,8 +115,6 @@ Status NodeChannel::init(RuntimeState* state) {
     _timeout_watch.start();
     _max_pending_batches_bytes = _parent->_load_mem_limit / 20; //TODO: session variable percent
 
-    _load_info = "load_id=" + print_id(_parent->_load_id) +
-                 ", txn_id=" + std::to_string(_parent->_txn_id);
     return Status::OK();
 }
 
@@ -153,7 +154,7 @@ void NodeChannel::open() {
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
-    LOG(WARNING) << msg;
+    LOG(WARNING) << channel_info() << ", " << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);
         if (_cancel_msg == "") {
@@ -176,7 +177,7 @@ Status NodeChannel::open_wait() {
         ss << "failed to open tablet writer, error=" << berror(_open_closure->cntl.ErrorCode())
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
-        LOG(WARNING) << ss.str();
+        LOG(WARNING) << ss.str() << " " << channel_info();
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
                                      berror(_open_closure->cntl.ErrorCode()),
                                      _open_closure->cntl.ErrorText());
@@ -292,7 +293,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
-            return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
+            return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
     }
 
@@ -302,8 +303,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
-           (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->limit_exceeded(_max_pending_batches_bytes))) {
+           _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -376,8 +376,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("wait close failed. {}", _cancel_msg);
         } else {
-            return st.clone_and_prepend(
-                    "already stopped, skip waiting for close. cancelled/!eos: ");
+            return std::move(
+                    st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
         }
     }
 
@@ -468,8 +468,9 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void NodeChannel::try_send_batch(RuntimeState* state) {
-    SCOPED_ATTACH_TASK(state);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     AddBatchReq send_batch;
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
@@ -1321,6 +1322,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
 void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {

@@ -27,7 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
@@ -68,7 +68,7 @@ public class LoadManagerTest {
 
     @Test
     public void testCreateHadoopJob(@Injectable LoadStmt stmt, @Injectable LabelName labelName, @Mocked Env env,
-            @Mocked InternalDataSource ds, @Injectable Database database, @Injectable BrokerLoadJob brokerLoadJob) {
+            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable BrokerLoadJob brokerLoadJob) {
         Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newHashMap();
         Map<String, List<LoadJob>> labelToLoadJobs = Maps.newHashMap();
         String label1 = "label1";
@@ -87,10 +87,10 @@ public class LoadManagerTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = "label1";
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyString);
+                result = catalog;
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -111,14 +111,14 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationNormal(@Mocked Env env, @Mocked InternalDataSource ds, @Injectable Database database,
+    public void testSerializationNormal(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
             @Injectable Table table) throws Exception {
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -148,13 +148,13 @@ public class LoadManagerTest {
 
     @Test
     public void testSerializationWithJobRemoved(@Mocked MetaContext metaContext, @Mocked Env env,
-            @Mocked InternalDataSource ds, @Injectable Database database, @Injectable Table table) throws Exception {
+            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable Table table) throws Exception {
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);

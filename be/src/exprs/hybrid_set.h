@@ -51,6 +51,8 @@ public:
     virtual Status to_vexpr_list(doris::ObjectPool* pool,
                                  std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
                                  int scale) = 0;
+
+    virtual bool is_date_v2() { return false; }
     class IteratorBase {
     public:
         IteratorBase() {}
@@ -72,6 +74,8 @@ public:
     HybridSet() = default;
 
     ~HybridSet() override = default;
+
+    bool is_date_v2() override { return T == TYPE_DATEV2; }
 
     Status to_vexpr_list(doris::ObjectPool* pool,
                          std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
@@ -141,11 +145,11 @@ private:
     ObjectPool _pool;
 };
 
-class StringValueSet : public HybridSetBase {
+class StringSet : public HybridSetBase {
 public:
-    StringValueSet() = default;
+    StringSet() = default;
 
-    ~StringValueSet() override = default;
+    ~StringSet() override = default;
 
     Status to_vexpr_list(doris::ObjectPool* pool,
                          std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
@@ -175,7 +179,7 @@ public:
     }
 
     void insert(HybridSetBase* set) override {
-        StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
+        StringSet* string_set = reinterpret_cast<StringSet*>(set);
         _set.insert(string_set->_set.begin(), string_set->_set.end());
     }
 
@@ -221,6 +225,92 @@ public:
 
 private:
     phmap::flat_hash_set<std::string> _set;
+    ObjectPool _pool;
+};
+
+// note: Two difference from StringSet
+// 1 StringValue has better comparison performance than std::string
+// 2 std::string keeps its own memory, bug StringValue just keeps ptr and len, so you the caller should manage memory of StringValue
+class StringValueSet : public HybridSetBase {
+public:
+    StringValueSet() = default;
+
+    ~StringValueSet() override = default;
+
+    Status to_vexpr_list(doris::ObjectPool* pool,
+                         std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
+                         int scale) override {
+        HybridSetBase::IteratorBase* it = begin();
+        DCHECK(it != nullptr);
+        while (it->has_next()) {
+            TExprNode node;
+            const void* v = it->get_value();
+            create_texpr_literal_node<TYPE_STRING>(v, &node);
+            vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
+            it->next();
+        }
+        return Status::OK();
+    };
+
+    void insert(const void* data) override {
+        if (data == nullptr) return;
+
+        const auto* value = reinterpret_cast<const StringValue*>(data);
+        StringValue sv(value->ptr, value->len);
+        _set.insert(sv);
+    }
+    void insert(void* data, size_t size) override {
+        StringValue sv(reinterpret_cast<char*>(data), size);
+        _set.insert(sv);
+    }
+
+    void insert(HybridSetBase* set) override {
+        StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
+        _set.insert(string_set->_set.begin(), string_set->_set.end());
+    }
+
+    int size() override { return _set.size(); }
+
+    bool find(void* data) override {
+        auto* value = reinterpret_cast<StringValue*>(data);
+        auto it = _set.find(*value);
+
+        return !(it == _set.end());
+    }
+
+    bool find(void* data, size_t size) override {
+        // std::string str_value(reinterpret_cast<char*>(data), size);
+        StringValue sv(reinterpret_cast<char*>(data), size);
+        auto it = _set.find(sv);
+        return !(it == _set.end());
+    }
+
+    class Iterator : public IteratorBase {
+    public:
+        Iterator(phmap::flat_hash_set<StringValue>::iterator begin,
+                 phmap::flat_hash_set<StringValue>::iterator end)
+                : _begin(begin), _end(end) {}
+        ~Iterator() override = default;
+        virtual bool has_next() const override { return !(_begin == _end); }
+        virtual const void* get_value() override {
+            _value.ptr = const_cast<char*>(_begin->ptr);
+            _value.len = _begin->len;
+            return &_value;
+        }
+        virtual void next() override { ++_begin; }
+
+    private:
+        typename phmap::flat_hash_set<StringValue>::iterator _begin;
+        typename phmap::flat_hash_set<StringValue>::iterator _end;
+        StringValue _value;
+    };
+
+    IteratorBase* begin() override {
+        return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
+    }
+
+private:
+    phmap::flat_hash_set<StringValue> _set;
     ObjectPool _pool;
 };
 

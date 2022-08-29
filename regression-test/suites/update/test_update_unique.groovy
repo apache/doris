@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_update_unique", "update") {
+suite("test_update_unique", "p0") {
     def tbName = "test_update_unique"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
@@ -33,6 +33,8 @@ suite("test_update_unique", "update") {
     sql "UPDATE ${tbName} SET value1 = 2 WHERE k=1;"
     sql "UPDATE ${tbName} SET value1 = value1+1 WHERE k=2;"
     sql "UPDATE ${tbName} SET date_value = '1999-01-01' WHERE k in (1,2);"
+    qt_select_uniq_table "select * from ${tbName} order by k"
+    sql "UPDATE ${tbName} SET date_value = '1998-01-01' WHERE k is null or k is not null;"
     qt_select_uniq_table "select * from ${tbName} order by k"
     qt_desc_uniq_table "desc ${tbName}"
     sql "DROP TABLE ${tbName}"

@@ -65,6 +65,11 @@ private:
     Container data;
     IndexByName index_by_name;
 
+    int64_t _decompress_time_ns = 0;
+    int64_t _decompressed_bytes = 0;
+
+    int64_t _compress_time_ns = 0;
+
 public:
     BlockInfo info;
 
@@ -149,6 +154,10 @@ public:
 
     ColumnWithTypeAndName& get_by_name(const std::string& name);
     const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
+
+    // return nullptr when no such column name
+    ColumnWithTypeAndName* try_get_by_name(const std::string& name);
+    const ColumnWithTypeAndName* try_get_by_name(const std::string& name) const;
 
     Container::iterator begin() { return data.begin(); }
     Container::iterator end() { return data.end(); }
@@ -248,7 +257,10 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    static Status filter_block(Block* block, int filter_conlumn_id, int column_to_keep);
+    static void filter_block_internal(Block* block, const IColumn::Filter& filter,
+                                      uint32_t column_to_keep);
+
+    static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
         for (int i = block->columns() - 1; i >= column_to_keep; --i) {
@@ -258,6 +270,7 @@ public:
 
     // serialize block to PBlock
     Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
+                     segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
     // serialize block to PRowbatch
@@ -299,6 +312,24 @@ public:
         return 0;
     }
 
+    int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
+                   const Block& rhs, int nan_direction_hint) const {
+        DCHECK_GE(columns(), compare_columns->size());
+        DCHECK_GE(rhs.columns(), compare_columns->size());
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (auto i : *compare_columns) {
+            DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
+            auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
+                                                             nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
     //note(wb) no DCHECK here, because this method is only used after compare_at now, so no need to repeat check here.
     // If this method is used in more places, you can add DCHECK case by case.
     int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs,
@@ -312,6 +343,10 @@ public:
                                   bool padding_char = false);
 
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
+
+    int64_t get_decompress_time() const { return _decompress_time_ns; }
+    int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
+    int64_t get_compress_time() const { return _compress_time_ns; }
 
 private:
     void erase_impl(size_t position);

@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -196,7 +197,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = false;
 
-                queryStmt.getTables((Analyzer) any, (SortedMap) any, Sets.newHashSet());
+                queryStmt.getTables((Analyzer) any, anyBoolean, (SortedMap) any, Sets.newHashSet());
                 minTimes = 0;
 
                 queryStmt.getRedirectStatus();
@@ -723,6 +724,78 @@ public class StmtExecutorTest {
                 useStmt.getClusterName();
                 minTimes = 0;
                 result = "testCluster";
+
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        StmtExecutor executor = new StmtExecutor(ctx, "");
+        executor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testUseWithCatalog(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                useStmt.getCatalogName();
+                minTimes = 0;
+                result = InternalCatalog.INTERNAL_CATALOG_NAME;
+
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        StmtExecutor executor = new StmtExecutor(ctx, "");
+        executor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testUseWithCatalogFail(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "blockDb";
+
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                useStmt.getCatalogName();
+                minTimes = 0;
+                result = "testcatalog";
 
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();

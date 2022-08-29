@@ -274,7 +274,7 @@ public class DistributedPlanner {
         if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
+            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof TableValuedFunctionScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
@@ -459,7 +459,7 @@ public class DistributedPlanner {
             if (rightScanNode == null) {
                 return false;
             }
-            Pair<OlapScanNode, OlapScanNode> eqPair = new Pair<>(leftScanNode, rightScanNode);
+            Pair<OlapScanNode, OlapScanNode> eqPair = Pair.of(leftScanNode, rightScanNode);
             List<BinaryPredicate> predicateList = scanNodeWithJoinConjuncts.get(eqPair);
             if (predicateList == null) {
                 predicateList = Lists.newArrayList();

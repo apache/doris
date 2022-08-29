@@ -71,7 +71,7 @@ The following three methods need to be implemented
 
 ## Create UDF
 
-Currently, UDAF and UDTF are not supported
+Currently UDTF are not supported
 
 ```sql
 CREATE FUNCTION 

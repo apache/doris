@@ -320,7 +320,8 @@ public:
                                    ? ((DataTypeNullable*)get_return_type(arguments).get())
                                              ->get_nested_type()
                                    : get_return_type(arguments))))
-                << " with " << return_type->get_name() << " and " << func_return_type->get_name();
+                << " for function '" << this->get_name() << "' with " << return_type->get_name()
+                << " and " << func_return_type->get_name();
 
         return build_impl(arguments, return_type);
     }

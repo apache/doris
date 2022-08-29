@@ -257,7 +257,10 @@ public:
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
-        auto res = vectorized::PredicateColumnType<StringValue>::create();
+        if (is_dict_sorted() && !is_dict_code_converted()) {
+            convert_dict_codes_if_necessary();
+        }
+        auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
         res->reserve(_reserve_size);
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
@@ -293,7 +296,7 @@ public:
             return -2; // -1 is null code
         }
 
-        T get_null_code() { return -1; }
+        T get_null_code() const { return -1; }
 
         inline StringValue& get_value(T code) {
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
@@ -388,7 +391,12 @@ public:
             }
         }
 
-        T convert_code(const T& code) const { return _code_convert_table[code]; }
+        T convert_code(const T& code) const {
+            if (get_null_code() == code) {
+                return code;
+            }
+            return _code_convert_table[code];
+        }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 

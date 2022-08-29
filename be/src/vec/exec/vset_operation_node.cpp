@@ -90,7 +90,6 @@ Status VSetOperationNode::close(RuntimeState* state) {
 
 Status VSetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    DCHECK_EQ(_conjunct_ctxs.size(), 0);
     std::vector<std::vector<::doris::TExpr>> result_texpr_lists;
 
     // Create result_expr_ctx_lists_ from thrift exprs.

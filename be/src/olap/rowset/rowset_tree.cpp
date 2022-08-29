@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -196,8 +197,10 @@ void RowsetTree::FindRowsetsIntersectingInterval(
 }
 
 void RowsetTree::FindRowsetsWithKeyInRange(
-        const Slice& encoded_key, vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const {
+        const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
+        vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const {
     DCHECK(initted_);
+    DCHECK(rowset_ids != nullptr);
 
     // Query the interval tree to efficiently find rowsets with known bounds
     // whose ranges overlap the probe key.
@@ -206,7 +209,9 @@ void RowsetTree::FindRowsetsWithKeyInRange(
     tree_->FindContainingPoint(encoded_key, &from_tree);
     rowsets->reserve(rowsets->size() + from_tree.size());
     for (RowsetWithBounds* rs : from_tree) {
-        rowsets->emplace_back(rs->rowset, rs->segment_id);
+        if (rowset_ids->find(rs->rowset->rowset_id()) != rowset_ids->end()) {
+            rowsets->emplace_back(rs->rowset, rs->segment_id);
+        }
     }
 }
 

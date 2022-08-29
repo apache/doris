@@ -19,10 +19,19 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -36,21 +45,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
-            ConnectContext connectContext = ctx.plannerContext.getConnectContext();
             List<String> nameParts = ctx.root.getNameParts();
             switch (nameParts.size()) {
-                case 1: {
+                case 1: { // table
                     // Use current database name from catalog.
-                    String dbName = connectContext.getDatabase();
-                    Table table = getTable(dbName, nameParts.get(0), connectContext.getEnv());
-                    // TODO: should generate different Scan sub class according to table's type
-                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
+                    return bindWithCurrentDb(ctx.cascadesContext, nameParts);
                 }
-                case 2: {
+                case 2: { // db.table
                     // Use database name from table name parts.
-                    String dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
-                    Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
-                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
+                    return bindWithDbNameFromNamePart(ctx.cascadesContext, nameParts);
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -59,7 +62,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Table getTable(String dbName, String tableName, Env env) {
-        Database db = env.getInternalDataSource().getDb(dbName)
+        Database db = env.getInternalCatalog().getDb(dbName)
                 .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
         db.readLock();
         try {
@@ -68,5 +71,43 @@ public class BindRelation extends OneAnalysisRuleFactory {
         } finally {
             db.readUnlock();
         }
+    }
+
+    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, List<String> nameParts) {
+        String dbName = cascadesContext.getConnectContext().getDatabase();
+        Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
+        // TODO: should generate different Scan sub class according to table's type
+        if (table.getType() == TableType.OLAP) {
+            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName));
+        } else if (table.getType() == TableType.VIEW) {
+            Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
+            return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+        }
+        throw new AnalysisException("Unsupported tableType:" + table.getType());
+    }
+
+    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, List<String> nameParts) {
+        ConnectContext connectContext = cascadesContext.getConnectContext();
+        // if the relation is view, nameParts.get(0) is dbName.
+        String dbName = nameParts.get(0);
+        if (!dbName.equals(connectContext.getDatabase())) {
+            dbName = connectContext.getClusterName() + ":" + dbName;
+        }
+        Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
+        if (table.getType() == TableType.OLAP) {
+            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName));
+        } else if (table.getType() == TableType.VIEW) {
+            Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
+            return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+        }
+        throw new AnalysisException("Unsupported tableType:" + table.getType());
+    }
+
+    private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
+        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
+        CascadesContext viewContext = new Memo(parsedViewPlan)
+                .newCascadesContext(parentContext.getStatementContext());
+        viewContext.newAnalyzer().analyze();
+        return viewContext.getMemo().copyOut();
     }
 }

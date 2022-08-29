@@ -23,12 +23,12 @@
 
 namespace doris::vectorized {
 
-static constexpr int64_t initPageHeaderSize = 1024;
+static constexpr size_t initPageHeaderSize = 128;
 
-PageReader::PageReader(BufferedStreamReader* reader, int64_t start_offset, int64_t length)
-        : _reader(reader), _start_offset(start_offset), _end_offset(start_offset + length) {}
+PageReader::PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length)
+        : _reader(reader), _start_offset(offset), _end_offset(offset + length) {}
 
-Status PageReader::next_page(Slice& slice) {
+Status PageReader::next_page_header() {
     if (_offset < _start_offset || _offset >= _end_offset) {
         return Status::IOError("Out-of-bounds Access");
     }
@@ -37,8 +37,8 @@ Status PageReader::next_page(Slice& slice) {
     }
 
     const uint8_t* page_header_buf = nullptr;
-    int64_t max_size = _end_offset - _offset;
-    int64_t header_size = std::min(initPageHeaderSize, max_size);
+    size_t max_size = _end_offset - _offset;
+    size_t header_size = std::min(initPageHeaderSize, max_size);
     uint32_t real_header_size = 0;
     while (true) {
         header_size = std::min(header_size, max_size);
@@ -49,7 +49,8 @@ Status PageReader::next_page(Slice& slice) {
         if (st.ok()) {
             break;
         }
-        if (_offset + header_size >= _end_offset) {
+        if (_offset + header_size >= _end_offset ||
+            real_header_size > config::parquet_header_max_size) {
             return Status::IOError("Failed to deserialize parquet page header");
         }
         header_size <<= 2;
@@ -57,11 +58,26 @@ Status PageReader::next_page(Slice& slice) {
 
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+    return Status::OK();
+}
 
+Status PageReader::skip_page() {
+    if (_offset == _next_header_offset) {
+        return Status::InternalError("Should call next_page() to generate page header");
+    }
+    _offset = _next_header_offset;
+    return Status::OK();
+}
+
+Status PageReader::get_page_date(Slice& slice) {
+    if (_offset == _next_header_offset) {
+        return Status::InternalError("Should call next_page() to generate page header");
+    }
     slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset));
     DCHECK_EQ(slice.size, _cur_page_header.compressed_page_size);
     _offset += slice.size;
     return Status::OK();
 }
+
 } // namespace doris::vectorized

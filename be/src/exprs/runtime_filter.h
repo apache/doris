@@ -154,6 +154,8 @@ public:
     // only consumer could call this
     Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs);
 
+    Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
+
     // This function is used by UT and producer
     Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs, ExprContext* probe_ctx);
 

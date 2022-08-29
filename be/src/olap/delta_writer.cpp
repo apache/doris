@@ -69,7 +69,7 @@ DeltaWriter::~DeltaWriter() {
         if (_tablet != nullptr) {
             const FlushStatistic& stat = _flush_token->get_stats();
             _tablet->flush_bytes->increment(stat.flush_size_bytes);
-            _tablet->flush_count->increment(stat.flush_count);
+            _tablet->flush_finish_count->increment(stat.flush_finish_count);
         }
     }
 
@@ -101,9 +101,15 @@ Status DeltaWriter::init() {
                      << ", schema_hash=" << _req.schema_hash;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
+
+    // get rowset ids snapshot
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
+        _rowset_ids = _tablet->all_rs_id();
+    }
+
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, fmt::format("DeltaWriter:tabletId={}", _tablet->tablet_id()), _parent_tracker);
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         //trigger quick compaction
@@ -154,10 +160,9 @@ Status DeltaWriter::write(Tuple* tuple) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    int64_t prev_memtable_usage = _mem_table->memory_usage();
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
+
     _mem_table->insert(tuple);
-    THREAD_MEM_TRACKER_TRANSFER_TO(_mem_table->memory_usage() - prev_memtable_usage,
-                                   _mem_tracker.get());
 
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
@@ -182,14 +187,11 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    // Hook automatically records that the memory is lower than the real value, so manual tracking is used.
-    // Because multiple places freed memory that doesn't belong to DeltaWriter
-    int64_t prev_memtable_usage = _mem_table->memory_usage();
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
+
     for (const auto& row_idx : row_idxs) {
         _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
     }
-    THREAD_MEM_TRACKER_TRANSFER_TO(_mem_table->memory_usage() - prev_memtable_usage,
-                                   _mem_tracker.get());
 
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
         RETURN_NOT_OK(_flush_memtable_async());
@@ -248,16 +250,13 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-    if (mem_consumption() == _mem_table->memory_usage()) {
+    if (_flush_token->get_stats().flush_running_count == 0) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                     << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
                     << ", load id: " << print_id(_req.load_id);
         RETURN_NOT_OK(_flush_memtable_async());
         _reset_mem_table();
-    } else {
-        DCHECK(mem_consumption() > _mem_table->memory_usage());
-        // this means there should be at least one memtable in flush queue.
     }
 
     if (need_wait) {
@@ -282,8 +281,12 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
+    }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
-                                  _req.tuple_desc, _rowset_writer.get(), _is_vec));
+                                  _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
+                                  _rowset_ids, _is_vec));
 }
 
 Status DeltaWriter::close() {
@@ -335,6 +338,11 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
                      << " for rowset: " << _cur_rowset->rowset_id();
         return res;
+    }
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
+                _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
     }
 
     _delta_written_success = true;

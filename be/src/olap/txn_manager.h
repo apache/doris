@@ -44,6 +44,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "util/time.h"
 
 namespace doris {
@@ -52,10 +53,26 @@ class DeltaWriter;
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
+    bool unique_key_merge_on_write;
+    DeleteBitmapPtr delete_bitmap;
+    // records rowsets calc in commit txn
+    RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
 
     TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
-            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
+            : load_id(load_id),
+              rowset(rowset),
+              unique_key_merge_on_write(false),
+              creation_time(UnixSeconds()) {}
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool merge_on_write,
+                  DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& ids)
+            : load_id(load_id),
+              rowset(rowset),
+              unique_key_merge_on_write(merge_on_write),
+              delete_bitmap(delete_bitmap),
+              rowset_ids(ids),
+              creation_time(UnixSeconds()) {}
 
     TabletTxnInfo() {}
 };
@@ -146,6 +163,12 @@ public:
     void finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id, int64_t node_id,
                                          bool is_succeed);
 
+    void set_txn_related_delete_bitmap(TPartitionId partition_id, TTransactionId transaction_id,
+                                       TTabletId tablet_id, SchemaHash schema_hash,
+                                       TabletUid tablet_uid, bool unique_key_merge_on_write,
+                                       DeleteBitmapPtr delete_bitmap,
+                                       const RowsetIdUnorderedSet& rowset_ids);
+
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
@@ -187,10 +210,6 @@ private:
     // get _txn_map_lock before calling.
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
-
-    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-                                   const Slice& key, TabletSharedPtr tablet,
-                                   const Version& version);
 
 private:
     const int32_t _txn_map_shard_size;

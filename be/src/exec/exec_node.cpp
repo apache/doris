@@ -53,7 +53,6 @@
 #include "odbc_scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/initial_reservations.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -62,6 +61,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -213,10 +213,15 @@ Status ExecNode::prepare(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
     }
-    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
 
-    // TODO(zc):
-    // AddExprCtxsToFree(_conjunct_ctxs);
+    // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
+    // And _conjunct_ctxs is useless.
+    // TODO: Should be removed when non-vec engine is removed.
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
+    }
+
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
@@ -229,7 +234,12 @@ Status ExecNode::open(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
-    return Expr::open(_conjunct_ctxs, state);
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+        return Expr::open(_conjunct_ctxs, state);
+    } else {
+        return Status::OK();
+    }
 }
 
 Status ExecNode::reset(RuntimeState* state) {
@@ -266,15 +276,19 @@ Status ExecNode::close(RuntimeState* state) {
         }
     }
 
-    if (_vconjunct_ctx_ptr) (*_vconjunct_ctx_ptr)->close(state);
-    Expr::close(_conjunct_ctxs, state);
+    if (_vconjunct_ctx_ptr) {
+        (*_vconjunct_ctx_ptr)->close(state);
+    }
+    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
+        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+        Expr::close(_conjunct_ctxs, state);
+    }
 
     if (_buffer_pool_client.is_registered()) {
-        VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;
-        state->initial_reservations()->Return(&_buffer_pool_client,
-                                              _resource_profile.min_reservation);
         state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
     }
+
+    runtime_profile()->add_to_span();
 
     return result;
 }
@@ -418,8 +432,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
-        } else
+        } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
@@ -440,7 +455,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
+            if (config::enable_new_scan_node) {
+                *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
+            } else {
+                *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
+            }
         } else {
             *node = pool->add(new OlapScanNode(pool, tnode, descs));
         }
@@ -669,8 +688,16 @@ void ExecNode::try_do_aggregate_serde_improve() {
         return;
     }
 
-    ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
-    scan_node->set_no_agg_finalize();
+    // TODO(cmy): should be removed when NewOlapScanNode is ready
+    ExecNode* child0 = agg_node[0]->_children[0];
+    if (typeid(*child0) == typeid(vectorized::NewOlapScanNode)) {
+        vectorized::VScanNode* scan_node =
+                static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
+        scan_node->set_no_agg_finalize();
+    } else {
+        ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
+        scan_node->set_no_agg_finalize();
+    }
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {
@@ -696,11 +723,8 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     }
 
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
-    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), state->instance_buffer_reservation(),
-                                                buffer_pool->GetSystemBytesLimit(),
-                                                runtime_profile(), &_buffer_pool_client));
+    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), runtime_profile(), &_buffer_pool_client));
 
-    state->initial_reservations()->Claim(&_buffer_pool_client, _resource_profile.min_reservation);
     /*
     if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
         (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
@@ -711,10 +735,6 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     } 
 */
     return Status::OK();
-}
-
-Status ExecNode::release_unused_reservation() {
-    return _buffer_pool_client.DecreaseReservationTo(_resource_profile.min_reservation);
 }
 
 void ExecNode::release_block_memory(vectorized::Block& block, uint16_t child_idx) {

@@ -61,8 +61,9 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
+    static Status open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
+                       uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+                       std::shared_ptr<Segment>* output);
 
     ~Segment();
 
@@ -94,6 +95,17 @@ public:
 
     Status load_index();
 
+    Status load_pk_index_and_bf();
+
+    std::string min_key() {
+        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
+        return _footer.primary_key_index_meta().min_key();
+    };
+    std::string max_key() {
+        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
+        return _footer.primary_key_index_meta().max_key();
+    };
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema);
@@ -101,6 +113,7 @@ private:
     Status _open();
     Status _parse_footer();
     Status _create_column_readers();
+    Status _load_pk_bloom_filter();
 
 private:
     friend class SegmentIterator;
@@ -125,6 +138,8 @@ private:
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
+    // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
+    DorisCallOnce<Status> _load_pk_bf_once;
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder

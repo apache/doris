@@ -55,7 +55,7 @@ public class DebugUtil {
             unit = "K";
             doubleValue /= THOUSAND;
         }
-        Pair<Double, String> returnValue  = Pair.create(doubleValue, unit);
+        Pair<Double, String> returnValue  = Pair.of(doubleValue, unit);
         return returnValue;
     }
 
@@ -115,7 +115,7 @@ public class DebugUtil {
         } else {
             unit = "B";
         }
-        Pair<Double, String> returnValue  = Pair.create(doubleValue, unit);
+        Pair<Double, String> returnValue  = Pair.of(doubleValue, unit);
         return returnValue;
     }
 

@@ -170,8 +170,7 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                             const SchemaMapping& schema_mapping) {
+Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) {
     // TODO use schema_mapping to transfer zonemap
     return add_rowset(rowset);
 }
@@ -235,23 +234,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
     DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
-    _rowset_meta->set_num_rows(_num_rows_written);
-    _rowset_meta->set_total_disk_size(_total_data_size);
-    _rowset_meta->set_data_disk_size(_total_data_size);
-    _rowset_meta->set_index_disk_size(_total_index_size);
-    // TODO write zonemap to meta
-    _rowset_meta->set_empty(_num_rows_written == 0);
-    _rowset_meta->set_creation_time(time(nullptr));
-    _rowset_meta->set_num_segments(_num_segment);
-    if (_num_segment <= 1) {
-        _rowset_meta->set_segments_overlap(NONOVERLAPPING);
-    }
-    if (_is_pending) {
-        _rowset_meta->set_rowset_state(COMMITTED);
-    } else {
-        _rowset_meta->set_rowset_state(VISIBLE);
-    }
-    _rowset_meta->set_segments_key_bounds(_segments_encoded_key_bounds);
+    _build_rowset_meta(_rowset_meta);
 
     if (_rowset_meta->oldest_write_timestamp() == -1) {
         _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
@@ -272,6 +255,41 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
+void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
+    rowset_meta->set_num_rows(_num_rows_written);
+    rowset_meta->set_total_disk_size(_total_data_size);
+    rowset_meta->set_data_disk_size(_total_data_size);
+    rowset_meta->set_index_disk_size(_total_index_size);
+    // TODO write zonemap to meta
+    rowset_meta->set_empty(_num_rows_written == 0);
+    rowset_meta->set_creation_time(time(nullptr));
+    rowset_meta->set_num_segments(_num_segment);
+    if (_num_segment <= 1) {
+        rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    }
+    if (_is_pending) {
+        rowset_meta->set_rowset_state(COMMITTED);
+    } else {
+        rowset_meta->set_rowset_state(VISIBLE);
+    }
+    rowset_meta->set_segments_key_bounds(_segments_encoded_key_bounds);
+}
+
+RowsetSharedPtr BetaRowsetWriter::build_tmp() {
+    std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
+    *rowset_meta_ = *_rowset_meta;
+    _build_rowset_meta(rowset_meta_);
+
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
+                                               rowset_meta_, &rowset);
+    if (!status.ok()) {
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
+        return nullptr;
+    }
+    return rowset;
+}
+
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     auto path = BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id,
@@ -285,7 +303,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path
                      << ", err: " << st.get_error_msg();
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return st;
     }
 
     DCHECK(file_writer != nullptr);
@@ -303,7 +321,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return s;
     }
     return Status::OK();
 }

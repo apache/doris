@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
@@ -110,11 +111,6 @@ public final class AggregateInfo extends AggregateInfoBase {
     // if set, a subset of groupingExprs_; set and used during planning
     private List<Expr> partitionExprs;
 
-    // indices into aggregateExprs for those that need to be materialized;
-    // shared between this, mergeAggInfo and secondPhaseDistinctAggInfo
-    private ArrayList<Integer> materializedAggregateSlots = Lists.newArrayList();
-    // if true, this AggregateInfo is the first phase of a 2-phase DISTINCT computation
-    private boolean isDistinctAgg = false;
     private boolean isUsingSetForDistinct;
 
     // the multi distinct's begin pos  and end pos in groupby exprs
@@ -165,6 +161,14 @@ public final class AggregateInfo extends AggregateInfoBase {
         partitionExprs = exprs;
     }
 
+    private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
+        for (Expr expr : groupingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
+    }
+
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -181,6 +185,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         Preconditions.checkState(
                 (groupingExprs != null && !groupingExprs.isEmpty())
                         || (aggExprs != null && !aggExprs.isEmpty()));
+        validateGroupingExprs(groupingExprs);
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, AggPhase.FIRST);
 
         // collect agg exprs with DISTINCT clause
@@ -363,7 +368,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
 
         this.isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
-        isDistinctAgg = true;
 
         // add DISTINCT parameters to grouping exprs
         if (!isUsingSetForDistinct) {

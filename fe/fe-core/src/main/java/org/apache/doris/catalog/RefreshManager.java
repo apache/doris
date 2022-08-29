@@ -40,7 +40,7 @@ public class RefreshManager {
         Env env = Env.getCurrentEnv();
 
         // 0. check table type
-        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
         Table table = db.getTableNullable(tableName);
         if (!(table instanceof IcebergTable)) {
             throw new DdlException("Only support refresh Iceberg table.");
@@ -67,7 +67,7 @@ public class RefreshManager {
         String dbName = stmt.getDbName();
         Env env = Env.getCurrentEnv();
 
-        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         // 0. build iceberg property
         // Since we have only persisted database properties with key-value format in DatabaseProperty,

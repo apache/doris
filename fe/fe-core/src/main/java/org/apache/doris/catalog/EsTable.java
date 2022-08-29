@@ -66,11 +66,7 @@ public class EsTable extends Table {
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
     public static final String NODES_DISCOVERY = "nodes_discovery";
     public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
-    public static final String ES_DSL = "es_dsl";
-    public static final String INIT_SCROLL_URL = "init_scroll_url";
-    public static final String NEXT_SCROLL_URL = "next_scroll_url";
-    public static final String SEARCH_URL = "search_url";
-
+    public static final String QUERY_DSL = "query_dsl";
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
 
     // Solr doc_values vs stored_fields performance-smackdown indicate:
@@ -345,8 +341,9 @@ public class EsTable extends Table {
             esMetaStateTracker.run();
             this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
         } catch (Throwable e) {
-            LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster."
-                    + "table id: {}, err: ", this.name, this.id, e);
+            LOG.warn(
+                    "Exception happens when fetch index [{}] meta data from remote es cluster." + "table id: {}, err: ",
+                    this.name, this.id, e);
             this.esTablePartitions = null;
             this.lastMetaDataSyncException = e;
         }

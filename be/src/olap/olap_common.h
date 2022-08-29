@@ -222,12 +222,14 @@ struct Version {
     bool contains(const Version& other) const {
         return first <= other.first && second >= other.second;
     }
+
+    std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
 using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
-    return os << "[" << version.first << "-" << version.second << "]";
+    return os << version.to_string();
 }
 
 // used for hash-struct of hash_map<Version, Rowset*>.
@@ -429,5 +431,7 @@ struct HashOfRowsetId {
         return seed;
     }
 };
+
+using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
 
 } // namespace doris

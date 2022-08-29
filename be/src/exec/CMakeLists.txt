@@ -87,6 +87,7 @@ set(EXEC_FILES
     schema_scanner/schema_user_privileges_scanner.cpp
     schema_scanner/schema_files_scanner.cpp
     schema_scanner/schema_partitions_scanner.cpp
+    schema_scanner/schema_rowsets_scanner.cpp
 
     partitioned_hash_table.cc
     partitioned_aggregation_node.cc

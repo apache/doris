@@ -60,7 +60,7 @@ public class EncryptKeyRef extends Expr {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         } else {
             dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
-            Database database = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbName);
+            Database database = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
 
             EncryptKey encryptKey = database.getEncryptKey(encryptKeyName.getKeyName());
             if (encryptKey != null) {

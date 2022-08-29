@@ -30,7 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -68,7 +68,7 @@ public class UpdateStmtExecutorTest {
                                    @Mocked Env env,
                                    @Injectable Database db,
                                    @Injectable Analyzer analyzer) throws AnalysisException {
-        TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "test");
+        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "test");
         List<Expr> setExprs = Lists.newArrayList();
         SlotRef slotRef = new SlotRef(tableName, "v1");
         IntLiteral intLiteral = new IntLiteral(1);

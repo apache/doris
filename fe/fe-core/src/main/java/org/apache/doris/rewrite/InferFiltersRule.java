@@ -71,18 +71,22 @@ public class InferFiltersRule implements ExprRewriteRule {
             return expr;
         }
 
+        if (!clauseType.isInferable()) {
+            return expr;
+        }
+
         // slotEqSlotExpr: Record existing and infer equivalent connections
         List<Expr> slotEqSlotExpr = analyzer.getOnSlotEqSlotExpr();
 
         // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
-        Set<Pair<Expr, Expr>> slotEqSlotDeDuplication = (clauseType == ExprRewriter.ClauseType.ON_CLAUSE)
+        Set<Pair<Expr, Expr>> slotEqSlotDeDuplication = (clauseType.isOnClause())
                 ? analyzer.getOnSlotEqSlotDeDuplication() : Sets.newHashSet();
 
         // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
         List<Expr> slotToLiteralExpr = analyzer.getOnSlotToLiteralExpr();
 
         // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
-        Set<Pair<Expr, Expr>> slotToLiteralDeDuplication = (clauseType == ExprRewriter.ClauseType.ON_CLAUSE)
+        Set<Pair<Expr, Expr>> slotToLiteralDeDuplication = (clauseType.isOnClause())
                 ? analyzer.getOnSlotToLiteralDeDuplication() : Sets.newHashSet();
 
         // newExprWithState: just record infer expr which slot and literal are equal and which is not null predicate
@@ -94,7 +98,7 @@ public class InferFiltersRule implements ExprRewriteRule {
         List<Expr> isNullExpr = analyzer.getOnIsNullExpr();
 
         // isNullDeDuplication: De-Duplication for isNullExpr
-        Set<Expr> isNullDeDuplication = (clauseType == ExprRewriter.ClauseType.ON_CLAUSE)
+        Set<Expr> isNullDeDuplication = (clauseType.isOnClause())
                 ? analyzer.getOnIsNullDeDuplication() : Sets.newHashSet();
 
         // inExpr: Record existing and infer in predicate
@@ -102,7 +106,7 @@ public class InferFiltersRule implements ExprRewriteRule {
 
         // inDeDuplication: De-Duplication for inExpr
         Set<Expr> inDeDuplication =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getInDeDuplication() : Sets.newHashSet();
+                (clauseType.isOnClause()) ? analyzer.getInDeDuplication() : Sets.newHashSet();
 
         // exprToWarshallArraySubscript/warshallArraySubscriptToExpr:
         // function is easy to build warshall and newExprWithState
@@ -176,11 +180,11 @@ public class InferFiltersRule implements ExprRewriteRule {
                 && conjunct.getChild(1) != null) {
             if (conjunct.getChild(0).unwrapSlotRef() != null
                     && conjunct.getChild(1) instanceof LiteralExpr) {
-                Pair<Expr, Expr> pair = new Pair<>(conjunct.getChild(0).unwrapSlotRef(), conjunct.getChild(1));
+                Pair<Expr, Expr> pair = Pair.of(conjunct.getChild(0).unwrapSlotRef(), conjunct.getChild(1));
                 if (!slotToLiteralDeDuplication.contains(pair)) {
                     slotToLiteralDeDuplication.add(pair);
                     slotToLiteralExpr.add(conjunct);
-                    if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                    if (clauseType.isOnClause()) {
                         analyzer.registerOnSlotToLiteralDeDuplication(pair);
                         analyzer.registerOnSlotToLiteralExpr(conjunct);
                     }
@@ -189,15 +193,15 @@ public class InferFiltersRule implements ExprRewriteRule {
             } else if (((BinaryPredicate) conjunct).getOp().isEquivalence()
                     && conjunct.getChild(0).unwrapSlotRef() != null
                     && conjunct.getChild(1).unwrapSlotRef() != null) {
-                Pair<Expr, Expr> pair = new Pair<>(conjunct.getChild(0).unwrapSlotRef(),
+                Pair<Expr, Expr> pair = Pair.of(conjunct.getChild(0).unwrapSlotRef(),
                                                    conjunct.getChild(1).unwrapSlotRef());
-                Pair<Expr, Expr> eqPair = new Pair<>(conjunct.getChild(1).unwrapSlotRef(),
+                Pair<Expr, Expr> eqPair = Pair.of(conjunct.getChild(1).unwrapSlotRef(),
                                                      conjunct.getChild(0).unwrapSlotRef());
                 if (!slotEqSlotDeDuplication.contains(pair)
                         && !slotEqSlotDeDuplication.contains(eqPair)) {
                     slotEqSlotDeDuplication.add(pair);
                     slotEqSlotExpr.add(conjunct);
-                    if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                    if (clauseType.isOnClause()) {
                         analyzer.registerOnSlotEqSlotDeDuplication(pair);
                         analyzer.registerOnSlotEqSlotExpr(conjunct);
                     }
@@ -210,7 +214,7 @@ public class InferFiltersRule implements ExprRewriteRule {
                     && ((IsNullPredicate) conjunct).isNotNull()) {
                 isNullDeDuplication.add(conjunct.getChild(0).unwrapSlotRef());
                 isNullExpr.add(conjunct);
-                if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                if (clauseType.isOnClause()) {
                     analyzer.registerOnIsNullDeDuplication(conjunct.getChild(0).unwrapSlotRef());
                     analyzer.registerOnIsNullExpr(conjunct);
                 }
@@ -221,7 +225,7 @@ public class InferFiltersRule implements ExprRewriteRule {
             if (!inDeDuplication.contains(conjunct.getChild(0).unwrapSlotRef())) {
                 inDeDuplication.add(conjunct.getChild(0).unwrapSlotRef());
                 inExpr.add(conjunct);
-                if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                if (clauseType.isOnClause()) {
                     analyzer.registerInExpr(conjunct);
                     analyzer.registerInDeDuplication(conjunct.getChild(0).unwrapSlotRef());
                 }
@@ -331,7 +335,7 @@ public class InferFiltersRule implements ExprRewriteRule {
                             continue;
                         }
                         warshall[i][j] = 1;
-                        Pair<Integer, Integer> pair = new Pair<>(i, j);
+                        Pair<Integer, Integer> pair = Pair.of(i, j);
                         newSlotsArray.add(pair);
                     }
                 }
@@ -350,16 +354,16 @@ public class InferFiltersRule implements ExprRewriteRule {
                                              Analyzer analyzer,
                                              ExprRewriter.ClauseType clauseType) {
         for (Pair<Integer, Integer> slotPair : newSlots) {
-            Pair<Expr, Expr> pair = new Pair<>(warshallArraySubscriptToExpr.get(slotPair.first),
+            Pair<Expr, Expr> pair = Pair.of(warshallArraySubscriptToExpr.get(slotPair.first),
                     warshallArraySubscriptToExpr.get(slotPair.second));
-            Pair<Expr, Expr> eqPair = new Pair<>(warshallArraySubscriptToExpr.get(slotPair.second),
+            Pair<Expr, Expr> eqPair = Pair.of(warshallArraySubscriptToExpr.get(slotPair.second),
                     warshallArraySubscriptToExpr.get(slotPair.first));
             if (!slotEqSlotDeDuplication.contains(pair) && !slotEqSlotDeDuplication.contains(eqPair)) {
                 slotEqSlotDeDuplication.add(pair);
                 slotEqSlotExpr.add(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                         warshallArraySubscriptToExpr.get(slotPair.first),
                         warshallArraySubscriptToExpr.get(slotPair.second)));
-                if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                if (clauseType.isOnClause()) {
                     analyzer.registerOnSlotEqSlotDeDuplication(pair);
                     analyzer.registerOnSlotEqSlotExpr(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                             warshallArraySubscriptToExpr.get(slotPair.first),
@@ -429,12 +433,12 @@ public class InferFiltersRule implements ExprRewriteRule {
         boolean ret = false;
         TupleId newTid = newSlot.getDesc().getParent().getRef().getId();
         TupleId checkTid = checkSlot.getDesc().getParent().getRef().getId();
-        Pair<TupleId, TupleId> tids = new Pair<>(newTid, checkTid);
+        Pair<TupleId, TupleId> tids = Pair.of(newTid, checkTid);
         if (analyzer.isContainTupleIds(tids)) {
             JoinOperator joinOperator = analyzer.getAnyTwoTablesJoinOp(tids);
             ret = checkNeedInfer(joinOperator, false, clauseType);
         } else {
-            Pair<TupleId, TupleId> changeTids = new Pair<>(checkTid, newTid);
+            Pair<TupleId, TupleId> changeTids = Pair.of(checkTid, newTid);
             if (analyzer.isContainTupleIds(changeTids)) {
                 JoinOperator joinOperator = analyzer.getAnyTwoTablesJoinOp(changeTids);
                 ret = checkNeedInfer(joinOperator, true, clauseType);
@@ -448,7 +452,7 @@ public class InferFiltersRule implements ExprRewriteRule {
      */
     private boolean checkNeedInfer(JoinOperator joinOperator, boolean needChange, ExprRewriter.ClauseType clauseType) {
         boolean ret = false;
-        if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+        if (clauseType.isOnClause()) {
             if (joinOperator.isInnerJoin()
                     || (joinOperator == JoinOperator.LEFT_SEMI_JOIN)
                     || (!needChange && joinOperator == JoinOperator.RIGHT_OUTER_JOIN)
@@ -491,12 +495,12 @@ public class InferFiltersRule implements ExprRewriteRule {
                                        ExprRewriter.ClauseType clauseType) {
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate newBP = (BinaryPredicate) expr;
-            Pair<Expr, Expr> pair = new Pair<>(newBP.getChild(0), newBP.getChild(1));
+            Pair<Expr, Expr> pair = Pair.of(newBP.getChild(0), newBP.getChild(1));
             if (!slotToLiteralDeDuplication.contains(pair)) {
                 slotToLiteralDeDuplication.add(pair);
-                Pair<Expr, Boolean> newBPWithBool = new Pair<>(newBP, needAddnewExprWithState);
+                Pair<Expr, Boolean> newBPWithBool = Pair.of(newBP, needAddnewExprWithState);
                 newExprWithState.add(newBPWithBool);
-                if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                if (clauseType.isOnClause()) {
                     analyzer.registerOnSlotToLiteralDeDuplication(pair);
                     analyzer.registerOnSlotToLiteralExpr(newBP);
                 }
@@ -573,9 +577,9 @@ public class InferFiltersRule implements ExprRewriteRule {
             IsNullPredicate newExpr = (IsNullPredicate) expr;
             if (!isNullDeDuplication.contains(newExpr.getChild(0))) {
                 isNullDeDuplication.add(newExpr.getChild(0));
-                Pair<Expr, Boolean> newExprWithBoolean = new Pair<>(newExpr, true);
+                Pair<Expr, Boolean> newExprWithBoolean = Pair.of(newExpr, true);
                 newExprWithState.add(newExprWithBoolean);
-                if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                if (clauseType.isOnClause()) {
                     analyzer.registerOnIsNullExpr(newExpr);
                     analyzer.registerOnIsNullDeDuplication(newExpr);
                 }
@@ -658,9 +662,9 @@ public class InferFiltersRule implements ExprRewriteRule {
             InPredicate newIP = (InPredicate) expr;
             if (!inDeDuplication.contains(newIP)) {
                 inDeDuplication.add(newIP);
-                Pair<Expr, Boolean> newBPWithBool = new Pair<>(newIP, needAddnewExprWithState);
+                Pair<Expr, Boolean> newBPWithBool = Pair.of(newIP, needAddnewExprWithState);
                 newExprWithState.add(newBPWithBool);
-                if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
+                if (clauseType.isOnClause()) {
                     analyzer.registerInDeDuplication(newIP);
                     analyzer.registerInExpr(newIP);
                 }

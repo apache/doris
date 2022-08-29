@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TNullSide;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -185,7 +186,7 @@ public class InlineViewRef extends TableRef {
 
         // Analyze the inline view query statement with its own analyzer
         inlineViewAnalyzer = new Analyzer(analyzer);
-
+        inlineViewAnalyzer.setInlineView(true);
         queryStmt.analyze(inlineViewAnalyzer);
         correlatedTupleIds.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
@@ -206,7 +207,6 @@ public class InlineViewRef extends TableRef {
             desc.setIsMaterialized(true);
             materializedTupleIds.add(desc.getId());
         }
-
         // create sMap and baseTblSmap and register auxiliary eq predicates between our
         // tuple descriptor's slots and our *unresolved* select list exprs;
         // we create these auxiliary predicates so that the analyzer can compute the value
@@ -222,6 +222,7 @@ public class InlineViewRef extends TableRef {
             String colName = getColLabels().get(i);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
             Expr colExpr = queryStmt.getResultExprs().get(i);
+            slotDesc.setSourceExpr(colExpr);
             SlotRef slotRef = new SlotRef(slotDesc);
             sMap.put(slotRef, colExpr);
             baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
@@ -364,7 +365,11 @@ public class InlineViewRef extends TableRef {
             if (!requiresNullWrapping(analyzer, smap.getRhs().get(i), nullSMap)) {
                 continue;
             }
-            params.add(new TupleIsNullPredicate(materializedTupleIds));
+            if (analyzer.isOuterJoinedLeftSide(materializedTupleIds.get(0))) {
+                params.add(new TupleIsNullPredicate(materializedTupleIds, TNullSide.LEFT));
+            } else {
+                params.add(new TupleIsNullPredicate(materializedTupleIds, TNullSide.RIGHT));
+            }
             params.add(NullLiteral.create(smap.getRhs().get(i).getType()));
             params.add(smap.getRhs().get(i));
             Expr ifExpr = new FunctionCallExpr("if", params);

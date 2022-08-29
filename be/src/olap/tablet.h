@@ -36,6 +36,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_tree.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
@@ -93,6 +94,7 @@ public:
     size_t num_rows();
     int version_count() const;
     Version max_version() const;
+    Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
     bool enable_unique_key_merge_on_write() const;
 
@@ -157,12 +159,11 @@ public:
     const std::vector<DeletePredicatePB>& delete_predicates() {
         return _tablet_meta->delete_predicates();
     }
-    void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
-    bool version_for_load_deletion(const Version& version);
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
+    std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
@@ -284,6 +285,11 @@ public:
 
     TabletSchemaSPtr tablet_schema() const override;
 
+    // Find the related rowset with specified version and return its tablet schema
+    TabletSchemaSPtr tablet_schema(Version version) const {
+        return _tablet_meta->tablet_schema(version);
+    }
+
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                 const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
                                 int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
@@ -307,7 +313,23 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version);
+    Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
+                          RowLocation* row_location, uint32_t version);
+
+    // calc delete bitmap when flush memtable, use a fake version to calc
+    // For example, cur max version is 5, and we use version 6 to calc but
+    // finally this rowset publish version with 8, we should make up data
+    // for rowset 6-7. Also, if a compaction happens between commit_txn and
+    // publish_txn, we should remove compaction input rowsets' delete_bitmap
+    // and build newly generated rowset's delete_bitmap
+    Status calc_delete_bitmap(RowsetId rowset_id,
+                              const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                              const RowsetIdUnorderedSet* specified_rowset_ids,
+                              DeleteBitmapPtr delete_bitmap, bool check_pre_segments = false);
+
+    Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
+                                const RowsetIdUnorderedSet& pre_rowset_ids);
+    RowsetIdUnorderedSet all_rs_id() const;
 
     void remove_self_owned_remote_rowsets();
 
@@ -347,6 +369,14 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
+    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+                                   const Slice& key, const Version& version,
+                                   DeleteBitmapPtr delete_bitmap);
+    void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
+                                RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
+    Status _load_rowset_segments(const RowsetSharedPtr& rowset,
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments);
+
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
@@ -366,6 +396,13 @@ private:
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
     mutable std::shared_mutex _meta_lock;
+
+    // In unique key table with MoW, we should guarantee that only one
+    // writer can update rowset and delete bitmap at the same time.
+    // We use a separate lock rather than _meta_lock, to avoid blocking read queries
+    // during publish_txn, which might take hundreds of milliseconds
+    mutable std::mutex _rowset_update_lock;
+
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
@@ -418,7 +455,7 @@ private:
 
 public:
     IntCounter* flush_bytes;
-    IntCounter* flush_count;
+    IntCounter* flush_finish_count;
     std::atomic<int64_t> publised_count = 0;
 };
 
@@ -492,6 +529,10 @@ inline int Tablet::version_count() const {
 }
 
 inline Version Tablet::max_version() const {
+    return _tablet_meta->max_version();
+}
+
+inline Version Tablet::max_version_unlocked() const {
     return _tablet_meta->max_version();
 }
 

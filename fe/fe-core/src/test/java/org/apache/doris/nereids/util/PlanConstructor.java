@@ -19,54 +19,81 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 public class PlanConstructor {
-    public static Table student = new Table(0L, "student", Table.TableType.OLAP,
-            ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                    new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
-                    new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                    new Column("age", Type.INT, true, AggregateType.NONE, "", "")));
+    public static OlapTable student;
+    public static OlapTable score;
+    public static OlapTable course;
 
-    public static Table score = new Table(0L, "score", Table.TableType.OLAP,
-            ImmutableList.<Column>of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
-                    new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
-                    new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")));
-
-    public static Table course = new Table(0L, "course", Table.TableType.OLAP,
-            ImmutableList.<Column>of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
-                    new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                    new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")));
-
-    public static OlapTable newOlapTable(long tableId, String tableName) {
-        return new OlapTable(0L, tableName,
-                ImmutableList.of(
-                        new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "")),
+    static {
+        student = new OlapTable(0L, "student",
+                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                        new Column("age", Type.INT, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, null, null);
+        score = new OlapTable(0L, "course",
+                ImmutableList.<Column>of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
+                        new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")),
+                KeysType.PRIMARY_KEYS, null, null);
+        course = new OlapTable(0L, "course",
+                ImmutableList.<Column>of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                        new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")),
+                KeysType.PRIMARY_KEYS, null, null);
+        student.setIndexMeta(-1,
+                "base",
+                student.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
+        score.setIndexMeta(-1,
+                "base",
+                score.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
+        course.setIndexMeta(-1,
+                "base",
+                course.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
     }
 
-    public static Table newTable(long tableId, String tableName) {
-        return new Table(tableId, tableName, Table.TableType.OLAP,
-                ImmutableList.<Column>of(
-                        new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
-                ));
+    public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
+
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
+                ImmutableList.of(columns.get(hashColumn)));
+
+        OlapTable table = new OlapTable(tableId, tableName, columns,
+                KeysType.PRIMARY_KEYS, null, hashDistributionInfo);
+        table.setIndexMeta(-1,
+                "base",
+                table.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
+        return table;
     }
 
-    // With OlapTable
-    public static LogicalOlapScan newLogicalOlapScan(String tableName) {
-        return new LogicalOlapScan(newOlapTable(0L, tableName), ImmutableList.of("db"));
-    }
-
-    // With Table
-    public static LogicalOlapScan newLogicalOlapScanWithTable(String tableName) {
-        return new LogicalOlapScan(newTable(0L, tableName), ImmutableList.of("db"));
+    // With OlapTable.
+    // Warning: equals() of Table depends on tableId.
+    public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
+        return new LogicalOlapScan(newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
 }

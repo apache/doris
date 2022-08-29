@@ -41,8 +41,20 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
-
-    reader_params.tablet_schema = cur_tablet_schema;
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+                  std::inserter(reader_params.delete_predicates,
+                                reader_params.delete_predicates.begin()));
+    }
+    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
+    merge_tablet_schema->copy_from(*cur_tablet_schema);
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_pb : reader_params.delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(
+                tablet->tablet_schema(Version(del_pred_pb.version(), del_pred_pb.version())));
+    }
+    reader_params.tablet_schema = merge_tablet_schema;
     RETURN_NOT_OK(reader.init(reader_params));
 
     RowCursor row_cursor;
@@ -102,8 +114,24 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
-    reader_params.tablet_schema = cur_tablet_schema;
-    reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+                  std::inserter(reader_params.delete_predicates,
+                                reader_params.delete_predicates.begin()));
+    }
+    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
+    merge_tablet_schema->copy_from(*cur_tablet_schema);
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_pb : reader_params.delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(
+                tablet->tablet_schema(Version(del_pred_pb.version(), del_pred_pb.version())));
+    }
+    reader_params.tablet_schema = merge_tablet_schema;
+    if (tablet->enable_unique_key_merge_on_write()) {
+        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
+
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
     }
@@ -113,8 +141,9 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
 
-    // init segment map for rowid conversion
     if (reader_params.record_rowids) {
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
+        // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         for (auto& rs_reader : reader_params.rs_readers) {
             RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
@@ -136,7 +165,10 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
         if (reader_params.record_rowids && block.rows() > 0) {
-            stats_output->rowid_conversion->add(reader.current_block_row_locations());
+            std::vector<uint32_t> segment_num_rows;
+            RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
+                                                segment_num_rows);
         }
 
         output_rows += block.rows();
@@ -152,14 +184,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     RETURN_NOT_OK_LOG(
             dst_rowset_writer->flush(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
-
-    if (reader_params.record_rowids) {
-        // rowid_conversion set segment rows number of destination rowset
-        std::vector<uint32_t> segment_num_rows;
-        RETURN_NOT_OK(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-        stats_output->rowid_conversion->set_dst_segment_num_rows(dst_rowset_writer->rowset_id(),
-                                                                 segment_num_rows);
-    }
 
     return Status::OK();
 }

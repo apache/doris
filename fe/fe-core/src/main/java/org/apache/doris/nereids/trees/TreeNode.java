@@ -17,7 +17,8 @@
 
 package org.apache.doris.nereids.trees;
 
-import com.alibaba.google.common.collect.ImmutableList;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.function.Consumer;

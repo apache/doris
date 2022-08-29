@@ -165,7 +165,7 @@ PROPERTIES (
 **Note:**
 - To enable Doris to access the hadoop cluster with kerberos authentication enabled, you need to deploy the Kerberos client kinit on the Doris all FE and BE nodes, configure krb5.conf, and fill in the KDC service information.
 - The value of the PROPERTIES property `hadoop.kerberos.keytab` needs to specify the absolute path of the keytab local file and allow the Doris process to access it.
-
+- The configuration of the HDFS cluster can be written into the hdfs-site.xml file. The configuration file is in the conf directory of fe and be. When users create a Hive table, they do not need to fill in the relevant information of the HDFS cluster configuration.
 
 
     

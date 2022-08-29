@@ -301,13 +301,25 @@ public class HashJoinNode extends PlanNode {
                 outputTupleDescList.add(analyzer.getTupleDesc(tupleId));
             }
         }
+        SlotId firstMaterializedSlotId = null;
         for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                if (slotDescriptor.isMaterialized()
-                        && (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
-                    outputSlotIds.add(slotDescriptor.getId());
+                if (slotDescriptor.isMaterialized()) {
+                    if ((requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                        outputSlotIds.add(slotDescriptor.getId());
+                    }
+                    if (firstMaterializedSlotId == null) {
+                        firstMaterializedSlotId = slotDescriptor.getId();
+                    }
                 }
             }
+        }
+
+        // be may be possible to output correct row number without any column data in future
+        // but for now, in order to have correct output row number, should keep at least one slot.
+        // use first materialized slot if outputSlotIds is empty.
+        if (outputSlotIds.isEmpty() && firstMaterializedSlotId != null) {
+            outputSlotIds.add(firstMaterializedSlotId);
         }
         initHashOutputSlotIds(outputSlotIds, analyzer);
     }
@@ -441,6 +453,11 @@ public class HashJoinNode extends PlanNode {
         int rightNullableNumber = 0;
         if (copyLeft) {
             for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
+                // if the child is cross join node, the only way to get the correct nullable info of its output slots
+                // is to check if the output tuple ids are outer joined or not.
+                // then pass this nullable info to hash join node will be correct.
+                boolean needSetToNullable =
+                        getChild(0) instanceof CrossJoinNode && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
                         continue;
@@ -451,6 +468,9 @@ public class HashJoinNode extends PlanNode {
                         outputSlotDesc.setIsNullable(true);
                         leftNullableNumber++;
                     }
+                    if (needSetToNullable) {
+                        outputSlotDesc.setIsNullable(true);
+                    }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
@@ -458,6 +478,8 @@ public class HashJoinNode extends PlanNode {
         if (copyRight) {
             for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl()
                     .getTupleDesc(getChild(1).getOutputTblRefIds())) {
+                boolean needSetToNullable =
+                        getChild(1) instanceof CrossJoinNode && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
                         continue;
@@ -468,12 +490,15 @@ public class HashJoinNode extends PlanNode {
                         outputSlotDesc.setIsNullable(true);
                         rightNullableNumber++;
                     }
+                    if (needSetToNullable) {
+                        outputSlotDesc.setIsNullable(true);
+                    }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
         }
         // 2. compute srcToOutputMap
-        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap);
+        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
         for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
             Preconditions.checkState(vSrcToOutputSMap.getRhs().get(i) instanceof SlotRef);
             SlotRef rSlotRef = (SlotRef) vSrcToOutputSMap.getRhs().get(i);
@@ -492,8 +517,8 @@ public class HashJoinNode extends PlanNode {
         // Then: add tuple is null in left child columns
         if (leftNullable && getChild(0).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(0).tblRefIds.get(0))) {
             List<Expr> tupleIsNullLhs = TupleIsNullPredicate
-                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), TNullSide.LEFT,
-                            analyzer);
+                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), new ArrayList<>(),
+                        TNullSide.LEFT, analyzer);
             tupleIsNullLhs
                     .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
             vSrcToOutputSMap.updateLhsExprs(tupleIsNullLhs);
@@ -506,7 +531,7 @@ public class HashJoinNode extends PlanNode {
                 int rightBeginIndex = vSrcToOutputSMap.size() - rightNullableNumber;
                 List<Expr> tupleIsNullLhs = TupleIsNullPredicate
                         .wrapExprs(vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()),
-                                TNullSide.RIGHT, analyzer);
+                                new ArrayList<>(), TNullSide.RIGHT, analyzer);
                 List<Expr> newLhsList = Lists.newArrayList();
                 if (rightBeginIndex > 0) {
                     newLhsList.addAll(vSrcToOutputSMap.getLhs().subList(0, rightBeginIndex));
@@ -726,7 +751,7 @@ public class HashJoinNode extends PlanNode {
                 List<EqJoinConjunctScanSlots> eqJoinConjunctSlots) {
             Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>> scanSlotsByJoinedTids = new LinkedHashMap<>();
             for (EqJoinConjunctScanSlots slots : eqJoinConjunctSlots) {
-                Pair<TupleId, TupleId> tids = Pair.create(slots.lhsTid(), slots.rhsTid());
+                Pair<TupleId, TupleId> tids = Pair.of(slots.lhsTid(), slots.rhsTid());
                 List<EqJoinConjunctScanSlots> scanSlots = scanSlotsByJoinedTids.get(tids);
                 if (scanSlots == null) {
                     scanSlots = new ArrayList<>();

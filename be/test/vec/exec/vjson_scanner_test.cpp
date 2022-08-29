@@ -37,6 +37,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
+#include "util/defer_op.h"
 #include "vec/exec/vbroker_scan_node.h"
 
 namespace doris {
@@ -57,6 +58,7 @@ public:
     }
     void init();
     static void SetUpTestCase() {
+        config::enable_simdjson_reader = true;
         UserFunctionCache::instance()->init(
                 "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
@@ -541,233 +543,330 @@ void VJsonScannerTest::init() {
 }
 
 TEST_F(VJsonScannerTest, simple_array_json) {
-    VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    scan_node.init(_tnode);
-    auto status = scan_node.prepare(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+    auto test_fn = [&](bool using_simdjson) {
+        bool saved_flag = config::enable_simdjson_reader;
+        if (using_simdjson) {
+            config::enable_simdjson_reader = true;
+        }
+        Defer __defer([&] { config::enable_simdjson_reader = saved_flag; });
+        VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+        scan_node.init(_tnode);
+        auto status = scan_node.prepare(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    // set scan range
-    std::vector<TScanRangeParams> scan_ranges;
-    {
-        TScanRangeParams scan_range_params;
+        // set scan range
+        std::vector<TScanRangeParams> scan_ranges;
+        {
+            TScanRangeParams scan_range_params;
 
-        TBrokerScanRange broker_scan_range;
-        broker_scan_range.params = _params;
-        TBrokerRangeDesc range;
-        range.start_offset = 0;
-        range.size = -1;
-        range.format_type = TFileFormatType::FORMAT_JSON;
-        range.strip_outer_array = true;
-        range.__isset.strip_outer_array = true;
-        range.__set_num_as_string(true);
-        range.splittable = true;
-        range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
-        range.file_type = TFileType::FILE_LOCAL;
-        broker_scan_range.ranges.push_back(range);
-        scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
-        scan_ranges.push_back(scan_range_params);
-    }
+            TBrokerScanRange broker_scan_range;
+            broker_scan_range.params = _params;
+            TBrokerRangeDesc range;
+            range.start_offset = 0;
+            range.size = -1;
+            range.format_type = TFileFormatType::FORMAT_JSON;
+            range.strip_outer_array = true;
+            range.__isset.strip_outer_array = true;
+            range.__set_num_as_string(true);
+            range.splittable = true;
+            range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
+            range.file_type = TFileType::FILE_LOCAL;
+            broker_scan_range.ranges.push_back(range);
+            scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
+            scan_ranges.push_back(scan_range_params);
+        }
 
-    scan_node.set_scan_ranges(scan_ranges);
-    status = scan_node.open(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+        scan_node.set_scan_ranges(scan_ranges);
+        status = scan_node.open(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    bool eof = false;
-    vectorized::Block block;
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    EXPECT_TRUE(status.ok());
-    EXPECT_EQ(2, block.rows());
-    EXPECT_EQ(6, block.columns());
+        bool eof = false;
+        vectorized::Block block;
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(2, block.rows());
+        EXPECT_EQ(6, block.columns());
 
-    auto columns = block.get_columns_with_type_and_name();
-    ASSERT_EQ(columns.size(), 6);
-    ASSERT_EQ(columns[0].to_string(0), "reference");
-    ASSERT_EQ(columns[0].to_string(1), "fiction");
-    ASSERT_EQ(columns[1].to_string(0), "NigelRees");
-    ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
-    ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
-    ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
-    ASSERT_EQ(columns[3].to_string(0), "8.950000");
-    ASSERT_EQ(columns[3].to_string(1), "12.990000");
-    ASSERT_EQ(columns[4].to_string(0), "1234");
-    ASSERT_EQ(columns[4].to_string(1), "1180591620717411303424");
-    ASSERT_EQ(columns[5].to_string(0), "1234.123400000");
-    ASSERT_EQ(columns[5].to_string(1), "9999999999999.999999000");
+        auto columns = block.get_columns_with_type_and_name();
+        ASSERT_EQ(columns.size(), 6);
+        ASSERT_EQ(columns[0].to_string(0), "reference");
+        ASSERT_EQ(columns[0].to_string(1), "fiction");
+        ASSERT_EQ(columns[1].to_string(0), "NigelRees");
+        ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
+        ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
+        ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
+        ASSERT_EQ(columns[3].to_string(0), "8.950000");
+        ASSERT_EQ(columns[3].to_string(1), "12.990000");
+        ASSERT_EQ(columns[4].to_string(0), "1234");
+        ASSERT_EQ(columns[4].to_string(1), "1180591620717411303424");
+        ASSERT_EQ(columns[5].to_string(0), "1234.123400000");
+        ASSERT_EQ(columns[5].to_string(1), "9999999999999.999999000");
 
-    block.clear();
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    ASSERT_EQ(0, block.rows());
-    ASSERT_TRUE(eof);
-    scan_node.close(&_runtime_state);
+        block.clear();
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        ASSERT_EQ(0, block.rows());
+        ASSERT_TRUE(eof);
+        scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_with_file_reader) {
-    VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    scan_node.init(_tnode);
-    auto status = scan_node.prepare(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+    auto test_fn = [&](bool using_simdjson) {
+        bool saved_flag = config::enable_simdjson_reader;
+        if (using_simdjson) {
+            config::enable_simdjson_reader = true;
+        }
+        Defer __defer([&] { config::enable_simdjson_reader = saved_flag; });
+        VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+        scan_node.init(_tnode);
+        auto status = scan_node.prepare(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    // set scan range
-    std::vector<TScanRangeParams> scan_ranges;
-    {
-        TScanRangeParams scan_range_params;
+        // set scan range
+        std::vector<TScanRangeParams> scan_ranges;
+        {
+            TScanRangeParams scan_range_params;
 
-        TBrokerScanRange broker_scan_range;
-        broker_scan_range.params = _params;
-        TBrokerRangeDesc range;
-        range.start_offset = 0;
-        range.size = -1;
-        range.format_type = TFileFormatType::FORMAT_JSON;
-        range.strip_outer_array = true;
-        range.__isset.strip_outer_array = true;
-        range.splittable = true;
-        range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
-        range.file_type = TFileType::FILE_LOCAL;
-        range.jsonpaths =
-                "[\"$.category\", \"$.author\", \"$.title\", \"$.price\", \"$.largeint\", "
-                "\"$.decimal\"]";
-        range.__isset.jsonpaths = true;
-        broker_scan_range.ranges.push_back(range);
-        scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
-        scan_ranges.push_back(scan_range_params);
-    }
+            TBrokerScanRange broker_scan_range;
+            broker_scan_range.params = _params;
+            TBrokerRangeDesc range;
+            range.start_offset = 0;
+            range.size = -1;
+            range.format_type = TFileFormatType::FORMAT_JSON;
+            range.strip_outer_array = true;
+            range.__isset.strip_outer_array = true;
+            range.splittable = true;
+            range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
+            range.file_type = TFileType::FILE_LOCAL;
+            range.jsonpaths =
+                    "[\"$.category\", \"$.author\", \"$.title\", \"$.price\", \"$.largeint\", "
+                    "\"$.decimal\"]";
+            range.__isset.jsonpaths = true;
+            broker_scan_range.ranges.push_back(range);
+            scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
+            scan_ranges.push_back(scan_range_params);
+        }
 
-    scan_node.set_scan_ranges(scan_ranges);
-    status = scan_node.open(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+        scan_node.set_scan_ranges(scan_ranges);
+        status = scan_node.open(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    bool eof = false;
-    vectorized::Block block;
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    EXPECT_TRUE(status.ok());
-    EXPECT_EQ(2, block.rows());
-    EXPECT_EQ(6, block.columns());
+        bool eof = false;
+        vectorized::Block block;
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(2, block.rows());
+        EXPECT_EQ(6, block.columns());
 
-    auto columns = block.get_columns_with_type_and_name();
-    ASSERT_EQ(columns.size(), 6);
-    ASSERT_EQ(columns[0].to_string(0), "reference");
-    ASSERT_EQ(columns[0].to_string(1), "fiction");
-    ASSERT_EQ(columns[1].to_string(0), "NigelRees");
-    ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
-    ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
-    ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
+        auto columns = block.get_columns_with_type_and_name();
+        ASSERT_EQ(columns.size(), 6);
+        ASSERT_EQ(columns[0].to_string(0), "reference");
+        ASSERT_EQ(columns[0].to_string(1), "fiction");
+        ASSERT_EQ(columns[1].to_string(0), "NigelRees");
+        ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
+        ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
+        ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
 
-    block.clear();
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    ASSERT_EQ(0, block.rows());
-    ASSERT_TRUE(eof);
-    scan_node.close(&_runtime_state);
+        block.clear();
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        ASSERT_EQ(0, block.rows());
+        ASSERT_TRUE(eof);
+        scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_with_line_reader) {
-    VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    scan_node.init(_tnode);
-    auto status = scan_node.prepare(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+    auto test_fn = [&](bool using_simdjson) {
+        bool saved_flag = config::enable_simdjson_reader;
+        if (using_simdjson) {
+            config::enable_simdjson_reader = true;
+        }
+        Defer __defer([&] { config::enable_simdjson_reader = saved_flag; });
+        VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+        scan_node.init(_tnode);
+        auto status = scan_node.prepare(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    std::vector<TScanRangeParams> scan_ranges;
-    {
-        TScanRangeParams scan_range_params;
+        std::vector<TScanRangeParams> scan_ranges;
+        {
+            TScanRangeParams scan_range_params;
 
-        TBrokerScanRange broker_scan_range;
-        broker_scan_range.params = _params;
-        TBrokerRangeDesc range;
-        range.start_offset = 0;
-        range.size = -1;
-        range.format_type = TFileFormatType::FORMAT_JSON;
-        range.splittable = true;
-        range.strip_outer_array = true;
-        range.__isset.strip_outer_array = true;
-        range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
-        range.file_type = TFileType::FILE_LOCAL;
-        range.jsonpaths =
-                "[\"$.category\", \"$.author\", \"$.title\", \"$.price\", \"$.largeint\", "
-                "\"$.decimal\"]";
-        range.__isset.jsonpaths = true;
-        range.read_json_by_line = true;
-        range.__isset.read_json_by_line = true;
-        broker_scan_range.ranges.push_back(range);
-        scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
-        scan_ranges.push_back(scan_range_params);
-    }
+            TBrokerScanRange broker_scan_range;
+            broker_scan_range.params = _params;
+            TBrokerRangeDesc range;
+            range.start_offset = 0;
+            range.size = -1;
+            range.format_type = TFileFormatType::FORMAT_JSON;
+            range.splittable = true;
+            range.strip_outer_array = true;
+            range.__isset.strip_outer_array = true;
+            range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
+            range.file_type = TFileType::FILE_LOCAL;
+            range.jsonpaths =
+                    "[\"$.category\", \"$.author\", \"$.title\", \"$.price\", \"$.largeint\", "
+                    "\"$.decimal\"]";
+            range.__isset.jsonpaths = true;
+            range.read_json_by_line = true;
+            range.__isset.read_json_by_line = true;
+            broker_scan_range.ranges.push_back(range);
+            scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
+            scan_ranges.push_back(scan_range_params);
+        }
 
-    scan_node.set_scan_ranges(scan_ranges);
-    status = scan_node.open(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+        scan_node.set_scan_ranges(scan_ranges);
+        status = scan_node.open(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    bool eof = false;
-    vectorized::Block block;
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    EXPECT_TRUE(status.ok());
-    EXPECT_EQ(2, block.rows());
-    EXPECT_EQ(6, block.columns());
+        bool eof = false;
+        vectorized::Block block;
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(2, block.rows());
+        EXPECT_EQ(6, block.columns());
 
-    auto columns = block.get_columns_with_type_and_name();
-    ASSERT_EQ(columns.size(), 6);
-    ASSERT_EQ(columns[0].to_string(0), "reference");
-    ASSERT_EQ(columns[0].to_string(1), "fiction");
-    ASSERT_EQ(columns[1].to_string(0), "NigelRees");
-    ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
-    ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
-    ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
+        auto columns = block.get_columns_with_type_and_name();
+        ASSERT_EQ(columns.size(), 6);
+        ASSERT_EQ(columns[0].to_string(0), "reference");
+        ASSERT_EQ(columns[0].to_string(1), "fiction");
+        ASSERT_EQ(columns[1].to_string(0), "NigelRees");
+        ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
+        ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
+        ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
 
-    block.clear();
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    ASSERT_EQ(0, block.rows());
-    ASSERT_TRUE(eof);
-    scan_node.close(&_runtime_state);
+        block.clear();
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        ASSERT_EQ(0, block.rows());
+        ASSERT_TRUE(eof);
+        scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
-    VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    scan_node.init(_tnode);
-    auto status = scan_node.prepare(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+    auto test_fn = [&](bool using_simdjson) {
+        bool saved_flag = config::enable_simdjson_reader;
+        if (using_simdjson) {
+            config::enable_simdjson_reader = true;
+        }
+        Defer __defer([&] { config::enable_simdjson_reader = saved_flag; });
+        VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+        scan_node.init(_tnode);
+        auto status = scan_node.prepare(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    // set scan range
-    std::vector<TScanRangeParams> scan_ranges;
-    {
-        TScanRangeParams scan_range_params;
+        // set scan range
+        std::vector<TScanRangeParams> scan_ranges;
+        {
+            TScanRangeParams scan_range_params;
 
-        TBrokerScanRange broker_scan_range;
-        broker_scan_range.params = _params;
-        TBrokerRangeDesc range;
-        range.start_offset = 0;
-        range.size = -1;
-        range.format_type = TFileFormatType::FORMAT_JSON;
-        range.strip_outer_array = true;
-        range.__isset.strip_outer_array = true;
-        range.splittable = true;
-        range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
-        range.file_type = TFileType::FILE_LOCAL;
-        range.jsonpaths = "[\"$.k1\", \"$.k2\", \"$.k3\", \"$.k4\", \"$.k5\", \"$.k6\"]";
-        range.__isset.jsonpaths = true;
-        broker_scan_range.ranges.push_back(range);
-        scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
-        scan_ranges.push_back(scan_range_params);
-    }
+            TBrokerScanRange broker_scan_range;
+            broker_scan_range.params = _params;
+            TBrokerRangeDesc range;
+            range.start_offset = 0;
+            range.size = -1;
+            range.format_type = TFileFormatType::FORMAT_JSON;
+            range.strip_outer_array = true;
+            range.__isset.strip_outer_array = true;
+            range.splittable = true;
+            range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
+            range.file_type = TFileType::FILE_LOCAL;
+            range.jsonpaths = "[\"$.k1\", \"$.k2\", \"$.k3\", \"$.k4\", \"$.k5\", \"$.k6\"]";
+            range.__isset.jsonpaths = true;
+            broker_scan_range.ranges.push_back(range);
+            scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
+            scan_ranges.push_back(scan_range_params);
+        }
 
-    scan_node.set_scan_ranges(scan_ranges);
-    status = scan_node.open(&_runtime_state);
-    EXPECT_TRUE(status.ok());
+        scan_node.set_scan_ranges(scan_ranges);
+        status = scan_node.open(&_runtime_state);
+        EXPECT_TRUE(status.ok());
 
-    bool eof = false;
-    vectorized::Block block;
-    status = scan_node.get_next(&_runtime_state, &block, &eof);
-    EXPECT_TRUE(status.ok());
-    EXPECT_EQ(2, block.rows());
-    EXPECT_EQ(6, block.columns());
+        bool eof = false;
+        vectorized::Block block;
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(2, block.rows());
+        EXPECT_EQ(6, block.columns());
 
-    auto columns = block.get_columns_with_type_and_name();
-    ASSERT_EQ(columns.size(), 6);
-    ASSERT_EQ(columns[0].to_string(0), "NULL");
-    ASSERT_EQ(columns[0].to_string(1), "NULL");
-    ASSERT_EQ(columns[1].to_string(0), "NULL");
-    ASSERT_EQ(columns[1].to_string(1), "NULL");
-    ASSERT_EQ(columns[2].to_string(0), "NULL");
-    ASSERT_EQ(columns[2].to_string(1), "NULL");
-    block.clear();
-    scan_node.close(&_runtime_state);
+        auto columns = block.get_columns_with_type_and_name();
+        ASSERT_EQ(columns.size(), 6);
+        ASSERT_EQ(columns[0].to_string(0), "NULL");
+        ASSERT_EQ(columns[0].to_string(1), "NULL");
+        ASSERT_EQ(columns[1].to_string(0), "NULL");
+        ASSERT_EQ(columns[1].to_string(1), "NULL");
+        ASSERT_EQ(columns[2].to_string(0), "NULL");
+        ASSERT_EQ(columns[2].to_string(1), "NULL");
+        block.clear();
+        scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
+}
+
+TEST_F(VJsonScannerTest, use_nested_with_jsonpath) {
+    auto test_fn = [&](bool using_simdjson) {
+        bool saved_flag = config::enable_simdjson_reader;
+        if (using_simdjson) {
+            config::enable_simdjson_reader = true;
+        }
+        Defer __defer([&] { config::enable_simdjson_reader = saved_flag; });
+        VBrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+        scan_node.init(_tnode);
+        auto status = scan_node.prepare(&_runtime_state);
+        EXPECT_TRUE(status.ok());
+
+        // set scan range
+        std::vector<TScanRangeParams> scan_ranges;
+        {
+            TScanRangeParams scan_range_params;
+
+            TBrokerScanRange broker_scan_range;
+            broker_scan_range.params = _params;
+            TBrokerRangeDesc range;
+            range.start_offset = 0;
+            range.size = -1;
+            range.format_type = TFileFormatType::FORMAT_JSON;
+            range.strip_outer_array = true;
+            range.__isset.strip_outer_array = true;
+            range.splittable = true;
+            range.path = "./be/test/exec/test_data/json_scanner/test_nested.json";
+            range.file_type = TFileType::FILE_LOCAL;
+            range.jsonpaths = "[\"$.qid\", \"$.tag\", \"$.creationDate\", \"$.answers[0].user\"]";
+            range.__isset.jsonpaths = true;
+            broker_scan_range.ranges.push_back(range);
+            scan_range_params.scan_range.__set_broker_scan_range(broker_scan_range);
+            scan_ranges.push_back(scan_range_params);
+        }
+
+        scan_node.set_scan_ranges(scan_ranges);
+        status = scan_node.open(&_runtime_state);
+        EXPECT_TRUE(status.ok());
+
+        bool eof = false;
+        vectorized::Block block;
+        status = scan_node.get_next(&_runtime_state, &block, &eof);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(2048, block.rows());
+        EXPECT_EQ(6, block.columns());
+
+        auto columns = block.get_columns_with_type_and_name();
+        ASSERT_EQ(columns.size(), 6);
+        EXPECT_EQ(columns[0].to_string(0), "1000000");
+        EXPECT_EQ(columns[0].to_string(1), "10000005");
+        EXPECT_EQ(columns[1].to_string(0), "[\"vb6\", \"progress-bar\"]");
+        EXPECT_EQ(columns[1].to_string(1), "[\"php\", \"arrays\", \"sorting\"]");
+        EXPECT_EQ(columns[2].to_string(0), "2009-06-16T07:28:42.770");
+        EXPECT_EQ(columns[2].to_string(1), "2012-04-03T19:25:46.213");
+        block.clear();
+        scan_node.close(&_runtime_state);
+    };
+    test_fn(true);
+    test_fn(false);
 }
 
 } // namespace vectorized

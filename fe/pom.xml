@@ -277,6 +277,11 @@ under the License.
                     <name>central maven repo https</name>
                     <url>https://repo.maven.apache.org/maven2</url>
                 </repository>
+                <repository>
+                    <id>snapshots</id>
+                    <name>apache snapshots maven repo https</name>
+                    <url>https://repository.apache.org/content/repositories/snapshots/</url>
+                </repository>
                 <!-- for java-cup -->
                 <repository>
                     <id>cloudera-public</id>

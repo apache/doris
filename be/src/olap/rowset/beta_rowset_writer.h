@@ -45,8 +45,7 @@ public:
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override;
 
-    Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                               const SchemaMapping& schema_mapping) override;
+    Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
     Status flush() override;
 
@@ -56,6 +55,10 @@ public:
     Status flush_single_memtable(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
+
+    // build a tmp rowset for load segment to calc delete_bitmap
+    // for this segment
+    RowsetSharedPtr build_tmp() override;
 
     Version version() override { return _context.version; }
 
@@ -79,6 +82,7 @@ private:
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+    void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
 
 private:
     RowsetWriterContext _context;

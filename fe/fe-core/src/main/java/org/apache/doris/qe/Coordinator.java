@@ -662,7 +662,7 @@ public class Coordinator {
                 }
                 states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
-                futures.add(Pair.create(states, states.execRemoteFragmentsAsync()));
+                futures.add(Pair.of(states, states.execRemoteFragmentsAsync()));
             }
             waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
@@ -676,7 +676,7 @@ public class Coordinator {
                                 .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                     }
                     states.scopedSpan = new ScopedSpan(span);
-                    futures.add(Pair.create(states, states.execPlanFragmentStartAsync()));
+                    futures.add(Pair.of(states, states.execPlanFragmentStartAsync()));
                 }
                 waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
@@ -1397,7 +1397,7 @@ public class Coordinator {
             fatherPlan = newPlan;
             newPlan = newPlan.getChild(0);
         }
-        return new Pair<PlanNode, PlanNode>(fatherPlan, newPlan);
+        return Pair.of(fatherPlan, newPlan);
     }
 
     private <K, V> V findOrInsert(HashMap<K, V> m, final K key, final V defaultVal) {
@@ -1447,7 +1447,7 @@ public class Coordinator {
             // 2. different scanNode id scan different scanRange which belong to the scanNode id
             // 3. split how many scanRange one instance should scan, same bucket do not split to different instance
             Pair<Integer, Map<Integer, List<TScanRangeParams>>> filteredScanRanges
-                    = Pair.create(scanRanges.getKey(), filteredNodeScanRanges);
+                    = Pair.of(scanRanges.getKey(), filteredNodeScanRanges);
 
             if (!addressToScanRanges.containsKey(address)) {
                 addressToScanRanges.put(address, Lists.newArrayList());
@@ -1981,7 +1981,7 @@ public class Coordinator {
                     }
                 }
                 Pair<Integer, Map<Integer, List<TScanRangeParams>>> filteredScanRanges
-                        = Pair.create(scanRanges.getKey(), filteredNodeScanRanges);
+                        = Pair.of(scanRanges.getKey(), filteredNodeScanRanges);
 
                 if (!addressToScanRanges.containsKey(address)) {
                     addressToScanRanges.put(address, Lists.newArrayList());
@@ -2222,6 +2222,7 @@ public class Coordinator {
             try {
                 TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
                 for (BackendExecState state : states) {
+                    state.initiated = true;
                     paramsList.addToParamsList(state.rpcParams);
                 }
                 return BackendServiceProxy.getInstance()

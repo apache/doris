@@ -24,8 +24,8 @@ public enum RulePromise {
     EXPLORE,
     IMPLEMENT,
     REWRITE,
-    EXPRESSION,
     ANALYSIS,
+    PLAN_CHECK
     ;
 
     public int promise() {

@@ -397,8 +397,8 @@ CONCAT_PIPE: '||';
 HAT: '^';
 COLON: ':';
 ARROW: '->';
-HENT_START: '/*+';
-HENT_END: '*/';
+HINT_START: '/*+';
+HINT_END: '*/';
 
 STRING
     : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''

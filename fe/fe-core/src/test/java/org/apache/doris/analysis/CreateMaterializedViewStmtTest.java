@@ -29,7 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -44,7 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CreateMaterializedViewStmtTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Mocked
     private Analyzer analyzer;
@@ -66,7 +66,7 @@ public class CreateMaterializedViewStmtTest {
         SelectListItem selectListItem = new SelectListItem(arithmeticExpr, null);
         selectList.addItem(selectListItem);
         FromClause fromClause = new FromClause();
-        SelectStmt selectStmt = new SelectStmt(selectList, fromClause, null, null, null, null, LimitElement.NO_LIMIT);
+        SelectStmt selectStmt = new SelectStmt(selectList, fromClause, null, null, null);
 
         new Expectations() {
             {

@@ -57,6 +57,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -212,17 +213,13 @@ public class FunctionCallExpr extends Expr {
         fnName = other.fnName;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
-        //   aggOp = other.aggOp;
+        // aggOp = other.aggOp;
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
-        if (other.fnParams.isStar()) {
-            Preconditions.checkState(children.isEmpty());
-            fnParams = FunctionParams.createStarParam();
-        } else {
-            fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
-        }
+        fnParams = other.fnParams.clone(children);
         aggFnParams = other.aggFnParams;
+
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
@@ -255,6 +252,25 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isMergeAggFn() {
         return isMergeAggFn;
+    }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
+            throws AnalysisException {
+        if (aggFnParams != null && aggFnParams.exprs() != null) {
+            ArrayList<Expr> newParams = new ArrayList<Expr>();
+            for (Expr expr : aggFnParams.exprs()) {
+                Expr substExpr = smap.get(expr);
+                if (substExpr != null) {
+                    newParams.add(substExpr.clone());
+                } else {
+                    newParams.add(expr);
+                }
+            }
+            aggFnParams = aggFnParams
+                    .clone(newParams);
+        }
+        return super.substituteImpl(smap, analyzer);
     }
 
     @Override
@@ -436,23 +452,6 @@ public class FunctionCallExpr extends Expr {
     public boolean isDistinct() {
         Preconditions.checkState(isAggregateFunction());
         return fnParams.isDistinct();
-    }
-
-    public boolean isCountStar() {
-        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
-            if (fnParams.isStar()) {
-                return true;
-            } else if (fnParams.exprs() == null || fnParams.exprs().isEmpty()) {
-                return true;
-            } else {
-                for (Expr expr : fnParams.exprs()) {
-                    if (expr.isConstant()) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     public boolean isCountDistinctBitmapOrHLL() {
@@ -844,9 +843,10 @@ public class FunctionCallExpr extends Expr {
      * to generate a builtinFunction.
      * @throws AnalysisException
      */
-    public void analyzeImplForDefaultValue() throws AnalysisException {
+    public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
         fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        type = fn.getReturnType();
+        fn.setReturnType(type);
+        this.type = type;
         for (int i = 0; i < children.size(); ++i) {
             if (getChild(i).getType().isNull()) {
                 uncheckedCastChild(Type.BOOLEAN, i);
@@ -946,6 +946,18 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDatetimeV2()) {
+                fn.setArgType(childTypes[2], 2);
+            } else if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDateV2()) {
+                fn.setArgType(ScalarType.DATETIMEV2, 2);
+            }
+            if (fn != null && childTypes[2].isDate()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIME, 2);
+            } else if (fn != null && childTypes[2].isDateV2()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIMEV2, 2);
+            }
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
@@ -953,6 +965,9 @@ public class FunctionCallExpr extends Expr {
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (assignmentCompatibleType.isDatetimeV2()) {
+                fn.setReturnType(assignmentCompatibleType);
+            }
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
@@ -995,7 +1010,7 @@ public class FunctionCallExpr extends Expr {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
                         // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Env.getCurrentEnv().getInternalDataSource().getDbNullable(dbName);
+                        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
                         if (db != null && (db instanceof Database)) {
                             Function searchDesc =
                                     new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
@@ -1010,6 +1025,15 @@ public class FunctionCallExpr extends Expr {
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+        }
+
+        if (fn.getArgs().length == children.size() && fn.getArgs().length == 1) {
+            if (fn.getArgs()[0].isDatetimeV2() && children.get(0).getType().isDatetimeV2()) {
+                fn.setArgType(children.get(0).getType(), 0);
+                if (fn.getReturnType().isDatetimeV2()) {
+                    fn.setReturnType(children.get(0).getType());
+                }
+            }
         }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
@@ -1406,6 +1430,7 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("year")
+                || fnName.getFunction().equalsIgnoreCase("max")
                 || fnName.getFunction().equalsIgnoreCase("min")
                 || fnName.getFunction().equalsIgnoreCase("avg")) {
             Type childType = getChild(0).type;

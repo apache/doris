@@ -2201,3 +2201,13 @@ Default: 60000
 Is it possible to dynamically configure: false
 
 Is it a configuration item unique to the Master FE node: true
+
+### `bdbje_reserved_disk_bytes`
+
+The desired upper limit on the number of bytes of reserved space to retain in a replicated JE Environment.
+
+Default: 1073741824
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false

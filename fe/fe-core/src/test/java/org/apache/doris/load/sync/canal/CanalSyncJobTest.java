@@ -27,7 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.load.sync.SyncChannel;
 import org.apache.doris.load.sync.SyncFailMsg;
@@ -62,7 +62,7 @@ public class CanalSyncJobTest {
     private String tblName;
     private String jobName;
     private Env env;
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     private Map<String, String> properties;
 
     @Mocked
@@ -88,14 +88,14 @@ public class CanalSyncJobTest {
         properties.put(CanalSyncJob.CANAL_USERNAME, "test_user");
         properties.put(CanalSyncJob.CANAL_PASSWORD, "test_password");
 
-        ds = Deencapsulation.newInstance(InternalDataSource.class);
-        new Expectations(ds) {
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
+        new Expectations(catalog) {
             {
-                ds.getDbNullable(10000L);
+                catalog.getDbNullable(10000L);
                 minTimes = 0;
                 result = database;
 
-                ds.getDbNullable("testDb");
+                catalog.getDbNullable("testDb");
                 minTimes = 0;
                 result = database;
             }
@@ -104,9 +104,9 @@ public class CanalSyncJobTest {
         env = Deencapsulation.newInstance(Env.class);
         new Expectations(env) {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
                 env.getEditLog();
                 minTimes = 0;

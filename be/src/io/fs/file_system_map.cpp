@@ -17,6 +17,8 @@
 
 #include "io/fs/file_system_map.h"
 
+#include <mutex>
+
 namespace doris {
 namespace io {
 

@@ -59,7 +59,6 @@
 #include "service/single_replica_load_download_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/logging.h"
 #include "util/perf_counters.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
@@ -502,8 +501,8 @@ int main(int argc, char** argv) {
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         // this will cause coredump for ASAN build when running regression test,
         // disable temporarily.
-        // TODO: fix the coredump
-        // doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
+        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
+        doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
         sleep(1);
     }
 

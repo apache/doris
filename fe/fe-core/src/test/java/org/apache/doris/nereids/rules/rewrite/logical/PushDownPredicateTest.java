@@ -23,19 +23,22 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.PlanRewriter;
@@ -48,6 +51,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.util.ArrayList;
 import java.util.Optional;
 
 /**
@@ -55,8 +59,6 @@ import java.util.Optional;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PushDownPredicateTest {
-
-
 
     private Plan rStudent;
     private Plan rScore;
@@ -88,7 +90,7 @@ public class PushDownPredicateTest {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
 
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(onCondition), rStudent, rScore);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.of(onCondition), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 
         Plan root = new LogicalProject(
@@ -96,12 +98,9 @@ public class PushDownPredicateTest {
                 filter
         );
 
-        System.out.println(root.treeString());
-
         Memo memo = rewrite(root);
 
         Group rootGroup = memo.getRoot();
-        System.out.println(memo.copyOut().treeString());
 
         Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
         Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
@@ -116,9 +115,11 @@ public class PushDownPredicateTest {
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
 
-        Assertions.assertEquals(onCondition1, join1.getCondition().get());
+        Assertions.assertEquals(onCondition1, join1.getOtherJoinCondition().get());
         Assertions.assertEquals(ExpressionUtils.and(onCondition2, whereCondition1), filter1.getPredicates());
-        Assertions.assertEquals(ExpressionUtils.and(onCondition3, whereCondition2), filter2.getPredicates());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition3,
+                        new GreaterThan(rScore.getOutput().get(2), new Cast(Literal.of(60), DoubleType.INSTANCE))),
+                filter2.getPredicates());
     }
 
     @Test
@@ -131,7 +132,7 @@ public class PushDownPredicateTest {
         Expression whereCondition3 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.empty(), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 
         Plan root = new LogicalProject(
@@ -139,11 +140,8 @@ public class PushDownPredicateTest {
                 filter
         );
 
-        System.out.println(root.treeString());
-
         Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
-        System.out.println(memo.copyOut().treeString());
 
         Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
         Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
@@ -157,9 +155,11 @@ public class PushDownPredicateTest {
         LogicalJoin join1 = (LogicalJoin) op1;
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
-        Assertions.assertEquals(whereCondition1, join1.getCondition().get());
+        Assertions.assertEquals(whereCondition1, join1.getOtherJoinCondition().get());
         Assertions.assertEquals(whereCondition2, filter1.getPredicates());
-        Assertions.assertEquals(whereCondition3, filter2.getPredicates());
+        Assertions.assertEquals(
+                new GreaterThan(rScore.getOutput().get(2), new Cast(Literal.of(60), DoubleType.INSTANCE)),
+                filter2.getPredicates());
     }
 
     @Test
@@ -181,8 +181,8 @@ public class PushDownPredicateTest {
         Expression whereCondition3 = new Between(rStudent.getOutput().get(2), Literal.of(18), Literal.of(20));
         // student.age >= 18 and student.age <= 20
         Expression whereCondition3result = new And(
-                new GreaterThanEqual(rStudent.getOutput().get(2), Literal.of(18)),
-                new LessThanEqual(rStudent.getOutput().get(2), Literal.of(20)));
+                new GreaterThanEqual(rStudent.getOutput().get(2), new Cast(Literal.of(18), StringType.INSTANCE)),
+                new LessThanEqual(rStudent.getOutput().get(2), new Cast(Literal.of(20), StringType.INSTANCE)));
 
         // score.grade > 60
         Expression whereCondition4 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
@@ -190,19 +190,17 @@ public class PushDownPredicateTest {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3,
                 whereCondition4);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
-        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), join, rCourse);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, ImmutableList.of(), Optional.empty(), rStudent, rScore);
+        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, ImmutableList.of(), Optional.empty(), join, rCourse);
         Plan filter = new LogicalFilter(whereCondition, join1);
 
         Plan root = new LogicalProject(
                 Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2)),
                 filter
         );
-        System.out.println(root.treeString());
 
         Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
-        System.out.println(memo.copyOut().treeString());
         Plan join2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
         Plan join3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
                 .getPlan();
@@ -216,10 +214,12 @@ public class PushDownPredicateTest {
         Assertions.assertTrue(op1 instanceof LogicalFilter);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
 
-        Assertions.assertEquals(whereCondition2, ((LogicalJoin) join2).getCondition().get());
-        Assertions.assertEquals(whereCondition1, ((LogicalJoin) join3).getCondition().get());
+        Assertions.assertEquals(whereCondition2, ((LogicalJoin) join2).getOtherJoinCondition().get());
+        Assertions.assertEquals(whereCondition1, ((LogicalJoin) join3).getOtherJoinCondition().get());
         Assertions.assertEquals(whereCondition3result.toSql(), ((LogicalFilter) op1).getPredicates().toSql());
-        Assertions.assertEquals(whereCondition4, ((LogicalFilter) op2).getPredicates());
+        Assertions.assertEquals(
+                new GreaterThan(rScore.getOutput().get(2), new Cast(Literal.of(60), DoubleType.INSTANCE)),
+                ((LogicalFilter) op2).getPredicates());
     }
 
     private Memo rewrite(Plan plan) {

@@ -22,6 +22,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -67,11 +69,10 @@ public class GroupExpression {
         this.requestPropertiesMap = Maps.newHashMap();
     }
 
-    // TODO: rename
-    public PhysicalProperties getPropertyFromMap(PhysicalProperties requiredPropertySet) {
-        PhysicalProperties outputProperty = requestPropertiesMap.get(requiredPropertySet);
-        Preconditions.checkState(outputProperty != null);
-        return outputProperty;
+    public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
+        PhysicalProperties outputProperties = requestPropertiesMap.get(requestProperties);
+        Preconditions.checkNotNull(outputProperties);
+        return outputProperties;
     }
 
     public int arity() {
@@ -144,14 +145,26 @@ public class GroupExpression {
             double cost) {
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first > cost) {
-                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+                lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
+            } else {
+                return false;
             }
         } else {
-            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
             return true;
         }
-        return false;
+    }
+
+    /**
+     * get the lowest cost when satisfy property
+     *
+     * @param property property that needs to be satisfied
+     * @return Lowest cost to satisfy that property
+     */
+    public double getCost(PhysicalProperties property) {
+        Preconditions.checkState(lowestCostTable.containsKey(property));
+        return lowestCostTable.get(property).first;
     }
 
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
@@ -168,6 +181,12 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
+        // if the plan is LogicalRelation or PhysicalRelation, this == that should be true,
+        // when if one relation appear in plan more than once,
+        // we cannot distinguish them throw equals function, since equals function cannot use output info.
+        if (plan instanceof LogicalRelation || plan instanceof PhysicalRelation) {
+            return false;
+        }
         return children.equals(that.children) && plan.equals(that.plan);
     }
 

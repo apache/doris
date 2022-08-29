@@ -69,6 +69,13 @@ public:
         return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     }
 
+    void clone_fn_contexts(VExprContext* other);
+
+    void mark_as_stale() {
+        DCHECK(!_stale);
+        _stale = true;
+    }
+
 private:
     friend class VExpr;
 
@@ -91,5 +98,7 @@ private:
     std::unique_ptr<MemPool> _pool;
 
     int _last_result_column_id;
+
+    bool _stale;
 };
 } // namespace doris::vectorized

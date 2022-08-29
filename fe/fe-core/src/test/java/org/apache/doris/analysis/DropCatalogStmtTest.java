@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -56,7 +56,7 @@ public class DropCatalogStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testBuildInName() throws UserException, AnalysisException {
-        DropCatalogStmt stmt = new DropCatalogStmt(false, InternalDataSource.INTERNAL_DS_NAME);
+        DropCatalogStmt stmt = new DropCatalogStmt(false, InternalCatalog.INTERNAL_CATALOG_NAME);
 
         stmt.analyze(analyzer);
         Assert.assertEquals("testCatalog", stmt.getCatalogName());

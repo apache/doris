@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.scheduler;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 
@@ -26,13 +26,13 @@ import org.apache.doris.nereids.jobs.Job;
  */
 public class SimpleJobScheduler implements JobScheduler {
     @Override
-    public void executeJob(Job job, PlannerContext context) {
+    public void executeJob(Job job, CascadesContext context) {
 
     }
 
     @Override
-    public void executeJobPool(PlannerContext plannerContext) throws AnalysisException {
-        JobPool pool = plannerContext.getJobPool();
+    public void executeJobPool(CascadesContext cascadesContext) throws AnalysisException {
+        JobPool pool = cascadesContext.getJobPool();
         while (!pool.isEmpty()) {
             Job job = pool.pop();
             job.execute();

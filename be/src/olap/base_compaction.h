@@ -47,6 +47,10 @@ private:
     // a rowset with overlapping segments should be compacted by cumulative compaction first.
     Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
 
+    // filter input rowset in some case:
+    // 1. dup key without delete predicate
+    void _filter_input_rowset();
+
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 

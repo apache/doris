@@ -155,6 +155,8 @@ Parameter | Description
 
 An important ability of `Doris On ES` is the push-down of filter conditions: The filtering conditions are pushed to ES, so that only the data that really meets the conditions will be returned, which can significantly improve query performance and reduce CPU, memory, and IO utilization of Doris and ES
 
+`enable_new_es_dsl`Represents whether to use the new dsl generation logic, subsequent bug fixes and iterations are development in the new dsl, default to `true`, can be changed in `fe.conf`
+
 The following operators (Operators) will be optimized to the following ES Query:
 
 | SQL syntax  | ES 5.x+ syntax | 
@@ -335,7 +337,7 @@ This term does not match any term in the dictionary, and will not return any res
 
 The type of `k4.keyword` is `keyword`, and writing data into ES is a complete term, so it can be matched
 
-### Enable node discovery mechanism, default is true(es\_nodes\_discovery=true)
+### Enable node discovery mechanism, default is true(nodes\_discovery=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
@@ -358,7 +360,7 @@ Parameter Description：
 
 Parameter | Description
 ---|---
-**es\_nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
+**nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
 
 Doris would find all available related data nodes (shards allocated on)from ES when this is true.  Just set false if address of  ES data nodes are not accessed by Doris BE, eg. the ES cluster is deployed in the intranet which isolated from your public Internet, and users access through a proxy
 

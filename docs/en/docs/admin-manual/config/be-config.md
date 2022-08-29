@@ -61,7 +61,7 @@ There are two ways to configure BE configuration items:
     In version 0.13 and before, the configuration items modified in this way will become invalid after the BE process restarts. In 0.14 and later versions, the modified configuration can be persisted through the following command. The modified configuration items are stored in the `be_custom.conf` file.
 
     ```
-    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true'
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true
     ```
 
 ## Examples
@@ -1099,12 +1099,25 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 
 * Type: int32
 * Description: The number of threads in the SendBatch thread pool. In NodeChannels' sending data tasks, the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the SendBatch thread pool.
-* Default value: 256
+* Default value: 64
 
 ### `send_batch_thread_pool_queue_size`
 
 * Type: int32
 * Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Default value: 102400
+
+### `download_cache_thread_pool_thread_num`
+
+* Type: int32
+* Description: The number of threads in the DownloadCache thread pool. In the download cache task of FileCache, the download cache operation will be submitted to the thread pool as a thread task and wait to be scheduled. This parameter determines the size of the DownloadCache thread pool.
+* Default value: 48
+
+### `download_cache_thread_pool_queue_size`
+
+* Type: int32
+* Description: The number of threads in the DownloadCache thread pool. In the download cache task of FileCache, the download cache operation will be submitted to the thread pool as a thread task and wait to be scheduled. After the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Default value: 102400
 
 ### `single_replica_load_brpc_port`
 
@@ -1168,7 +1181,7 @@ The min bytes that should be left of a data dir，default value:1G
 
 ### `storage_flood_stage_usage_percent`
 
-Default: 95 （95%）
+Default: 90 （90%）
 
 The storage_flood_stage_usage_percent and storage_flood_stage_left_capacity_bytes configurations limit the maximum usage of the capacity of the data directory.
 
@@ -1201,16 +1214,16 @@ Shard size of StoragePageCache, the value must be power of two. It's recommended
 
 * Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, separate by ','
 
-    eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
-
-    * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
-    * 2./home/disk2/doris.SSD,1, indicates capacity limit is 1GB, SSD;
-    * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
+    eg.1: `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
+  
+    * 1./home/disk1/doris.HDD, indicates that the storage medium is HDD;
+    * 2./home/disk2/doris.SSD, indicates that the storage medium is SSD;
+    * 3./home/disk2/doris, indicates that the storage medium is HDD by default
     
-    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
     
-    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
-    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
+    * 1./home/disk1/doris,medium:hdd，indicates that the storage medium is HDD;
+    * 2./home/disk2/doris,medium:ssd，indicates that the storage medium is SSD;
 
 * Default: ${DORIS_HOME}
 
@@ -1576,3 +1589,22 @@ Translated with www.DeepL.com/Translator (free version)
 * Description: at least the number of versions to be compaction, and the number of rowsets with a small amount of data in the selection. If it is greater than this value, the real compaction will be carried out
 * Default: 10
 
+### `generate_cache_cleaner_task_interval_sec`
+* Type：int64
+* Description：Cleaning interval of cache files, in seconds
+* Default：43200（12 hours）
+
+### `file_cache_type`
+* Type：string
+* Description：Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
+* Default：""
+
+### `max_sub_cache_file_size`
+* Type：int64
+* Description：Cache files using sub_ file_ The maximum size of the split file during cache, unit: B
+* Default：104857600（100MB）
+
+### `file_cache_alive_time_sec`
+* Type：int64
+* Description：Save time of cache file, in seconds
+* Default：604800（1 week）

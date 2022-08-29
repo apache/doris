@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -47,6 +48,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -63,6 +65,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -343,8 +346,10 @@ public class MaterializedViewHandler extends AlterHandler {
         long tableId = olapTable.getId();
         int baseSchemaHash = olapTable.getSchemaHashByIndexId(baseIndexId);
         Env env = Env.getCurrentEnv();
-        long jobId = env.getNextId();
-        long mvIndexId = env.getNextId();
+        long bufferSize = IdGeneratorUtil.getBufferSizeForAlterTable(olapTable, Sets.newHashSet(baseIndexId));
+        IdGeneratorBuffer idGeneratorBuffer = env.getIdGeneratorBuffer(bufferSize);
+        long jobId = idGeneratorBuffer.getNextId();
+        long mvIndexId = idGeneratorBuffer.getNextId();
         RollupJobV2 mvJob = new RollupJobV2(jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, mvIndexId, baseIndexName, mvName,
                 mvColumns, baseSchemaHash, mvSchemaHash,
@@ -372,7 +377,7 @@ public class MaterializedViewHandler extends AlterHandler {
             short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
             for (Tablet baseTablet : baseIndex.getTablets()) {
                 long baseTabletId = baseTablet.getId();
-                long mvTabletId = env.getNextId();
+                long mvTabletId = idGeneratorBuffer.getNextId();
 
                 Tablet newTablet = new Tablet(mvTabletId);
                 mvIndex.addTablet(newTablet, mvTabletMeta);
@@ -383,7 +388,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 int healthyReplicaNum = 0;
                 for (Replica baseReplica : baseReplicas) {
-                    long mvReplicaId = env.getNextId();
+                    long mvReplicaId = idGeneratorBuffer.getNextId();
                     long backendId = baseReplica.getBackendId();
                     if (baseReplica.getState() == ReplicaState.CLONE
                             || baseReplica.getState() == ReplicaState.DECOMMISSION
@@ -499,10 +504,18 @@ public class MaterializedViewHandler extends AlterHandler {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
 
-        // set MV column unique id to Column.COLUMN_UNIQUE_ID_INIT_VALUE support old unique id rule.
-        newMVColumns.stream().forEach(column -> {
-            column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
-        });
+        if (olapTable.getEnableLightSchemaChange()) {
+            int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
+            for (Column column : newMVColumns) {
+                column.setUniqueId(nextColUniqueId);
+                nextColUniqueId++;
+            }
+        } else {
+            newMVColumns.stream().forEach(column -> {
+                column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+            });
+        }
+        LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
         return newMVColumns;
     }
 
@@ -544,25 +557,27 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
+        LOG.debug("baseSchema:{}", olapTable.getSchemaByIndexId(baseIndexId, true));
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
-                Column oneColumn = baseColumnNameToColumn.get(columnName);
-                if (oneColumn == null) {
+                Column baseColumn = baseColumnNameToColumn.get(columnName);
+                if (baseColumn == null) {
                     throw new DdlException("Column[" + columnName + "] does not exist");
                 }
-                if (oneColumn.isKey() && meetValue) {
+                if (baseColumn.isKey() && meetValue) {
                     throw new DdlException("Invalid column order. value should be after key");
                 }
-                if (oneColumn.isKey()) {
+                if (baseColumn.isKey()) {
                     keysNumOfRollup += 1;
                     hasKey = true;
                 } else {
                     meetValue = true;
-                    if (oneColumn.getAggregationType().isReplaceFamily()) {
+                    if (baseColumn.getAggregationType().isReplaceFamily()) {
                         meetReplaceValue = true;
                     }
                 }
+                Column oneColumn = new Column(baseColumn);
                 rollupSchema.add(oneColumn);
             }
 
@@ -691,6 +706,19 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
         }
+        if (olapTable.getEnableLightSchemaChange()) {
+            int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
+            for (Column column : rollupSchema) {
+                column.setUniqueId(nextColUniqueId);
+                nextColUniqueId++;
+            }
+        } else {
+            rollupSchema.stream().forEach(column -> {
+                column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+            });
+        }
+        LOG.debug("lightSchemaChange:{}, rollupSchema:{}, baseSchema:{}",
+                olapTable.getEnableLightSchemaChange(), rollupSchema, olapTable.getSchemaByIndexId(baseIndexId, true));
         return rollupSchema;
     }
 
@@ -844,7 +872,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long rollupIndexId = dropInfo.getIndexId();
 
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        Database db = env.getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {

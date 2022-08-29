@@ -24,12 +24,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.Scan;
+import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,8 +44,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     protected final Table table;
     protected final List<String> qualifier;
 
+    protected List<Long> selectedPartitionIds = Lists.newArrayList();
+
     public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
-        this(type, table, qualifier, Optional.empty(), Optional.empty());
+        this(type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -53,10 +57,13 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(PlanType type, Table table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            List<Long> selectedPartitionIdList) {
         super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.selectedPartitionIds = selectedPartitionIdList;
     }
 
     public Table getTable() {
@@ -115,4 +122,9 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     public String qualifiedName() {
         return Utils.qualifiedName(qualifier, table.getName());
     }
+
+    public List<Long> getSelectedPartitionIds() {
+        return selectedPartitionIds;
+    }
+
 }

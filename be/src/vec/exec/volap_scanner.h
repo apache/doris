@@ -57,9 +57,13 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state; }
 
-    std::vector<ExprContext*>* conjunct_ctxs() { return &_conjunct_ctxs; }
-
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
+
+    void discard_conjuncts() {
+        _vconjunct_ctx->mark_as_stale();
+        _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
+        _vconjunct_ctx = nullptr;
+    }
 
     void mark_to_need_to_close() { _need_to_close = true; }
 
@@ -83,10 +87,6 @@ public:
 
     int64_t update_wait_worker_timer() const { return _watcher.elapsed_time(); }
 
-    void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
-        _use_pushdown_conjuncts = has_pushdown_conjuncts;
-    }
-
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
     TabletStorageType get_storage_type();
@@ -108,16 +108,16 @@ private:
     VOlapScanNode* _parent;
     const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
 
-    std::vector<ExprContext*> _conjunct_ctxs;
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
+
+    int64_t _limit = -1;
 
     int _id;
     bool _is_open;
     bool _aggregation;
     bool _need_agg_finalize = true;
     bool _has_update_counter = false;
-    bool _use_pushdown_conjuncts = false;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
@@ -131,6 +131,7 @@ private:
     // time costed and row returned statistics
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
+    int64_t _num_rows_return = 0;
     int64_t _compressed_bytes_read = 0;
 
     // number rows filtered by pushed condition
@@ -146,6 +147,8 @@ private:
     bool _need_to_close = false;
 
     TabletSchemaSPtr _tablet_schema;
+
+    std::vector<VExprContext*> _stale_vexpr_ctxs;
 };
 
 } // namespace vectorized

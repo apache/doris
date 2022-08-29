@@ -154,6 +154,21 @@ Only the MySQL type can be changed to the ODBC type. The value of driver is the 
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
 
+12. Modify the number of copies
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("replication_num" = "2");
+ALTER TABLE example_db.mysql_table SET ("default.replication_num" = "2");
+ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.tag1: 1");
+ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.tag1: 1");
+````
+
+Note:
+1. The property with the default prefix indicates the default replica distribution for the modified table. This modification does not modify the current actual replica distribution of the table, but only affects the replica distribution of newly created partitions on the partitioned table.
+2. For non-partitioned tables, modifying the replica distribution property without the default prefix will modify both the default replica distribution and the actual replica distribution of the table. That is, after the modification, through the `show create table` and `show partitions from tbl` statements, you can see that the replica distribution has been modified.
+changed.
+3. For partitioned tables, the actual replica distribution of the table is at the partition level, that is, each partition has its own replica distribution, which can be viewed through the `show partitions from tbl` statement. If you want to modify the actual replica distribution, see `ALTER TABLE PARTITION`.
+
 ### Example
 
 1. Modify the bloom filter column of the table

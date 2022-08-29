@@ -25,7 +25,6 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
-#include "olap/olap_cond.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -134,32 +133,15 @@ private:
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
     // Dictionary column should do something to initial.
-    void _convert_dict_code_for_predicate_if_necessary() {
-        for (auto predicate : _short_cir_eval_predicate) {
-            auto& column = _current_return_columns[predicate->column_id()];
-            auto* col_ptr = column.get();
-            if (PredicateTypeTraits::is_range(predicate->type())) {
-                col_ptr->convert_dict_codes_if_necessary();
-            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-                col_ptr->generate_hash_values_for_runtime_filter();
-            }
-        }
+    void _convert_dict_code_for_predicate_if_necessary();
 
-        for (auto predicate : _pre_eval_block_predicate) {
-            auto& column = _current_return_columns[predicate->column_id()];
-            auto* col_ptr = column.get();
-            if (PredicateTypeTraits::is_range(predicate->type())) {
-                col_ptr->convert_dict_codes_if_necessary();
-            } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
-                col_ptr->generate_hash_values_for_runtime_filter();
-            }
-        }
-    }
+    void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
     void _update_max_row(const vectorized::Block* block);
 
 private:
     class BitmapRangeIterator;
+    class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
@@ -197,6 +179,8 @@ private:
     vectorized::MutableColumns _current_return_columns;
     std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
+    std::vector<uint32_t> _delete_range_column_ids;
+    std::vector<uint32_t> _delete_bloom_filter_column_ids;
     // when lazy materialization is enable, segmentIter need to read data at least twice
     // first, read predicate columns by various index
     // second, read non-predicate columns

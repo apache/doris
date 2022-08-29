@@ -163,6 +163,12 @@ struct TQueryOptions {
 
   // trim tailing spaces while querying external table and stream load
   44: optional bool trim_tailing_spaces_for_external_table_query = false
+
+  45: optional bool enable_function_pushdown;
+
+  46: optional string fragment_transmission_compression_codec;
+
+  47: optional bool enable_local_exchange;
 }
     
 
@@ -499,6 +505,9 @@ struct TCondition {
     1:  required string column_name
     2:  required string condition_op
     3:  required list<string> condition_values
+    // In delete condition, the different column may have same column name, need
+    // using unique id to distinguish them
+    4:  optional i32 column_unique_id
 }
 
 struct TExportStatusResult {

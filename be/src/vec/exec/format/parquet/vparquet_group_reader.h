@@ -19,61 +19,35 @@
 
 #include "exprs/expr_context.h"
 #include "io/file_reader.h"
+#include "vec/core/block.h"
+#include "vparquet_column_reader.h"
 #include "vparquet_file_metadata.h"
+#include "vparquet_reader.h"
 
 namespace doris::vectorized {
+class ParquetReadColumn;
+class ParquetColumnReader;
+struct RowRange;
+
 class RowGroupReader {
 public:
-    RowGroupReader(doris::FileReader* file_reader, std::shared_ptr<FileMetaData> file_metadata,
-                   const std::vector<int>& column_ids);
-
-    ~RowGroupReader() = default;
-
-    Status read_next_row_group(const int32_t* group_id);
+    RowGroupReader(doris::FileReader* file_reader,
+                   const std::vector<ParquetReadColumn>& read_columns, const int32_t _row_group_id,
+                   tparquet::RowGroup& row_group, cctz::time_zone* ctz);
+    ~RowGroupReader();
+    Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges);
+    Status next_batch(Block* block, size_t batch_size, bool* _batch_eof);
 
 private:
-    void _init_column_readers(const std::vector<int>& column_ids);
-
-    Status _process_row_group_filter(bool* filter_group);
-
-    void _init_chunk_dicts();
-
-    Status _process_dict_filter();
-
-    void _init_bloom_filter();
-
-    Status _process_bloom_filter();
-
-    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
-
-    bool _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
-                                     const std::string& encoded_min,
-                                     const std::string& encoded_max);
-
-    void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                                bool& need_filter);
-
-    void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                            bool& need_filter);
-
-    bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
-                      const char* min_bytes, const char* max_bytes);
-
-    bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
-                  const char* max_bytes);
-
-    bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes);
-
-    bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes);
-
-    bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes);
-
-    bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes);
+    Status _init_column_readers(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges);
 
 private:
     doris::FileReader* _file_reader;
-    std::shared_ptr<FileMetaData> _file_metadata;
-    std::vector<int> _column_ids;
-    int32_t _current_row_group;
+    std::unordered_map<int32_t, std::unique_ptr<ParquetColumnReader>> _column_readers;
+    const std::vector<ParquetReadColumn>& _read_columns;
+    const int32_t _row_group_id;
+    tparquet::RowGroup& _row_group_meta;
+    int64_t _read_rows = 0;
+    cctz::time_zone* _ctz;
 };
 } // namespace doris::vectorized

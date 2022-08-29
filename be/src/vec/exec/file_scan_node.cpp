@@ -30,6 +30,7 @@
 #include "util/thread.h"
 #include "util/types.h"
 #include "vec/exec/file_arrow_scanner.h"
+#include "vec/exec/file_hdfs_scanner.h"
 #include "vec/exec/file_text_scanner.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
@@ -402,11 +403,7 @@ Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCount
                // stop pushing more batch if
                // 1. too many batches in queue, or
                // 2. at least one batch in queue and memory exceed limit.
-               (_block_queue.size() >= _max_buffered_batches ||
-                (thread_context()
-                         ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                         ->any_limit_exceeded() &&
-                 !_block_queue.empty()))) {
+               (_block_queue.size() >= _max_buffered_batches || !_block_queue.empty())) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
         // Process already set failed, so we just return OK
@@ -469,8 +466,13 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
     FileScanner* scan = nullptr;
     switch (scan_range.params.format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                       scan_range.ranges, _pre_filter_texprs, counter);
+        if (config::parquet_reader_using_internal) {
+            scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                              scan_range.ranges, _pre_filter_texprs, counter);
+        } else {
+            scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                           scan_range.ranges, _pre_filter_texprs, counter);
+        }
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,

@@ -47,6 +47,8 @@ public:
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
+    ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter) override;
+
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
@@ -105,6 +107,8 @@ private:
                                             bool* eof) = nullptr;
 
     std::vector<RowLocation> _block_row_locations;
+
+    ColumnPtr _delete_filter_column;
 };
 
 } // namespace vectorized

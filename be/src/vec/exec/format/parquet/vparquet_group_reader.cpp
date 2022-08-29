@@ -17,63 +17,63 @@
 
 #include "vparquet_group_reader.h"
 
+#include "parquet_pred_cmp.h"
+#include "schema_desc.h"
+#include "vparquet_column_reader.h"
+
 namespace doris::vectorized {
 
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
-                               std::shared_ptr<FileMetaData> file_metadata,
-                               const std::vector<int>& column_ids)
+                               const std::vector<ParquetReadColumn>& read_columns,
+                               const int32_t row_group_id, tparquet::RowGroup& row_group,
+                               cctz::time_zone* ctz)
         : _file_reader(file_reader),
-          _file_metadata(file_metadata),
-          _column_ids(column_ids),
-          _current_row_group(0) {
-    DCHECK_LE(column_ids.size(), file_metadata->num_columns());
-    _init_column_readers(column_ids);
+          _read_columns(read_columns),
+          _row_group_id(row_group_id),
+          _row_group_meta(row_group),
+          _ctz(ctz) {}
+
+RowGroupReader::~RowGroupReader() {
+    _column_readers.clear();
 }
 
-void RowGroupReader::_init_column_readers(const std::vector<int>& column_ids) {
-    //    for (int col_id: column_ids) {
-    //
-    //    }
+Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges) {
+    VLOG_DEBUG << "Row group id: " << _row_group_id;
+    RETURN_IF_ERROR(_init_column_readers(schema, row_ranges));
+    return Status::OK();
 }
 
-Status RowGroupReader::read_next_row_group(const int32_t* group_id) {
-    int32_t total_group = _file_metadata->num_row_groups();
-    while (_current_row_group < total_group) {
-        bool filter_group = false;
-        _process_row_group_filter(&filter_group);
-        if (!filter_group) {
-            group_id = &_current_row_group;
+Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
+                                            std::vector<RowRange>& row_ranges) {
+    for (auto& read_col : _read_columns) {
+        SlotDescriptor* slot_desc = read_col._slot_desc;
+        TypeDescriptor col_type = slot_desc->type();
+        auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
+        std::unique_ptr<ParquetColumnReader> reader;
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
+                                                    row_ranges, _ctz, reader));
+        if (reader == nullptr) {
+            VLOG_DEBUG << "Init row group reader failed";
+            return Status::Corruption("Init row group reader failed");
         }
-        _current_row_group++;
+        _column_readers[slot_desc->id()] = std::move(reader);
     }
     return Status::OK();
 }
 
-Status RowGroupReader::_process_row_group_filter(bool* filter_group) {
-    _init_chunk_dicts();
-    RETURN_IF_ERROR(_process_dict_filter());
-    _init_bloom_filter();
-    RETURN_IF_ERROR(_process_bloom_filter());
+Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_eof) {
+    for (auto& read_col : _read_columns) {
+        auto slot_desc = read_col._slot_desc;
+        auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
+        auto& column_ptr = column_with_type_and_name.column;
+        auto& column_type = column_with_type_and_name.type;
+        size_t batch_read_rows = 0;
+        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
+                column_ptr, column_type, batch_size, &batch_read_rows, _batch_eof));
+        _read_rows += batch_read_rows;
+    }
+    // use data fill utils read column data to column ptr
     return Status::OK();
 }
 
-void RowGroupReader::_init_chunk_dicts() {}
-
-Status RowGroupReader::_process_dict_filter() {
-    return Status();
-}
-
-void RowGroupReader::_init_bloom_filter() {}
-
-Status RowGroupReader::_process_bloom_filter() {
-    RETURN_IF_ERROR(_file_reader->seek(0));
-    return Status();
-}
-
-int64_t RowGroupReader::_get_row_group_start_offset(const tparquet::RowGroup& row_group) {
-    if (row_group.__isset.file_offset) {
-        return row_group.file_offset;
-    }
-    return row_group.columns[0].meta_data.data_page_offset;
-}
 } // namespace doris::vectorized

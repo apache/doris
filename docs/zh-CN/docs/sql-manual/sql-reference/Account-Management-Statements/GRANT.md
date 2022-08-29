@@ -35,7 +35,7 @@ GRANT
 GRANT 命令用于赋予指定用户或角色指定的权限
 
 ```sql
-GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
+GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 
 GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
 ```
@@ -61,13 +61,14 @@ privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris �
     2. 库表权限：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV
     3. 资源权限：USAGE_PRIV
 
-db_name[.tbl_name] 支持以下三种形式：
+priv_level 支持以下四种形式：
 
-    1. *.* 权限可以应用于所有库及其中所有表
-    2. db.* 权限可以应用于指定库下的所有表
-    3. db.tbl 权限可以应用于指定库下的指定表
+    1. *.*.* 权限可以应用于所有catalog及其中的所有库表
+    2. ctl.*.* 权限可以应用于指定catalog中的所有库表
+    3. ctl.db.* 权限可以应用于指定库下的所有表
+    4. ctl.db.tbl 权限可以应用于指定库下的指定表
     
-    这里指定的库或表可以是不存在的库和表。
+    这里指定的ctl或库或表可以是不存在的库和表。
 
 resource_name 支持以下两种形式：
 
@@ -84,22 +85,22 @@ user_identity：
 
 ### Example
 
-1. 授予所有库和表的权限给用户
+1. 授予所有catalog和库表的权限给用户
    
     ```sql
-    GRANT SELECT_PRIV ON *.* TO 'jack'@'%';
+    GRANT SELECT_PRIV ON *.*.* TO 'jack'@'%';
     ```
     
 2. 授予指定库表的权限给用户
    
     ```sql
-    GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON db1.tbl1 TO 'jack'@'192.8.%';
+    GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON ctl1.db1.tbl1 TO 'jack'@'192.8.%';
     ```
     
 3. 授予指定库表的权限给角色
    
     ```sql
-    GRANT LOAD_PRIV ON db1.* TO ROLE 'my_role';
+    GRANT LOAD_PRIV ON ctl1.db1.* TO ROLE 'my_role';
     ```
     
 4. 授予所有资源的使用权限给用户

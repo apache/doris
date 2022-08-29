@@ -45,6 +45,7 @@ public class CreateTableTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         Config.disable_storage_medium_check = true;
+        Config.enable_array_type = true;
         UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
@@ -560,7 +561,6 @@ public class CreateTableTest {
 
     @Test
     public void testCreateTableWithArrayType() throws Exception {
-        ConnectContext.get().getSessionVariable().setEnableArrayType(true);
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.table1(k1 INT, k2 Array<int>) duplicate key (k1) "
                     + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");

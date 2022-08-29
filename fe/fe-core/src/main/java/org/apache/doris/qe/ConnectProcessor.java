@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -38,6 +39,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -45,6 +47,7 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
@@ -57,6 +60,8 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -87,13 +92,41 @@ public class ConnectProcessor {
 
     // COM_INIT_DB: change current database of this session.
     private void handleInitDb() {
-        String dbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
+        String fullDbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
         if (Strings.isNullOrEmpty(ctx.getClusterName())) {
             ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
+        String catalogName = null;
+        String dbName = null;
+        String[] dbNames = fullDbName.split("\\.");
+        if (dbNames.length == 1) {
+            dbName = fullDbName;
+        } else if (dbNames.length == 2) {
+            catalogName = dbNames[0];
+            dbName = dbNames[1];
+        } else if (dbNames.length > 2) {
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
+            return;
+        }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
+
+        // check catalog and db exists
+        if (catalogName != null) {
+            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+            if (catalogIf == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                return;
+            }
+            if (catalogIf.getDbNullable(dbName) == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                return;
+            }
+        }
         try {
+            if (catalogName != null) {
+                ctx.getEnv().changeCatalog(ctx, catalogName);
+            }
             ctx.getEnv().changeDb(ctx, dbName);
         } catch (DdlException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -118,6 +151,7 @@ public class ConnectProcessor {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
+        SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setState(ctx.getState().toString()).setQueryTime(elapseMs)
@@ -127,7 +161,8 @@ public class ConnectProcessor {
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
-                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
+                .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "");
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -230,7 +265,7 @@ public class ConnectProcessor {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                     finalizeCommand();
                 }
-                auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+                auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
                 alreadyAddedToAuditInfoList = true;
             }
         } catch (IOException e) {
@@ -256,17 +291,20 @@ public class ConnectProcessor {
 
         // that means execute some statement failed
         if (!alreadyAddedToAuditInfoList && executor != null) {
-            auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+            auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
         }
 
-        // audit after exec
+        // audit after exec, analysis query would not be recorded
         if (!auditInfoList.isEmpty()) {
             for (Pair<StatementBase, Data.PQueryStatistics> audit : auditInfoList) {
                 auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
             }
-        } else {
-            // auditInfoList can be empty if we encounter analysis error.
+        } else if (QueryState.ErrType.ANALYSIS_ERR != ctx.getState().getErrType()) {
+            // auditInfoList can be empty if we encounter error.
             auditAfterExec(originStmt.replace("\n", " "), null, null);
+        }
+        if (executor != null) {
+            executor.addProfileToSpan();
         }
     }
 
@@ -304,7 +342,7 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        DatabaseIf db = ctx.getCurrentDataSource().getDbNullable(ctx.getDatabase());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;
@@ -421,6 +459,15 @@ public class ConnectProcessor {
 
         MysqlChannel channel = ctx.getMysqlChannel();
         channel.sendAndFlush(packet);
+        // note(wb) we should write profile after return result to mysql client
+        // because write profile maybe take too much time
+        // explain query stmt do not have profile
+        if (executor != null && !executor.getParsedStmt().isExplain()
+                && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
+                    || executor.getParsedStmt() instanceof LogicalPlanAdapter
+                    || executor.getParsedStmt() instanceof InsertStmt)) {
+            executor.writeProfile(true);
+        }
     }
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) {

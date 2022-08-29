@@ -24,7 +24,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.collect.Lists;
@@ -40,7 +40,7 @@ public class CountFieldToSumTest {
     @Test
     public void testCountDistinct(@Injectable Analyzer analyzer,
                                   @Injectable FunctionCallExpr functionCallExpr) {
-        TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "db1", "table1");
+        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db1", "table1");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr>  params = Lists.newArrayList();
         params.add(slotRef);

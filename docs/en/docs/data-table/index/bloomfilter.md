@@ -96,7 +96,7 @@ PROPERTIES (
 Check that the BloomFilter index we built on the table is to use:
 
 ```sql
-SHOW CREATE TABLE <table_name>
+SHOW CREATE TABLE <table_name>;
 ```
 
 ### Delete BloomFilter index
@@ -120,14 +120,11 @@ ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "k1,k3");
 You can consider establishing a Bloom Filter index for a column when the following conditions are met:
 
 1. First, BloomFilter is suitable for non-prefix filtering.
-
 2. The query will be filtered according to the high frequency of the column, and most of the query conditions are in and = filtering.
-
-3. Unlike Bitmap, BloomFilter is suitable for high cardinality columns. Such as UserID. Because if it is created on a low-cardinality column, such as a "gender" column, each Block will almost contain all values, causing the BloomFilter index to lose its meaning
+3. Unlike Bitmap, BloomFilter is suitable for high cardinality columns. Such as UserID. Because if it is created on a low-cardinality column, such as a "gender" column, each Block will almost contain all values, causing the BloomFilter index to lose its meaning.
 
 ### **Doris BloomFilter use precautions**
 
 1. It does not support the creation of Bloom Filter indexes for Tinyint, Float, and Double columns.
-
 2. The Bloom Filter index only has an acceleration effect on in and = filtering queries.
-3. If you want to check whether a query hits the Bloom Filter index, you can check the profile information of the query
+3. If you want to check whether a query hits the Bloom Filter index, you can check the profile information of the query.

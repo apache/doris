@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -40,11 +40,11 @@ public class JoinEstimation {
     /**
      * Do estimate.
      */
-    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
-            Expression eqCondition, JoinType joinType) {
+    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
+        JoinType joinType = join.getJoinType();
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
-        List<Expression> eqConjunctList = ExpressionUtils.extractConjunction(eqCondition);
+        List<Expression> eqConjunctList = join.getHashJoinConjuncts();
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
             rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
@@ -124,6 +124,7 @@ public class JoinEstimation {
         if (lhsCard == -1 || rhsCard == -1) {
             return lhsCard;
         }
+
         long result = -1;
         for (Expression eqJoinConjunct : eqConjunctList) {
             Expression left = eqJoinConjunct.child(0);
@@ -155,6 +156,7 @@ public class JoinEstimation {
                 result = Math.min(result, joinCard);
             }
         }
+
         return result;
     }
 }

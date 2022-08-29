@@ -721,12 +721,12 @@ Status BufferedBlockMgr2::allocate_scratch_space(int64_t block_size, TmpFileMgr:
         // blacklisted so we will not repeatedly log the same error.
         LOG(WARNING) << "Error while allocating temporary file range: " << status.get_error_msg()
                      << ". Will try another temporary file.";
-        errs.emplace_back(status.message().data, status.message().size);
+        errs.emplace_back(status.get_error_msg());
     }
     Status err_status = Status::InternalError(
             "No usable temporary files: space could not be allocated on any temporary device.");
     for (int i = 0; i < errs.size(); ++i) {
-        err_status = err_status.clone_and_append(errs[i]);
+        err_status.append(errs[i]);
     }
     return err_status;
 }

@@ -233,4 +233,12 @@ public class VariableMgrTest {
         VariableMgr.setVar(null, setVar);
         Assert.fail("No exception throws.");
     }
+
+    @Test
+    public void testVariableCallback() throws Exception {
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set session_context='trace_id:123'", ctx);
+        SetExecutor executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+        Assert.assertEquals("123", ctx.traceId());
+    }
 }

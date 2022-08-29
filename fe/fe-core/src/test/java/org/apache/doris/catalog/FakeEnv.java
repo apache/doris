@@ -42,7 +42,6 @@ public class FakeEnv extends MockUp<Env> {
 
     @Mock
     public static Env getCurrentEnv() {
-        System.out.println("fake get current env is called");
         return env;
     }
 

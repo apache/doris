@@ -22,7 +22,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -30,17 +30,15 @@ import com.google.common.collect.Lists;
 
 // SHOW COLUMNS
 public class ShowColumnStmt extends ShowStmt {
-    private static final TableName TABLE_NAME =
-            new TableName(InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "COLUMNS");
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
-                    .build();
+    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+            InfoSchemaDb.DATABASE_NAME, "COLUMNS");
+    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Extra", ScalarType.createVarchar(20))).build();
 
     private static final ShowResultSetMetaData META_DATA_VERBOSE =
             ShowResultSetMetaData.builder()
@@ -165,7 +163,7 @@ public class ShowColumnStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+                where, null, null);
         analyzer.setSchemaInfo(tableName.getDb(), tableName.getTbl(), null);
 
         return selectStmt;

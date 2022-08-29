@@ -22,15 +22,15 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 
 // Show database statement.
 public class ShowDbStmt extends ShowStmt {
-    private static final TableName TABLE_NAME =
-            new TableName(InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "schemata");
+    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+            InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
@@ -38,6 +38,7 @@ public class ShowDbStmt extends ShowStmt {
                     .build();
 
     private String pattern;
+    private String catalogName;
     private Expr where;
     private SelectStmt selectStmt;
 
@@ -50,8 +51,18 @@ public class ShowDbStmt extends ShowStmt {
         this.where = where;
     }
 
+    public ShowDbStmt(String pattern, Expr where, String catalogName) {
+        this.pattern = pattern;
+        this.where = where;
+        this.catalogName = catalogName;
+    }
+
     public String getPattern() {
         return pattern;
+    }
+
+    public String getCatalogName() {
+        return catalogName;
     }
 
     @Override
@@ -76,7 +87,7 @@ public class ShowDbStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+                where, null, null);
 
         return selectStmt;
     }
@@ -86,6 +97,9 @@ public class ShowDbStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder("SHOW DATABASES");
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
+        }
+        if (catalogName != null) {
+            sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();
     }

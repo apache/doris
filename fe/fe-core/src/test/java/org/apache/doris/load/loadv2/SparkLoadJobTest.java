@@ -44,7 +44,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
@@ -128,7 +128,7 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testCreateFromLoadStmt(@Mocked Env env, @Mocked InternalDataSource ds, @Injectable LoadStmt loadStmt,
+    public void testCreateFromLoadStmt(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable LoadStmt loadStmt,
             @Injectable DataDescription dataDescription, @Injectable LabelName labelName, @Injectable Database db,
             @Injectable OlapTable olapTable, @Injectable ResourceMgr resourceMgr) throws Exception {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
@@ -144,10 +144,10 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbOrDdlException(dbName);
+                result = catalog;
+                catalog.getDbOrDdlException(dbName);
                 minTimes = 0;
                 result = db;
                 env.getResourceMgr();
@@ -464,7 +464,7 @@ public class SparkLoadJobTest {
         String filePath = String.format("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9/V1.label6.%d.%d.%d.0.%d.parquet",
                 tableId, partitionId, indexId, schemaHash);
         long fileSize = 6L;
-        tabletMetaToFileInfo.put(tabletMeta, Pair.create(filePath, fileSize));
+        tabletMetaToFileInfo.put(tabletMeta, Pair.of(filePath, fileSize));
 
         if (file.exists()) {
             file.delete();

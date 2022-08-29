@@ -155,7 +155,7 @@ TEST_F(ExportTaskMgrTest, RunAfterFail) {
 
     // make it finishing
     ExportTaskResult task_result;
-    EXPECT_TRUE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
+    EXPECT_TRUE(mgr.finish_task(id, Status::RpcError("Thrift rpc error"), task_result).ok());
     EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
     EXPECT_EQ(TExportState::CANCELLED, res.state);
     EXPECT_EQ(TStatusCode::OK, res.status.status_code);
@@ -207,7 +207,7 @@ TEST_F(ExportTaskMgrTest, FinishUnknownJob) {
 
     // make it finishing
     ExportTaskResult task_result;
-    EXPECT_FALSE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
+    EXPECT_FALSE(mgr.finish_task(id, Status::RpcError("Thrift rpc error"), task_result).ok());
     EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
     EXPECT_EQ(TExportState::CANCELLED, res.state);
     EXPECT_EQ(TStatusCode::OK, res.status.status_code);

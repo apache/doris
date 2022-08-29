@@ -17,4 +17,121 @@
 
 #include "vparquet_column_reader.h"
 
-namespace doris::vectorized {}
+#include <common/status.h>
+#include <gen_cpp/parquet_types.h>
+#include <vec/columns/columns_number.h>
+
+#include "schema_desc.h"
+#include "vparquet_column_chunk_reader.h"
+
+namespace doris::vectorized {
+
+Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
+                                   const ParquetReadColumn& column,
+                                   const tparquet::RowGroup& row_group,
+                                   std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                                   std::unique_ptr<ParquetColumnReader>& reader) {
+    if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
+        return Status::Corruption("not supported type");
+    }
+    if (field->type.type == TYPE_ARRAY) {
+        return Status::Corruption("not supported array type yet");
+    } else {
+        tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
+        ScalarColumnReader* scalar_reader = new ScalarColumnReader(column, ctz);
+        scalar_reader->init_column_metadata(chunk);
+        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges));
+        reader.reset(scalar_reader);
+    }
+    return Status::OK();
+}
+
+void ParquetColumnReader::init_column_metadata(const tparquet::ColumnChunk& chunk) {
+    auto chunk_meta = chunk.meta_data;
+    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                                  ? chunk_meta.dictionary_page_offset
+                                  : chunk_meta.data_page_offset;
+    size_t chunk_len = chunk_meta.total_compressed_size;
+    _metadata.reset(new ParquetColumnMetadata(chunk_start, chunk_len, chunk_meta));
+}
+
+void ParquetColumnReader::_skipped_pages() {}
+
+Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
+                                std::vector<RowRange>& row_ranges) {
+    _stream_reader =
+            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
+    _row_ranges = &row_ranges;
+    _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field, _ctz));
+    return _chunk_reader->init();
+}
+
+Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                                            size_t batch_size, size_t* read_rows, bool* eof) {
+    if (_chunk_reader->remaining_num_values() == 0) {
+        if (!_chunk_reader->has_next_page()) {
+            *eof = true;
+            *read_rows = 0;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_chunk_reader->next_page());
+        if (_row_ranges->size() != 0) {
+            _skipped_pages();
+        }
+        RETURN_IF_ERROR(_chunk_reader->load_page_data());
+    }
+    size_t read_values = _chunk_reader->remaining_num_values() < batch_size
+                                 ? _chunk_reader->remaining_num_values()
+                                 : batch_size;
+    // get definition levels, and generate null values
+    level_t definitions[read_values];
+    if (_chunk_reader->max_def_level() == 0) { // required field
+        std::fill(definitions, definitions + read_values, 1);
+    } else {
+        _chunk_reader->get_def_levels(definitions, read_values);
+    }
+    // fill NullMap
+    CHECK(doris_column->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+            (*std::move(doris_column)).mutate().get());
+    NullMap& map_data = nullable_column->get_null_map_data();
+    for (int i = 0; i < read_values; ++i) {
+        map_data.emplace_back(definitions[i] == 0);
+    }
+    // decode data
+    if (_chunk_reader->max_def_level() == 0) {
+        RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, read_values));
+    } else if (read_values > 0) {
+        // column with null values
+        level_t level_type = definitions[0];
+        int num_values = 1;
+        for (int i = 1; i < read_values; ++i) {
+            if (definitions[i] != level_type) {
+                if (level_type == 0) {
+                    // null values
+                    _chunk_reader->insert_null_values(doris_column, num_values);
+                } else {
+                    RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, num_values));
+                }
+                level_type = definitions[i];
+                num_values = 1;
+            } else {
+                num_values++;
+            }
+        }
+        if (level_type == 0) {
+            // null values
+            _chunk_reader->insert_null_values(doris_column, num_values);
+        } else {
+            RETURN_IF_ERROR(_chunk_reader->decode_values(doris_column, type, num_values));
+        }
+    }
+    *read_rows = read_values;
+    if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
+        *eof = true;
+    }
+    return Status::OK();
+}
+
+void ScalarColumnReader::close() {}
+}; // namespace doris::vectorized

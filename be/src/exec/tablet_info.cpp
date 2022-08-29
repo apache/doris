@@ -331,11 +331,33 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
     tuple->set_not_null(slot_desc->null_indicator_offset());
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        if (!reinterpret_cast<DateTimeValue*>(slot)->from_date_str(
-                    t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size())) {
-            std::stringstream ss;
-            ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
-            return Status::InternalError(ss.str());
+        if ((t_expr.type.types[0].scalar_type.type == TPrimitiveType::DATE) ||
+            (t_expr.type.types[0].scalar_type.type == TPrimitiveType::DATETIME)) {
+            if (!reinterpret_cast<DateTimeValue*>(slot)->from_date_str(
+                        t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
+        } else if (t_expr.type.types[0].scalar_type.type == TPrimitiveType::DATEV2) {
+            if (!reinterpret_cast<
+                         doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(slot)
+                         ->from_date_str(t_expr.date_literal.value.c_str(),
+                                         t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
+        } else {
+            if (!reinterpret_cast<
+                         doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                         slot)
+                         ->from_date_str(t_expr.date_literal.value.c_str(),
+                                         t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
         }
         break;
     }

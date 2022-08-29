@@ -48,7 +48,11 @@ uint8_t mysql_week_mode(uint32_t mode) {
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
                                    uint32_t minute, uint32_t second, uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59;
-    return time || check_date(year, month, day);
+    if (type == TIME_TIME) {
+        return time;
+    } else {
+        return time || check_date(year, month, day);
+    }
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
@@ -1005,6 +1009,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
     if (ptr >= end) {
         return false;
     }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
+        return false;
+    }
     // Skip '0'
     while (ptr < end && *ptr == '0') {
         ptr++;
@@ -1313,22 +1321,32 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 val = tmp;
                 time_part_used = true;
                 already_set_time_part = true;
                 break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 time_part_used = true;
                 already_set_time_part = true;
                 val = tmp;
                 break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;
@@ -1676,13 +1694,19 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 
 template <typename T>
 bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                                uint8_t minute, uint8_t second, uint32_t microsecond) {
+                                uint8_t minute, uint8_t second, uint32_t microsecond,
+                                bool only_time_part) {
     if (hour > 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
         return true;
     }
+    if (only_time_part) {
+        return false;
+    }
+    if (year < MIN_YEAR || year > MAX_YEAR) {
+        return true;
+    }
     if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (year < MIN_YEAR || year > MAX_YEAR || month == 0 || month > 12 ||
-        day > s_days_in_month[month] || day == 0) {
+    if (month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
         return true;
     }
     return false;
@@ -1730,7 +1754,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
 
     int field_idx = 0;
     int field_len = year_len;
-    while (ptr < end && isdigit(*ptr) && field_idx <= MAX_DATE_PARTS) {
+    while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
         int temp_val = 0;
         bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
@@ -1743,6 +1767,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
             if constexpr (is_datetime) {
                 if (scale >= 0) {
                     temp_val /= std::pow(10, 6 - scale);
+                    temp_val *= std::pow(10, 6 - scale);
                 }
             }
         }
@@ -1761,7 +1786,6 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
-            field_idx++;
             continue;
         }
 
@@ -2058,22 +2082,41 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                if constexpr (is_datetime) {
+                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val,
+                                                      &tmp)) {
+                        return false;
+                    }
+                    this->date_v2_value_.hour_ = tmp_val.hour();
+                    this->date_v2_value_.minute_ = tmp_val.minute();
+                    this->date_v2_value_.second_ = tmp_val.second();
+                    val = tmp;
+                    time_part_used = true;
+                    already_set_time_part = true;
+                    break;
+                } else {
                     return false;
                 }
-                val = tmp;
-                time_part_used = true;
-                already_set_time_part = true;
-                break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                if constexpr (is_datetime) {
+                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+                        return false;
+                    }
+                    this->date_v2_value_.hour_ = tmp_val.hour();
+                    this->date_v2_value_.minute_ = tmp_val.minute();
+                    this->date_v2_value_.second_ = tmp_val.second();
+                    time_part_used = true;
+                    already_set_time_part = true;
+                    val = tmp;
+                    break;
+                } else {
                     return false;
                 }
-                time_part_used = true;
-                already_set_time_part = true;
-                val = tmp;
-                break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;
@@ -2153,20 +2196,9 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
             LOG(WARNING) << "Microsecond is not allowed for date type!";
             return false;
         }
-        if (!date_part_used) {
-            LOG(WARNING) << "Time type is not supported yet!";
-            return false;
-        }
-    } else {
-        if (date_part_used) {
-            if (time_part_used) {
-                if constexpr (!is_datetime) {
-                    LOG(WARNING) << "Time part is not allowed for date type!";
-                    return false;
-                }
-            }
-        } else {
-            LOG(WARNING) << "Time type is not supported yet!";
+    } else if (time_part_used) {
+        if constexpr (!is_datetime) {
+            LOG(WARNING) << "Time part is not allowed for date type!";
             return false;
         }
     }
@@ -2225,7 +2257,8 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     if constexpr (is_datetime) {
-        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
+                                        time_part_used && !date_part_used);
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
@@ -2268,11 +2301,20 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
         /* Second */
         *buffer++ = (char)('0' + (date_v2_value_.second_ / 10));
         *buffer++ = (char)('0' + (date_v2_value_.second_ % 10));
-        if (scale != 0 && date_v2_value_.microsecond_ > 0) {
+        if (scale < 0 && date_v2_value_.microsecond_ > 0) {
             *buffer++ = '.';
             /* Microsecond */
             uint32_t ms = date_v2_value_.microsecond_;
             int ms_width = scale == -1 ? 6 : std::min(6, scale);
+            for (int i = 0; i < ms_width; i++) {
+                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
+                ms %= (uint32_t)std::pow(10, 5 - i);
+            }
+        } else if (scale > 0) {
+            *buffer++ = '.';
+            /* Microsecond */
+            uint32_t ms = date_v2_value_.microsecond_;
+            int ms_width = std::min(6, scale);
             for (int i = 0; i < ms_width; i++) {
                 *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
                 ms %= (uint32_t)std::pow(10, 5 - i);
@@ -2554,7 +2596,6 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezon
 
 template <typename T>
 bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
-    DCHECK(is_datetime);
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
@@ -2606,6 +2647,15 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
+    }
+}
+
+template <typename T>
+void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
+    if constexpr (is_datetime) {
+        date_v2_value_.microsecond_ = microsecond;
+    } else {
+        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
     }
 }
 

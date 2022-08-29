@@ -20,7 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
 
 import org.apache.logging.log4j.LogManager;
@@ -191,11 +191,19 @@ public class UserPrivTable extends PrivTable {
                     && !globalPrivEntry.match(UserIdentity.ADMIN, true)
                     && !globalPrivEntry.privSet.isEmpty()) {
                 try {
+                    // USAGE_PRIV is no need to degrade.
+                    PrivBitSet removeUsagePriv = globalPrivEntry.privSet.copy();
+                    removeUsagePriv.xor(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
-                            InternalDataSource.INTERNAL_DS_NAME, globalPrivEntry.isDomain, globalPrivEntry.privSet);
+                            InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, removeUsagePriv);
                     entry.setSetByDomainResolver(false);
                     catalogPrivTable.addEntry(entry, false, false);
-                    degradedEntries.add(globalPrivEntry);
+                    if (globalPrivEntry.privSet.containsResourcePriv()) {
+                        // Should keep the USAGE_PRIV in userPrivTable, and remove other privs and entries.
+                        globalPrivEntry.privSet.and(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+                    } else {
+                        degradedEntries.add(globalPrivEntry);
+                    }
                 } catch (Exception e) {
                     throw new IOException(e.getMessage());
                 }

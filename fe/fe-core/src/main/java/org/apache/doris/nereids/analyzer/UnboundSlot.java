@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -31,6 +32,10 @@ import java.util.Objects;
  */
 public class UnboundSlot extends Slot implements Unbound {
     private final List<String> nameParts;
+
+    public UnboundSlot(String... nameParts) {
+        this(ImmutableList.copyOf(nameParts));
+    }
 
     public UnboundSlot(List<String> nameParts) {
         this.nameParts = Objects.requireNonNull(nameParts, "nameParts can not be null");
@@ -49,11 +54,6 @@ public class UnboundSlot extends Slot implements Unbound {
                 return n;
             }
         }).reduce((left, right) -> left + "." + right).orElse("");
-    }
-
-    @Override
-    public boolean isConstant() {
-        return false;
     }
 
     @Override

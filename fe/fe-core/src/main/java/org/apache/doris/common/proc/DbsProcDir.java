@@ -25,7 +25,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -46,11 +46,11 @@ public class DbsProcDir implements ProcDirInterface {
             .build();
 
     private Env env;
-    private DataSourceIf ds;
+    private CatalogIf catalog;
 
-    public DbsProcDir(Env env, DataSourceIf ds) {
+    public DbsProcDir(Env env, CatalogIf catalog) {
         this.env = env;
-        this.ds = ds;
+        this.catalog = catalog;
     }
 
     @Override
@@ -71,7 +71,7 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        DatabaseIf db = ds.getDbNullable(dbId);
+        DatabaseIf db = catalog.getDbNullable(dbId);
         if (db == null) {
             throw new AnalysisException("Database " + dbId + " does not exist");
         }
@@ -85,7 +85,7 @@ public class DbsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<String> dbNames = ds.getDbNames();
+        List<String> dbNames = catalog.getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             // empty
             return result;
@@ -94,7 +94,7 @@ public class DbsProcDir implements ProcDirInterface {
         // get info
         List<List<Comparable>> dbInfos = new ArrayList<>();
         for (String dbName : dbNames) {
-            DatabaseIf db = ds.getDbNullable(dbName);
+            DatabaseIf db = catalog.getDbNullable(dbName);
             if (db == null) {
                 continue;
             }

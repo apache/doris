@@ -32,6 +32,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
 
 #define FOR_ARROW_TYPES(M)                            \
@@ -354,7 +355,7 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
             (*std::move(doris_column)).mutate().get());
     fill_nullable_column(arrow_column, arrow_batch_cur_idx, nullable_column, num_elements);
     data_column = nullable_column->get_nested_column_ptr();
-    WhichDataType which_type(type);
+    WhichDataType which_type(remove_nullable(type));
     // process data
     switch (arrow_column->type()->id()) {
     case arrow::Type::STRING:

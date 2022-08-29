@@ -62,7 +62,7 @@ After the upload is complete, you can view the uploaded files through the [SHOW 
 
 ### Create a routine import job
 
-For specific commands to create routine import tasks, see [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html ) command manual. Here is an example:
+For specific commands to create routine import tasks, see [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md ) command manual. Here is an example:
 
 1. Access the Kafka cluster without authentication
 

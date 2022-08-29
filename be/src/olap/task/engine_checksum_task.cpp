@@ -40,18 +40,14 @@ Status EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
-    Status res = Status::OK();
 
     if (_checksum == nullptr) {
-        LOG(WARNING) << "invalid output parameter which is null pointer.";
-        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
+        return Status::InvalidArgument("invalid checksum which is nullptr");
     }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
-    if (nullptr == tablet.get()) {
-        LOG(WARNING) << "can't find tablet. [tablet_id=" << _tablet_id
-                     << " schema_hash=" << _schema_hash << "]";
-        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+    if (nullptr == tablet) {
+        return Status::InternalError("could not find tablet {}", _tablet_id);
     }
 
     TupleReader reader;
@@ -65,49 +61,33 @@ Status EngineChecksumTask::_compute_checksum() {
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
-            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
         }
 
-        Status acquire_reader_st =
-                tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
-        if (acquire_reader_st != Status::OK()) {
-            LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
-                         << "res=" << acquire_reader_st;
-            return acquire_reader_st;
-        }
+        RETURN_IF_ERROR(
+                tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers));
     }
 
     for (size_t i = 0; i < tablet->tablet_schema()->num_columns(); ++i) {
         reader_params.return_columns.push_back(i);
     }
 
-    res = reader.init(reader_params);
-    if (!res.ok()) {
-        LOG(WARNING) << "initiate reader fail. res = " << res;
-        return res;
-    }
+    RETURN_IF_ERROR(reader.init(reader_params));
 
     RowCursor row;
     std::unique_ptr<MemPool> mem_pool(new MemPool());
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
-    res = row.init(tablet->tablet_schema(), reader_params.return_columns);
-    if (!res.ok()) {
-        LOG(WARNING) << "failed to init row cursor. res = " << res;
-        return res;
-    }
+    RETURN_IF_ERROR(row.init(tablet->tablet_schema(), reader_params.return_columns));
+
     row.allocate_memory_for_string_type(tablet->tablet_schema());
 
     bool eof = false;
     uint32_t row_checksum = 0;
     while (true) {
-        Status res =
-                reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
-        if (res.ok() && eof) {
+        RETURN_IF_ERROR(reader.next_row_with_aggregation(&row, mem_pool.get(),
+                                                         agg_object_pool.get(), &eof));
+        if (eof) {
             VLOG_NOTICE << "reader reads to the end.";
             break;
-        } else if (!res.ok()) {
-            LOG(WARNING) << "fail to read in reader. res = " << res;
-            return res;
         }
         // The value of checksum is independent of the sorting of data rows.
         row_checksum ^= hash_row(row, 0);

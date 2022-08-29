@@ -17,25 +17,25 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 
 /**
  * Context for one job in Nereids' cascades framework.
  */
 public class JobContext {
-    private final PlannerContext plannerContext;
+    private final CascadesContext cascadesContext;
     private final PhysicalProperties requiredProperties;
     private double costUpperBound;
 
-    public JobContext(PlannerContext plannerContext, PhysicalProperties requiredProperties, double costUpperBound) {
-        this.plannerContext = plannerContext;
+    public JobContext(CascadesContext cascadesContext, PhysicalProperties requiredProperties, double costUpperBound) {
+        this.cascadesContext = cascadesContext;
         this.requiredProperties = requiredProperties;
         this.costUpperBound = costUpperBound;
     }
 
-    public PlannerContext getPlannerContext() {
-        return plannerContext;
+    public CascadesContext getPlannerContext() {
+        return cascadesContext;
     }
 
     public PhysicalProperties getRequiredProperties() {

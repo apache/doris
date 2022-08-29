@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -318,6 +319,12 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
                     + " in nested queries.");
         }
 
+        for (Expr expr : orderingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
+
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
         // order by w/o limit and offset in inline views, set operands and insert statements
         // are ignored.
@@ -447,18 +454,17 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         }
         if (pos > resultExprs.size()) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal exceeds number of items in select list: "
-                            + expr.toSql());
+                    errorPrefix + ": ordinal exceeds number of items in select list: " + expr.toSql());
         }
 
         // Create copy to protect against accidentally shared state.
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         if (withClause != null) {
-            withClause.getTables(analyzer, tableMap, parentViewNameSet);
+            withClause.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
@@ -535,8 +541,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet.
     // issue link: https://github.com/apache/doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, TableIf> tables, Set<String> parentViewNameSet)
-            throws AnalysisException;
+    public abstract void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tables,
+            Set<String> parentViewNameSet) throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.
@@ -561,6 +567,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     public abstract void collectTableRefs(List<TableRef> tblRefs);
 
     abstract List<TupleId> collectTupleIds();
+
+    public void setOrderByElements(ArrayList<OrderByElement> orderByElements) {
+        this.orderByElements = orderByElements;
+    }
 
     public ArrayList<OrderByElement> getOrderByElements() {
         return orderByElements;
@@ -606,6 +616,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         Preconditions.checkState(limit >= 0);
         long newLimit = hasLimitClause() ? Math.min(limit, getLimit()) : limit;
         limitElement = new LimitElement(newLimit);
+    }
+
+    public void setLimitElement(LimitElement limitElement) {
+        this.limitElement = limitElement;
     }
 
     public void removeLimitElement() {

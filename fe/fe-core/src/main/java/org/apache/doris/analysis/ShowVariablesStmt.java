@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -83,11 +83,11 @@ public class ShowVariablesStmt extends ShowStmt {
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         TableName tableName = null;
         if (type == SetType.GLOBAL) {
-            tableName = new TableName(
-                    InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "GLOBAL_VARIABLES");
+            tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME,
+                    "GLOBAL_VARIABLES");
         } else {
-            tableName = new TableName(
-                    InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "SESSION_VARIABLES");
+            tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME,
+                    "SESSION_VARIABLES");
         }
         // name
         SelectListItem item = new SelectListItem(new SlotRef(tableName, "VARIABLE_NAME"), NAME_COL);
@@ -101,7 +101,7 @@ public class ShowVariablesStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+                where, null, null);
         LOG.debug("select stmt is {}", selectStmt.toSql());
 
         // DB: type

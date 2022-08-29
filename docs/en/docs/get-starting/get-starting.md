@@ -25,675 +25,375 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Getting Started
+# Quick Start
 
-## Environmental preparation
+Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use. It takes only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point query scenarios, but also high-throughput complex analytic scenarios. version, install and run it on a single node, including creating databases, data tables, importing data and queries, etc.
 
-1. CPU: 2C (minimum) 8C (recommended)
-2. Memory: 4G (minimum) 48G (recommended)
-3. Hard disk: 100G (minimum) 400G (recommended)
-4. Platform: MacOS (Intel), LinuxOS, Windows virtual machine
-5. System: CentOS (7.1 and above), Ubuntu (16.04 and above)
-6. Software: JDK (1.8 and above), GCC (4.8.2 and above)
+## Download Doris
 
-## Stand-alone deployment
-
-**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process.**
-
-
-**This tutorial is a mixed distribution tutorial of single node, 1FE and 1BE, only one node is needed, which is convenient for quickly experiencing Doris.**
-
-1. Set the maximum number of open file handles in the system
-
-   ```shell
-   vi /etc/security/limits.conf 
-   # Add the following two lines of information
-   * soft nofile 65536
-   * hard nofile 65536
-   # Save and exit and restart the server
-   ```
-   
-2. Download binary package / self-compile FE / BE files
-
-   ```shell
-   wget https://dist.apache.org/repos/dist/release/doris/version-to-deploy
-   # For example the following link
-   wget https://dist.apache.org/repos/dist/release/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
-   ```
-   
-3. Extract the tar.gz file
-
-   ```shell
-   tar -zxvf Downloaded binary archive
-   # example
-   tar -zxvf apache-doris-1.0.0-incubating-bin.tar.gz
-   ```
-
-4. Migrate the decompressed program files to the specified directory and rename them
-
-   ```shell
-   mv [unzipped root directory] [Target path]
-   cd [Target path]
-   # example
-   mv apache-doris-1.0.0-incubating-bin /opt/doris
-   cd /opt/doris
-   ```
-
-5. Configure FE
-
-   ```shell
-   # Configure FE-Config
-   vi fe/conf/fe.conf
-   # Uncomment priority_networks and modify parameters
-   # For example, if the IP address of the current node is 10.10.2.21, you need to change it to 10.10.2.0/24 and fill in
-   # What needs to be filled in here is the IP subnet address, not the IP address
-   priority_networks = 10.10.2.0/24
-   # save and exit
-   ```
-
-6. Configure BE
-
-   ```shell
-   # Configure BE-Config
-   vi be/conf/be.conf
-   # Uncomment priority_networks and modify parameters
-   # For example, if the IP address of the current node is 10.10.2.21, you need to change it to 10.10.2.0/24 and fill in
-   # What needs to be filled in here is the IP subnet address, not the IP address
-   priority_networks = 10.10.2.0/24
-   # save and exit
-   ```
-
-7. Configure environment variables
-
-   ```shell
-   # Configure environment variables
-   vim /etc/profile.d/doris.sh
-   export DORIS_HOME=Doris root path # example:/opt/doris
-   export PATH=$PATH:$DORIS_HOME/fe/bin:$DORIS_HOME/be/bin
-   # save and source
-   source /etc/profile.d/doris.sh
-   ```
-
-8. Start FE and BE and register BE to FE
-
-   ```shell
-   start_fe.sh --daemon
-   start_be.sh --daemon
-   ```
-
-   Check whether the FE startup is successful
-
-   > 1. Check whether the startup is successful, and whether there is a PaloFe process under the JPS command
-   > 2. After the FE process is started, the metadata will be loaded first. Depending on the role of the FE, you will see transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER in the log. Finally, you will see the thrift server started log, and you can connect to FE through the mysql client, which means FE started successfully.
-   > 3. You can also check whether the startup is successful through the following connection: http://fe_host:fe_http_port/api/bootstrap If it returns: {"status":"OK","msg":"Success"}, it means the startup is successful, and the rest , there may be a problem.
-   > 4. Visit http://fe_host:fe_http_port in the external environment to check whether you can access the WebUI interface. The default login account is root and the password is empty.
-   >
-   > **Note: If you can't see the startup failure information in fe.log, maybe you can see it in fe.out.**
-
-   Verify that BE is successfully started
-
-   > 1. After the BE process is started, if there is data before, it may take several minutes to load the data index.
-   > 2. If it is the first start of a BE, or the BE has not joined any cluster, the BE log will periodically scroll waiting to receive first heartbeat from frontend. Indicates that the BE has not received the Master's address through the heart hop of the FE, and is passively waiting. This kind of error log will disappear after ADD BACKEND in FE and sending a heartbeat. If the words master client, get client from cache failed.host: , port: 0, code: 7 appear repeatedly after receiving the heart hop, it means that the FE has successfully connected to the BE, but the BE cannot actively connect to the FE. It may be necessary to check the connectivity of BE to FE's rpc_port.
-   > 3. If the BE has been added to the cluster, the heartbeat log from the FE should be scrolled every 5 seconds: get heartbeat, host: xx.xx.xx.xx, port: 9020, cluster id: xxxxxx , Indicates that the heartbeat is normal.
-   > 4. Secondly, the words finish report task success. return code: 0 should be scrolled in the log every 10 seconds, indicating that the communication between BE and FE is normal.
-   > 5. At the same time, if there is a data query, you should be able to see the log that keeps scrolling, and there is a log of execute time is xxx, indicating that the BE has been started successfully and the query is normal.
-   > 6. You can also check whether the startup is successful through the following connection: http://be_host:be_http_port/api/health If it returns: {"status": "OK","msg": "To Be Added"}, it means the startup is successful, In other cases, there may be problems.
-   >
-   > **Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out.**
-
-   Register BE to FE (using MySQL-Client, you need to install it yourself)
-
-   ```shell
-   # login，Since it is a single node mixed distribution, FE_IP and BE_IP are the same IP address
-   mysql -h FE_IP -P 9030 -uroot
-   # Register BE
-   ALTER SYSTEM ADD BACKEND "BE_IP:9050";
-   ```
-
-## Apache Doris is easy to use
-
-Doris uses the MySQL protocol for communication, and users can connect to the Doris cluster through MySQL Client or MySQL JDBC. When choosing the MySQL client version, it is recommended to use a version after 5.1, because the user name longer than 16 characters cannot be supported before 5.1. Doris SQL syntax basically covers MySQL syntax.
-
-### Apache Doris Web UI access
-
-By default, Http protocol is used for WebUI access, and the following format address is entered in the browser to access
+Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the minimum JDK version required is 8). To check the version of Java you have installed, run the following command.
 
 ```
-http://FE_IP:FE_HTTP_PORT(默认8030)
+java -version
 ```
 
-If the account password is changed during cluster installation, use the new account password to log in
+Next, [download the latest binary version of Doris](https://doris.apache.org/zh-CN/download) and unzip it.
 
 ```
-Default account: root
-Default password: empty
+tar zxf apache-doris-x.x.x.tar.gz
 ```
 
-1. Introduction to WebUI
+## Configure Doris
 
-   On the home page of FE-WEB-UI, Version and Hardware Info are listed
+### Configure FE 
 
-   The Tab page has the following six modules:
+Go to the `apache-doris-x.x.x/fe` directory
 
-   - Playground (Visual SQL)
+```
+cd apache-doris-x.x.x/fe
+```
 
-   - System (system status)
+Modify the FE configuration file `conf/fe.conf`, here we mainly modify two parameters: `priority_networks` and `meta_dir`, if you need more optimized configuration, please refer to [FE parameter configuration](... /admin-manual/config/fe-config) for instructions on how to adjust them.
 
-   - Log (cluster log)
+1. add priority_networks parameter
 
-   - QueryProfile (SQL execution log)
+```
+priority_networks=172.23.16.0/24
+```
 
-   - Session (linked list)
+>Note: 
+>
+>This parameter we have to configure during installation, especially when a machine has multiple IP addresses, we have to specify a unique IP address for FE.
 
-   - Configuration
+2. Adding a metadata directory
 
-2. View the BE list
+```
+meta_dir=/path/your/doris-meta
+```
 
-    Go to `System` --> `backends` to view
+>Note: 
+>
+>Here you can leave it unconfigured, the default is doris-meta in your Doris FE installation directory.
+>
+>To configure the metadata directory separately, you need to create the directory you specify in advance
 
-    What needs to be paid attention to is the `Alive` column, the `True` and `False` of this column represent the normal and abnormal status of the corresponding BE node
+### Start FE 
 
-3. profile query
+Execute the following command in the FE installation directory to complete the FE startup.
 
-    Enter QueryProfile to view the latest 100 SQL execution report information, click the specified ID in the QueryID column to view the Profile information
+```
+./bin/start_fe.sh --daemon
+```
 
-### MySQL command line/graphical client access
+#### View FE operational status
 
-```shell
-# Command Line
-mysql -h FE-host -P 9030 -u username -p password
-# Client (Navicat as an example)
-Host: FE-host (if it is a cloud server, public IP is required)
-Port: 9030
-username: username
-password password
-````
+You can check if Doris started successfully with the following command
 
-#### Profile settings
+```
+curl http://127.0.0.1:8030/api/bootstrap
+```
 
-FE splits the query plan into fragments and sends them to BE for task execution. When BE executes Fragment, it records **statistical value of running state**, and outputs the statistics of Fragment execution to the log. FE can also collect these statistical values recorded by each Fragment through switches, and print the results on the FE web page.
+Here the IP and port are the IP and http_port of FE (default 8030), if you are executing in FE node, just run the above command directly.
 
-- Turn on the Report switch of FE
+If the return result has the word `"msg": "success"`, then the startup was successful.
 
-   ```mysql
-   set enable_profile=true;
-   ````
+You can also check this through the web UI provided by Doris FE by entering the address in your browser
 
-- After executing the SQL statement, you can view the corresponding SQL statement execution report information on the FE's WEB-UI interface
+http:// fe_ip:8030
 
-For a complete parameter comparison table, please go to [Profile parameter analysis](../admin-manual/query-profile) View Details
+You can see the following screen, which indicates that the FE has started successfully
 
+![image-20220822091951739](/images/image-20220822091951739.png)
 
-#### Library table operations
+>Note: 
+>
+>1. Here we use the Doris built-in default user, root, to log in with an empty password.
+>2. This is an administrative interface for Doris, and only users with administrative privileges can log in.
 
-- View database list
+#### Connect FE
 
-  ```mysql
-  show databases;
-  ````
+We will connect to Doris FE via MySQL client below, download the installation-free [MySQL client](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-) glibc2.12-x86_64.tar.gz)
 
-- create database
+Unzip the MySQL client you just downloaded and you can find the `mysql` command line tool in the `bin/` directory. Then execute the following command to connect to Doris.
 
-   ```mysql
-   CREATE DATABASE database name;
-   ````
+```
+mysql -uroot -P9030 -h127.0.0.1
+```
 
-   > For more detailed syntax and best practices used by Create-DataBase, see [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE) command manual.
-   >
-   > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` and other commands.
-   
-   After the database is created, you can view the database information through `SHOW DATABASES;`.
-   
-   ```mysql
-   MySQL> SHOW DATABASES;
-   +--------------------+
-   | Database |
-   +--------------------+
-   | example_db |
-   | information_schema |
-   +--------------------+
-   2 rows in set (0.00 sec)
-   ````
-   
-   `information_schema` exists to be compatible with the MySQL protocol. In practice, the information may not be very accurate, so it is recommended to obtain information about a specific database by directly querying the corresponding database.
-   
-- Create data table
+>Note: 
+>
+>1. The root user used here is the default user built into doris, and is also the super administrator user, see [Rights Management](...) /admin-manual/privilege-ldap/user-privilege)
+>2. -P: Here is our query port to connect to Doris, the default port is 9030, which corresponds to `query_port` in fe.conf
+>3. -h: Here is the IP address of the FE we are connecting to, if your client and FE are installed on the same node you can use 127.0.0.1, this is also provided by Doris if you forget the root password, you can connect directly to the login without the password in this way and reset the root password
 
-  > For more detailed syntax and best practices used by Create-Table, see [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) command manual.
+Execute the following command to view the FE running status
 
-  Use the `CREATE TABLE` command to create a table (Table). More detailed parameters can be viewed:
+```sql
+show frontends\G;
+```
 
-  ```mysql
-  HELP CREATE TABLE;
-  ````
+You can then see a result similar to the following.
 
-  First switch the database:
+```sql
+mysql> show frontends\G;
+*************************** 1. row ***************************
+             Name: 172.21.32.5_9010_1660549353220
+               IP: 172.21.32.5
+      EditLogPort: 9010
+         HttpPort: 8030
+        QueryPort: 9030
+          RpcPort: 9020
+             Role: FOLLOWER
+         IsMaster: true
+        ClusterId: 1685821635
+             Join: true
+            Alive: true
+ReplayedJournalId: 49292
+    LastHeartbeat: 2022-08-17 13:00:45
+         IsHelper: true
+           ErrMsg:
+          Version: 1.1.2-rc03-ca55ac2
+ CurrentConnected: Yes
+1 row in set (0.03 sec)
+```
+
+1. If the IsMaster, Join and Alive columns are true, the node is normal.
 
-  ```mysql
-  USE example_db;
-  ````
-
-  Doris supports two table creation methods, single partition and composite partition (for details, please refer to [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) command manual).
-
-  The following takes the aggregation model as an example to demonstrate the table building statements for two partitions.
-
-  - single partition
-
-    Create a logical table named table1. The bucketed column is siteid, and the number of buckets is 10.
-
-    The schema for this table is as follows:
-
-    - siteid: type is INT (4 bytes), default value is 10
-    - citycode: type is SMALLINT (2 bytes)
-    - username: the type is VARCHAR, the maximum length is 32, the default value is an empty string
-    - pv: the type is BIGINT (8 bytes), the default value is 0; this is an indicator column, Doris will perform aggregation operations on the indicator column internally, and the aggregation method of this column is sum (SUM)
-
-    The table creation statement is as follows:
-
-    ```mysql
-    CREATE TABLE table1
-    (
-        siteid INT DEFAULT '10',
-        citycode SMALLINT,
-        username VARCHAR(32) DEFAULT '',
-        pv BIGINT SUM DEFAULT '0'
-    )
-    AGGREGATE KEY(siteid, citycode, username)
-    DISTRIBUTED BY HASH(siteid) BUCKETS 10
-    PROPERTIES("replication_num" = "1");
-    ```
-
-  - composite partition
-
-    Create a logical table named table2.
-
-    The schema for this table is as follows:
-
-    - event_day: type is DATE, no default value
-    - siteid: type is INT (4 bytes), default value is 10
-    - citycode: type is SMALLINT (2 bytes)
-    - username: the type is VARCHAR, the maximum length is 32, the default value is an empty string
-    - pv: The type is BIGINT (8 bytes), the default value is 0; this is an indicator column, Doris will perform aggregation operations on the indicator column internally, and the aggregation method of this column is sum (SUM)
-
-    We use the event_day column as the partition column and create 3 partitions: p201706, p201707, p201708
-
-    - p201706: Range is [Min, 2017-07-01)
-
-    - p201707: The range is [2017-07-01, 2017-08-01)
-
-    - p201708: The range is [2017-08-01, 2017-09-01)
-
-       > Note that the interval is left closed and right open.
-
-    Each partition uses siteid for hash bucketing, and the number of buckets is 10
-
-    The table creation statement is as follows:
-
-  - ```mysql
-    CREATE TABLE table2
-    (
-        event_day DATE,
-        siteid INT DEFAULT '10',
-        citycode SMALLINT,
-        username VARCHAR(32) DEFAULT '',
-        pv BIGINT SUM DEFAULT '0'
-    )
-    AGGREGATE KEY(event_day, siteid, citycode, username)
-    PARTITION BY RANGE(event_day)
-    (
-        PARTITION p201706 VALUES LESS THAN ('2017-07-01'),
-        PARTITION p201707 VALUES LESS THAN ('2017-08-01'),
-        PARTITION p201708 VALUES LESS THAN ('2017-09-01')
-    )
-    DISTRIBUTED BY HASH(siteid) BUCKETS 10
-    PROPERTIES("replication_num" = "1");
-    ```
-
-    After the table is created, you can view the information of the table in example_db:
-
-    ```mysql
-    MySQL> SHOW TABLES;
-    +----------------------+
-    | Tables_in_example_db |
-    +----------------------+
-    | table1               |
-    | table2               |
-    +----------------------+
-    2 rows in set (0.01 sec)
-    
-    MySQL> DESC table1;
-    +----------+-------------+------+-------+---------+-------+
-    | Field    | Type        | Null | Key   | Default | Extra |
-    +----------+-------------+------+-------+---------+-------+
-    | siteid   | int(11)     | Yes  | true  | 10      |       |
-    | citycode | smallint(6) | Yes  | true  | N/A     |       |
-    | username | varchar(32) | Yes  | true  |         |       |
-    | pv       | bigint(20)  | Yes  | false | 0       | SUM   |
-    +----------+-------------+------+-------+---------+-------+
-    4 rows in set (0.00 sec)
-    
-    MySQL> DESC table2;
-    +-----------+-------------+------+-------+---------+-------+
-    | Field     | Type        | Null | Key   | Default | Extra |
-    +-----------+-------------+------+-------+---------+-------+
-    | event_day | date        | Yes  | true  | N/A     |       |
-    | siteid    | int(11)     | Yes  | true  | 10      |       |
-    | citycode  | smallint(6) | Yes  | true  | N/A     |       |
-    | username  | varchar(32) | Yes  | true  |         |       |
-    | pv        | bigint(20)  | Yes  | false | 0       | SUM   |
-    +-----------+-------------+------+-------+---------+-------+
-    5 rows in set (0.00 sec)
-    ```
-
-    > Precautions:
-    >
-    > 1. The above tables are all single-copy tables by setting replication_num. Doris recommends that users use the default 3-copy setting to ensure high availability.
-    > 2. You can dynamically add or delete partitions to the composite partition table. See the Partition section in `HELP ALTER TABLE` for details.
-    > 3. Data import can import the specified Partition. See `HELP LOAD` for details.
-    > 4. The schema of the table can be dynamically modified.
-    > 5. You can add Rollup to Table to improve query performance. For this part, please refer to the description of Rollup in the Advanced User Guide.
-    > 6. The Null attribute of the table column defaults to true, which will have a certain impact on query performance.
-
-#### Insert Data
-
-1. Insert Into
-
-   > For more detailed syntax and best practices for Insert usage, see [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT) Command Manual.
-
-   The Insert Into statement is used in a similar way to the Insert Into statement in databases such as MySQL. But in Doris, all data writing is a separate import job. Therefore, Insert Into is also introduced as an import method here.
-
-   The main Insert Into commands include the following two;
-
-   - INSERT INTO tbl SELECT ...
-   - INSERT INTO tbl (col1, col2, ...) VALUES (1, 2, ...), (1,3, ...);
-
-   The second command is for Demo only, not in test or production environments.
+#### Stop FE
 
-   The Insert Into command needs to be submitted through the MySQL protocol. Creating an import request will return the import result synchronously.
+The stopping of Doris FE can be done with the following command
 
-   grammar:
+```
+./bin/stop_fe.sh
+```
 
-   ```mysql
-   INSERT INTO table_name [partition_info] [WITH LABEL label] [col_list] [query_stmt] [VALUES];
-   ```
-
-   Example:
-
-   ```mysql
-   INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
-   INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"),("a");
-   ```
-
-   **Notice**
-
-   When using `CTE(Common Table Expressions)` as the query part in an insert operation, the `WITH LABEL` and `column list` parts must be specified. Example
-
-   ```mysql
-   INSERT INTO tbl1 WITH LABEL label1
-   WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
-   SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
-   
-   INSERT INTO tbl1 (k1)
-   WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
-   SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
-   ```
-
-   Insert Into itself is an SQL command, and its return results are divided into the following types according to the different execution results:
-
-   - If the return result is `ERROR 1064 (HY000)`, it means the import failed.
-   - If the returned result is `Query OK`, the execution is successful.
-      - If `rows affected` is 0, the result set is empty and no data is imported.
-      - If `rows affected` is greater than 0:
-        - If `status` is `committed`, the data is not yet visible. Need to view status through `show transaction` statement until `visible`
-        - If `status` is `visible`, the data import is successful.
-      - If `warnings` is greater than 0, it means that data is filtered. You can get the url through the `show load` statement to view the filtered lines.
-
-   For more detailed instructions, see the [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT) command manual.
+### Configure BE
 
-2. Batch Import
-
-   Doris supports multiple data import methods. For details, please refer to the data import documentation. Here we use Stream-Load and Broker-Load as an example.
-
-   - Stream-Load
-
-     > For more detailed syntax and best practices used by Stream-Load, see [Stream-Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) command manual.
-
-     Streaming import transfers data to Doris through the HTTP protocol, and can directly import local data without relying on other systems or components. See `HELP STREAM LOAD;` for detailed syntax help.
-
-     Example 1: With "table1_20170707" as the Label, use the local file table1_data to import the table1 table.
-
-     ```CQL
-     curl --location-trusted -u test:test_passwd -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
-     ```
-
-     > 1. FE_HOST is the IP of the node where any FE is located, and 8030 is the http_port in fe.conf.
-     > 2. You can use the IP of any BE and the webserver_port in be.conf to import. For example: `BE_HOST:8040`
-     > 3. example_db is the database which you imported the tables
-
-     The local file `table1_data` uses `,` as the separation between data, the details are as follows:
-
-     ```text
-     1,1,jim,2
-     2,1,grace,2
-     3,2,tom,2
-     4,3,bush,3
-     5,3,helen,3
-     ```
-
-     Example 2: With "table2_20170707" as the Label, use the local file table2_data to import the table2 table.
-
-     ```CQL
-     curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
-     ```
-
-     The local file `table2_data` uses `|` as the separation between data, the details are as follows:
-
-     ```text
-     2017-07-03|1|1|jim|2
-     2017-07-05|2|1|grace|2
-     2017-07-12|3|2|tom|2
-     2017-07-15|4|3|bush|3
-     2017-07-12|5|3|helen|3
-     ```
-
-     > Precautions:
-     >
-     > 1. It is recommended to use streaming import to limit the file size to 10GB. Too large files will increase the cost of failed retry attempts.
-     > 2. Each batch of imported data needs to take a Label. The Label should preferably be a string related to a batch of data, which is easy to read and manage. Based on Label, Doris guarantees that within a Database, the same batch of data can only be successfully imported once. Labels of failed tasks can be reused.
-     > 3. Streaming import is a synchronous command. If the command returns successfully, it means that the data has been imported, and if it returns a failure, it means that the batch of data has not been imported.
-
-   - Broker-Load
-
-     Broker import uses the deployed Broker process to read data on external storage for import.
-
-     > For more detailed syntax and best practices used by Broker Load, see [Broker Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
-
-     Example: With "table1_20170708" as the Label, import the files on HDFS into table1
-
-        ```mysql
-        LOAD LABEL table1_20170708
-        (
-            DATA INFILE("hdfs://your.namenode.host:port/dir/table1_data")
-            INTO TABLE table1
-        )
-        WITH BROKER hdfs 
-        (
-            "username"="hdfs_user",
-            "password"="hdfs_password"
-        )
-        PROPERTIES
-        (
-            "timeout"="3600",
-            "max_filter_ratio"="0.1"
-        );
-        ```
-
-     Broker imports are asynchronous commands. The successful execution of the above command only means that the submitted task is successful. Whether the import is successful needs to be checked through `SHOW LOAD;`. Such as:
-
-        ```mysql
-     SHOW LOAD WHERE LABEL = "table1_20170708";
-        ```
-
-     In the returned result, if the `State` field is FINISHED, the import is successful.
-
-     For more information on `SHOW LOAD`, see `HELP SHOW LOAD;`
-
-     Asynchronous import tasks can be canceled before they finish:
-
-        ```mysql
-     CANCEL LOAD WHERE LABEL = "table1_20170708";
-        ```
-
-#### Query Data
-
-1. Simple query
-
-   ```mysql
-   MySQL> SELECT * FROM table1 LIMIT 3;
-   +--------+----------+----------+------+
-   | siteid | citycode | username | pv   |
-   +--------+----------+----------+------+
-   |      2 |        1 | 'grace'  |    2 |
-   |      5 |        3 | 'helen'  |    3 |
-   |      3 |        2 | 'tom'    |    2 |
-   +--------+----------+----------+------+
-   3 rows in set (0.01 sec)
-   
-   MySQL> SELECT * FROM table1 ORDER BY citycode;
-   +--------+----------+----------+------+
-   | siteid | citycode | username | pv   |
-   +--------+----------+----------+------+
-   |      2 |        1 | 'grace'  |    2 |
-   |      1 |        1 | 'jim'    |    2 |
-   |      3 |        2 | 'tom'    |    2 |
-   |      4 |        3 | 'bush'   |    3 |
-   |      5 |        3 | 'helen'  |    3 |
-   +--------+----------+----------+------+
-   5 rows in set (0.01 sec)
-   ```
-
-2. Join query
+Go to the `apache-doris-x.x.x/be` directory
 
-   ```mysql
-   MySQL> SELECT SUM(table1.pv) FROM table1 JOIN table2 WHERE table1.siteid = table2.siteid;
-   +--------------------+
-   | sum(`table1`.`pv`) |
-   +--------------------+
-   |                 12 |
-   +--------------------+
-   1 row in set (0.20 sec)
-   ```
+```
+cd apache-doris-x.x.x/be
+```
 
-3. subquery
+Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](... /admin-manual/config/be-config) instructions to make adjustments.
 
-   ```mysql
-   MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHERE siteid > 2);
-   +-----------+
-   | sum(`pv`) |
-   +-----------+
-   |         8 |
-   +-----------+
-   1 row in set (0.13 sec)
-   ```
+1. Add priority_networks parameter
 
-#### Update Data
+```
+priority_networks=172.23.16.0/24
+```
 
-> For more detailed syntax and best practices used by Update, see [Update](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE) Command Manual.
+>Note: 
+>
+>This parameter we have to configure during installation, especially when a machine has multiple IP addresses, we have to assign a unique IP address to the BE.
 
-The current UPDATE statement **only supports** row updates on the Unique model, and there may be data conflicts caused by concurrent updates. At present, Doris does not deal with such problems, and users need to avoid such problems from the business side.
+2. Configure the BE data storage directory
 
-1. grammar rules
 
-   ```text
-   UPDATE table_name 
-       SET assignment_list
-       WHERE expression
-   
-   value:
-       {expr | DEFAULT}
-   
-   assignment:
-       col_name = value
-   
-   assignment_list:
-       assignment [, assignment] ...
-   ```
+```
+storage_root=/path/your/doris-meta
+```
+
+>Notes.
+>
+>1. The default directory is in the storage directory of the BE installation directory.
+>2. The storage directory for BE configuration must be created first
+
+### Start BE
+
+Execute the following command in the BE installation directory to complete the BE startup.
+
+```
+./bin/start_be.sh --daemon
+```
+
+#### Adding a BE node to a cluster
+
+Connect to FE via MySQL client and execute the following SQL to add the BE to the cluster
+
+```sql
+ALTER SYSTEM ADD BACKEND "be_host_ip:heartbeat_service_port";
+```
+
+1. be_host_ip: Here is the IP address of your BE, match with `priority_networks` in `be.conf`.
+2. heartbeat_service_port: This is the heartbeat upload port of your BE, match with `heartbeat_service_port` in `be.conf`, default is `9050`.
+
+#### View BE operational status
+
+You can check the running status of BE by executing the following command at the MySQL command line.
+
+```sql
+SHOW BACKENDS\G；
+```
+
+Example:
 
-   **Parameter Description**
-
-   - table_name: The target table of the data to be updated. Can be of the form 'db_name.table_name'
-   - assignment_list: the target column to be updated, in the format 'col_name = value, col_name = value'
-   - where expression: the condition that is expected to be updated, an expression that returns true or false can be
-
-2. Example
-
-   The `test` table is a unique model table, which contains four columns: k1, k2, v1, v2. Where k1, k2 are keys, v1, v2 are values, and the aggregation method is Replace.
-
-   1. Update the v1 column in the 'test' table that satisfies the conditions k1 =1 , k2 =2 to 1
-
-      ```sql
-      UPDATE test SET v1 = 1 WHERE k1=1 and k2=2;
-      ```
-
-   2. Increment the v1 column of the column k1=1 in the 'test' table by 1
-
-      ```sql
-      UPDATE test SET v1 = v1+1 WHERE k1=1;
-      ```
-
-#### Delete Data
-
-> For more detailed syntax and best practices for Delete use, see [Delete](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE) Command Manual.
-
-1. Grammar rules
-
-   This statement is used to conditionally delete data in the specified table (base index) partition.
-
-   This operation will also delete the data of the rollup index related to this base index.
-   grammar:
-
-   ```sql
-   DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
-   WHERE
-   column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
-   ````
-
-   illustrate:
-
-    - Optional types of op include: =, >, <, >=, <=, !=, in, not in
-
-    - Only conditions on the key column can be specified.
-
-    - Cannot delete when the selected key column does not exist in a rollup.
-
-    - Conditions can only have an AND relationship.
-
-      If you want to achieve an "or" relationship, you need to write the conditions in two DELETE statements.
-
-    - If it is a partitioned table, you can specify a partition, if not specified and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single-partition table, it can be left unspecified.
-
-   Notice:
-
-   - This statement may reduce query efficiency for a period of time after execution.
-   - The degree of impact depends on the number of delete conditions specified in the statement.
-   - The more conditions you specify, the greater the impact.
-
-2. Example
-
-    1. Delete the data row whose k1 column value is 3 in my_table partition p1
-
-       ```sql
-       DELETE FROM my_table PARTITION p1 WHERE k1 = 3;
-       ````
-
-    2. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1
-
-       ```sql
-       DELETE FROM my_table PARTITION p1 WHERE k1 >= 3 AND k2 = "abc";
-       ````
-
-    3. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1, p2
-
-       ```sql
-       DELETE FROM my_table PARTITIONS (p1, p2) WHERE k1 >= 3 AND k2 = "abc";
-       ````
+```sql
+mysql> SHOW BACKENDS\G;
+*************************** 1. row ***************************
+            BackendId: 10003
+              Cluster: default_cluster
+                   IP: 172.21.32.5
+        HeartbeatPort: 9050
+               BePort: 9060
+             HttpPort: 8040
+             BrpcPort: 8060
+        LastStartTime: 2022-08-16 15:31:37
+        LastHeartbeat: 2022-08-17 13:33:17
+                Alive: true
+ SystemDecommissioned: false
+ClusterDecommissioned: false
+            TabletNum: 170
+     DataUsedCapacity: 985.787 KB
+        AvailCapacity: 782.729 GB
+        TotalCapacity: 984.180 GB
+              UsedPct: 20.47 %
+       MaxDiskUsedPct: 20.47 %
+                  Tag: {"location" : "default"}
+               ErrMsg:
+              Version: 1.1.2-rc03-ca55ac2
+               Status: {"lastSuccessReportTabletsTime":"2022-08-17 13:33:05","lastStreamLoadTime":-1,"isQueryDisabled":false,"isLoadDisabled":false}
+1 row in set (0.01 sec)
+```
+
+1. Alive : true means the node is running normally
+
+#### Stop BE
+
+The stopping of Doris BE can be done with the following command
+
+```
+./bin/stop_be.sh
+```
+
+## Create table
+
+1. Create database
+
+```sql
+create database demo;
+```
+
+2. Create table
+
+```sql
+use demo;
+
+CREATE TABLE IF NOT EXISTS demo.expamle_tbl
+(
+    `user_id` LARGEINT NOT NULL COMMENT "user id",
+    `date` DATE NOT NULL COMMENT "",
+    `city` VARCHAR(20) COMMENT "",
+    `age` SMALLINT COMMENT "",
+    `sex` TINYINT COMMENT "",
+    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "",
+    `cost` BIGINT SUM DEFAULT "0" COMMENT "",
+    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT ""
+)
+AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+);
+```
+
+3. Example data
+
+```
+10000,2017-10-01,beijing,20,0,2017-10-01 06:00:00,20,10,10
+10006,2017-10-01,beijing,20,0,2017-10-01 07:00:00,15,2,2
+10001,2017-10-01,beijing,30,1,2017-10-01 17:05:45,2,22,22
+10002,2017-10-02,shanghai,20,1,2017-10-02 12:59:12,200,5,5
+10003,2017-10-02,guangzhou,32,0,2017-10-02 11:20:00,30,11,11
+10004,2017-10-01,shenzhen,35,0,2017-10-01 10:00:15,100,3,3
+10004,2017-10-03,shenzhen,35,0,2017-10-03 10:20:22,11,6,6
+```
+
+Save the above data in a test.csv file.
+
+4. Import data
+
+Here we import the data saved to the file above into the table we just created via Stream load。
+
+```
+curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127.0.0.1:8030/api/demo/expamle_tbl/_stream_load
+```
+
+- -T test.csv : This is the data file we just saved, if the path is different, please specify the full path
+- -u root: Here is the user name and password, we use the default user root, the password is empty
+- 127.0.0.1:8030 : is the ip and http_port of fe, respectively
+
+After successful execution we can see the following return message
+
+```json
+{
+    "TxnId": 30303,
+    "Label": "8690a5c7-a493-48fc-b274-1bb7cd656f25",
+    "TwoPhaseCommit": "false",
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 7,
+    "NumberLoadedRows": 7,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 399,
+    "LoadTimeMs": 381,
+    "BeginTxnTimeMs": 3,
+    "StreamLoadPutTimeMs": 5,
+    "ReadDataTimeMs": 0,
+    "WriteDataTimeMs": 191,
+    "CommitAndPublishTimeMs": 175
+}
+```
+
+1. `NumberLoadedRows` indicates the number of data records that have been imported
+
+2. `NumberTotalRows` indicates the total amount of data to be imported
+
+3. `Status` :Success means the import was successful
+
+Here we have finished importing the data, and we can now query and analyze the data according to our own needs.
+
+## Query data
+
+We have finished building tables and importing data above, so we can experience Doris' ability to quickly query and analyze data.
+
+```sql
+mysql> select * from expamle_tbl;
++---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
+| user_id | date       | city      | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
++---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
+| 10000   | 2017-10-01 | beijing   |   20 |    0 | 2017-10-01 06:00:00 |   20 |             10 |             10 |
+| 10001   | 2017-10-01 | beijing   |   30 |    1 | 2017-10-01 17:05:45 |    2 |             22 |             22 |
+| 10002   | 2017-10-02 | shanghai  |   20 |    1 | 2017-10-02 12:59:12 |  200 |              5 |              5 |
+| 10003   | 2017-10-02 | guangzhou |   32 |    0 | 2017-10-02 11:20:00 |   30 |             11 |             11 |
+| 10004   | 2017-10-01 | shenzhen  |   35 |    0 | 2017-10-01 10:00:15 |  100 |              3 |              3 |
+| 10004   | 2017-10-03 | shenzhen  |   35 |    0 | 2017-10-03 10:20:22 |   11 |              6 |              6 |
+| 10006   | 2017-10-01 | beijing   |   20 |    0 | 2017-10-01 07:00:00 |   15 |              2 |              2 |
++---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
+7 rows in set (0.01 sec)
+
+mysql> select * from expamle_tbl where city='shanghai';
++---------+------------+----------+------+------+---------------------+------+----------------+----------------+
+| user_id | date       | city     | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
++---------+------------+----------+------+------+---------------------+------+----------------+----------------+
+| 10002   | 2017-10-02 | shanghai |   20 |    1 | 2017-10-02 12:59:12 |  200 |              5 |              5 |
++---------+------------+----------+------+------+---------------------+------+----------------+----------------+
+1 row in set (0.00 sec)
+
+mysql> select city, sum(cost) as total_cost from expamle_tbl group by city;
++-----------+------------+
+| city      | total_cost |
++-----------+------------+
+| beijing   |         37 |
+| shenzhen  |        111 |
+| guangzhou |         30 |
+| shanghai  |        200 |
++-----------+------------+
+4 rows in set (0.00 sec)
+```
+
+
+
+This is the end of our entire quick start. We have experienced the complete Doris operation process from Doris installation and deployment, start/stop, creation of library tables, data import and query, let's start our Doris usage journey.

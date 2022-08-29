@@ -376,9 +376,9 @@ public class CreateTableStmt extends DdlStmt {
         if (Config.enable_batch_delete_by_default
                 && keysDesc != null
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-            // TODO(zhangchen): Disable the delete sign column for primary key temporary, will replace
-            // with a better solution later.
-            if (!enableUniqueKeyMergeOnWrite) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.NONE));
+            } else {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
@@ -389,6 +389,9 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isArrayType()) {
+                if (!Config.enable_array_type) {
+                    throw new AnalysisException("Please open enable_array_type config before use Array.");
+                }
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
                     throw new AnalysisException("Array column can't support aggregation "
                             + columnDef.getAggregateType());

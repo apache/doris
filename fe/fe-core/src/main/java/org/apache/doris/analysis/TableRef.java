@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -479,7 +480,7 @@ public class TableRef implements ParseNode, Writable {
         //
         if (leftTblRef != null) {
             for (TupleId tupleId : leftTblRef.getAllTableRefIds()) {
-                Pair<TupleId, TupleId> tids = new Pair<>(tupleId, getId());
+                Pair<TupleId, TupleId> tids = Pair.of(tupleId, getId());
                 analyzer.registerAnyTwoTalesJoinOperator(tids, joinOp);
             }
         }
@@ -489,10 +490,12 @@ public class TableRef implements ParseNode, Writable {
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
+            analyzer.registerOuterJoinedRightSideTids(getId().asList());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
+            analyzer.registerOuterJoinedLeftSideTids(leftTblRef.getAllTableRefIds());
         }
         // register the tuple ids of a full outer join
         if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
@@ -567,7 +570,7 @@ public class TableRef implements ParseNode, Writable {
         Preconditions.checkState(isAnalyzed);
         if (onClause != null) {
             Expr expr = onClause.clone();
-            onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+            onClause = rewriter.rewrite(onClause, analyzer, ClauseType.fromJoinType(joinOp));
             if (joinOp.isOuterJoin() || joinOp.isSemiAntiJoin()) {
                 if (onClause instanceof BoolLiteral && !((BoolLiteral) onClause).getValue()) {
                     onClause = expr;

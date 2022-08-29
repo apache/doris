@@ -1,0 +1,61 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cstdint>
+
+#include "common/status.h"
+#include "gen_cpp/parquet_types.h"
+#include "parquet_common.h"
+#include "util/bit_stream_utils.h"
+#include "util/rle_encoding.h"
+
+namespace doris::vectorized {
+
+class LevelDecoder {
+public:
+    LevelDecoder() = default;
+    ~LevelDecoder() = default;
+
+    Status init(Slice* slice, tparquet::Encoding::type encoding, level_t max_level,
+                uint32_t num_levels);
+
+    bool has_levels() const { return _num_levels > 0; }
+
+    size_t get_levels(level_t* levels, size_t n);
+
+    size_t next_repeated_count() {
+        DCHECK_EQ(_encoding, tparquet::Encoding::RLE);
+        return _rle_decoder.repeated_count();
+    }
+
+    level_t get_repeated_value(size_t count) {
+        DCHECK_EQ(_encoding, tparquet::Encoding::RLE);
+        return _rle_decoder.get_repeated_value(count);
+    }
+
+private:
+    tparquet::Encoding::type _encoding;
+    level_t _bit_width = 0;
+    level_t _max_level = 0;
+    uint32_t _num_levels = 0;
+    RleDecoder<level_t> _rle_decoder;
+    BitReader _bit_packed_decoder;
+};
+
+} // namespace doris::vectorized

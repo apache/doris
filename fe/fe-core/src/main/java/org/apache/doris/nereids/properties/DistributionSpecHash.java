@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 
 
 /**
@@ -48,7 +49,6 @@ public class DistributionSpecHash extends DistributionSpec {
         return shuffleType;
     }
 
-
     @Override
     public boolean satisfy(DistributionSpec other) {
         if (other instanceof DistributionSpecAny) {
@@ -66,9 +66,9 @@ public class DistributionSpecHash extends DistributionSpec {
         }
 
         // TODO: need consider following logic whether is right, and maybe need consider more.
-
+        // TODO: consider Agg.
         // Current shuffleType is LOCAL/AGG, allow if current is contained by other
-        if (shuffleType == ShuffleType.LOCAL && spec.shuffleType == ShuffleType.AGG) {
+        if (shuffleType == ShuffleType.LOCAL || spec.shuffleType == ShuffleType.AGG) {
             return new HashSet<>(spec.shuffledColumns).containsAll(shuffledColumns);
         }
 
@@ -96,6 +96,11 @@ public class DistributionSpecHash extends DistributionSpec {
         return shuffledColumns.equals(that.shuffledColumns)
                 && shuffleType.equals(that.shuffleType);
         // && propertyInfo.equals(that.propertyInfo)
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(shuffledColumns, shuffleType);
     }
 
     /**

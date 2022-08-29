@@ -40,19 +40,20 @@ namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                     TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output) {
+Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
+                     uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+                     std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
     if (config::file_cache_type.empty()) {
         segment->_file_reader = std::move(file_reader);
     } else {
-        std::string cache_path = path.substr(0, path.size() - 4);
-        io::FileReaderSPtr cache_reader = FileCacheManager::instance()->new_file_cache(
+        io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
-        segment->_file_reader = std::move(cache_reader);
+        segment->_file_reader = cache_reader;
+        FileCacheManager::instance()->add_file_cache(cache_path, cache_reader);
     }
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
@@ -78,19 +79,22 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
                              std::unique_ptr<RowwiseIterator>* iter) {
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
-    if (read_options.conditions != nullptr) {
-        for (auto& column_condition : read_options.conditions->columns()) {
-            int32_t column_unique_id = column_condition.first;
-            if (_column_readers.count(column_unique_id) < 1 ||
-                !_column_readers.at(column_unique_id)->has_zone_map()) {
-                continue;
-            }
-            if (!_column_readers.at(column_unique_id)->match_condition(column_condition.second)) {
-                // any condition not satisfied, return.
-                iter->reset(new EmptySegmentIterator(schema));
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
-            }
+    for (auto& entry : read_options.col_id_to_predicates) {
+        int32_t column_id = entry.first;
+        // schema change
+        if (_tablet_schema->num_columns() <= column_id) {
+            continue;
+        }
+        int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
+        if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
+            continue;
+        }
+        if (read_options.col_id_to_predicates.count(column_id) > 0 &&
+            !_column_readers.at(uid)->match_condition(entry.second.get())) {
+            // any condition not satisfied, return.
+            iter->reset(new EmptySegmentIterator(schema));
+            read_options.stats->filtered_segment_number++;
+            return Status::OK();
         }
     }
 
@@ -150,24 +154,39 @@ Status Segment::_parse_footer() {
     return Status::OK();
 }
 
+Status Segment::_load_pk_bloom_filter() {
+    DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
+    DCHECK(_footer.has_primary_key_index_meta());
+    DCHECK(_pk_index_reader != nullptr);
+    return _load_pk_bf_once.call([this] {
+        RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, _footer.primary_key_index_meta()));
+        _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+        return Status::OK();
+    });
+}
+
+Status Segment::load_pk_index_and_bf() {
+    RETURN_IF_ERROR(load_index());
+    RETURN_IF_ERROR(_load_pk_bloom_filter());
+    return Status::OK();
+}
 Status Segment::load_index() {
     return _load_index_once.call([this] {
-        // read and parse short key index page
-        PageReadOptions opts;
-        opts.file_reader = _file_reader.get();
-        opts.page_pointer = PagePointer(_footer.short_key_index_page());
-        opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
-        OlapReaderStatistics tmp_stats;
-        opts.stats = &tmp_stats;
-        opts.type = INDEX_PAGE;
-
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(
-                    _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta()));
+                    _pk_index_reader->parse_index(_file_reader, _footer.primary_key_index_meta()));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
         } else {
+            // read and parse short key index page
+            PageReadOptions opts;
+            opts.file_reader = _file_reader.get();
+            opts.page_pointer = PagePointer(_footer.short_key_index_page());
+            opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
+            OlapReaderStatistics tmp_stats;
+            opts.stats = &tmp_stats;
+            opts.type = INDEX_PAGE;
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(
@@ -244,20 +263,59 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
-    RETURN_IF_ERROR(load_index());
+    RETURN_IF_ERROR(load_pk_index_and_bf());
+    bool has_seq_col = _tablet_schema->has_sequence_col();
+    size_t seq_col_length = 0;
+    if (has_seq_col) {
+        seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
+    }
+    Slice key_without_seq = Slice(key.get_data(), key.get_size() - seq_col_length);
+
     DCHECK(_pk_index_reader != nullptr);
-    if (!_pk_index_reader->check_present(key)) {
+    if (!_pk_index_reader->check_present(key_without_seq)) {
         return Status::NotFound("Can't find key in the segment");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
-    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key, &exact_match));
-    if (!exact_match) {
+    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
+    if (!has_seq_col && !exact_match) {
         return Status::NotFound("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
+
+    if (has_seq_col) {
+        MemPool pool;
+        size_t num_to_read = 1;
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read, false, _pk_index_reader->type_info(),
+                                                  nullptr, &cvb));
+        ColumnBlock block(cvb.get(), &pool);
+        ColumnBlockView column_block_view(&block);
+        size_t num_read = num_to_read;
+        RETURN_IF_ERROR(index_iterator->next_batch(&num_read, &column_block_view));
+        DCHECK(num_to_read == num_read);
+
+        const Slice* sought_key = reinterpret_cast<const Slice*>(cvb->cell_ptr(0));
+        Slice sought_key_without_seq =
+                Slice(sought_key->get_data(), sought_key->get_size() - seq_col_length);
+
+        // compare key
+        if (key_without_seq.compare(sought_key_without_seq) != 0) {
+            return Status::NotFound("Can't find key in the segment");
+        }
+
+        // compare sequence id
+        Slice sequence_id =
+                Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
+        Slice previous_sequence_id = Slice(
+                sought_key->get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
+        if (sequence_id.compare(previous_sequence_id) < 0) {
+            return Status::AlreadyExist("key with higher sequence id exists");
+        }
+    }
+
     return Status::OK();
 }
 

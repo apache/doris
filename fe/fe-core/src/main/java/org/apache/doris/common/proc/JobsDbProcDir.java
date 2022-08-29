@@ -60,7 +60,7 @@ public class JobsDbProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(dbId);
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(dbId);
 
         return new JobsProcDir(env, db);
     }
@@ -72,13 +72,13 @@ public class JobsDbProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
 
         result.setNames(TITLE_NAMES);
-        List<String> names = env.getInternalDataSource().getDbNames();
+        List<String> names = env.getInternalCatalog().getDbNames();
         if (names == null || names.isEmpty()) {
             return result;
         }
 
         for (String name : names) {
-            env.getInternalDataSource().getDb(name)
+            env.getInternalCatalog().getDb(name)
                     .ifPresent(db -> result.addRow(Lists.newArrayList(String.valueOf(db.getId()), name)));
         }
 

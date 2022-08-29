@@ -26,7 +26,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -36,18 +36,17 @@ import com.google.common.collect.Lists;
 
 // SHOW TABLE STATUS
 public class ShowTableStatusStmt extends ShowStmt {
-    private static final TableName TABLE_NAME =
-            new TableName(InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "tables");
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Engine", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Version", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Row_format", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Rows", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Avg_row_length", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Data_length", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Max_data_length", ScalarType.createType(PrimitiveType.BIGINT)))
+    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+            InfoSchemaDb.DATABASE_NAME, "tables");
+    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("Name", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Engine", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Version", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Row_format", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Rows", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Avg_row_length", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Data_length", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Max_data_length", ScalarType.createType(PrimitiveType.BIGINT)))
                     .addColumn(new Column("Index_length", ScalarType.createType(PrimitiveType.BIGINT)))
                     .addColumn(new Column("Data_free", ScalarType.createType(PrimitiveType.BIGINT)))
                     .addColumn(new Column("Auto_increment", ScalarType.createType(PrimitiveType.BIGINT)))
@@ -183,7 +182,7 @@ public class ShowTableStatusStmt extends ShowStmt {
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+                where, null, null);
         analyzer.setSchemaInfo(db, null, null);
 
         return selectStmt;

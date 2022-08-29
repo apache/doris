@@ -22,7 +22,6 @@
 #include <unordered_map>
 
 #include "gen_cpp/olap_file.pb.h"
-#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"

@@ -111,7 +111,7 @@ public class PredicatePushDown {
                         LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
                                 && !analyzer.getGlobalSlotToLiteralDeDuplication()
-                                .contains(new Pair<>(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
+                                .contains(Pair.of(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
                             scanNode.addConjunct(pushDownConjunct);
                         }
                     } else if (otherSlot.isBound(rightSlot.getSlotId())
@@ -120,7 +120,7 @@ public class PredicatePushDown {
                         LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
                                 && !analyzer.getGlobalSlotToLiteralDeDuplication()
-                                .contains(new Pair<>(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
+                                .contains(Pair.of(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
                             scanNode.addConjunct(pushDownConjunct);
                         }
                     }
@@ -129,6 +129,9 @@ public class PredicatePushDown {
         }
     }
 
+    // TODO: (minghong) here is a bug. For example, this is a left join, we cannot infer "t2.id = 1"
+    // by "t1.id=1" and "t1.id=t2.id".
+    // we should not do inference work here. it should be done in some rule like InferFilterRule.
     // Rewrite the oldPredicate with new leftChild
     // For example: oldPredicate is t1.id = 1, leftChild is t2.id, will return t2.id = 1
     private static Expr rewritePredicate(Analyzer analyzer, Expr oldPredicate, Expr leftChild) {

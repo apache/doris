@@ -200,6 +200,12 @@ public class OriginalPlanner extends Planner {
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
 
+        // Push sort node down to the bottom of olapscan.
+        // Because the olapscan must be in the end. So get the last two nodes.
+        if (VectorizedUtil.isVectorized()) {
+            pushSortToOlapScan();
+        }
+
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer
@@ -317,6 +323,40 @@ public class OriginalPlanner extends Planner {
         topPlanFragment.resetSink(resultSink);
         topPlanFragment.resetOutputExprs(fileStatusDesc);
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
+    }
+
+    /**
+     * Push sort down to olap scan.
+     */
+    private void pushSortToOlapScan() {
+        for (PlanFragment fragment : fragments) {
+            PlanNode node = fragment.getPlanRoot();
+            PlanNode parent = null;
+
+            // OlapScanNode is the last node.
+            // So, just get the last two node and check if they are SortNode and OlapScan.
+            while (node.getChildren().size() != 0) {
+                parent = node;
+                node = node.getChildren().get(0);
+            }
+
+            if (!(node instanceof OlapScanNode) || !(parent instanceof SortNode)) {
+                continue;
+            }
+            SortNode sortNode = (SortNode) parent;
+            OlapScanNode scanNode = (OlapScanNode) node;
+            if (!scanNode.checkPushSort(sortNode)) {
+                continue;
+            }
+            // If offset > 0, we push down (limit: limit + offset) to olap scan.
+            if (sortNode.getOffset() > 0) {
+                scanNode.setSortLimit(sortNode.getLimit() + sortNode.getOffset());
+            } else {
+                scanNode.setSortLimit(sortNode.getLimit());
+            }
+            scanNode.setSortInfo(sortNode.getSortInfo());
+            scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.resolvedTupleExprs);
+        }
     }
 
     /**

@@ -70,6 +70,7 @@ class DataDir;
 class TabletMeta;
 class DeleteBitmap;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
+using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
@@ -145,7 +146,9 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    const TabletSchema& tablet_schema() const;
+    TabletSchemaSPtr tablet_schema() const;
+
+    const TabletSchemaSPtr tablet_schema(Version version) const;
 
     TabletSchema* mutable_tablet_schema();
 
@@ -231,7 +234,7 @@ private:
     TabletState _tablet_state = TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
-    std::shared_ptr<TabletSchema> _schema;
+    TabletSchemaSPtr _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
@@ -337,7 +340,7 @@ public:
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
-     * @return 0 if the insertion took place, 1 if the assignment took place
+     * @return 1 if the insertion took place, 0 if the assignment took place
      */
     int set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
 
@@ -403,7 +406,7 @@ public:
             static std::once_flag once;
             std::call_once(once, [size_in_bytes] {
                 auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
-                                               LRUCacheType::SIZE, 2048);
+                                               LRUCacheType::SIZE, 256);
                 AggCache::s_repr.store(tmp, std::memory_order_release);
             });
 
@@ -526,8 +529,8 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return *_schema;
+inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+    return _schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {

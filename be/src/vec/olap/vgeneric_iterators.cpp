@@ -119,12 +119,15 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique)
+    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique,
+                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns)
             : _iter(iter),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
+              _is_reverse(is_reverse),
               _num_columns(iter->schema().num_column_ids()),
-              _num_key_columns(iter->schema().num_key_columns()) {}
+              _num_key_columns(iter->schema().num_key_columns()),
+              _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
@@ -161,10 +164,14 @@ public:
     Status init(const StorageReadOptions& opts);
 
     bool compare(const VMergeIteratorContext& rhs) const {
-        int cmp_res = this->_block.compare_at(_index_in_block, rhs._index_in_block,
-                                              _num_key_columns, rhs._block, -1);
+        int cmp_res = UNLIKELY(_compare_columns)
+                              ? this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                                        _compare_columns, rhs._block, -1)
+                              : this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                                        _num_key_columns, rhs._block, -1);
+
         if (cmp_res != 0) {
-            return cmp_res > 0;
+            return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
         }
 
         auto col_cmp_res = 0;
@@ -228,12 +235,15 @@ private:
 
     int _sequence_id_idx = -1;
     bool _is_unique = false;
+    bool _is_reverse = false;
     bool _valid = false;
     mutable bool _skip = false;
     size_t _index_in_block = -1;
-    int _block_row_max = 4096;
+    // 4096 minus 16 + 16 bytes padding that in padding pod array
+    int _block_row_max = 4064;
     int _num_columns;
     int _num_key_columns;
+    std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;
     bool _record_rowids = false;
 };
@@ -289,10 +299,11 @@ class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx, bool is_unique,
-                   uint64_t* merged_rows)
+                   bool is_reverse, uint64_t* merged_rows)
             : _origin_iters(iters),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
+              _is_reverse(is_reverse),
               _merged_rows(merged_rows) {}
 
     ~VMergeIterator() override {
@@ -336,6 +347,7 @@ private:
     int block_row_max = 0;
     int _sequence_id_idx = -1;
     bool _is_unique = false;
+    bool _is_reverse = false;
     uint64_t* _merged_rows = nullptr;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
@@ -349,7 +361,8 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
 
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx, _is_unique);
+        auto ctx = std::make_unique<VMergeIteratorContext>(
+                iter, _sequence_id_idx, _is_unique, _is_reverse, opts.read_orderby_key_columns);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -473,11 +486,11 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
 }
 
 RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx,
-                                    bool is_unique, uint64_t* merged_rows) {
+                                    bool is_unique, bool is_reverse, uint64_t* merged_rows) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VMergeIterator(inputs, sequence_id_idx, is_unique, merged_rows);
+    return new VMergeIterator(inputs, sequence_id_idx, is_unique, is_reverse, merged_rows);
 }
 
 RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {

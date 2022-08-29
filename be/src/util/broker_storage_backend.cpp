@@ -184,7 +184,7 @@ Status BrokerStorageBackend::rename(const std::string& orig_name, const std::str
         std::stringstream ss;
         ss << "Fail to rename file: " << orig_name << " to: " << new_name << " msg:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     LOG(INFO) << "finished to rename file. orig: " << orig_name << ", new: " << new_name;
@@ -264,7 +264,7 @@ Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_m
         std::stringstream ss;
         ss << "failed to list files in remote path: " << remote_path << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     return status;
@@ -321,7 +321,7 @@ Status BrokerStorageBackend::rm(const std::string& remote) {
         std::stringstream ss;
         ss << "failed to delete file in remote path: " << remote << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 }
 
@@ -384,7 +384,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
         std::stringstream ss;
         ss << "failed to check exist: " << path << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 }
 

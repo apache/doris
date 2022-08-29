@@ -135,7 +135,7 @@ public class SchemaChangeJobV2Test {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterEnv.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
@@ -154,7 +154,7 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterEnv.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
@@ -231,7 +231,7 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterEnv.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
@@ -434,7 +434,7 @@ public class SchemaChangeJobV2Test {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
-        Database db = masterEnv.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
         Env.getCurrentEnv().convertDistributionType(db, olapTable);
         Assert.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
@@ -447,7 +447,7 @@ public class SchemaChangeJobV2Test {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
-        Database db = masterEnv.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
         new Expectations() {
             {
                 table.isColocateTable();
@@ -464,7 +464,7 @@ public class SchemaChangeJobV2Test {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
-        Database db = masterEnv.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
         new Expectations() {
             {
                 table.isColocateTable();
@@ -483,7 +483,7 @@ public class SchemaChangeJobV2Test {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
-        Database db = masterEnv.getInternalDataSource().getDb(CatalogTestUtil.testDbId1).get();
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
         new Expectations() {
             {
                 table.isColocateTable();

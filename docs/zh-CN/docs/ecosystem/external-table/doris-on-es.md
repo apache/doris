@@ -152,6 +152,8 @@ PROPERTIES (
 ##### 过滤条件下推
 `Doris On ES`一个重要的功能就是过滤条件的下推: 过滤条件下推给ES，这样只有真正满足条件的数据才会被返回，能够显著的提高查询性能和降低Doris和Elasticsearch的CPU、memory、IO使用量
 
+`enable_new_es_dsl`代表是否使用新版dsl生成逻辑, 后续 bug 修复和迭代都在新版dsl开发, 默认为`true`, 可在`fe.conf`中进行修改
+
 下面的操作符(Operators)会被优化成如下ES Query:
 
 | SQL syntax  | ES 5.x+ syntax | 
@@ -332,7 +334,7 @@ POST /_analyze
 
 `k4.keyword` 的类型是`keyword`，数据写入ES中是一个完整的term，所以可以匹配
 
-### 开启节点自动发现, 默认为true(es\_nodes\_discovery=true)
+### 开启节点自动发现, 默认为true(nodes\_discovery=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
@@ -355,7 +357,7 @@ PROPERTIES (
 
 参数 | 说明
 ---|---
-**es\_nodes\_discovery** | 是否开启es节点发现，默认为true
+**nodes\_discovery** | 是否开启es节点发现，默认为true
 
 当配置为true时，Doris将从ES找到所有可用的相关数据节点(在上面分配的分片)。如果ES数据节点的地址没有被Doris BE访问，则设置为false。ES集群部署在与公共Internet隔离的内网，用户通过代理访问
 

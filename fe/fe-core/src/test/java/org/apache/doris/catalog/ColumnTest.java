@@ -27,9 +27,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class ColumnTest {
 
@@ -49,9 +48,8 @@ public class ColumnTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./columnTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("columnTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Column column1 = new Column("user",
                                 ScalarType.createChar(20), false, AggregateType.SUM, "", "");
@@ -73,7 +71,7 @@ public class ColumnTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         Column rColumn1 = Column.read(dis);
         Assert.assertEquals("user", rColumn1.getName());
         Assert.assertEquals(PrimitiveType.CHAR, rColumn1.getDataType());
@@ -92,18 +90,17 @@ public class ColumnTest {
         Assert.assertEquals("20", rColumn2.getDefaultValue());
 
         Column rColumn3 = Column.read(dis);
-        Assert.assertTrue(rColumn3.equals(column3));
+        Assert.assertEquals(rColumn3, column3);
 
         Column rColumn4 = Column.read(dis);
-        Assert.assertTrue(rColumn4.equals(column4));
+        Assert.assertEquals(rColumn4, column4);
 
         Assert.assertEquals(rColumn2.toString(), column2.toString());
-        Assert.assertTrue(column1.equals(column1));
-        Assert.assertFalse(column1.equals(this));
+        Assert.assertEquals(column1, column1);
 
         // 4. delete files
         dis.close();
-        file.delete();
+        Files.delete(path);
     }
 
     @Test(expected = DdlException.class)

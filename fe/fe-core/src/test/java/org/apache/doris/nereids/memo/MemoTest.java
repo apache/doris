@@ -18,14 +18,15 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.StringType;
 
@@ -65,9 +66,9 @@ public class MemoTest {
 
     /**
      * Original:
+     * Project(name)
      * |---Project(name)
-     *     |---Project(name)
-     *         |---UnboundRelation
+     *     |---UnboundRelation
      *
      * After rewrite:
      * Project(name)
@@ -116,6 +117,53 @@ public class MemoTest {
         node = node.child(0);
         Assertions.assertTrue(node instanceof UnboundRelation);
         Assertions.assertEquals("test", ((UnboundRelation) node).getTableName());
+    }
+
+    /**
+     * Test rewrite current Plan with its child.
+     *
+     * Original(Group 2 is root):
+     * Group2: Project(outside)
+     * Group1: |---Project(inside)
+     * Group0:     |---UnboundRelation
+     *
+     * and we want to rewrite group 2 by Project(inside, GroupPlan(group 0))
+     *
+     * After rewriting we should get(Group 2 is root):
+     * Group2: Project(inside)
+     * Group0: |---UnboundRelation
+     */
+    @Test
+    public void testRewriteByChild() {
+        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
+        LogicalProject<UnboundRelation> insideProject = new LogicalProject<>(
+                ImmutableList.of(new SlotReference("inside", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                unboundRelation
+        );
+        LogicalProject<LogicalProject<UnboundRelation>> rootProject = new LogicalProject<>(
+                ImmutableList.of(new SlotReference("outside", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                insideProject
+        );
+
+        // Project -> Project -> Relation
+        Memo memo = new Memo(rootProject);
+        Group leafGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 0).findFirst().get();
+        Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 2).findFirst().get();
+        LogicalPlan rewriteProject = insideProject.withChildren(Lists.newArrayList(new GroupPlan(leafGroup)));
+        memo.copyIn(rewriteProject, targetGroup, true);
+
+        Assertions.assertEquals(3, memo.getGroups().size());
+        Plan node = memo.copyOut();
+        Assertions.assertTrue(node instanceof LogicalProject);
+        Assertions.assertEquals(insideProject.getProjects().get(0), ((LogicalProject<?>) node).getProjects().get(0));
+        node = node.child(0);
+        Assertions.assertTrue(node instanceof UnboundRelation);
+        Assertions.assertEquals("test", ((UnboundRelation) node).getTableName());
+
+        // check Group 1's GroupExpression is not in GroupExpressionMaps anymore
+        GroupExpression groupExpression = new GroupExpression(rewriteProject, Lists.newArrayList(leafGroup));
+        Assertions.assertEquals(2,
+                memo.getGroupExpressions().get(groupExpression).getOwnerGroup().getGroupId().asInt());
     }
 
     /**

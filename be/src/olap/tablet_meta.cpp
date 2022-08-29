@@ -183,6 +183,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_is_in_memory(tablet_schema.is_in_memory);
     }
 
+    if (tablet_schema.__isset.disable_auto_compaction) {
+        schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
+    }
+
     if (tablet_schema.__isset.delete_sign_idx) {
         schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
@@ -208,6 +212,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _storage_policy(b._storage_policy),
+          _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
@@ -532,11 +537,17 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_storage_policy(_storage_policy);
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
-    {
-        std::shared_lock l(delete_bitmap().lock);
+    if (_enable_unique_key_merge_on_write) {
+        std::set<RowsetId> rs_ids;
+        for (const auto& rowset : _rs_metas) {
+            rs_ids.insert(rowset->rowset_id());
+        }
         DeleteBitmapPB* delete_bitmap_pb = tablet_meta_pb->mutable_delete_bitmap();
-        for (auto& [id, bitmap] : delete_bitmap().delete_bitmap) {
+        for (auto& [id, bitmap] : delete_bitmap().snapshot().delete_bitmap) {
             auto& [rowset_id, segment_id, ver] = id;
+            if (rs_ids.count(rowset_id) == 0) {
+                continue;
+            }
             delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
             delete_bitmap_pb->add_segment_ids(segment_id);
             delete_bitmap_pb->add_versions(ver);
@@ -567,6 +578,19 @@ Version TabletMeta::max_version() const {
         }
     }
     return max_version;
+}
+
+// Find the rowset with specified version and return its schema
+// Currently, this API is used by delete condition
+const TabletSchemaSPtr TabletMeta::tablet_schema(Version version) const {
+    auto it = _rs_metas.begin();
+    while (it != _rs_metas.end()) {
+        if ((*it)->version() == version) {
+            return (*it)->tablet_schema();
+        }
+        ++it;
+    }
+    return nullptr;
 }
 
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
@@ -783,7 +807,7 @@ void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
                     if (rowid_conversion.get(src, &dst) != 0) {
-                        LOG(WARNING) << "Can't find rowid, may be deleted by the delete_handler.";
+                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler.";
                         continue;
                     }
                     output_rowset_delete_bitmap.add({dst.rowset_id, dst.segment_id, cur_version},

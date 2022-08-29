@@ -17,7 +17,6 @@
 
 #include "vec/exprs/vexpr_context.h"
 
-#include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
 #include "vec/exprs/vexpr.h"
 
@@ -28,7 +27,8 @@ VExprContext::VExprContext(VExpr* expr)
           _prepared(false),
           _opened(false),
           _closed(false),
-          _last_result_column_id(-1) {}
+          _last_result_column_id(-1),
+          _stale(false) {}
 
 VExprContext::~VExprContext() {
     DCHECK(!_prepared || _closed);
@@ -96,6 +96,12 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     (*new_ctx)->_opened = true;
 
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
+}
+
+void VExprContext::clone_fn_contexts(VExprContext* other) {
+    for (auto& _fn_context : _fn_contexts) {
+        other->_fn_contexts.push_back(_fn_context->impl()->clone(other->_pool.get()));
+    }
 }
 
 int VExprContext::register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,

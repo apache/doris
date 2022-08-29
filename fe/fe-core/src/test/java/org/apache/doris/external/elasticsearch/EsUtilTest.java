@@ -19,8 +19,10 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -31,17 +33,19 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
+import java.io.IOException;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -81,29 +85,20 @@ public class EsUtilTest extends EsTestCase {
         // ES version < 7.0
         EsTable esTableBefore7X = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext = new SearchContext(esTableBefore7X);
-        EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json"));
-        Assert.assertEquals("k3.keyword", searchContext.fetchFieldsContext().get("k3"));
-        Assert.assertEquals("k3.keyword", searchContext.docValueFieldsContext().get("k3"));
-        Assert.assertEquals("k1", searchContext.docValueFieldsContext().get("k1"));
-        Assert.assertEquals("k2", searchContext.docValueFieldsContext().get("k2"));
+        MappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json"));
+        Assertions.assertEquals("k3.keyword", searchContext.fetchFieldsContext().get("k3"));
+        Assertions.assertEquals("k3.keyword", searchContext.docValueFieldsContext().get("k3"));
+        Assertions.assertEquals("k1", searchContext.docValueFieldsContext().get("k1"));
+        Assertions.assertEquals("k2", searchContext.docValueFieldsContext().get("k2"));
 
         // ES version >= 7.0
         EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext1 = new SearchContext(esTableAfter7X);
-        EsUtil.resolveFields(searchContext1, loadJsonFromFile("data/es/test_index_mapping_after_7x.json"));
-        Assert.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
-        Assert.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
-        Assert.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
-        Assert.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
-    }
-
-    @Test
-    public void testTypeNotExist() throws Exception {
-        EsTable table = fakeEsTable("fake", "test", "not_exists", columns);
-        SearchContext searchContext = new SearchContext(table);
-        // type not exists
-        ExceptionChecker.expectThrows(DorisEsException.class,
-                () -> EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
+        MappingPhase.resolveFields(searchContext1, loadJsonFromFile("data/es/test_index_mapping_after_7x.json"));
+        Assertions.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
+        Assertions.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
+        Assertions.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
+        Assertions.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
     }
 
     @Test
@@ -121,10 +116,10 @@ public class EsUtilTest extends EsTestCase {
         MappingPhase mappingPhase = new MappingPhase(client);
         ExceptionChecker.expectThrowsNoException(() -> mappingPhase.execute(searchContext1));
         ExceptionChecker.expectThrowsNoException(() -> mappingPhase.postProcess(searchContext1));
-        Assert.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
-        Assert.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
-        Assert.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
-        Assert.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
+        Assertions.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
+        Assertions.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
+        Assertions.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
+        Assertions.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
 
     }
 
@@ -132,22 +127,23 @@ public class EsUtilTest extends EsTestCase {
     public void testMultTextFields() throws Exception {
         EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext = new SearchContext(esTableAfter7X);
-        EsUtil.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
-        Assert.assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
+        MappingPhase.resolveFields(searchContext,
+                loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
+        Assertions.assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
     }
 
     @Test
     public void testGetJsonObject() {
         JSONObject json = (JSONObject) JSONValue.parse(jsonStr);
         JSONObject upperBoundSetting = EsUtil.getJsonObject(json, "settings.index.bpack.partition", 0);
-        Assert.assertTrue(upperBoundSetting.containsKey("upperbound"));
-        Assert.assertEquals("12", (String) upperBoundSetting.get("upperbound"));
+        Assertions.assertTrue(upperBoundSetting.containsKey("upperbound"));
+        Assertions.assertEquals("12", (String) upperBoundSetting.get("upperbound"));
 
         JSONObject unExistKey = EsUtil.getJsonObject(json, "set", 0);
-        Assert.assertNull(unExistKey);
+        Assertions.assertNull(unExistKey);
 
         JSONObject singleKey = EsUtil.getJsonObject(json, "settings", 0);
-        Assert.assertTrue(singleKey.containsKey("index"));
+        Assertions.assertTrue(singleKey.containsKey("index"));
     }
 
     @Test(expected = ClassCastException.class)
@@ -168,13 +164,13 @@ public class EsUtilTest extends EsTestCase {
         Expr ltExpr = new BinaryPredicate(Operator.LT, k1, intLiteral);
         Expr gtExpr = new BinaryPredicate(Operator.GT, k1, intLiteral);
         Expr efnExpr = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "k1"), new IntLiteral(3));
-        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(eqExpr).toJson());
-        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.toEsDsl(neExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", EsUtil.toEsDsl(leExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", EsUtil.toEsDsl(geExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", EsUtil.toEsDsl(ltExpr).toJson());
-        Assert.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", EsUtil.toEsDsl(gtExpr).toJson());
-        Assert.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(efnExpr).toJson());
+        Assertions.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(eqExpr).toJson());
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.toEsDsl(neExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", EsUtil.toEsDsl(leExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", EsUtil.toEsDsl(geExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", EsUtil.toEsDsl(ltExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", EsUtil.toEsDsl(gtExpr).toJson());
+        Assertions.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(efnExpr).toJson());
     }
 
     @Test
@@ -190,11 +186,12 @@ public class EsUtilTest extends EsTestCase {
         CompoundPredicate orPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, binaryPredicate1,
                 binaryPredicate2);
         CompoundPredicate notPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT, binaryPredicate1, null);
-        Assert.assertEquals("{\"bool\":{\"must\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
+        Assertions.assertEquals("{\"bool\":{\"must\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
                 EsUtil.toEsDsl(andPredicate).toJson());
-        Assert.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
+        Assertions.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
                 EsUtil.toEsDsl(orPredicate).toJson());
-        Assert.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.toEsDsl(notPredicate).toJson());
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
+                EsUtil.toEsDsl(notPredicate).toJson());
     }
 
     @Test
@@ -202,9 +199,9 @@ public class EsUtilTest extends EsTestCase {
         SlotRef k1 = new SlotRef(null, "k1");
         IsNullPredicate isNullPredicate = new IsNullPredicate(k1, false);
         IsNullPredicate isNotNullPredicate = new IsNullPredicate(k1, true);
-        Assert.assertEquals("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"k1\"}}}}",
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"k1\"}}}}",
                 EsUtil.toEsDsl(isNullPredicate).toJson());
-        Assert.assertEquals("{\"exists\":{\"field\":\"k1\"}}", EsUtil.toEsDsl(isNotNullPredicate).toJson());
+        Assertions.assertEquals("{\"exists\":{\"field\":\"k1\"}}", EsUtil.toEsDsl(isNotNullPredicate).toJson());
     }
 
     @Test
@@ -216,9 +213,9 @@ public class EsUtilTest extends EsTestCase {
         LikePredicate likePredicate1 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
         LikePredicate regexPredicate = new LikePredicate(LikePredicate.Operator.REGEXP, k1, stringLiteral2);
         LikePredicate likePredicate2 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral3);
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(likePredicate1).toJson());
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(regexPredicate).toJson());
-        Assert.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", EsUtil.toEsDsl(likePredicate2).toJson());
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(likePredicate1).toJson());
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(regexPredicate).toJson());
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", EsUtil.toEsDsl(likePredicate2).toJson());
     }
 
     @Test
@@ -231,8 +228,8 @@ public class EsUtilTest extends EsTestCase {
         intLiterals.add(intLiteral2);
         InPredicate isInPredicate = new InPredicate(k1, intLiterals, false);
         InPredicate isNotInPredicate = new InPredicate(k1, intLiterals, true);
-        Assert.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.toEsDsl(isInPredicate).toJson());
-        Assert.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
+        Assertions.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.toEsDsl(isInPredicate).toJson());
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
                 EsUtil.toEsDsl(isNotInPredicate).toJson());
     }
 
@@ -245,49 +242,102 @@ public class EsUtilTest extends EsTestCase {
         exprs.add(k1);
         exprs.add(stringLiteral);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs);
-        Assert.assertEquals(str, EsUtil.toEsDsl(functionCallExpr).toJson());
+        Assertions.assertEquals(str, EsUtil.toEsDsl(functionCallExpr).toJson());
 
         SlotRef k2 = new SlotRef(null, "k2");
         IntLiteral intLiteral = new IntLiteral(5);
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
         CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate,
                 functionCallExpr);
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 "{\"bool\":{\"must\":[{\"term\":{\"k2\":5}},{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}]}}",
                 EsUtil.toEsDsl(compoundPredicate).toJson());
     }
 
     @Test
-    public void testGenEsUrls() {
-        EsUrls typeLimit = EsUtil.genEsUrls("test", "_doc", false, 10, 1024);
-        Assertions.assertEquals(
-                "/test/_doc/_search?terminate_after=10&filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
-                typeLimit.getSearchUrl());
-        Assertions.assertNull(typeLimit.getInitScrollUrl());
-        Assertions.assertNull(typeLimit.getNextScrollUrl());
+    public void testCastConvertEsDsl() {
+        FloatLiteral floatLiteral = new FloatLiteral(3.14);
+        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral);
+        BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
+        List<Expr> notPushDownList = new ArrayList<>();
+        Assertions.assertNull(EsUtil.toEsDsl(castPredicate, notPushDownList));
+        Assertions.assertEquals(1, notPushDownList.size());
 
-        Assertions.assertEquals(
-                "/test/_search?terminate_after=10&filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
-                EsUtil.genEsUrls("test", null, false, 10, 1024).getSearchUrl());
+        SlotRef k2 = new SlotRef(null, "k2");
+        IntLiteral intLiteral = new IntLiteral(5);
+        BinaryPredicate eqPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
+        CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, castPredicate,
+                eqPredicate);
+        EsUtil.toEsDsl(compoundPredicate, notPushDownList);
+        Assertions.assertEquals(3, notPushDownList.size());
 
-        EsUrls typeNoLimit = EsUtil.genEsUrls("test", "_doc", false, -1, 1024);
-        Assertions.assertEquals(
-                "/test/_doc/_search?filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id&terminate_after=1024",
-                typeNoLimit.getInitScrollUrl());
-        Assertions.assertEquals("/_search/scroll?filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
-                typeNoLimit.getNextScrollUrl());
-        Assertions.assertNull(typeNoLimit.getSearchUrl());
-
-        EsUrls noTypeNoLimit = EsUtil.genEsUrls("test", null, false, -1, 2048);
-        Assertions.assertEquals(
-                "/test/_search?filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id&terminate_after=2048",
-                noTypeNoLimit.getInitScrollUrl());
-        Assertions.assertEquals("/_search/scroll?filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id",
-                noTypeNoLimit.getNextScrollUrl());
-
-        EsUrls docValueTypeLimit = EsUtil.genEsUrls("test", "_doc", true, 100, 1024);
-        Assertions.assertEquals(
-                "/test/_doc/_search?terminate_after=100&filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields",
-                docValueTypeLimit.getSearchUrl());
+        SlotRef k3 = new SlotRef(null, "k3");
+        k3.setType(Type.FLOAT);
+        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3);
+        BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
+                new FloatLiteral(3.0, Type.DOUBLE));
+        EsUtil.toEsDsl(castDoublePredicate, notPushDownList);
+        Assertions.assertEquals(3, notPushDownList.size());
     }
+
+    @Test
+    public void testEs6Mapping() throws IOException, URISyntaxException {
+        JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_aliases_mapping.json"),
+                "doc");
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
+        JSONObject testAliasesNoType = EsUtil.getMappingProps("test",
+                loadJsonFromFile("data/es/es6_aliases_mapping.json"), null);
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+                testAliasesNoType.toJSONString());
+        JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_index_mapping.json"),
+                "doc");
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
+    }
+
+    @Test
+    public void testEs7Mapping() throws IOException, URISyntaxException {
+        JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_aliases_mapping.json"),
+                null);
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
+        JSONObject testAliasesErrorType = EsUtil.getMappingProps("test",
+                loadJsonFromFile("data/es/es7_aliases_mapping.json"), "doc");
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+                testAliasesErrorType.toJSONString());
+        JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_index_mapping.json"),
+                "doc");
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
+    }
+
+    @Test
+    public void testEs8Mapping() throws IOException, URISyntaxException {
+        JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_aliases_mapping.json"),
+                null);
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
+        JSONObject testAliasesErrorType = EsUtil.getMappingProps("test",
+                loadJsonFromFile("data/es/es8_aliases_mapping.json"), "doc");
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+                testAliasesErrorType.toJSONString());
+        JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_index_mapping.json"),
+                "doc");
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
+    }
+
 }

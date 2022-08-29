@@ -21,6 +21,7 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
@@ -38,37 +39,60 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      *         │
      * childOutputProperty
      */
-    PhysicalProperties requestProperty;
-    List<PhysicalProperties> childrenOutputProperties;
+    private PhysicalProperties requestProperty;
+    private List<PhysicalProperties> childrenOutputProperties;
+    private double curTotalCost;
+
 
     public ChildOutputPropertyDeriver(PhysicalProperties requestProperty,
-            List<PhysicalProperties> childrenOutputProperties) {
+            List<PhysicalProperties> childrenOutputProperties, double curTotalCost) {
         this.childrenOutputProperties = childrenOutputProperties;
         this.requestProperty = requestProperty;
+        this.curTotalCost = curTotalCost;
     }
 
-    public static PhysicalProperties getProperties(
-            PhysicalProperties requirements,
-            List<PhysicalProperties> childrenOutputProperties,
-            GroupExpression groupExpression) {
-
-        ChildOutputPropertyDeriver childOutputPropertyDeriver = new ChildOutputPropertyDeriver(requirements,
-                childrenOutputProperties);
-
-        return groupExpression.getPlan().accept(childOutputPropertyDeriver, new PlanContext(groupExpression));
+    public PhysicalProperties getOutputProperties(GroupExpression groupExpression) {
+        return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
     }
 
-    public PhysicalProperties getRequestProperty() {
-        return requestProperty;
+    public double getCurTotalCost() {
+        return curTotalCost;
     }
 
     @Override
     public PhysicalProperties visit(Plan plan, PlanContext context) {
-        return new PhysicalProperties();
+        return PhysicalProperties.ANY;
     }
 
     @Override
     public PhysicalProperties visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 2);
+        PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
+        PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
+
+        // broadcast
+        // TODO: handle condition of broadcast
+        if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
+            return leftOutputProperty;
+        }
+
+        // shuffle
+        // TODO: handle condition of shuffle
+        DistributionSpec leftDistribution = leftOutputProperty.getDistributionSpec();
+        DistributionSpec rightDistribution = rightOutputProperty.getDistributionSpec();
+        if (!(leftDistribution instanceof DistributionSpecHash)
+                || !(rightDistribution instanceof DistributionSpecHash)) {
+            Preconditions.checkState(false, "error");
+            return PhysicalProperties.ANY;
+        }
+
+        return leftOutputProperty;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
+            PlanContext context) {
+        // TODO: copy from hash join, should update according to nested loop join properties.
         Preconditions.checkState(childrenOutputProperties.size() == 2);
         PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
         PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
@@ -93,7 +117,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (!(leftDistribution instanceof DistributionSpecHash)
                 || !(rightDistribution instanceof DistributionSpecHash)) {
             Preconditions.checkState(false, "error");
-            return new PhysicalProperties();
+            return PhysicalProperties.ANY;
         }
 
         return leftOutputProperty;
@@ -101,6 +125,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
-        return olapScan.getPhysicalProperties();
+        if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
+            return PhysicalProperties.createHash((DistributionSpecHash) olapScan.getDistributionSpec());
+        } else {
+            return PhysicalProperties.ANY;
+        }
     }
 }

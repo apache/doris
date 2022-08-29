@@ -17,20 +17,19 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -52,12 +51,10 @@ public class MergeConsecutiveProjectsTest {
         LogicalProject project2 = new LogicalProject(Lists.newArrayList(colA, colB), project1);
         LogicalProject project3 = new LogicalProject(Lists.newArrayList(colA), project2);
 
-        PlannerContext plannerContext = new Memo(project3)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project3);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
-        plannerContext.bottomUpRewrite(rules);
-        Plan plan = plannerContext.getMemo().copyOut();
+        cascadesContext.bottomUpRewrite(rules);
+        Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan instanceof LogicalProject);
         Assertions.assertTrue(((LogicalProject<?>) plan).getProjects().equals(Lists.newArrayList(colA)));
@@ -96,12 +93,10 @@ public class MergeConsecutiveProjectsTest {
                 ),
                 project1);
 
-        PlannerContext plannerContext = new Memo(project2)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project2);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
-        plannerContext.bottomUpRewrite(rules);
-        Plan plan = plannerContext.getMemo().copyOut();
+        cascadesContext.bottomUpRewrite(rules);
+        Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan instanceof LogicalProject);
         LogicalProject finalProject = (LogicalProject) plan;

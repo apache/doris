@@ -19,8 +19,8 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
@@ -35,17 +35,14 @@ import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.thrift.TExprOpcode;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -133,6 +130,9 @@ public class EsUtil {
         }
     }
 
+    /**
+     * Get Array fields.
+     **/
     public static List<String> getArrayFields(String indexMapping) {
         JSONObject mappings = getMapping(indexMapping);
         if (!mappings.containsKey("_meta")) {
@@ -148,11 +148,33 @@ public class EsUtil {
 
     private static JSONObject getMapping(String indexMapping) {
         JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
-        // the indexName use alias takes the first mapping
+        // If the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keySet().iterator();
         String docKey = keys.next();
         JSONObject docData = (JSONObject) jsonObject.get(docKey);
         return (JSONObject) docData.get("mappings");
+    }
+
+    private static JSONObject getRootSchema(JSONObject mappings, String mappingType) {
+        // Type is null in the following three cases
+        // 1. Equal 6.8.x and after
+        // 2. Multi-catalog auto infer
+        // 3. Equal 6.8.x and before user not passed
+        if (mappingType == null) {
+            String firstType = (String) mappings.keySet().iterator().next();
+            if (!"properties".equals(firstType)) {
+                // If type is not passed in takes the first type.
+                return (JSONObject) mappings.get(firstType);
+            }
+            // Equal 7.x and after
+            return mappings;
+        } else {
+            if (mappings.containsKey(mappingType)) {
+                return (JSONObject) mappings.get(mappingType);
+            }
+            // Compatible type error
+            return getRootSchema(mappings, null);
+        }
     }
 
     /**
@@ -160,28 +182,8 @@ public class EsUtil {
      **/
     public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
         JSONObject mappings = getMapping(indexMapping);
-        JSONObject rootSchema = (JSONObject) mappings.get(mappingType);
-        JSONObject properties;
-        // Elasticsearch 7.x, type was removed from ES mapping, default type is `_doc`
-        // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/removal-of-types.html
-        // Elasticsearch 8.x, include_type_name parameter is removed
-        if (rootSchema == null) {
-            properties = (JSONObject) mappings.get("properties");
-            // Compatible es6 with no type passed in.
-            if (mappingType == null) {
-                String typeKey = (String) mappings.keySet().iterator().next();
-                JSONObject typeProps = (JSONObject) ((JSONObject) mappings.get(typeKey)).get("properties");
-                if (typeProps != null) {
-                    properties = typeProps;
-                    if (properties.containsKey("mappings")) {
-                        properties.remove("mappings");
-                        properties.remove("settings");
-                    }
-                }
-            }
-        } else {
-            properties = (JSONObject) rootSchema.get("properties");
-        }
+        JSONObject rootSchema = getRootSchema(mappings, mappingType);
+        JSONObject properties = (JSONObject) rootSchema.get("properties");
         if (properties == null) {
             throw new DorisEsException(
                     "index[" + sourceIndex + "] type[" + mappingType + "] mapping not found for the ES Cluster");
@@ -189,106 +191,39 @@ public class EsUtil {
         return properties;
     }
 
-    /**
-     * Parse the required field information from the json.
-     *
-     * @param searchContext the current associated column searchContext
-     * @param indexMapping the return value of _mapping
-     */
-    public static void resolveFields(SearchContext searchContext, String indexMapping) throws DorisEsException {
-        JSONObject properties = getMappingProps(searchContext.sourceIndex(), indexMapping, searchContext.type());
-        for (Column col : searchContext.columns()) {
-            String colName = col.getName();
-            // if column exists in Doris Table but no found in ES's mapping, we choose to ignore this situation?
-            if (!properties.containsKey(colName)) {
-                throw new DorisEsException(
-                        "index[" + searchContext.sourceIndex() + "] type[" + indexMapping + "] mapping not found column"
-                                + colName + " for the ES Cluster");
-            }
-            JSONObject fieldObject = (JSONObject) properties.get(colName);
-            resolveKeywordFields(searchContext, fieldObject, colName);
-            resolveDocValuesFields(searchContext, fieldObject, colName);
-        }
-    }
-
-    // get a field of keyword type in the fields
-    private static void resolveKeywordFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
-        String fieldType = (String) fieldObject.get("type");
-        // string-type field used keyword type to generate predicate
-        // if text field type seen, we should use the `field` keyword type?
-        if ("text".equals(fieldType)) {
-            JSONObject fieldsObject = (JSONObject) fieldObject.get("fields");
-            if (fieldsObject != null) {
-                for (Object key : fieldsObject.keySet()) {
-                    JSONObject innerTypeObject = (JSONObject) fieldsObject.get((String) key);
-                    // just for text type
-                    if ("keyword".equals((String) innerTypeObject.get("type"))) {
-                        searchContext.fetchFieldsContext().put(colName, colName + "." + key);
-                    }
-                }
-            }
-        }
-    }
-
-    private static void resolveDocValuesFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
-        String fieldType = (String) fieldObject.get("type");
-        String docValueField = null;
-        if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
-            JSONObject fieldsObject = (JSONObject) fieldObject.get("fields");
-            if (fieldsObject != null) {
-                for (Object key : fieldsObject.keySet()) {
-                    JSONObject innerTypeObject = (JSONObject) fieldsObject.get((String) key);
-                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains((String) innerTypeObject.get("type"))) {
-                        continue;
-                    }
-                    if (innerTypeObject.containsKey("doc_values")) {
-                        boolean docValue = (Boolean) innerTypeObject.get("doc_values");
-                        if (docValue) {
-                            docValueField = colName;
-                        }
-                    } else {
-                        // a : {c : {}} -> a -> a.c
-                        docValueField = colName + "." + key;
-                    }
-                }
-            }
-        } else {
-            // set doc_value = false manually
-            if (fieldObject.containsKey("doc_values")) {
-                Boolean docValue = (Boolean) fieldObject.get("doc_values");
-                if (!docValue) {
-                    return;
-                }
-            }
-            docValueField = colName;
-        }
-        // docValueField Cannot be null
-        if (StringUtils.isNotEmpty(docValueField)) {
-            searchContext.docValueFieldsContext().put(colName, docValueField);
-        }
-    }
-
-    private static QueryBuilder toCompoundEsDsl(Expr expr) {
+    private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
-                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0));
-                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1));
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList);
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().must(left).must(right);
                 }
                 return null;
             }
             case OR: {
-                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0));
-                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1));
+                int beforeSize = notPushDownList.size();
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList);
+                int afterSize = notPushDownList.size();
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().should(left).should(right);
+                }
+                // One 'or' association cannot be pushed down and the other cannot be pushed down
+                if (afterSize > beforeSize) {
+                    if (left != null) {
+                        // add right if right don't pushdown
+                        notPushDownList.add(compoundPredicate.getChild(0));
+                    } else if (right != null) {
+                        // add left if left don't pushdown
+                        notPushDownList.add(compoundPredicate.getChild(1));
+                    }
                 }
                 return null;
             }
             case NOT: {
-                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0));
+                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
@@ -299,19 +234,45 @@ public class EsUtil {
         }
     }
 
+    private static Expr exprWithoutCast(Expr expr) {
+        if (expr instanceof CastExpr) {
+            return exprWithoutCast(expr.getChild(0));
+        }
+        return expr;
+    }
+
+    public static QueryBuilder toEsDsl(Expr expr) {
+        return toEsDsl(expr, new ArrayList<>());
+    }
+
     /**
      * Doris expr to es dsl.
      **/
-    public static QueryBuilder toEsDsl(Expr expr) {
+    public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList) {
         if (expr == null) {
             return null;
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            return toCompoundEsDsl(expr);
+            return toCompoundEsDsl(expr, notPushDownList);
         }
         TExprOpcode opCode = expr.getOpcode();
-        String column = ((SlotRef) expr.getChild(0)).getColumnName();
+        String column;
+        Expr leftExpr = expr.getChild(0);
+        // Type transformed cast can not pushdown
+        if (leftExpr instanceof CastExpr) {
+            Expr withoutCastExpr = exprWithoutCast(leftExpr);
+            // pushdown col(float) >= 3
+            if (withoutCastExpr.getType().equals(leftExpr.getType()) || (withoutCastExpr.getType().isFloatingPointType()
+                    && leftExpr.getType().isFloatingPointType())) {
+                column = ((SlotRef) withoutCastExpr).getColumnName();
+            } else {
+                notPushDownList.add(expr);
+                return null;
+            }
+        } else {
+            column = ((SlotRef) leftExpr).getColumnName();
+        }
         if (expr instanceof BinaryPredicate) {
             Object value = toDorisLiteral(expr.getChild(1));
             switch (opCode) {
@@ -462,9 +423,6 @@ public class EsUtil {
         if (expr instanceof BoolLiteral) {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
             return boolLiteral.getValue();
-        } else if (expr instanceof DateLiteral) {
-            DateLiteral dateLiteral = (DateLiteral) expr;
-            return dateLiteral.getLongValue();
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();
@@ -477,37 +435,8 @@ public class EsUtil {
         } else if (expr instanceof LargeIntLiteral) {
             LargeIntLiteral largeIntLiteral = (LargeIntLiteral) expr;
             return largeIntLiteral.getLongValue();
-        } else if (expr instanceof StringLiteral) {
-            StringLiteral stringLiteral = (StringLiteral) expr;
-            return stringLiteral.getStringValue();
         }
-        return null;
+        return expr.getStringValue();
     }
 
-    /**
-     * Generate url for be to query es.
-     **/
-    public static EsUrls genEsUrls(String index, String type, boolean docValueMode, long limit, long batchSize) {
-        String filterPath = docValueMode ? "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields"
-                : "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
-        if (limit <= 0) {
-            StringBuilder initScrollUrl = new StringBuilder();
-            StringBuilder nextScrollUrl = new StringBuilder();
-            initScrollUrl.append("/").append(index);
-            if (StringUtils.isNotBlank(type)) {
-                initScrollUrl.append("/").append(type);
-            }
-            initScrollUrl.append("/_search?").append(filterPath).append("&terminate_after=").append(batchSize);
-            nextScrollUrl.append("/_search/scroll?").append(filterPath);
-            return new EsUrls(null, initScrollUrl.toString(), nextScrollUrl.toString());
-        } else {
-            StringBuilder searchUrl = new StringBuilder();
-            searchUrl.append("/").append(index);
-            if (StringUtils.isNotBlank(type)) {
-                searchUrl.append("/").append(type);
-            }
-            searchUrl.append("/_search?terminate_after=").append(limit).append("&").append(filterPath);
-            return new EsUrls(searchUrl.toString(), null, null);
-        }
-    }
 }
