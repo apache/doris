@@ -54,6 +54,7 @@ public class TableFunctionNode extends PlanNode {
         super(id, "TABLE FUNCTION NODE", StatisticalType.TABLE_FUNCTION_NODE);
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
+        tblRefIds.addAll(inputNode.getTblRefIds());
         lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())
                 .collect(Collectors.toList());
         tupleIds.addAll(lateralViewTupleIds);
