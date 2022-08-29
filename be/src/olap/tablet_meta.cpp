@@ -725,7 +725,7 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
     }
 
     for (auto& del_pred : _rs_metas) {
-        if (del_pred.version() == version.first && del_pred->has_delete_predicate()) {
+        if (del_pred->version().first == version.first && del_pred->has_delete_predicate()) {
             return true;
         }
     }

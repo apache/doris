@@ -43,7 +43,7 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.version = dst_rowset_writer->version();
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        auto& delete_preds = tablet->delete_predicates();
+        auto delete_preds = tablet->delete_predicates();
         std::copy(delete_preds.cbegin(), delete_preds.cend(),
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));
@@ -116,7 +116,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.version = dst_rowset_writer->version();
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        auto& delete_preds = tablet->delete_predicates();
+        auto delete_preds = tablet->delete_predicates();
         std::copy(delete_preds.cbegin(), delete_preds.cend(),
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));

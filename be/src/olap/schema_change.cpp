@@ -1852,7 +1852,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
             auto& all_del_preds = base_tablet->delete_predicates();
             for (auto& delete_pred : all_del_preds) {
-                if (delete_pred->version() > end_version) {
+                if (delete_pred->version().first > end_version) {
                     continue;
                 }
                 base_tablet_schema->merge_dropped_columns(
@@ -2118,6 +2118,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                                            bool* sc_directly) {
     TabletSharedPtr base_tablet = sc_params.base_tablet;
     TabletSharedPtr new_tablet = sc_params.new_tablet;
+    TabletSchemaSPtr base_tablet_schema = sc_params.base_tablet_schema;
     const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map =
             sc_params.materialized_params_map;
     DescriptorTbl desc_tbl = *sc_params.desc_tbl;
