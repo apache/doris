@@ -232,7 +232,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      *
      *  limit(student)                        limit(1)                          limit(1)
      *       |                      ->           |                   ->             |                 ->    ...
-     *     any                            unboundRelation(student)          unboundRelation(student)
+     *     any                                  any                                any
      *
      * you should split A into some states:
      * 1. A(not rewrite)
