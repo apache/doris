@@ -117,8 +117,6 @@ public class Memo {
      */
     private Group init(Plan plan) {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "Cannot init memo by a GroupPlan");
-        Preconditions.checkArgument(!plan.getGroupExpression().isPresent(),
-                "Cannot init memo by a plan which contains a groupExpression");
 
         // initialize children recursively
         List<Group> childrenGroups = plan.children()
