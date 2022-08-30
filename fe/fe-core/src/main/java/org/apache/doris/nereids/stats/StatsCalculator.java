@@ -59,6 +59,9 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
+import com.google.common.collect.Maps;
+
+import java.util.AbstractMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -250,46 +253,53 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
-        List<Expression> groupByExprList = aggregate.getGroupByExpressions();
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
-        Map<Slot, ColumnStats> childSlotColumnStatsMap = childStats.getSlotToColumnStats();
+        Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
         long resultSetCount = 1;
-        for (Expression expression : groupByExprList) {
-            List<SlotReference> slotRefList = expression.collect(SlotReference.class::isInstance);
+        for (Expression groupByExpression : groupByExpressions) {
+            List<SlotReference> slotReferences = groupByExpression.collect(SlotReference.class::isInstance);
             // TODO: Support more complex group expr.
             //       For example:
             //              select max(col1+col3) from t1 group by col1+col3;
-            if (slotRefList.size() != 1) {
+            if (slotReferences.size() != 1) {
                 continue;
             }
-            SlotReference slotRef = slotRefList.get(0);
-            ColumnStats columnStats = childSlotColumnStatsMap.get(slotRef);
+            SlotReference slotReference = slotReferences.get(0);
+            ColumnStats columnStats = childSlotToColumnStats.get(slotReference);
             resultSetCount *= columnStats.getNdv();
         }
-        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
-        List<NamedExpression> namedExpressionList = aggregate.getOutputExpressions();
+        Map<Slot, ColumnStats> slotToColumnStats = Maps.newHashMap();
+        List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
-        for (NamedExpression namedExpression : namedExpressionList) {
-            if (namedExpression instanceof SlotReference) {
-                slotColumnStatsMap.put((SlotReference) namedExpression, new ColumnStats());
-            }
+        for (NamedExpression outputExpression : outputExpressions) {
+            slotToColumnStats.put(outputExpression.toSlot(), new ColumnStats());
         }
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotColumnStatsMap);
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
     }
 
-    // TODO: Update data size and min/max value.
+    // TODO: do real project on column stats
     private StatsDeriveResult computeProject(Project project) {
-        List<NamedExpression> namedExpressionList = project.getProjects();
-        List<Slot> slotSet = namedExpressionList.stream().flatMap(namedExpression -> {
-            List<Slot> slotReferenceList = namedExpression.collect(SlotReference.class::isInstance);
-            return slotReferenceList.stream();
-        }).collect(Collectors.toList());
-        StatsDeriveResult stat = groupExpression.getCopyOfChildStats(0);
-        Map<Slot, ColumnStats> slotColumnStatsMap = stat.getSlotToColumnStats();
-        slotColumnStatsMap.entrySet().removeIf(entry -> !slotSet.contains(entry.getKey()));
-        return stat;
+        List<NamedExpression> projections = project.getProjects();
+        Map<Slot, ColumnStats> childColumnStats = groupExpression.getCopyOfChildStats(0).getSlotToColumnStats();
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(groupExpression.getCopyOfChildStats(0));
+        Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
+            List<SlotReference> slotReferences = projection.collect(SlotReference.class::isInstance);
+            if (slotReferences.isEmpty()) {
+                ColumnStats columnStats = new ColumnStats();
+                columnStats.setAvgSize(1);
+                columnStats.setMaxSize(1);
+                columnStats.setNdv(1);
+                columnStats.setNumNulls(0);
+                return new AbstractMap.SimpleEntry<>(projection.toSlot(), columnStats);
+            } else {
+                return new AbstractMap.SimpleEntry<>(projection.toSlot(), childColumnStats.get(slotReferences.get(0)));
+            }
+        }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        statsDeriveResult.setSlotToColumnStats(columnsStats);
+        return statsDeriveResult;
     }
 }
