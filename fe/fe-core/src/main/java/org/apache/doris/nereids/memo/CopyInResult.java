@@ -15,22 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules;
+package org.apache.doris.nereids.memo;
 
 /**
- * Promise of rule, The value with a large promise has a higher priority.
+ * copyIn result.
  */
-public enum RulePromise {
-    EXPLORE,
-    IMPLEMENT,
-    REWRITE,
-    ANALYSIS,
+public class CopyInResult {
+    // is copyIn generate a new group expression?
+    public final boolean generateNewExpression;
 
-    // just for check plan in UT
-    PLAN_CHECK
-    ;
+    // the plan's corresponding group expression
+    public final GroupExpression correspondingExpression;
 
-    public int promise() {
-        return ordinal();
+    public CopyInResult(boolean generateNewExpression, GroupExpression correspondingExpression) {
+        this.generateNewExpression = generateNewExpression;
+        this.correspondingExpression = correspondingExpression;
+    }
+
+    public static CopyInResult of(boolean isNewPlan, GroupExpression correspondingExpression) {
+        return new CopyInResult(isNewPlan, correspondingExpression);
     }
 }

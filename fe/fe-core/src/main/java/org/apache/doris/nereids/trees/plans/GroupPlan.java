@@ -84,7 +84,7 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+    public LogicalProperties computeLogicalProperties() {
         throw new IllegalStateException("GroupPlan can not compute logical properties."
                 + " You should invoke GroupPlan.getLogicalProperties()");
     }
