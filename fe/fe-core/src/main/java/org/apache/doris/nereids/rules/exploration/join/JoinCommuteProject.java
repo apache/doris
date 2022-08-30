@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
@@ -26,32 +25,30 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * Join Commute
+ * Project-Join commute
  */
-@Developing
-public class JoinCommute extends OneExplorationRuleFactory {
+public class JoinCommuteProject extends OneExplorationRuleFactory {
 
     public static final JoinCommute SWAP_OUTER_COMMUTE_BOTTOM_JOIN = new JoinCommute(true, SwapType.BOTTOM_JOIN);
     public static final JoinCommute SWAP_OUTER_SWAP_ZIG_ZAG = new JoinCommute(true, SwapType.ZIG_ZAG);
 
-    private final boolean swapOuter;
     private final SwapType swapType;
+    private final boolean swapOuter;
 
-    public JoinCommute(boolean swapOuter) {
+    public JoinCommuteProject(boolean swapOuter) {
         this.swapOuter = swapOuter;
         this.swapType = SwapType.ALL;
     }
 
-    public JoinCommute(boolean swapOuter, SwapType swapType) {
+    public JoinCommuteProject(boolean swapOuter, SwapType swapType) {
         this.swapOuter = swapOuter;
         this.swapType = swapType;
     }
 
     @Override
     public Rule build() {
-        return innerLogicalJoin().when(JoinCommuteHelper::check).then(join -> {
-            // TODO: add project for mapping column output.
-            // List<NamedExpression> newOutput = new ArrayList<>(join.getOutput());
+        return logicalProject(innerLogicalJoin()).when(JoinCommuteHelper::check).then(project -> {
+            LogicalJoin<GroupPlan, GroupPlan> join = project.child();
             LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
@@ -63,7 +60,6 @@ public class JoinCommute extends OneExplorationRuleFactory {
             //     newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
             // }
 
-            // LogicalProject<LogicalJoin> project = new LogicalProject<>(newOutput, newJoin);
             return newJoin;
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
