@@ -157,6 +157,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                     origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
                     origFilter.markFinalized();
                     origFilter.assignToPlanNodes();
+                    origFilter.extractTargetsPosition();
                     return origFilter;
                 }).collect(Collectors.toList()));
             }
