@@ -202,6 +202,16 @@ public class ColumnDef {
         }
         FeNameFormat.checkColumnName(name);
 
+        // When string type length is not assigned, it need to be assigned to 1.
+        if (typeDef.getType().isScalarType()) {
+            final ScalarType targetType = (ScalarType) typeDef.getType();
+            if (targetType.getPrimitiveType().isStringType()
+                && (targetType.getPrimitiveType() != PrimitiveType.STRING)
+                && !targetType.isAssignedStrLenInColDefinition()) {
+                targetType.setLength(1);
+            }
+        }
+
         typeDef.analyze(null);
 
         Type type = typeDef.getType();
