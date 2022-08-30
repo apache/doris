@@ -179,7 +179,7 @@ public class StmtExecutionAction extends RestBaseController {
             List<String> createStmts = Lists.newArrayList();
             for (TableIf tbl : tableMap.values()) {
                 List<String> createTableStmts = Lists.newArrayList();
-                Env.getDdlStmt(tbl, createTableStmts, null, null, false, true);
+                Env.getDdlStmt(tbl, createTableStmts, null, null, false, true, -1L);
                 if (!createTableStmts.isEmpty()) {
                     createStmts.add(createTableStmts.get(0));
                 }

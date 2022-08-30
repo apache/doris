@@ -863,7 +863,7 @@ public class ShowExecutor {
                 return;
             }
             List<String> createTableStmt = Lists.newArrayList();
-            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */);
+            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
             if (createTableStmt.isEmpty()) {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
@@ -974,7 +974,7 @@ public class ShowExecutor {
             view.readLock();
             try {
                 List<String> createViewStmt = Lists.newArrayList();
-                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */);
+                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
                 if (!createViewStmt.isEmpty()) {
                     rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
                 }
@@ -2315,6 +2315,21 @@ public class ShowExecutor {
         }
         version = version == -1 ? replica.getVersion() : version;
 
+        // 3. get create table stmt
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tabletMeta.getDbId());
+        OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
+        if (tbl == null) {
+            throw new AnalysisException("Failed to find table: " + tabletMeta.getTableId());
+        }
+
+        List<String> createTableStmt = Lists.newArrayList();
+        tbl.readLock();
+        try {
+            Env.getDdlStmt(tbl, createTableStmt, null, null, false, true /* hide password */, version);
+        } finally {
+            tbl.readUnlock();
+        }
+
         // 4. create snapshot task
         SnapshotTask task = new SnapshotTask(null, backendId, tabletId, -1, tabletMeta.getDbId(),
                 tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, 0,
@@ -2352,6 +2367,7 @@ public class ShowExecutor {
             row.add(be.getHost());
             row.add(task.getResultSnapshotPath());
             row.add(String.valueOf(copyStmt.getExpirationMinutes()));
+            row.add(createTableStmt.get(0));
             resultRowSet.add(row);
 
             ShowResultSetMetaData showMetaData = copyStmt.getMetaData();

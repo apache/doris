@@ -2682,9 +2682,9 @@ public class Env {
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword, long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false);
+                hidePassword, false, specificVersion);
     }
 
     /**
@@ -2694,7 +2694,7 @@ public class Env {
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
             List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
-            boolean hidePassword, boolean getDdlForLike) {
+            boolean hidePassword, boolean getDdlForLike, long specificVersion) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -2762,6 +2762,17 @@ public class Env {
                 }
             }
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+
+            if (specificVersion != -1) {
+                // for copy tablet operation
+                sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
+                        .append(") BUCKETS 1");
+                sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
+                        + specificVersion + "\"\n" + ")");
+                createTableStmt.add(sb + ";");
+                return;
+            }
+
 
             addTableComment(olapTable, sb);
 

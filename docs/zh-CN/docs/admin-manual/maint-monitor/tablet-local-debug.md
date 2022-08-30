@@ -1,7 +1,129 @@
+---
+{
+    "title": "Tablet 本地调试",
+    "language": "en"
+}
+---
+
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
 
 Doris线上运行过程中，因为各种原因，可能出现各种各样的bug。例如：副本不一致，数据存在版本diff等。
 
 这时候需要将线上的tablet的副本数据拷贝到本地环境进行复现，然后进行问题定位。
+
+<version since="dev">
+## 1. 获取有问题的 Tablet 的信息
+
+可以通过 BE 日志确认 tablet id，然后通过以下命令获取信息：
+
+获获取 tablet 所在的 DbId/TableId/PartitionId 等信息。
+
+```
+mysql> show tablet 10020\G
+*************************** 1. row ***************************
+       DbName: default_cluster:db1
+    TableName: tbl1
+PartitionName: tbl1
+    IndexName: tbl1
+         DbId: 10004
+      TableId: 10016
+  PartitionId: 10015
+      IndexId: 10017
+       IsSync: true
+        Order: 1
+    DetailCmd: SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020';
+```
+
+执行上一步中的 `DetailCmd` 获取 BackendId/SchemHash 等信息。
+
+```
+mysql>  SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020'\G
+*************************** 1. row ***************************
+        ReplicaId: 10021
+        BackendId: 10003
+          Version: 3
+LstSuccessVersion: 3
+ LstFailedVersion: -1
+    LstFailedTime: NULL
+       SchemaHash: 785778507
+    LocalDataSize: 780
+   RemoteDataSize: 0
+         RowCount: 2
+            State: NORMAL
+            IsBad: false
+     VersionCount: 3
+         PathHash: 7390150550643804973
+          MetaUrl: http://172.19.0.11:8444/api/meta/header/10020
+ CompactionStatus: http://172.19.0.11:8444/api/compaction/show?tablet_id=10020
+```
+
+创建 tablet 快照：
+
+```
+mysql> admin copy tablet 10020 properties("backend_id" = "10003", "version" = "2")\G
+*************************** 1. row ***************************
+         TabletId: 10020
+        BackendId: 10003
+               Ip: 172.19.0.11
+             Path: /path/to/be/storage/snapshot/20220830101353.2.3600
+ExpirationMinutes: 60
+```
+
+`admin copy tablet` 命令可以为指定的 tablet 生成对应副本和版本的快照文件。快照文件存储在 `Ip` 字段所示节点的 `Path` 目录下。
+
+该目下会有一个 tablet id 命名的目录，将这个目录整体打包后备用。
+
+```
+cd /path/to/be/storage/snapshot/20220830101353.2.3600
+tar xzf 10020.tar.gz 10020/
+```
+
+获取建表语句：
+
+```
+
+mysql> show create table tbl1;
++-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Table | Create Table                                                                                                                                                                                                                                                                                                        |
++-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| tbl1  | CREATE TABLE `tbl1` (
+  `k1` int(11) NULL,
+  `k2` int(11) NULL
+) ENGINE=OLAP
+DUPLICATE KEY(`k1`, `k2`)
+COMMENT 'OLAP'
+DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1",
+"in_memory" = "false",
+"storage_format" = "V2",
+"disable_auto_compaction" = "false"
+); |
++-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+```
+
+获取到的原始建表语句修改
+
+
+
+</version>
 
 ## 1\. 准备环境
 

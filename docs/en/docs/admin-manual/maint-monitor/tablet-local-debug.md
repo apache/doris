@@ -1,4 +1,5 @@
 
+
 During the online operation of Doris, various bugs may occur for various reasons, e.g., inconsistent replicas, version diffs in the data, etc. At this point, it is necessary to replicate the online tablet data to the local environment and then locate the problem.
 
 In this case, you need to copy the online tablet copy data to the local environment for replication and then locate the problem.

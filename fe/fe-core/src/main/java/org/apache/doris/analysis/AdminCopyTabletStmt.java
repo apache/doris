@@ -40,7 +40,7 @@ public class AdminCopyTabletStmt extends ShowStmt {
     public static final String PROP_EXPIRATION = "expiration_minutes";
     private static final long DEFAULT_EXPIRATION_MINUTES = 60;
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("TabletId")
-            .add("BackendId").add("Ip").add("Path").add("ExpirationMinutes").build();
+            .add("BackendId").add("Ip").add("Path").add("ExpirationMinutes").add("CreateTableStmt").build();
 
     private long tabletId;
     private Map<String, String> properties = Maps.newHashMap();
@@ -107,7 +107,7 @@ public class AdminCopyTabletStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(1024)));
+            builder.addColumn(new Column(title, ScalarType.createStringType()));
         }
         return builder.build();
     }
