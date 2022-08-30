@@ -108,6 +108,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = new Memo(parsedViewPlan)
                 .newCascadesContext(parentContext.getStatementContext());
         viewContext.newAnalyzer().analyze();
-        return viewContext.getMemo().copyOut();
+
+        // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
+        return viewContext.getMemo().copyOut(false);
     }
 }

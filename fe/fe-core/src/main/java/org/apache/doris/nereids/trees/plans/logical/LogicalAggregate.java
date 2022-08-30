@@ -118,7 +118,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
+    public List<Slot> computeOutput() {
         return outputExpressions.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());

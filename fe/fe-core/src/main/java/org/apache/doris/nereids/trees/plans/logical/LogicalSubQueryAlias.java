@@ -53,8 +53,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput().stream()
+    public List<Slot> computeOutput() {
+        return child().getOutput().stream()
                 .map(slot -> slot.withQualifier(ImmutableList.of(alias)))
                 .collect(Collectors.toList());
     }
