@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -87,25 +86,14 @@ public class BaseViewStmt extends DdlStmt {
             }
             for (int i = 0; i < cols.size(); ++i) {
                 Type type = viewDefStmt.getBaseTblResultExprs().get(i).getType();
-                Column col = new Column(cols.get(i).getColName(),
-                        ScalarType.createType(
-                                type.getPrimitiveType(),
-                                type.getLength(),
-                                type.getPrecision() != null ? type.getPrecision() : -1,
-                                type.getDecimalDigits() != null ? type.getDecimalDigits() : 0));
+                Column col = new Column(cols.get(i).getColName(), type);
                 col.setComment(cols.get(i).getComment());
                 finalCols.add(col);
             }
         } else {
             for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
                 Type type = viewDefStmt.getBaseTblResultExprs().get(i).getType();
-                finalCols.add(new Column(
-                        viewDefStmt.getColLabels().get(i),
-                        ScalarType.createType(
-                                type.getPrimitiveType(),
-                                type.getLength(),
-                                type.getPrecision() != null ? type.getPrecision() : -1,
-                                type.getDecimalDigits() != null ? type.getDecimalDigits() : 0)));
+                finalCols.add(new Column(viewDefStmt.getColLabels().get(i), type));
             }
         }
         // Set for duplicate columns
