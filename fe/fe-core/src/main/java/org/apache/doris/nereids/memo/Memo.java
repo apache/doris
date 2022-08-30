@@ -187,7 +187,7 @@ public class Memo {
 
         // case 1: fast check the plan whether exist in the memo
         if (plan instanceof GroupPlan || plan.getGroupExpression().isPresent()) {
-            return rewriteByExistsPlan(targetGroup, plan);
+            return rewriteByExistedPlan(targetGroup, plan);
         }
 
         // try to create a new group expression
@@ -355,15 +355,15 @@ public class Memo {
         groupExpression.setOwnerGroup(group);
     }
 
-    private CopyInResult rewriteByExistsPlan(Group targetGroup, Plan existsPlan) {
-        GroupExpression existedLogicalExpression = existsPlan instanceof GroupPlan
-                ? ((GroupPlan) existsPlan).getGroup().getLogicalExpression() // get first logicalGroupExpression
-                : existsPlan.getGroupExpression().get();
+    private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
+        GroupExpression existedLogicalExpression = existedPlan instanceof GroupPlan
+                ? ((GroupPlan) existedPlan).getGroup().getLogicalExpression() // get first logicalGroupExpression
+                : existedPlan.getGroupExpression().get();
         if (targetGroup != null) {
             Group existedGroup = existedLogicalExpression.getOwnerGroup();
             // clear targetGroup, from exist group move all logical groupExpression
             // and logicalProperties to target group
-            eliminateFromGroupAndMoveToTargetGroup(existedGroup, targetGroup, existsPlan.getLogicalProperties());
+            eliminateFromGroupAndMoveToTargetGroup(existedGroup, targetGroup, existedPlan.getLogicalProperties());
         }
         return CopyInResult.of(false, existedLogicalExpression);
     }
@@ -382,20 +382,30 @@ public class Memo {
             // case 3:
             // if exist the target group, clear all origin group expressions in the
             // existedExpression's owner group and reset logical properties, the
-            // newGroupExpression is the init logical group expression
+            // newGroupExpression is the init logical group expression.
             reInitGroup(targetGroup, newGroupExpression, newPlan.getLogicalProperties());
+
+            // note: put newGroupExpression must behind recycle existedExpression(reInitGroup method),
+            //       because existedExpression maybe equal to the newGroupExpression and recycle
+            //       existedExpression will recycle newGroupExpression
+            groupExpressions.put(newGroupExpression, newGroupExpression);
         }
         return CopyInResult.of(true, newGroupExpression);
     }
 
-    private CopyInResult rewriteByExistedGroupExpression(Group targetGroup, Plan existedPlan,
+    private CopyInResult rewriteByExistedGroupExpression(Group targetGroup, Plan transformedPlan,
             GroupExpression existedExpression, GroupExpression newExpression) {
         if (targetGroup != null && !targetGroup.equals(existedExpression.getOwnerGroup())) {
             // case 4:
             existedExpression.propagateApplied(newExpression);
             moveParentExpressionsReference(existedExpression.getOwnerGroup(), targetGroup);
             recycleGroup(existedExpression.getOwnerGroup());
-            reInitGroup(targetGroup, newExpression, existedPlan.getLogicalProperties());
+            reInitGroup(targetGroup, newExpression, transformedPlan.getLogicalProperties());
+
+            // note: put newGroupExpression must behind recycle existedExpression(reInitGroup method),
+            //       because existedExpression maybe equal to the newGroupExpression and recycle
+            //       existedExpression will recycle newGroupExpression
+            groupExpressions.put(newExpression, newExpression);
             return CopyInResult.of(true, newExpression);
         } else {
             // case 5:
@@ -448,11 +458,6 @@ public class Memo {
 
         group.setLogicalProperties(logicalProperties);
         group.addLogicalExpression(initLogicalExpression);
-
-        // note: put newGroupExpression must behind recycle existedExpression(reInitGroup method),
-        //       because existedExpression maybe equal to the newGroupExpression and recycle
-        //       existedExpression will recycle newGroupExpression
-        groupExpressions.put(initLogicalExpression, initLogicalExpression);
     }
 
     private Plan replaceChildrenToGroupPlan(Plan plan, List<Group> childrenGroups) {
@@ -467,19 +472,24 @@ public class Memo {
             .withLogicalProperties(Optional.of(logicalProperties));
     }
 
+
+    /*
+     * the scenarios that 'parentGroupExpression == toGroup': eliminate the root group.
+     * the fromGroup is group 1, the toGroup is group 2, we can not replace group2's
+     * groupExpressions reference the child group which is group 2 (reference itself).
+     *
+     *   A(group 2)            B(group 2)
+     *   |                     |
+     *   B(group 1)      =>    C(group 0)
+     *   |
+     *   C(group 0)
+     *
+     *
+     * note: the method don't save group and groupExpression to the memo, so you need
+     *       save group and groupExpression to the memo at other place.
+     */
     private void moveParentExpressionsReference(Group fromGroup, Group toGroup) {
         for (GroupExpression parentGroupExpression : fromGroup.getParentGroupExpressions()) {
-            /*
-             * the scenarios that 'parentGroupExpression == toGroup': eliminate the root group.
-             * the fromGroup is group 1, the toGroup is group 2, we can not replace group2's
-             * groupExpressions reference the child group which is group 2 (reference itself).
-             *
-             *   A(group 2)            B(group 2)
-             *   |                     |
-             *   B(group 1)      =>    C(group 0)
-             *   |
-             *   C(group 0)
-             */
             if (parentGroupExpression.getOwnerGroup() != toGroup) {
                 parentGroupExpression.replaceChild(fromGroup, toGroup);
             }

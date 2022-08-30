@@ -85,12 +85,15 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(RuleFactory rule) {
         cascadesContext.topDownRewrite(rule);
-        String s = cascadesContext.getMemo().copyOut().treeString();
-        MemoTestUtils.printGroupTree(cascadesContext.getMemo());
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
     }
 
+    /**
+     * apply a top down rewrite rule if you not care the ruleId
+     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
+     * @return this checker, for call chaining of follow-up check
+     */
     public PlanChecker applyTopDown(PatternMatcher patternMatcher) {
         cascadesContext.topDownRewrite(new OneRewriteRuleFactory() {
             @Override
@@ -108,6 +111,11 @@ public class PlanChecker {
         return this;
     }
 
+    /**
+     * apply a bottom up rewrite rule if you not care the ruleId
+     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
+     * @return this checker, for call chaining of follow-up check
+     */
     public PlanChecker applyBottomUp(PatternMatcher patternMatcher) {
         cascadesContext.bottomUpRewrite(new OneRewriteRuleFactory() {
             @Override
