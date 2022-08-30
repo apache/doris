@@ -304,11 +304,11 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 
 ### Configure spark client
 
-The Fe submits the spark task by executing the spark submit command. Therefore, it is necessary to configure the spark client for Fe. It is recommended to use the official version of spark 2 above 2.4.3, [download spark here](https://archive.apache.org/dist/spark/). After downloading, please follow the steps to complete the following configuration.
+The Fe submits the spark task by executing the spark submit command. Therefore, it is necessary to configure the spark client for Fe. It is recommended to use the official version of spark 3 above 3.2.2, [download spark here](https://archive.apache.org/dist/spark/). After downloading, please follow the steps to complete the following configuration.
 
 **Configure SPARK_HOME environment variable**
 
-Place the spark client on the same machine as Fe and configure `spark_home_default_dir` in the `fe.conf`. This configuration item defaults to the `fe/lib/spark2x` path. This config cannot be empty.
+Place the spark client on the same machine as Fe and configure `spark_home_default_dir` in the `fe.conf`. This configuration item defaults to the `fe/lib/spark3x` path. This config cannot be empty.
 
 **Configure spark dependencies**
 
@@ -320,15 +320,15 @@ When the spark load task is submitted, this zip file will be uploaded to the rem
 __spark_repository__spark0/
     |-__archive_1.0.0/
     |        |-__lib_990325d2c0d1d5e45bf675e54e44fb16_spark-dpp-1.0.0-jar-with-dependencies.jar
-    |        |-__lib_7670c29daf535efe3c9b923f778f61fc_spark-2x.zip
+    |        |-__lib_7670c29daf535efe3c9b923f778f61fc_spark-3x.zip
     |-__archive_1.1.0/
     |        |-__lib_64d5696f99c379af2bee28c1c84271d5_spark-dpp-1.1.0-jar-with-dependencies.jar
-    |        |-__lib_1bbb74bb6b264a270bc7fca3e964160f_spark-2x.zip
+    |        |-__lib_1bbb74bb6b264a270bc7fca3e964160f_spark-3x.zip
     |-__archive_1.2.0/
     |        |-...
 ```
 
-In addition to spark dependency (named by `spark-2x.zip` by default), Fe will also upload DPP's dependency package to the remote repository. If all the dependency files submitted by spark load already exist in the remote repository, then there is no need to upload dependency, saving the time of repeatedly uploading a large number of files each time.
+In addition to spark dependency (named by `spark-3x.zip` by default), Fe will also upload DPP's dependency package to the remote repository. If all the dependency files submitted by spark load already exist in the remote repository, then there is no need to upload dependency, saving the time of repeatedly uploading a large number of files each time.
 
 ### Configure yarn client
 
@@ -727,7 +727,7 @@ The spark submit command is used when submitting a spark job. If `spark_home_def
 
 * When using spark load, `spark_resource_path` does not point to the packaged zip file.
 
-If `spark_resource_path` is not set correctly. An error `file XXX/jars/spark-2x.zip` does not exist will be reported.
+If `spark_resource_path` is not set correctly. An error `file XXX/jars/spark-3x.zip` does not exist will be reported.
 
 * When using spark load `yarn_client_path` does not point to a executable file of yarn.
 
