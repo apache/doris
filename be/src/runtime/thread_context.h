@@ -136,7 +136,7 @@ public:
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
                 << ",new tracker label: " << mem_tracker->label() << ",old tracker label: "
-                << _thread_mem_tracker_mgr->limiter_mem_tracker()->label();
+                << _thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label();
         DCHECK(type != TaskType::UNKNOWN);
         _type = type;
         _task_id = task_id;
@@ -256,15 +256,15 @@ public:
     doris::thread_context()->_thread_mem_tracker_mgr->consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(-size)
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                          \
-    doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to(size, \
-                                                                                         tracker)
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                         \
+    doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->transfer_to( \
+            size, tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
     tracker->transfer_to(                               \
-            size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker().get())
+            size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw())
 #define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                              \
     return doris::thread_context()                                                          \
-            ->_thread_mem_tracker_mgr->limiter_mem_tracker()                                \
+            ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()                            \
             ->mem_limit_exceeded(                                                           \
                     state,                                                                  \
                     fmt::format("exec node:<{}>, {}",                                       \
