@@ -87,6 +87,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         INSTANCE.filtersByExprId.clear();
         INSTANCE.sessionVariable = ctx.getSessionVariable();
         INSTANCE.limits = new FilterSizeLimits(INSTANCE.sessionVariable);
+        INSTANCE.origFilters.clear();
         return INSTANCE;
     }
 
