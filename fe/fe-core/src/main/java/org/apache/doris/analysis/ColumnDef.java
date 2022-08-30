@@ -206,8 +206,8 @@ public class ColumnDef {
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
             if (targetType.getPrimitiveType().isStringType()
-                && (targetType.getPrimitiveType() != PrimitiveType.STRING)
-                && !targetType.isAssignedStrLenInColDefinition()) {
+                    && (targetType.getPrimitiveType() != PrimitiveType.STRING)
+                    && !targetType.isAssignedStrLenInColDefinition()) {
                 targetType.setLength(1);
             }
         }
