@@ -712,7 +712,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                 .applyBottomUp(unboundRelation().then(unboundRelation -> boundTable))
                 .applyBottomUp(
                         logicalPlan()
-                                .when(plan -> plan.canResolve() && !(plan instanceof LeafPlan))
+                                .when(plan -> plan.canBind() && !(plan instanceof LeafPlan))
                                 .then(LogicalPlan::recomputeLogicalProperties)
                 )
                 .checkGroupNum(2)

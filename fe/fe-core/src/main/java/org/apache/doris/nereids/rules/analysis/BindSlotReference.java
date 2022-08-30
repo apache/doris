@@ -76,7 +76,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
-                logicalProject().when(Plan::canResolve).thenApply(ctx -> {
+                logicalProject().when(Plan::canBind).thenApply(ctx -> {
                     LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundSlots =
                             bind(project.getProjects(), project.children(), project, ctx.cascadesContext);
@@ -84,7 +84,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
-                logicalFilter().when(Plan::canResolve).thenApply(ctx -> {
+                logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
                     Expression boundPredicates = bind(filter.getPredicates(), filter.children(),
                             filter, ctx.cascadesContext);
@@ -92,7 +92,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
-                logicalJoin().when(Plan::canResolve).thenApply(ctx -> {
+                logicalJoin().when(Plan::canBind).thenApply(ctx -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
                     Optional<Expression> cond = join.getOtherJoinCondition()
                             .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
@@ -101,7 +101,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
-                logicalAggregate().when(Plan::canResolve).thenApply(ctx -> {
+                logicalAggregate().when(Plan::canBind).thenApply(ctx -> {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
                     List<Expression> groupBy =
                             bind(agg.getGroupByExpressions(), agg.children(), agg, ctx.cascadesContext);
@@ -111,7 +111,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
-                logicalSort().when(Plan::canResolve).thenApply(ctx -> {
+                logicalSort().when(Plan::canBind).thenApply(ctx -> {
                     LogicalSort<GroupPlan> sort = ctx.root;
                     List<OrderKey> sortItemList = sort.getOrderKeys()
                             .stream()
@@ -126,7 +126,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
             RuleType.BINDING_NON_LEAF_LOGICAL_PLAN.build(
                 logicalPlan()
-                        .when(plan -> plan.canResolve() && !(plan instanceof LeafPlan))
+                        .when(plan -> plan.canBind() && !(plan instanceof LeafPlan))
                         .then(LogicalPlan::recomputeLogicalProperties)
             )
         );

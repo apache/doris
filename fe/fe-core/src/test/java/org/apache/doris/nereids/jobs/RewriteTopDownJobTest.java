@@ -61,7 +61,7 @@ public class RewriteTopDownJobTest {
                     ),
                     RuleType.BINDING_PROJECT_SLOT.build(
                             logicalProject()
-                                    .when(Plan::canResolve)
+                                    .when(Plan::canBind)
                                     .then(LogicalPlan::recomputeLogicalProperties)
                     )
             );

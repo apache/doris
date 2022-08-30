@@ -139,8 +139,10 @@ public class Memo {
     /**
      * add or replace the plan into the target group.
      *
+     * the result truth table:
+     * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
-     * |case                                   | is generated new group expression | corresponding group expression |
+     * | case                                  | is generated new group expression | corresponding group expression |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 1:                               |                                   |                                |
      * | if plan is GroupPlan                  |              false                |    existed group expression    |
@@ -162,6 +164,7 @@ public class Memo {
      * | if targetGroup not equal to the       |              false                |    existed group expression    |
      * | exists group expression's owner group |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
+     * </pre>
      *
      * @param plan the plan which want to rewrite or added
      * @param targetGroup target group to replace plan. null to generate new Group. It should be the ancestors
@@ -174,7 +177,7 @@ public class Memo {
         Preconditions.checkArgument(plan != null, "plan can not be null");
         Preconditions.checkArgument(plan instanceof LogicalPlan, "only logical plan can be rewrite");
 
-        // case1: fast check the plan whether exist in the memo
+        // case 1: fast check the plan whether exist in the memo
         if (plan instanceof GroupPlan || plan.getGroupExpression().isPresent()) {
             return rewriteByExistsPlan(targetGroup, plan);
         }

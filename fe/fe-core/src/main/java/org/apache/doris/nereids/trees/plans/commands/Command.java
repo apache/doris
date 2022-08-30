@@ -74,7 +74,7 @@ public interface Command extends LogicalPlan {
     }
 
     @Override
-    default boolean canResolve() {
+    default boolean canBind() {
         throw new RuntimeException("Command do not implement canResolve");
     }
 

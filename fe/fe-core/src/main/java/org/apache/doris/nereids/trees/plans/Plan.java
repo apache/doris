@@ -44,17 +44,16 @@ public interface Plan extends TreeNode<Plan> {
 
     LogicalProperties getLogicalProperties();
 
-    boolean canResolve();
+    boolean canBind();
 
-    default boolean resolved() {
+    default boolean bound() {
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
-    default boolean childrenResolved() {
+    default boolean childrenBound() {
         return children()
                 .stream()
-                .map(Plan::getLogicalProperties)
-                .allMatch(p -> !(p instanceof UnboundLogicalProperties));
+                .allMatch(Plan::canBind);
     }
 
     default LogicalProperties computeLogicalProperties() {

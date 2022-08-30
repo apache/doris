@@ -69,10 +69,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public boolean canResolve() {
-        return !resolved()
+    public boolean canBind() {
+        return !bound()
                 && !(this instanceof Unbound)
-                && childrenResolved();
+                && childrenBound();
     }
 
     /**
