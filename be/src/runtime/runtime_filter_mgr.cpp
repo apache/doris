@@ -92,7 +92,7 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
     } else {
         filter_map = &_producer_map;
     }
-    // LOG(INFO) << "regist filter...:" << key << ",role:" << role;
+    VLOG_NOTICE << "regist filter...:" << key << ",role:" << (int)role;
 
     auto iter = filter_map->find(key);
     if (iter != filter_map->end()) {

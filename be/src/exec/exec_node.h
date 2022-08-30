@@ -192,6 +192,8 @@ public:
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
+    virtual std::string get_name();
+
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);
 
@@ -310,6 +312,9 @@ protected:
     /// least the minimum reservation so that it can be returned to the initial
     /// reservations pool in Close().
     BufferPool::ClientHandle _buffer_pool_client;
+
+    // Set to true if this is a vectorized exec node.
+    bool _is_vec = false;
 
     ExecNode* child(int i) { return _children[i]; }
 
