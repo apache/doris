@@ -67,10 +67,10 @@ public class LogicalCorrelatedJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
     }
 
     @Override
-    public List<Slot> computeOutput(Plan left, Plan right) {
+    public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
-                .addAll(left.getOutput())
-                .addAll(right.getOutput())
+                .addAll(left().getOutput())
+                .addAll(right().getOutput())
                 .build();
     }
 

@@ -138,7 +138,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     prevChildIndex = curChildIndex;
                     pushTask((CostAndEnforcerJob) clone());
                     double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
-                    JobContext jobContext = new JobContext(context.getPlannerContext(), requestChildProperty,
+                    JobContext jobContext = new JobContext(context.getCascadesContext(), requestChildProperty,
                             newCostUpperBound);
                     pushTask(new OptimizeGroupJob(childGroup, jobContext));
                     return;

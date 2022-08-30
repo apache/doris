@@ -97,7 +97,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
+    public List<Slot> computeOutput() {
         return child().getOutput();
     }
 
