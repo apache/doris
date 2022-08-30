@@ -38,7 +38,8 @@ public:
 
     Status open_wait() override;
 
-    Status add_row(const BlockRow& block_row, int64_t tablet_id) override;
+    Status add_block(vectorized::Block* block, const vectorized::IColumn::Selector& selector,
+                     const std::vector<int64_t>& tablet_ids) override;
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token) override;

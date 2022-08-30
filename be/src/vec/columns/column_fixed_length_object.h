@@ -165,6 +165,11 @@ public:
         LOG(FATAL) << "scatter not supported";
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported!";
+    }
+
     void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not supported";
     }

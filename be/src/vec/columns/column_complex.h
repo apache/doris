@@ -230,6 +230,11 @@ public:
         LOG(FATAL) << "scatter not implemented";
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported!";
+    }
+
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = static_cast<const Self&>(rhs).data[row];

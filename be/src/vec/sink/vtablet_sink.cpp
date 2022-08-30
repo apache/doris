@@ -23,6 +23,7 @@
 #include "util/doris_metrics.h"
 #include "util/proto_util.h"
 #include "util/time.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -160,9 +161,11 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
+Status VNodeChannel::add_block(vectorized::Block* block,
+                               const vectorized::IColumn::Selector& selector,
+                               const std::vector<int64_t>& tablet_ids) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
+    // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
@@ -177,22 +180,24 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // so in the ideal case, mem limit is a matter for _plan node.
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
-    // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
+    // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    _cur_mutable_block->add_row(block_row.first, block_row.second);
-    _cur_add_block_request.add_tablet_ids(tablet_id);
+    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), selector);
+    for (auto tablet_id : tablet_ids) {
+        _cur_add_block_request.add_tablet_ids(tablet_id);
+    }
 
-    if (_cur_mutable_block->rows() == _batch_size ||
+    if (_cur_mutable_block->rows() >= _batch_size ||
         _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
-            //To simplify the add_row logic, postpone adding block into req until the time of sending req
+            // To simplify the add_row logic, postpone adding block into req until the time of sending req
             _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
             _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
             _pending_batches_num++;
@@ -486,6 +491,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     //    std::this_thread::sleep_for(std::chrono::microseconds(500));
     //}
 
+    std::vector<std::unordered_map<NodeChannel*, vectorized::IColumn::Selector*>>
+            channel_to_row_ids;
+    std::vector<std::unordered_map<NodeChannel*, std::vector<int64_t>>> channel_to_tablet_ids;
+    channel_to_row_ids.resize(_channels.size());
+    channel_to_tablet_ids.resize(_channels.size());
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -520,9 +530,36 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             tablet_index = _vpartition->find_tablet(&block_row, *partition);
         }
         for (int j = 0; j < partition->indexes.size(); ++j) {
-            int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
-            _channels[j]->add_row(block_row, tablet_id);
+            auto tid = partition->indexes[j].tablets[tablet_index];
+            auto it = _channels[j]->_channels_by_tablet.find(tid);
+            DCHECK(it != _channels[j]->_channels_by_tablet.end())
+                    << "unknown tablet, tablet_id=" << tablet_index;
+            for (const auto& channel : it->second) {
+                if (channel_to_row_ids[j].count(channel.get()) < 1) {
+                    channel_to_row_ids[j].insert(
+                            {channel.get(), new vectorized::IColumn::Selector()});
+                    channel_to_tablet_ids[j].insert({channel.get(), std::vector<int64_t>()});
+                }
+                channel_to_row_ids[j][channel.get()]->push_back(i);
+                channel_to_tablet_ids[j][channel.get()].push_back(tid);
+            }
             _number_output_rows++;
+        }
+    }
+    for (size_t i = 0; i < _channels.size(); i++) {
+        for (const auto& entry : channel_to_row_ids[i]) {
+            // if this node channel is already failed, this add_row will be skipped
+            auto st = entry.first->add_block(&block, *(entry.second),
+                                             channel_to_tablet_ids[i][entry.first]);
+            if (!st.ok()) {
+                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
+                                             st.get_error_msg());
+            }
+        }
+    }
+    for (size_t i = 0; i < _channels.size(); i++) {
+        for (const auto& entry : channel_to_row_ids[i]) {
+            delete entry.second;
         }
     }
 
