@@ -30,6 +30,11 @@ import java.util.IdentityHashMap;
 import java.util.Map.Entry;
 import java.util.Set;
 
+/**
+ * check the memo whether is a valid memo.
+ * 1. after init the memo, the memo must hava one logical group expressions per group, and no physical group expression.
+ * 2. group/group expression should not traverse twice, this logical can detect whether the group has a ring.
+ */
 public class MemoValidator {
     public final Set<GroupId> visitedGroupIds = Sets.newLinkedHashSet();
     public final IdentityHashMap<Group, Void> visitedGroups = new IdentityHashMap<>();

@@ -53,7 +53,7 @@ public interface Plan extends TreeNode<Plan> {
     default boolean childrenBound() {
         return children()
                 .stream()
-                .allMatch(Plan::canBind);
+                .allMatch(Plan::bound);
     }
 
     default LogicalProperties computeLogicalProperties() {

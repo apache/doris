@@ -70,8 +70,9 @@ public class Memo {
      * @param plan {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
      * @param rewrite whether to rewrite the node to the target group
-     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
-     *         and the second element is a reference of node in Memo
+     * @return CopyInResult, in which the generateNewExpression is true if a newly generated
+     *                       groupExpression added into memo, and the correspondingExpression
+     *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
         if (rewrite) {
@@ -82,25 +83,32 @@ public class Memo {
     }
 
     public Plan copyOut() {
-        return copyOut(root);
+        return copyOut(root, false);
+    }
+
+    public Plan copyOut(boolean includeGroupExpression) {
+        return copyOut(root, includeGroupExpression);
     }
 
     /**
      * copyOut the group.
      * @param group the group what want to copyOut
+     * @param includeGroupExpression whether include group expression in the plan
      * @return plan
      */
-    public Plan copyOut(Group group) {
+    public Plan copyOut(Group group, boolean includeGroupExpression) {
         GroupExpression logicalExpression = group.getLogicalExpression();
-        List<Plan> childrenNode = Lists.newArrayList();
+        List<Plan> children = Lists.newArrayList();
         for (Group child : logicalExpression.children()) {
-            childrenNode.add(copyOut(child));
+            children.add(copyOut(child, includeGroupExpression));
         }
-        Plan result = logicalExpression.getPlan();
-        if (result.children().size() == 0) {
-            return result;
-        }
-        return result.withChildren(childrenNode);
+        Plan planWithChildren = logicalExpression.getPlan().withChildren(children);
+
+        Optional<GroupExpression> groupExpression = includeGroupExpression
+                ? Optional.of(logicalExpression)
+                : Optional.empty();
+
+        return planWithChildren.withGroupExpression(groupExpression);
     }
 
     /**

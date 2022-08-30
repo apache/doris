@@ -85,10 +85,11 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(RuleFactory rule) {
         cascadesContext.topDownRewrite(rule);
+        String s = cascadesContext.getMemo().copyOut().treeString();
+        MemoTestUtils.printGroupTree(cascadesContext.getMemo());
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
     }
-
 
     public PlanChecker applyTopDown(PatternMatcher patternMatcher) {
         cascadesContext.topDownRewrite(new OneRewriteRuleFactory() {

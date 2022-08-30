@@ -22,9 +22,8 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -82,9 +81,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
      */
     @Override
     public String treeString() {
-        List<String> lines = new ArrayList<>();
-        treeString(lines, 0, new ArrayList<>(), this);
-        return StringUtils.join(lines, "\n");
+        return TreeStringUtils.treeString(this,
+                plan -> plan.toString(),
+                plan -> (List) ((Plan) plan).children());
     }
 
     private void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Plan plan) {

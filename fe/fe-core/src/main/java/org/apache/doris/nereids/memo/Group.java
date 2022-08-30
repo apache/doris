@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -31,11 +32,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -331,6 +334,50 @@ public class Group {
     @Override
     public String toString() {
         return "Group[" + groupId + "]";
+    }
+
+    /**
+     * Get tree like string describing group.
+     *
+     * @return tree like string describing group
+     */
+    public String treeString() {
+        Function<Object, String> toString = obj -> {
+            if (obj instanceof Group) {
+                return obj.toString();
+            } else if (obj instanceof GroupExpression) {
+                return ((GroupExpression) obj).getPlan().toString();
+            } else if (obj instanceof Pair) {
+                // print logicalExpressions or physicalExpressions
+                // first is name, second is group expressions
+                return ((Pair<?, ?>) obj).first.toString();
+            } else {
+                return obj.toString();
+            }
+        };
+
+        Function<Object, List<Object>> getChildren = obj -> {
+            if (obj instanceof Group) {
+                Group group = (Group) obj;
+                List children = new ArrayList<>();
+
+                // to <name, children> pair
+                if (!group.getLogicalExpressions().isEmpty()) {
+                    children.add(Pair.of("logicalExpressions", group.getLogicalExpressions()));
+                }
+                if (!group.getPhysicalExpressions().isEmpty()) {
+                    children.add(Pair.of("physicalExpressions", group.getLogicalExpressions()));
+                }
+                return children;
+            } else if (obj instanceof GroupExpression) {
+                return (List) ((GroupExpression) obj).children();
+            } else if (obj instanceof Pair) {
+                return (List) ((Pair<String, List<GroupExpression>>) obj).second;
+            } else {
+                return ImmutableList.of();
+            }
+        };
+        return TreeStringUtils.treeString(this, toString, getChildren);
     }
 
     /**
