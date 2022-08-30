@@ -103,7 +103,6 @@ public class PlanChecker {
 
     /**
      * generate physical plan
-     * @param plan logical plan that only parsed
      * @return this
      * @throws AnalysisException exception in plan
      */

@@ -171,6 +171,10 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         return origFilters;
     }
 
+    /**
+     * s
+     * @return s
+     */
     @VisibleForTesting
     public List<RuntimeFilter> getNereridsRuntimeFilter() {
         List<RuntimeFilter> filters = filtersByExprId.values().stream()
