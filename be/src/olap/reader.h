@@ -78,7 +78,7 @@ public:
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
         std::vector<FunctionFilter> function_filters;
-        std::vector<DeletePredicatePB> delete_predicates;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
 
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
