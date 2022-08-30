@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.base.Preconditions;
 
 /**
  * Common function for JoinCommute
@@ -39,16 +38,11 @@ public class JoinCommuteHelper {
         this.swapType = swapType;
     }
 
-    public static boolean check(LogicalJoin join) {
-        if (join.getJoinReorderContext().hasCommute() || join.getJoinReorderContext().hasExchange()) {
-            return false;
-        }
-        return true;
+    public static boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
+        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
     }
 
-    public static boolean check(LogicalProject project) {
-        Preconditions.checkState(project.child() instanceof LogicalJoin);
-        LogicalJoin join = (LogicalJoin) project.child();
-        return check(join);
+    public static boolean check(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        return check(project.child());
     }
 }

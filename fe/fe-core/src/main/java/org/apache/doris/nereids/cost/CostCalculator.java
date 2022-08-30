@@ -72,8 +72,8 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalProject(PhysicalProject<Plan> physicalProject, PlanContext context) {
-            return CostEstimate.zero();
+        public CostEstimate visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
+            return CostEstimate.ofCpu(1);
         }
 
         @Override

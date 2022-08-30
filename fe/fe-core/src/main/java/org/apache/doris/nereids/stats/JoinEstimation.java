@@ -30,6 +30,7 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,17 +48,17 @@ public class JoinEstimation {
         JoinType joinType = join.getJoinType();
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
-        List<Expression> eqConjunctList = join.getHashJoinConjuncts();
-        List<Slot> leftSlot = leftStats.getSlotToColumnStats().entrySet().stream()
-                .map(slot -> slot.getKey()).collect(Collectors.toList());
-        List<Expression> execConjunctList = eqConjunctList.stream().map(EqualTo.class::cast)
+        // TODO: normalize join hashConjuncts.
+        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+        List<Slot> leftSlot = new ArrayList<>(leftStats.getSlotToColumnStats().keySet());
+        List<Expression> normalizedConjuncts = hashJoinConjuncts.stream().map(EqualTo.class::cast)
                 .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftSlot))
                         .collect(Collectors.toList());
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
-            rowCount = getSemiJoinRowCount(leftStats, rightStats, execConjunctList, joinType);
+            rowCount = getSemiJoinRowCount(leftStats, rightStats, normalizedConjuncts, joinType);
         } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
-            rowCount = getJoinRowCount(leftStats, rightStats, execConjunctList, joinType);
+            rowCount = getJoinRowCount(leftStats, rightStats, normalizedConjuncts, joinType);
         } else if (joinType.isCrossJoin()) {
             rowCount = CheckedMath.checkedMultiply(leftStats.getRowCount(),
                     rightStats.getRowCount());
