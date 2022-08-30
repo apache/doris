@@ -47,11 +47,14 @@ public:
                            bloom_filters,
                    const std::vector<FunctionFilter>& function_filters);
 
+    const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
+
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    void _update_counters_before_close() override;
 
 private:
-    void _update_counter();
+    void _update_realtime_counters();
 
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
@@ -74,6 +77,10 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
+
+    // ========= profiles ==========
+    int64_t _compressed_bytes_read = 0;
+    int64_t _raw_rows_read = 0;
 };
 } // namespace vectorized
 } // namespace doris

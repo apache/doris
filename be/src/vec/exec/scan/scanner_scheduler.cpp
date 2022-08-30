@@ -91,15 +91,24 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 }
 
 void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
+    ctx->incr_num_ctx_scheduling(1);
     if (ctx->done()) {
         ctx->update_num_running(0, -1);
         return;
     }
 
     std::list<VScanner*> this_run;
-    ctx->get_next_batch_of_scanners(&this_run);
+    bool res = ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
-        submit(ctx);
+        if (!res) {
+            // This means we failed to choose scanners this time, and there may be no other scanners running.
+            // So we need to submit this ctx back to queue to be scheduled next time.
+            submit(ctx);
+        } else {
+            // No need to push back this ctx to reschedule
+            // There will be running scanners to push it back.
+            ctx->update_num_running(0, -1);
+        }
         return;
     }
 
@@ -109,15 +118,16 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     int nice = 1;
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     auto iter = this_run.begin();
+    ctx->incr_num_scanner_scheduling(this_run.size());
     if (ctx->thread_token != nullptr) {
         while (iter != this_run.end()) {
+            (*iter)->start_wait_worker_timer();
             auto s = ctx->thread_token->submit_func(
                     [this, scanner = *iter, parent_span = cur_span, ctx] {
                         opentelemetry::trace::Scope scope {parent_span};
                         this->_scanner_scan(this, ctx, scanner);
                     });
             if (s.ok()) {
-                (*iter)->start_wait_worker_timer();
                 this_run.erase(iter++);
             } else {
                 ctx->set_status_on_error(s);
@@ -157,11 +167,11 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                                      VScanner* scanner) {
     // TODO: rethink mem tracker and span
     // START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
-    //                   "ScannerScheduler::_scanner_scan");
-    // SCOPED_ATTACH_TASK(scanner->runtime_state());
+    //                    "ScannerScheduler::_scanner_scan");
+    SCOPED_ATTACH_TASK(scanner->runtime_state());
 
     Thread::set_self_name("_scanner_scan");
-    // int64_t wait_time = scanner->update_wait_worker_timer();
+    scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
     ThreadCpuStopWatch cpu_watch;
