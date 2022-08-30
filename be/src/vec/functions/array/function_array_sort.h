@@ -107,7 +107,7 @@ private:
                               const ColumnArray::Offset& curr_offset,
                               const SrcDataType* src_data_concrete, const IColumn& src_column,
                               const NullMapType* src_null_map, IColumn::Permutation& permutation) {
-        for (ColumnArray::Offset j = prev_offset; j < curr_offset - 1; ++j) {
+        for (ColumnArray::Offset j = prev_offset; j + 1 < curr_offset; ++j) {
             if (src_null_map && (*src_null_map)[j]) {
                 continue;
             }
