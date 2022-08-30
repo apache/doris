@@ -39,7 +39,7 @@ public:
 
     bool source_exhausted() { return _current_row == _source_size; }
 
-    bool is_finish() { return _result_block->rows() >= _batch_size; }
+    bool is_finish() { return agg_block_rows() >= _batch_size; }
 
     std::shared_ptr<Block> aggregate_result();
 
@@ -48,6 +48,8 @@ public:
     void aggregate_reset();
 
     bool is_do_aggregate() { return _do_aggregate; }
+
+    size_t agg_block_rows();
 
 private:
     CompareFunc _get_comparator(const TabletColumn& col);

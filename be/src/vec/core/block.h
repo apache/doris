@@ -477,14 +477,12 @@ public:
                                    ->get_nested_type()
                                    ->equals(*block.get_by_position(i).type));
                     DCHECK(!block.get_by_position(i).type->is_nullable());
-                    const IColumn& src = *make_nullable(block.get_by_position(i).column)
-                                                  ->convert_to_full_column_if_const();
-                    _columns[i]->insert_range_from(src, 0, src.size());
+                    auto src = make_nullable(block.get_by_position(i).column)
+                                       ->convert_to_full_column_if_const();
+                    _columns[i]->insert_range_from(*src, 0, src->size());
                 } else {
-                    const IColumn& src = *block.get_by_position(i)
-                                                  .column->convert_to_full_column_if_const()
-                                                  .get();
-                    _columns[i]->insert_range_from(src, 0, src.size());
+                    auto src = block.get_by_position(i).column->convert_to_full_column_if_const();
+                    _columns[i]->insert_range_from(*src, 0, src->size());
                 }
             }
         }

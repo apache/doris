@@ -152,8 +152,8 @@ void BlockAggregator::update_source(const Block* block) {
         }
     }
 
-    if (_result_block->rows() > 0 && _num_key_columns > 0) {
-        _eq_previous[0] = _result_block->compare_at(_result_block->rows() - 1, 0, _num_key_columns,
+    if (agg_block_rows() > 0 && _num_key_columns > 0) {
+        _eq_previous[0] = _result_block->compare_at(agg_block_rows() - 1, 0, _num_key_columns,
                                                     *block, -1, _output_columns_loc) == 0;
     } else {
         _eq_previous[0] = 0;
@@ -179,7 +179,7 @@ void BlockAggregator::aggregate() {
     }
 
     uint32_t cur_row = _current_row;
-    uint32_t res_rows = _result_block->rows();
+    uint32_t res_rows = agg_block_rows();
     for (; cur_row < _source_size; ++cur_row) {
         if (_eq_previous[cur_row] == 0) {
             if (res_rows >= _batch_size) {
@@ -193,7 +193,7 @@ void BlockAggregator::aggregate() {
         }
     }
 
-    bool neq_previous = !_eq_previous[_current_row] && (_result_block->rows() != 0);
+    bool neq_previous = !_eq_previous[_current_row] && (agg_block_rows() != 0);
 
     for (int i = 0; i < _num_key_columns; ++i) {
         _column_aggregator[i]->aggregate_keys(_agg_index.size(), _agg_index.data());
@@ -222,6 +222,13 @@ void BlockAggregator::aggregate_reset() {
         _column_aggregator[i]->update_aggregate(cols[_output_columns_loc[i]]);
     }
     _has_agg_data = false;
+}
+
+size_t BlockAggregator::agg_block_rows() {
+    if (!_output_columns_loc.empty()) {
+        return _result_block->get_column_by_position(_output_columns_loc[0])->size();
+    }
+    return 0;
 }
 
 } // namespace doris::vectorized
