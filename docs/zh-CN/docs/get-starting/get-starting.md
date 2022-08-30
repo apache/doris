@@ -283,7 +283,7 @@ create database demo;
 ```sql
 use demo;
 
-CREATE TABLE IF NOT EXISTS demo.expamle_tbl
+CREATE TABLE IF NOT EXISTS demo.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -314,14 +314,14 @@ PROPERTIES (
 10004,2017-10-03,深圳,35,0,2017-10-03 10:20:22,11,6,6
 ```
 
-将上面的数据保存在一个test.csv文件中。
+将上面的数据保存在`test.csv`文件中。
 
 4. 导入数据
 
 这里我们通过Stream load 方式将上面保存到文件中的数据导入到我们刚才创建的表里。
 
 ```
-curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127.0.0.1:8030/api/demo/expamle_tbl/_stream_load
+curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127.0.0.1:8030/api/demo/example_tbl/_stream_load
 ```
 
 - -T test.csv : 这里使我们刚才保存的数据文件，如果路径不一样，请指定完整路径
@@ -364,7 +364,7 @@ curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127
 我们上面完成了建表，输数据导入，下面我们就可以体验 Doris 的数据快速查询分析能力。
 
 ```sql
-mysql> select * from expamle_tbl;
+mysql> select * from example_tbl;
 +---------+------------+--------+------+------+---------------------+------+----------------+----------------+
 | user_id | date       | city   | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
 +---------+------------+--------+------+------+---------------------+------+----------------+----------------+
@@ -377,7 +377,7 @@ mysql> select * from expamle_tbl;
 +---------+------------+--------+------+------+---------------------+------+----------------+----------------+
 6 rows in set (0.02 sec)
 
-mysql> select * from expamle_tbl where city='上海';
+mysql> select * from example_tbl where city='上海';
 +---------+------------+--------+------+------+---------------------+------+----------------+----------------+
 | user_id | date       | city   | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
 +---------+------------+--------+------+------+---------------------+------+----------------+----------------+
@@ -385,7 +385,7 @@ mysql> select * from expamle_tbl where city='上海';
 +---------+------------+--------+------+------+---------------------+------+----------------+----------------+
 1 row in set (0.05 sec)
 
-mysql> select city, sum(cost) as total_cost from expamle_tbl group by city;
+mysql> select city, sum(cost) as total_cost from example_tbl group by city;
 +--------+------------+
 | city   | total_cost |
 +--------+------------+
