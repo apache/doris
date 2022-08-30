@@ -42,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -181,11 +182,16 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 });
     }
 
-    public Map<ExprId, List<RuntimeFilter>> getFiltersByExprId() {
-        return this.filtersByExprId;
-    }
-
     public List<org.apache.doris.planner.RuntimeFilter> getRuntimeFilters() {
         return origFilters;
+    }
+
+    @VisibleForTesting
+    public List<RuntimeFilter> getNereridsRuntimeFilter() {
+        return filtersByExprId.values().stream()
+                .reduce(com.clearspring.analytics.util.Lists.newArrayList(), (l, r) -> {
+                    l.addAll(r);
+                    return l;
+                });
     }
 }

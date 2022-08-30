@@ -41,7 +41,7 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    private RuntimeFilterGenerator runtimeFilter;
+    private final RuntimeFilterGenerator runtimeFilter;
 
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition, LogicalProperties logicalProperties,

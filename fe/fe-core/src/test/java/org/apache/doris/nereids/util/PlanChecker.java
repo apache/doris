@@ -19,15 +19,15 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.batch.NereidsRulesJobRewriter;
+import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
-import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.processor.post.PlanPostprocessors;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -107,8 +107,18 @@ public class PlanChecker {
      * @return this
      * @throws AnalysisException exception in plan
      */
-    public PlanChecker implement(LogicalPlan plan) throws AnalysisException {
-        implementedPlan = new NereidsPlanner(new StatementContext(connectContext, null)).plan(plan, PhysicalProperties.ANY);
+    public PlanChecker implement() throws AnalysisException {
+        new NereidsRulesJobRewriter(cascadesContext).execute();
+        cascadesContext.pushJob(
+                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        new OptimizeRulesJob(cascadesContext).execute();
+        implementedPlan = cascadesContext.getMemo().getRoot().extractPlan();
+        return this;
+    }
+
+    public PlanChecker postProcess() {
+        implementedPlan = new PlanPostprocessors(cascadesContext).process((PhysicalPlan) implementedPlan);
         return this;
     }
 

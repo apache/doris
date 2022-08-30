@@ -35,14 +35,14 @@ import com.google.common.collect.ImmutableList;
 /**
  * Apply rules to normalize expressions.
  */
-public class RewriteJob extends BatchRulesJob {
+public class NereidsRulesJobRewriter extends BatchRulesJob {
 
     /**
      * Constructor.
      *
      * @param cascadesContext context for applying rules.
      */
-    public RewriteJob(CascadesContext cascadesContext) {
+    public NereidsRulesJobRewriter(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))

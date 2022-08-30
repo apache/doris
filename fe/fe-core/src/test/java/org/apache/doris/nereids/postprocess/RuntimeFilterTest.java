@@ -24,20 +24,13 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
 
 import org.junit.jupiter.api.Assertions;
@@ -62,7 +55,9 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
     public void testGenerateRuntimeFilter() throws AnalysisException {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
         PlanChecker.from(connectContext)
-                .implement(new NereidsParser().parseSingle(sql))
+                .analyze(sql)
+                .implement()
+                .postProcess()
                 .matchesPhysicalPlan(
                         physicalProject(
                                 physicalHashJoin(
@@ -71,9 +66,9 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                                 ).when(join -> {
                                     Expression expr = join.getHashJoinConjuncts().get(0);
                                     Assertions.assertTrue(expr instanceof EqualTo);
-                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getFiltersByExprId()
-                                            .get(((SlotReference) expr.child(0)).getExprId());
-                                    return filters.size() == 1;
+                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getNereridsRuntimeFilter();
+                                    return filters.size() == 1
+                                            && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey");
                                 })
                         )
                 );
@@ -83,7 +78,9 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
     public void testGenerateRuntimeFilterByIllegalSrcExpr() throws AnalysisException {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = c_custkey";
         PlanChecker.from(connectContext)
-                .implement(new NereidsParser().parseSingle(sql))
+                .analyze(sql)
+                .implement()
+                .postProcess()
                 .matchesPhysicalPlan(
                         physicalProject(
                                 physicalNestedLoopJoin(
@@ -99,27 +96,23 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
         String sql
                 = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";
         PlanChecker.from(connectContext)
-                .implement(new NereidsParser().parseSingle(sql))
+                .analyze(sql)
+                .implement()
+                .postProcess()
                 .matchesPhysicalPlan(
                         physicalProject(
                                 physicalHashJoin(
                                         physicalOlapScan(),
                                         physicalOlapScan()
-                                ).when(join -> join.getRuntimeFilters().getFiltersByExprId().size() == 3)
+                                ).when(join -> {
+                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getNereridsRuntimeFilter();
+                                    return filters.size() == 3
+                                            && checkRuntimeFilterExpr(filters.get(0), "c_name", "s_name")
+                                            && checkRuntimeFilterExpr(filters.get(1), "c_city", "s_city")
+                                            && checkRuntimeFilterExpr(filters.get(2), "c_nation", "s_nation");
+                                })
                         )
                 );
-    }
-
-    @Test
-    public void testAddRuntimeFilterToHashJoinNode() throws AnalysisException {
-        String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
-        PhysicalPlan plan = new NereidsPlanner(createStatementCtx(sql)).plan(
-                new NereidsParser().parseSingle(sql),
-                PhysicalProperties.ANY
-        );
-        PlanFragment fragment = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
-        Assertions.assertTrue((fragment.getChild(0).getExplainString(TExplainLevel.NORMAL).contains("runtime filter")),
-                "No runtime filter on HashJoinNode");
     }
 
     @Test
@@ -129,13 +122,23 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                 SSBUtils.Q3_1, SSBUtils.Q3_2, SSBUtils.Q3_3, SSBUtils.Q3_4,
                 SSBUtils.Q4_1, SSBUtils.Q4_2, SSBUtils.Q4_3};
         for (String sql : sqls) {
-            System.out.println("sql: " + sql);
-            NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
-            planner.plan(
-                    new LogicalPlanAdapter(new NereidsParser().parseSingle(sql)),
-                    new TQueryOptions()
-            );
-            System.out.println(planner.getExplainString(new ExplainOptions(false, false)));
+            translateSQLAndCheckRuntimeFilter(sql);
         }
+    }
+
+    private void translateSQLAndCheckRuntimeFilter(String sql) throws UserException {
+        System.out.println("sql: " + sql);
+        NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
+        planner.plan(
+                new LogicalPlanAdapter(new NereidsParser().parseSingle(sql)),
+                new TQueryOptions()
+        );
+        Assertions.assertTrue((planner.getExplainString(new ExplainOptions(false, false)).contains("runtime filter")),
+                "Expect runtime filter on HashJoinNode");
+    }
+
+    private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {
+        return filter.getSrcExpr().getColumn().getName().equals(srcColName)
+                && filter.getTargetExpr().getColumn().getName().equals(targetColName);
     }
 }
