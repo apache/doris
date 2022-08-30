@@ -171,7 +171,8 @@ public class OlapScanNode extends ScanNode {
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
         this.isPreAggregation = isPreAggregation;
-        this.reasonOfPreAggregation = reason;
+        this.reasonOfPreAggregation = this.reasonOfPreAggregation == null ? reason :
+                                      this.reasonOfPreAggregation + " " + reason;
     }
 
     public boolean isPreAggregation() {
@@ -1044,6 +1045,9 @@ public class OlapScanNode extends ScanNode {
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                closePreAggregation(Column.DELETE_SIGN + " is used as conjuncts.");
+            }
         }
     }
 
