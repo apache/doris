@@ -58,15 +58,12 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) {
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()) {
-        _label = fmt::format(
-                "{} | {}", label,
-                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label());
-    } else {
-        _label = label + " | ";
-    }
-
-    _bind_group_num = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
+    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
+    _label = fmt::format(
+            "{} | {}", label,
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label());
+    _bind_group_num =
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->group_num();
     {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
         _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(

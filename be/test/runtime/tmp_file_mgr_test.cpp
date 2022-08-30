@@ -25,7 +25,6 @@
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
-#include "util/logging.h"
 #include "util/metrics.h"
 
 using std::filesystem::path;

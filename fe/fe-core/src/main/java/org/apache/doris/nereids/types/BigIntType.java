@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class BigIntType extends IntegralType {
     public static BigIntType INSTANCE = new BigIntType();
 
+    private BigIntType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.BIGINT;

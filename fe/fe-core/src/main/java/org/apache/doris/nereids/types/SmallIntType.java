@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class SmallIntType extends IntegralType {
     public static SmallIntType INSTANCE = new SmallIntType();
 
+    private SmallIntType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.SMALLINT;

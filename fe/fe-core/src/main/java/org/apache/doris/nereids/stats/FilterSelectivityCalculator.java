@@ -42,7 +42,7 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
     private final Map<Slot, ColumnStats> slotRefToStats;
 
     public FilterSelectivityCalculator(Map<Slot, ColumnStats> slotRefToStats) {
-        Preconditions.checkState(slotRefToStats != null);
+        Preconditions.checkNotNull(slotRefToStats);
         this.slotRefToStats = slotRefToStats;
     }
 

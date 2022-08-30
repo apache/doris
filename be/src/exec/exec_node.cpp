@@ -180,13 +180,12 @@ void ExecNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>*
 }
 
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    std::string profile;
-    if (state && state->enable_vectorized_exec()) {
-        profile = "V" + print_plan_node_type(tnode.node_type);
-    } else {
-        profile = print_plan_node_type(tnode.node_type);
-    }
-    init_runtime_profile(profile);
+#ifdef BE_TEST
+    _is_vec = true;
+#else
+    _is_vec = state->enable_vectorized_exec();
+#endif
+    init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
@@ -764,6 +763,10 @@ Status ExecNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     return Status::NotSupported("Not Implemented get block");
+}
+
+std::string ExecNode::get_name() {
+    return (_is_vec ? "V" : "") + print_plan_node_type(_type);
 }
 
 } // namespace doris

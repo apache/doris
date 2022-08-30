@@ -18,6 +18,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 #include "udf/udf_internal.h"
+#include "util/stack_util.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {

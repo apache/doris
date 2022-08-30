@@ -35,7 +35,6 @@
 #include "olap/utils.h"
 #include "util/cpu_info.h"
 #include "util/file_utils.h"
-#include "util/logging.h"
 
 using namespace std;
 using namespace doris;
@@ -969,17 +968,8 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     add_delete_predicate(del_pred_4, 5);
 
     // Get delete conditions which version <= 5
-    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 5);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(4, _delete_handler.conditions_num());
-    std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
-    EXPECT_EQ(4, conds_version.size());
-    sort(conds_version.begin(), conds_version.end());
-    EXPECT_EQ(2, conds_version[0]);
-    EXPECT_EQ(3, conds_version[1]);
-    EXPECT_EQ(4, conds_version[2]);
-    EXPECT_EQ(5, conds_version[3]);
-
     _delete_handler.finalize();
 }
 
@@ -1010,9 +1000,8 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     add_delete_predicate(del_pred, 2);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(1, _delete_handler.conditions_num());
 
     // 构造一行测试数据
     std::vector<string> data_str;
@@ -1095,9 +1084,8 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     add_delete_predicate(del_pred_3, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(3, _delete_handler.conditions_num());
 
     std::vector<string> data_str;
     data_str.push_back("4");
@@ -1158,9 +1146,8 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
-    res = _delete_handler.init(tablet, tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_EQ(2, _delete_handler.conditions_num());
 
     // 构造一行测试数据
     std::vector<string> data_str;

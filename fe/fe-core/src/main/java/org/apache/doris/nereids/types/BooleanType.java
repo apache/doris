@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 public class BooleanType extends PrimitiveType {
     public static BooleanType INSTANCE = new BooleanType();
 
+    private BooleanType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.BOOLEAN;

@@ -19,7 +19,6 @@
 
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "util/logging.h"
 #include "util/metrics.h"
 
 namespace doris {

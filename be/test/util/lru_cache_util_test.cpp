@@ -20,7 +20,6 @@
 #include <memory>
 
 #include "common/config.h"
-#include "util/logging.h"
 #include "util/lru_cache.hpp"
 
 namespace doris {

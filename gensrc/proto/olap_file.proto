@@ -149,7 +149,7 @@ enum KeysType {
 }
 
 message DeletePredicatePB {
-    required int32 version = 1;
+    required int32 version = 1; // This field is useless, but could not removed, not depend on it
     repeated string sub_predicates = 2;
     repeated InPredicatePB in_predicates = 3;
 }

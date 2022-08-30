@@ -36,7 +36,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
-#include "util/logging.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -375,6 +374,8 @@ public:
     OpentelemetryTracer get_tracer() { return _tracer; }
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
+
+    bool enable_profile() const { return _query_options.is_report_success; }
 
 private:
     // Use a custom block manager for the query for testing purposes.

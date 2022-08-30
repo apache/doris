@@ -21,6 +21,7 @@
 
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/selection_vector.h"
 #include "vec/columns/column.h"
 
@@ -95,6 +96,14 @@ public:
                               bool* flags) const {};
     virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {};
+
+    virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+        return true;
+    }
+
+    virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
+
+    virtual bool can_do_bloom_filter() const { return false; }
 
     // used to evaluate pre read column in lazy matertialization
     // now only support integer/float

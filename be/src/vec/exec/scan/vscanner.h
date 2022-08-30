@@ -46,6 +46,9 @@ protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
+    // Update the counters before closing this scanner
+    virtual void _update_counters_before_close();
+
     // Init the input block if _input_tuple_desc is set.
     // Otherwise, use output_block directly.
     void _init_input_block(Block* output_block);
@@ -66,8 +69,12 @@ public:
 
     // Call start_wait_worker_timer() when submit the scanner to the thread pool.
     // And call update_wait_worker_timer() when it is actually being executed.
-    void start_wait_worker_timer() {}
-    int64_t update_wait_worker_timer() { return 0; }
+    void start_wait_worker_timer() {
+        _watch.reset();
+        _watch.start();
+    }
+
+    void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -82,7 +89,10 @@ public:
 
     bool need_to_close() { return _need_to_close; }
 
-    void mark_to_need_to_close() { _need_to_close = true; }
+    void mark_to_need_to_close() {
+        _update_counters_before_close();
+        _need_to_close = true;
+    }
 
     void set_status_on_failure(const Status& st) { _status = st; }
 
@@ -132,9 +142,15 @@ protected:
     // and will be destroyed at the end.
     std::vector<VExprContext*> _stale_vexpr_ctxs;
 
+    // num of rows read from scanner
     int64_t _num_rows_read = 0;
-    int64_t _raw_rows_read = 0;
-    int64_t _num_rows_return = 0;
+
+    // Set true after counter is updated finally
+    bool _has_updated_counter = false;
+
+    // watch to count the time wait for scanner thread
+    MonotonicStopWatch _watch;
+    int64_t _scanner_wait_worker_timer = 0;
 };
 
 } // namespace doris::vectorized

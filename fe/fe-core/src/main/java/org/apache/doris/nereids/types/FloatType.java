@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 public class FloatType extends FractionalType {
     public static FloatType INSTANCE = new FloatType();
 
+    private FloatType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.FLOAT;

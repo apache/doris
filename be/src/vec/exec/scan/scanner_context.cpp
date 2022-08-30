@@ -22,6 +22,7 @@
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scanner_scheduler.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
@@ -69,6 +70,9 @@ Status ScannerContext::init() {
 
     _num_unfinished_scanners = _scanners.size();
 
+    COUNTER_SET(_parent->_pre_alloc_free_blocks_num, (int64_t)_free_blocks.size());
+    COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
+
     return Status::OK();
 }
 
@@ -83,6 +87,7 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
     }
     *get_free_block = false;
 
+    COUNTER_UPDATE(_parent->_newly_create_free_blocks_num, 1);
     return new vectorized::Block(_real_tuple_desc->slots(), _state->batch_size());
 }
 
@@ -105,6 +110,11 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
     std::unique_lock<std::mutex> l(_transfer_lock);
     // Wait for block from queue
     while (_process_status.ok() && !_is_finished && blocks_queue.empty()) {
+        if (_state->is_cancelled()) {
+            _process_status = Status::Cancelled("cancelled");
+            break;
+        }
+        SCOPED_TIMER(_parent->_scanner_wait_batch_timer);
         _blocks_queue_added_cv.wait_for(l, std::chrono::seconds(1));
     }
 
@@ -145,8 +155,6 @@ Status ScannerContext::_close_and_clear_scanners() {
 }
 
 void ScannerContext::clear_and_join() {
-    _close_and_clear_scanners();
-
     std::unique_lock<std::mutex> l(_transfer_lock);
     do {
         if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
@@ -158,10 +166,15 @@ void ScannerContext::clear_and_join() {
         }
     } while (false);
 
+    // Must wait all running scanners stop running.
+    // So that we can make sure to close all scanners.
+    _close_and_clear_scanners();
+
     std::for_each(blocks_queue.begin(), blocks_queue.end(),
                   std::default_delete<vectorized::Block>());
     std::for_each(_free_blocks.begin(), _free_blocks.end(),
                   std::default_delete<vectorized::Block>());
+
     return;
 }
 
@@ -189,12 +202,14 @@ void ScannerContext::push_back_scanner_and_reschedule(ScannerScheduler* schedule
     scheduler->submit(this);
     if (scanner->need_to_close() && (--_num_unfinished_scanners) == 0) {
         _is_finished = true;
+        COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
+        COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
         _blocks_queue_added_cv.notify_one();
     }
     _ctx_finish_cv.notify_one();
 }
 
-void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_run) {
+bool ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_run) {
     // 1. Calculate how many scanners should be scheduled at this run.
     int thread_slot_num = 0;
     {
@@ -209,6 +224,11 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             if (thread_slot_num <= 0) {
                 thread_slot_num = 1;
             }
+        } else {
+            // The blocks queue reaches limit, so no more scanners will be scheduled this time.
+            // We need to return false so that the scanner scheduler will push bash this ctx
+            // to the scheduling queue, waiting next scheduling.
+            return false;
         }
     }
 
@@ -227,6 +247,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             }
         }
     }
+    return true;
 }
 
 } // namespace doris::vectorized
