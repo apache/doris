@@ -30,6 +30,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -83,6 +84,14 @@ public class ExpressionUtils {
 
     public static Expression and(Expression... expressions) {
         return combine(And.class, Lists.newArrayList(expressions));
+    }
+
+    public static Optional<Expression> andByOptional(List<Expression> expressions) {
+        if (expressions.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(ExpressionUtils.and(expressions));
+        }
     }
 
     public static Expression or(Expression... expressions) {

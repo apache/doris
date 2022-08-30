@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -96,7 +97,7 @@ public class JoinLAsscomProjectTest {
                 Optional.empty(), project, scans.get(2));
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
-        Rule rule = new JoinLAsscomProject().build();
+        Rule rule = new JoinLAsscomProject(Type.INNER).build();
         List<Plan> transform = rule.transform(topJoin, cascadesContext);
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);

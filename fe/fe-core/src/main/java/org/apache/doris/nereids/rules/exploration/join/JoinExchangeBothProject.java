@@ -17,35 +17,29 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 
-
 /**
- * rule factory for exchange without inside-project.
+ * rule factory for exchange with both inside-project.
  */
-@Developing
-public class JoinExchange extends OneExplorationRuleFactory {
+public class JoinExchangeBothProject extends OneExplorationRuleFactory {
     public static final JoinExchange INNER = new JoinExchange();
 
-    /*
-     *        topJoin                      newTopJoin
-     *        /      \                      /      \
-     *   leftJoin  rightJoin   -->   newLeftJoin newRightJoin
-     *    /    \    /    \            /    \        /    \
-     *   A      B  C      D          A      C      B      D
-     */
     @Override
     public Rule build() {
-        return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin())
+        return innerLogicalJoin(logicalProject(innerLogicalJoin()), logicalProject(innerLogicalJoin()))
                 .when(JoinExchangeHelper::check)
                 .then(topJoin -> {
-                    JoinExchangeHelper helper = new JoinExchangeHelper(topJoin, topJoin.left(), topJoin.right());
+
+                    JoinExchangeHelper helper = new JoinExchangeHelper(topJoin, topJoin.left().child(),
+                            topJoin.right().child());
+                    helper.initAllProject(topJoin.left(), topJoin.right());
                     if (!helper.init()) {
                         return null;
                     }
+
                     return helper.newTopJoin();
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }

@@ -15,67 +15,64 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.util.List;
-import java.util.Set;
 
 /**
- * Common function for JoinLAsscom
+ * Common function for LeftAssociate
  */
-class JoinLAsscomHelper extends ThreeJoinHelper {
+class JoinLeftAssociateHelper extends ThreeJoinHelper {
     /*
-     *      topJoin                newTopJoin
-     *      /     \                 /     \
-     * bottomJoin  C   -->  newBottomJoin  B
-     *  /    \                  /    \
-     * A      B                A      C
+     *    topJoin                  newTopJoin
+     *    /     \                  /        \
+     *   A    bottomJoin  ->  newBottomJoin  C
+     *           /    \        /    \
+     *          B      C      A      B
      */
-
-    // Pair<bottomJoin, topJoin>
-    // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
-    public static Set<Pair<JoinType, JoinType>> outerSet = ImmutableSet.of(
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN),
-            Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
-
-    /**
-     * Init plan and output.
-     */
-    public JoinLAsscomHelper(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+    public JoinLeftAssociateHelper(LogicalJoin<GroupPlan, ? extends Plan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
-        super(topJoin, bottomJoin, bottomJoin.left(), bottomJoin.right(), topJoin.right());
+        super(topJoin, bottomJoin, topJoin.left(), bottomJoin.left(), bottomJoin.right());
+    }
+
+    public static JoinLeftAssociateHelper of(LogicalJoin<GroupPlan, ? extends Plan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+        return new JoinLeftAssociateHelper(topJoin, bottomJoin);
     }
 
     /**
      * Create newTopJoin.
      */
     public LogicalJoin<? extends Plan, ? extends Plan> newTopJoin() {
-        Pair<List<NamedExpression>, List<NamedExpression>> projectPair = splitProjectExprs(bOutput);
-        List<NamedExpression> newLeftProjectExpr = projectPair.second;
-        List<NamedExpression> newRightProjectExprs = projectPair.first;
+        Pair<List<NamedExpression>, List<NamedExpression>> projectPair = splitProjectExprs(cOutput);
+        List<NamedExpression> newLeftProjectExpr = projectPair.first;
+        List<NamedExpression> newRightProjectExprs = projectPair.second;
 
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c);
+                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, b);
         Plan left = JoinReorderCommon.project(newLeftProjectExpr, newBottomJoin).orElse(newBottomJoin);
-        Plan right = JoinReorderCommon.project(newRightProjectExprs, b).orElse(b);
+        Plan right = JoinReorderCommon.project(newRightProjectExprs, c).orElse(c);
 
         return new LogicalJoin<>(bottomJoin.getJoinType(), newTopHashJoinConjuncts,
                 ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right);
     }
 
-    public static boolean check(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()) {
+
+    /**
+     * Check JoinReorderContext.
+     */
+    public static boolean check(LogicalJoin<GroupPlan, ? extends Plan> topJoin) {
+        if (topJoin.getJoinReorderContext().hasCommute() || topJoin.getJoinReorderContext().hasLeftAssociate()
+                || topJoin.getJoinReorderContext().hasRightAssociate() || topJoin.getJoinReorderContext()
+                .hasExchange()) {
             return false;
         }
         return true;

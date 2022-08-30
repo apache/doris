@@ -52,7 +52,7 @@ public class JoinCommuteTest {
                 Optional.empty(), scan1, scan2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
-        Rule rule = new JoinCommute(true).build();
+        Rule rule = JoinCommute.OUTER_BUSHY.build();
 
         List<Plan> transform = rule.transform(join, cascadesContext);
         Assertions.assertEquals(1, transform.size());

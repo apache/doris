@@ -17,32 +17,26 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 
 /**
- * Common function for JoinCommute
+ * Rule for inner join LeftAssociate.
  */
-public class JoinCommuteHelper {
+public class JoinLeftAssociate extends OneExplorationRuleFactory {
+    public static final JoinLeftAssociate INNER = new JoinLeftAssociate();
 
-    enum SwapType {
-        BOTTOM_JOIN, ZIG_ZAG, ALL
-    }
-
-    private final boolean swapOuter;
-    private final SwapType swapType;
-
-    public JoinCommuteHelper(boolean swapOuter, SwapType swapType) {
-        this.swapOuter = swapOuter;
-        this.swapType = swapType;
-    }
-
-    public static boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
-        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
-    }
-
-    public static boolean check(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        return check(project.child());
+    @Override
+    public Rule build() {
+        return innerLogicalJoin(groupPlan(), innerLogicalJoin())
+                .when(JoinLeftAssociateHelper::check)
+                .then(topJoin -> {
+                    JoinLeftAssociateHelper helper = JoinLeftAssociateHelper.of(topJoin, topJoin.right());
+                    if (!helper.initJoinOnCondition()) {
+                        return null;
+                    }
+                    return helper.newTopJoin();
+                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }
 }

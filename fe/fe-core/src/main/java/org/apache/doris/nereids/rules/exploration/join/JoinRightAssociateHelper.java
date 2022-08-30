@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
@@ -31,28 +32,19 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Common function for JoinLAsscom
+ * Common function for RightAssociate
  */
-class JoinLAsscomHelper extends ThreeJoinHelper {
-    /*
-     *      topJoin                newTopJoin
-     *      /     \                 /     \
-     * bottomJoin  C   -->  newBottomJoin  B
-     *  /    \                  /    \
-     * A      B                A      C
-     */
-
-    // Pair<bottomJoin, topJoin>
-    // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
+class JoinRightAssociateHelper extends ThreeJoinHelper {
+    //       topJoin        newTopJoin
+    //       /     \         /     \
+    //  bottomJoin  C  ->   A   newBottomJoin
+    //   /    \                     /    \
+    //  A      B                   B      C
     public static Set<Pair<JoinType, JoinType>> outerSet = ImmutableSet.of(
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN),
             Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
             Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
 
-    /**
-     * Init plan and output.
-     */
-    public JoinLAsscomHelper(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+    public JoinRightAssociateHelper(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         super(topJoin, bottomJoin, bottomJoin.left(), bottomJoin.right(), topJoin.right());
     }
@@ -61,23 +53,26 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
      * Create newTopJoin.
      */
     public LogicalJoin<? extends Plan, ? extends Plan> newTopJoin() {
-        Pair<List<NamedExpression>, List<NamedExpression>> projectPair = splitProjectExprs(bOutput);
-        List<NamedExpression> newLeftProjectExpr = projectPair.second;
-        List<NamedExpression> newRightProjectExprs = projectPair.first;
+        Pair<List<NamedExpression>, List<NamedExpression>> projectPair = splitProjectExprs(aOutput);
+        List<NamedExpression> newLeftProjectExpr = projectPair.first;
+        List<NamedExpression> newRightProjectExprs = projectPair.second;
 
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c);
-        Plan left = JoinReorderCommon.project(newLeftProjectExpr, newBottomJoin).orElse(newBottomJoin);
-        Plan right = JoinReorderCommon.project(newRightProjectExprs, b).orElse(b);
+                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), b, c);
+        Plan left = JoinReorderCommon.project(newRightProjectExprs, a).orElse(a);
+        Plan right = JoinReorderCommon.project(newLeftProjectExpr, newBottomJoin).orElse(newBottomJoin);
 
         return new LogicalJoin<>(bottomJoin.getJoinType(), newTopHashJoinConjuncts,
                 ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right);
     }
 
+
+    /**
+     * Check JoinReorderContext.
+     */
     public static boolean check(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()) {
-            return false;
-        }
-        return true;
+        return !topJoin.getJoinReorderContext().hasCommute() && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasRightAssociate() && !topJoin.getJoinReorderContext()
+                .hasExchange();
     }
 }

@@ -17,36 +17,27 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 
-
 /**
- * rule factory for exchange without inside-project.
+ * Rule for inner join LeftAssociate.
  */
-@Developing
-public class JoinExchange extends OneExplorationRuleFactory {
-    public static final JoinExchange INNER = new JoinExchange();
+public class JoinLeftAssociateProject extends OneExplorationRuleFactory {
+    public static final JoinLeftAssociateProject INNER = new JoinLeftAssociateProject();
 
-    /*
-     *        topJoin                      newTopJoin
-     *        /      \                      /      \
-     *   leftJoin  rightJoin   -->   newLeftJoin newRightJoin
-     *    /    \    /    \            /    \        /    \
-     *   A      B  C      D          A      C      B      D
-     */
     @Override
     public Rule build() {
-        return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin())
-                .when(JoinExchangeHelper::check)
+        return innerLogicalJoin(groupPlan(), logicalProject(innerLogicalJoin()))
+                .when(JoinLeftAssociateHelper::check)
                 .then(topJoin -> {
-                    JoinExchangeHelper helper = new JoinExchangeHelper(topJoin, topJoin.left(), topJoin.right());
-                    if (!helper.init()) {
+                    JoinLeftAssociateHelper helper = JoinLeftAssociateHelper.of(topJoin, topJoin.right().child());
+                    helper.initAllProject(topJoin.right());
+                    if (!helper.initJoinOnCondition()) {
                         return null;
                     }
                     return helper.newTopJoin();
-                }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
+                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }
 }

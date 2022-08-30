@@ -208,7 +208,6 @@ public class BitmapValueTest {
         bitmapValue9.and(bitmapValue9Dot1);
         Assert.assertTrue(bitmapValue9.getBitmapType() == BitmapValue.BITMAP_VALUE);
         Assert.assertTrue(bitmapValue9.equals(bitmapValue9Dot1));
-
     }
 
     @Test

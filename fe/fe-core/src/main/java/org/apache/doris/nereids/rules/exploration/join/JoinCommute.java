@@ -21,7 +21,6 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommuteHelper.SwapType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -31,27 +30,23 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 @Developing
 public class JoinCommute extends OneExplorationRuleFactory {
 
-    public static final JoinCommute SWAP_OUTER_COMMUTE_BOTTOM_JOIN = new JoinCommute(true, SwapType.BOTTOM_JOIN);
-    public static final JoinCommute SWAP_OUTER_SWAP_ZIG_ZAG = new JoinCommute(true, SwapType.ZIG_ZAG);
+    public static final JoinCommute OUTER_LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP);
+    public static final JoinCommute OUTER_ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG);
+    public static final JoinCommute OUTER_BUSHY = new JoinCommute(SwapType.BUSHY);
 
-    private final boolean swapOuter;
     private final SwapType swapType;
 
-    public JoinCommute(boolean swapOuter) {
-        this.swapOuter = swapOuter;
-        this.swapType = SwapType.ALL;
+    public JoinCommute(SwapType swapType) {
+        this.swapType = swapType;
     }
 
-    public JoinCommute(boolean swapOuter, SwapType swapType) {
-        this.swapOuter = swapOuter;
-        this.swapType = swapType;
+    enum SwapType {
+        LEFT_DEEP, ZIG_ZAG, BUSHY
     }
 
     @Override
     public Rule build() {
-        return innerLogicalJoin().when(JoinCommuteHelper::check).then(join -> {
-            // TODO: add project for mapping column output.
-            // List<NamedExpression> newOutput = new ArrayList<>(join.getOutput());
+        return innerLogicalJoin().when(this::check).then(join -> {
             LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
@@ -59,12 +54,27 @@ public class JoinCommute extends OneExplorationRuleFactory {
                     join.right(), join.left(),
                     join.getJoinReorderContext());
             newJoin.getJoinReorderContext().setHasCommute(true);
-            // if (swapType == SwapType.ZIG_ZAG && !isBottomJoin(join)) {
-            //     newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
-            // }
+            if (swapType == SwapType.ZIG_ZAG && !isBottomJoin(join)) {
+                newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
+            }
 
-            // LogicalProject<LogicalJoin> project = new LogicalProject<>(newOutput, newJoin);
             return newJoin;
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+    }
+
+
+    private boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (swapType == SwapType.LEFT_DEEP && !isBottomJoin(join)) {
+            return false;
+        }
+
+        if (join.getJoinReorderContext().hasCommute() || join.getJoinReorderContext().hasExchange()) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
+        return false;
     }
 }
