@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -129,11 +131,17 @@ public class RuntimeFilter {
         public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toOriginRuntimeFilterTarget(
                 PlanTranslatorContext ctx, HashJoinNode node) {
             return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(
-                    this.node, RuntimeFilterGenerator.slotRefTransfer(
-                            ((SlotReference) expr).getExprId(), this.node, ctx
+                    this.node, slotRefTransfer(((SlotReference) expr).getExprId(), this.node, ctx
                     ), true,
                     node.getFragmentId().equals(this.node.getFragmentId())
             );
+        }
+
+        private SlotRef slotRefTransfer(ExprId eid, OlapScanNode node, PlanTranslatorContext ctx) {
+            SlotDescriptor slotDesc = node.getTupleDesc().getColumnSlot(
+                    ctx.findSlotRef(eid).getColumnName()
+            );
+            return new SlotRef(slotDesc);
         }
     }
 }

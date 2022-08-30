@@ -18,7 +18,6 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.IdGenerator;
@@ -72,19 +71,21 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     private final Map<ExprId, List<RuntimeFilter.RuntimeFilterTarget>> filterTargetByTid = Maps.newHashMap();
 
-    private SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+    private final List<org.apache.doris.planner.RuntimeFilter> origFilters = Lists.newArrayList();
 
-    private FilterSizeLimits limits = new FilterSizeLimits(sessionVariable);
+    private SessionVariable sessionVariable;
+
+    private FilterSizeLimits limits;
 
     /**
      * clear runtime filter and return the INSTANCE
      * @param ctx connect context
      * @return the INSTANCE
      */
-    public static RuntimeFilterGenerator getInstance(ConnectContext ctx) {
+    public static RuntimeFilterGenerator createInstance(ConnectContext ctx) {
         INSTANCE.filterTargetByTid.clear();
         INSTANCE.filtersByExprId.clear();
-        INSTANCE.sessionVariable = ConnectContext.get().getSessionVariable();
+        INSTANCE.sessionVariable = ctx.getSessionVariable();
         INSTANCE.limits = new FilterSizeLimits(INSTANCE.sessionVariable);
         return INSTANCE;
     }
@@ -137,11 +138,10 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         }
         join.getHashJoinConjuncts().forEach(expr -> {
             ExprId exprId = ((SlotReference) expr.child(0)).getExprId();
-            SlotRef ref = ctx.findSlotRef(exprId);
-            TupleId tid = ref.getDesc().getParent().getId();
+            TupleId tid = ctx.findSlotRef(exprId).getDesc().getParent().getId();
             if (filterTargetByTid.containsKey(exprId) && filtersByExprId.containsKey(exprId)) {
                 List<RuntimeFilter.RuntimeFilterTarget> targets = filterTargetByTid.get(exprId);
-                filtersByExprId.get(exprId).forEach(filter -> {
+                origFilters.addAll(filtersByExprId.get(exprId).stream().map(filter -> {
                     SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
                     SlotRef target = ctx.findSlotRef(filter.getTargetExpr().getExprId());
                     org.apache.doris.planner.RuntimeFilter origFilter
@@ -156,7 +156,8 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                     origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
                     origFilter.markFinalized();
                     origFilter.assignToPlanNodes();
-                });
+                    return origFilter;
+                }).collect(Collectors.toList()));
             }
         });
     }
@@ -178,21 +179,11 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 });
     }
 
-    /**
-     * s
-     * @param eid s
-     * @param node s
-     * @param ctx s
-     * @return s
-     */
-    public static SlotRef slotRefTransfer(ExprId eid, OlapScanNode node, PlanTranslatorContext ctx) {
-        SlotDescriptor slotDesc = node.getTupleDesc().getColumnSlot(
-                ctx.findSlotRef(eid).getColumnName()
-        );
-        return new SlotRef(slotDesc);
-    }
-
     public Map<ExprId, List<RuntimeFilter>> getFiltersByExprId() {
         return this.filtersByExprId;
+    }
+
+    public List<org.apache.doris.planner.RuntimeFilter> getRuntimeFilters() {
+        return origFilters;
     }
 }

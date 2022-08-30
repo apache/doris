@@ -30,6 +30,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.PlanPostprocessors;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 
 import com.google.common.collect.Lists;
@@ -204,5 +206,10 @@ public class NereidsPlanner extends Planner {
     @Override
     public void appendTupleInfo(StringBuilder str) {
         str.append(descTable.getExplainString());
+    }
+
+    @Override
+    public List<RuntimeFilter> getAssignedRuntimeFilter() {
+        return RuntimeFilterGenerator.INSTANCE.getRuntimeFilters();
     }
 }
