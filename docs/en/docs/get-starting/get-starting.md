@@ -112,7 +112,7 @@ You can see the following screen, which indicates that the FE has started succes
 
 #### Connect FE
 
-We will connect to Doris FE via MySQL client below, download the installation-free [MySQL client](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-) glibc2.12-x86_64.tar.gz)
+We will connect to Doris FE via MySQL client below, download the installation-free [MySQL client](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-glibc2.12-x86_64.tar.gz)
 
 Unzip the MySQL client you just downloaded and you can find the `mysql` command line tool in the `bin/` directory. Then execute the following command to connect to Doris.
 
@@ -279,7 +279,7 @@ create database demo;
 ```sql
 use demo;
 
-CREATE TABLE IF NOT EXISTS demo.expamle_tbl
+CREATE TABLE IF NOT EXISTS demo.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "user id",
     `date` DATE NOT NULL COMMENT "",
@@ -310,14 +310,14 @@ PROPERTIES (
 10004,2017-10-03,shenzhen,35,0,2017-10-03 10:20:22,11,6,6
 ```
 
-Save the above data in a test.csv file.
+Save the above data into `test.csv` file.
 
 4. Import data
 
 Here we import the data saved to the file above into the table we just created via Stream load。
 
 ```
-curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127.0.0.1:8030/api/demo/expamle_tbl/_stream_load
+curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127.0.0.1:8030/api/demo/example_tbl/_stream_load
 ```
 
 - -T test.csv : This is the data file we just saved, if the path is different, please specify the full path
@@ -360,7 +360,7 @@ Here we have finished importing the data, and we can now query and analyze the d
 We have finished building tables and importing data above, so we can experience Doris' ability to quickly query and analyze data.
 
 ```sql
-mysql> select * from expamle_tbl;
+mysql> select * from example_tbl;
 +---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
 | user_id | date       | city      | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
 +---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
@@ -374,7 +374,7 @@ mysql> select * from expamle_tbl;
 +---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
 7 rows in set (0.01 sec)
 
-mysql> select * from expamle_tbl where city='shanghai';
+mysql> select * from example_tbl where city='shanghai';
 +---------+------------+----------+------+------+---------------------+------+----------------+----------------+
 | user_id | date       | city     | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
 +---------+------------+----------+------+------+---------------------+------+----------------+----------------+
@@ -382,7 +382,7 @@ mysql> select * from expamle_tbl where city='shanghai';
 +---------+------------+----------+------+------+---------------------+------+----------------+----------------+
 1 row in set (0.00 sec)
 
-mysql> select city, sum(cost) as total_cost from expamle_tbl group by city;
+mysql> select city, sum(cost) as total_cost from example_tbl group by city;
 +-----------+------------+
 | city      | total_cost |
 +-----------+------------+
