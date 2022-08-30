@@ -169,6 +169,7 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
 inline void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
                                                vectorized::MutableColumnPtr* column_ptr,
                                                const char* data, size_t len) {
+    DCHECK(column_ptr->get()->is_nullable());
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
     if (len == 2 && data[0] == '\\' && data[1] == 'N') {
         nullable_column->get_null_map_data().push_back(1);

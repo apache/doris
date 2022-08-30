@@ -227,7 +227,7 @@ void VBrokerScanNodeTest::init_desc_table() {
         slot_desc.columnPos = 0;
         slot_desc.byteOffset = 0;
         slot_desc.nullIndicatorByte = 0;
-        slot_desc.nullIndicatorBit = -1;
+        slot_desc.nullIndicatorBit = 0;
         slot_desc.colName = "k1";
         slot_desc.slotIdx = 1;
         slot_desc.isMaterialized = true;
@@ -254,7 +254,7 @@ void VBrokerScanNodeTest::init_desc_table() {
         slot_desc.columnPos = 1;
         slot_desc.byteOffset = 16;
         slot_desc.nullIndicatorByte = 0;
-        slot_desc.nullIndicatorBit = -1;
+        slot_desc.nullIndicatorBit = 1;
         slot_desc.colName = "k2";
         slot_desc.slotIdx = 2;
         slot_desc.isMaterialized = true;
@@ -281,7 +281,7 @@ void VBrokerScanNodeTest::init_desc_table() {
         slot_desc.columnPos = 2;
         slot_desc.byteOffset = 32;
         slot_desc.nullIndicatorByte = 0;
-        slot_desc.nullIndicatorBit = -1;
+        slot_desc.nullIndicatorBit = 2;
         slot_desc.colName = "k3";
         slot_desc.slotIdx = 3;
         slot_desc.isMaterialized = true;
@@ -308,7 +308,7 @@ void VBrokerScanNodeTest::init_desc_table() {
         slot_desc.columnPos = 3;
         slot_desc.byteOffset = 48;
         slot_desc.nullIndicatorByte = 0;
-        slot_desc.nullIndicatorBit = -1;
+        slot_desc.nullIndicatorBit = 3;
         slot_desc.colName = "k4";
         slot_desc.slotIdx = 4;
         slot_desc.isMaterialized = true;

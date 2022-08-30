@@ -27,35 +27,33 @@
 namespace doris::vectorized {
 
 Block create_block_with_nested_columns_only_args(const Block& block, const ColumnNumbers& args) {
-    std::unordered_set<size_t> args_set(args.begin(), args.end());
+    std::set<size_t> args_set(args.begin(), args.end());
     Block res;
     size_t columns = block.columns();
 
-    for (size_t i = 0; i < columns; ++i) {
+    for (auto i : args_set) {
         const auto& col = block.get_by_position(i);
 
-        if (args_set.count(i)) {
-            if (col.type->is_nullable()) {
-                const DataTypePtr& nested_type =
-                        static_cast<const DataTypeNullable&>(*col.type).get_nested_type();
+        if (col.type->is_nullable()) {
+            const DataTypePtr& nested_type =
+                    static_cast<const DataTypeNullable&>(*col.type).get_nested_type();
 
-                if (!col.column) {
-                    res.insert({nullptr, nested_type, col.name});
-                } else if (auto* nullable = check_and_get_column<ColumnNullable>(*col.column)) {
-                    const auto& nested_col = nullable->get_nested_column_ptr();
-                    res.insert({nested_col, nested_type, col.name});
-                } else if (auto* const_column = check_and_get_column<ColumnConst>(*col.column)) {
-                    const auto& nested_col =
-                            check_and_get_column<ColumnNullable>(const_column->get_data_column())
-                                    ->get_nested_column_ptr();
-                    res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
-                                col.name});
-                } else {
-                    LOG(FATAL) << "Illegal column for DataTypeNullable";
-                }
+            if (!col.column) {
+                res.insert({nullptr, nested_type, col.name});
+            } else if (auto* nullable = check_and_get_column<ColumnNullable>(*col.column)) {
+                const auto& nested_col = nullable->get_nested_column_ptr();
+                res.insert({nested_col, nested_type, col.name});
+            } else if (auto* const_column = check_and_get_column<ColumnConst>(*col.column)) {
+                const auto& nested_col =
+                        check_and_get_column<ColumnNullable>(const_column->get_data_column())
+                                ->get_nested_column_ptr();
+                res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
+                            col.name});
             } else {
-                res.insert(col);
+                LOG(FATAL) << "Illegal column for DataTypeNullable";
             }
+        } else {
+            res.insert(col);
         }
     }
 
