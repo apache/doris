@@ -34,6 +34,7 @@ class ScannerScheduler;
 namespace vectorized {
 
 class VScanner;
+class VScanNode;
 
 // ScannerContext is responsible for recording the execution status
 // of a group of Scanners corresponding to a ScanNode.
@@ -45,10 +46,11 @@ class VScanner;
 // and submits the Scanners to the scanner thread pool for data scanning.
 class ScannerContext {
 public:
-    ScannerContext(RuntimeState* state_, const TupleDescriptor* input_tuple_desc,
+    ScannerContext(RuntimeState* state_, VScanNode* parent, const TupleDescriptor* input_tuple_desc,
                    const TupleDescriptor* output_tuple_desc, const std::list<VScanner*>& scanners_,
                    int64_t limit_, int64_t max_bytes_in_blocks_queue_)
             : _state(state_),
+              _parent(parent),
               _input_tuple_desc(input_tuple_desc),
               _output_tuple_desc(output_tuple_desc),
               _process_status(Status::OK()),
@@ -108,13 +110,18 @@ public:
         _ctx_finish_cv.notify_one();
     }
 
-    void get_next_batch_of_scanners(std::list<VScanner*>* current_run);
+    bool get_next_batch_of_scanners(std::list<VScanner*>* current_run);
 
     void clear_and_join();
 
     std::string debug_string();
 
     RuntimeState* state() { return _state; }
+
+    void incr_num_ctx_scheduling(int64_t num) { _num_ctx_scheduling += num; }
+    void incr_num_scanner_scheduling(int64_t num) { _num_scanner_scheduling += num; }
+
+    VScanNode* parent() { return _parent; }
 
 public:
     // the unique id of this context
@@ -127,6 +134,7 @@ private:
 
 private:
     RuntimeState* _state;
+    VScanNode* _parent;
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _input_tuple_desc;
@@ -199,7 +207,8 @@ private:
     std::mutex _scanners_lock;
     std::list<VScanner*> _scanners;
 
-    // TODO: Add statistics of this scanner
+    int64_t _num_ctx_scheduling = 0;
+    int64_t _num_scanner_scheduling = 0;
 };
 } // namespace vectorized
 } // namespace doris

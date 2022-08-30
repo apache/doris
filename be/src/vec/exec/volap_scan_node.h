@@ -62,6 +62,8 @@ public:
                      std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
                      RuntimeProfile* profile);
 
+    std::string get_name() override;
+
 private:
     // In order to ensure the accuracy of the query result
     // only key column conjuncts will be remove as idle conjunct
