@@ -338,6 +338,7 @@ public class SlotDescriptor {
         builder.append(prefix).append("byteOffset=").append(byteOffset).append("\n");
         builder.append(prefix).append("nullIndicatorByte=").append(nullIndicatorByte).append("\n");
         builder.append(prefix).append("nullIndicatorBit=").append(nullIndicatorBit).append("\n");
+        builder.append(prefix).append("nullable=").append(isNullable).append("\n");
         builder.append(prefix).append("slotIdx=").append(slotIdx).append("\n");
         return builder.toString();
     }
@@ -345,4 +346,9 @@ public class SlotDescriptor {
     public boolean isScanSlot() {
         return parent.getTable() instanceof OlapTable;
     }
+
+    public void setMaterialized(boolean materialized) {
+        isMaterialized = materialized;
+    }
+
 }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
@@ -119,4 +120,15 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public int hashCode() {
         return Objects.hash(statsDeriveResult, logicalProperties);
     }
+
+    @Override
+    public List<Slot> getOutput() {
+        return logicalProperties.getOutput();
+    }
+
+    @Override
+    public Plan child(int index) {
+        return super.child(index);
+    }
+
 }
