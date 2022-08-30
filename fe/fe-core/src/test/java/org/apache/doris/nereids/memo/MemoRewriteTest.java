@@ -491,7 +491,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                     .setMaxInvokeTimesPerRule(1000)
                     .applyBottomUp(
                             logicalLimit().when(limit10::equals).then(limit -> limit.withChildren(
-                                    new LogicalLimit<>(10, 0, student)
+                                    new LogicalOlapScan(PlanConstructor.student)
                             ))
                     );
         });
