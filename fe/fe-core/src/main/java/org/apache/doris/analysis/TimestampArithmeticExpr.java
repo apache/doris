@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -89,11 +90,17 @@ public class TimestampArithmeticExpr extends Expr {
     /**
      * used for Nereids ONLY.
      * C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
+     *
+     * @param funcName timestamp arithmetic function name, used for all function except ADD and SUBTRACT.
+     * @param e1 left child of this function
+     * @param e2 right child of this function
+     * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
+     * @param dataType the return data type of this expression.
      */
     public TimestampArithmeticExpr(String funcName, Expr e1, Expr e2, String timeUnitIdent, Type dataType) {
         this.funcName = funcName;
         this.timeUnitIdent = timeUnitIdent;
-        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent);
+        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase(Locale.ROOT));
         this.intervalFirst = false;
         children.add(e1);
         children.add(e2);
@@ -105,6 +112,13 @@ public class TimestampArithmeticExpr extends Expr {
      * C'tor for non-function-call like arithmetic, e.g., 'a + interval b year'.
      * e1 always refers to the timestamp to be added/subtracted from, and e2
      * to the time value (even in the interval-first case).
+     *
+     * @param op operator of this function either ADD or SUBTRACT.
+     * @param e1 left child of this function
+     * @param e2 right child of this function
+     * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
+     * @param intervalFirst true if the left child is interval literal
+     * @param dataType the return data type of this expression.
      */
     public TimestampArithmeticExpr(ArithmeticExpr.Operator op, Expr e1, Expr e2,
             String timeUnitIdent, boolean intervalFirst, Type dataType) {
@@ -112,7 +126,7 @@ public class TimestampArithmeticExpr extends Expr {
         this.funcName = null;
         this.op = op;
         this.timeUnitIdent = timeUnitIdent;
-        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent);
+        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase(Locale.ROOT));
         this.intervalFirst = intervalFirst;
         children.add(e1);
         children.add(e2);
