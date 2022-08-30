@@ -36,7 +36,16 @@ WholeFileCache::~WholeFileCache() {}
 
 Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
     if (_cache_file_reader == nullptr) {
-        RETURN_IF_ERROR(_generate_cache_reader(offset, result.size));
+        auto st = _generate_cache_reader(offset, result.size);
+        if (!st.ok()) {
+            WARN_IF_ERROR(_remote_file_reader->close(),
+                          fmt::format("Close remote file reader failed: {}",
+                                      _remote_file_reader->path().native()));
+            return st;
+        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(_remote_file_reader->close(),
+                                       fmt::format("Close remote file reader failed: {}",
+                                                   _remote_file_reader->path().native()));
     }
     std::shared_lock<std::shared_mutex> rlock(_cache_lock);
     RETURN_NOT_OK_STATUS_WITH_WARN(
