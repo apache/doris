@@ -72,7 +72,7 @@ fi
 
 eval set -- "${OPTS}"
 
-PARALLEL="$(($(nproc) / 5 + 1))"
+PARALLEL="$(($(nproc) / 3 + 1))"
 
 CLEAN=0
 RUN=0

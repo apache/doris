@@ -923,7 +923,9 @@ MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int
         for (auto slot_desc : tuple_desc->slots()) {
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
-            if (reserve_size != 0) { _columns.back()->reserve(reserve_size); }
+            if (reserve_size != 0) {
+                _columns.back()->reserve(reserve_size);
+            }
         }
     }
 }

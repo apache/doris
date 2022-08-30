@@ -29,7 +29,6 @@ namespace doris::vectorized {
 Block create_block_with_nested_columns_only_args(const Block& block, const ColumnNumbers& args) {
     std::set<size_t> args_set(args.begin(), args.end());
     Block res;
-    size_t columns = block.columns();
 
     for (auto i : args_set) {
         const auto& col = block.get_by_position(i);

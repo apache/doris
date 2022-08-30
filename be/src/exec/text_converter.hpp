@@ -173,10 +173,12 @@ inline void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
     if (len == 2 && data[0] == '\\' && data[1] == 'N') {
         nullable_column->get_null_map_data().push_back(1);
-        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column()).insert_default();
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_default();
     } else {
         nullable_column->get_null_map_data().push_back(0);
-        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column()).insert_data(data, len);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_data(data, len);
     }
 }
 

@@ -317,9 +317,10 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
         bool is_origin_column = result_column_id < origin_column_num;
-        auto column_ptr = is_origin_column && _src_block_mem_reuse ?
-                                           _src_block.get_by_position(result_column_id).column->clone_resized(rows) :
-                                           _src_block.get_by_position(result_column_id).column;
+        auto column_ptr =
+                is_origin_column && _src_block_mem_reuse
+                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
+                        : _src_block.get_by_position(result_column_id).column;
 
         DCHECK(column_ptr != nullptr);
 

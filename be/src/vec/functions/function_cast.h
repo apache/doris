@@ -1286,14 +1286,14 @@ private:
                     tmp_block.insert({nullptr, nested_type, ""});
 
                     /// Perform the requested conversion.
-                    RETURN_IF_ERROR(wrapper(context, tmp_block, {0}, tmp_res_index,
-                                            input_rows_count));
+                    RETURN_IF_ERROR(
+                            wrapper(context, tmp_block, {0}, tmp_res_index, input_rows_count));
 
                     const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
 
-                    res.column = wrap_in_nullable(tmp_res.column,
-                                                  Block({block.get_by_position(arguments[0]), tmp_res}),
-                                                  {0}, 1, input_rows_count);
+                    res.column = wrap_in_nullable(
+                            tmp_res.column, Block({block.get_by_position(arguments[0]), tmp_res}),
+                            {0}, 1, input_rows_count);
                 } else {
                     tmp_block = block;
 
