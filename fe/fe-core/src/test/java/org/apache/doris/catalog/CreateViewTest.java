@@ -58,9 +58,9 @@ public class CreateViewTest {
         Env.getCurrentEnv().createTable(createTableStmt);
         // create table with array type
         String createTableWithArrayStmtStr = "create table test.tbl2(id int, c_array array<int(11)>) duplicate key(id)"
-            + " distributed by hash(id) buckets 1 properties('replication_num' = '1');";
+                + " distributed by hash(id) buckets 1 properties('replication_num' = '1');";
         CreateTableStmt createTableWithArrayStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-            createTableWithArrayStmtStr, connectContext);
+                createTableWithArrayStmtStr, connectContext);
         Env.getCurrentEnv().createTable(createTableWithArrayStmt);
     }
 
@@ -108,7 +108,7 @@ public class CreateViewTest {
 
         // test array type
         ExceptionChecker.expectThrowsNoException(
-            () -> createView("create view test.view8 as select * from test.tbl2;"));
+                () -> createView("create view test.view8 as select * from test.tbl2;"));
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
 
