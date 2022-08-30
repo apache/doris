@@ -536,6 +536,10 @@ Status ArrayColumnWriter::init() {
 }
 
 Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
+    if (config::enable_write_array_offset) {
+        footer->set_next_array_item_ordinal(_item_writer->get_next_rowid());
+    }
+    // keep for compability
     footer->set_first_array_item_ordinal(_current_length_page_first_ordinal);
     return Status::OK();
 }
@@ -547,9 +551,16 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     while (remaining > 0) {
         // TODO llj: bulk write
         size_t num_written = 1;
-        auto size_ptr = col_cursor->length();
-        RETURN_IF_ERROR(_length_writer->append_data_in_current_page(
-                reinterpret_cast<uint8_t*>(&size_ptr), &num_written));
+        if (config::enable_write_array_offset) {
+            ordinal_t next_item_ordinal = _item_writer->get_next_rowid();
+            RETURN_IF_ERROR(_length_writer->append_data_in_current_page(
+                    reinterpret_cast<uint8_t*>(&next_item_ordinal), &num_written));
+        } else {
+            // remove this branch later on
+            auto size_ptr = col_cursor->length();
+            RETURN_IF_ERROR(_length_writer->append_data_in_current_page(
+                    reinterpret_cast<uint8_t*>(&size_ptr), &num_written));
+        }
         if (num_written <
             1) { // page is full, write first item offset and update current length page's start ordinal
             RETURN_IF_ERROR(_length_writer->finish_current_page());
@@ -618,11 +629,11 @@ Status ArrayColumnWriter::write_ordinal_index() {
 
 Status ArrayColumnWriter::append_nulls(size_t num_rows) {
     size_t num_lengths = num_rows;
-    const ordinal_t zero = 0;
+    const ordinal_t offset = config::enable_write_array_offset ? _item_writer->get_next_rowid() : 0;
     while (num_lengths > 0) {
         // TODO llj bulk write
-        const auto* zero_ptr = reinterpret_cast<const uint8_t*>(&zero);
-        RETURN_IF_ERROR(_length_writer->append_data(&zero_ptr, 1));
+        const auto* offset_ptr = reinterpret_cast<const uint8_t*>(&offset);
+        RETURN_IF_ERROR(_length_writer->append_data(&offset_ptr, 1));
         --num_lengths;
     }
     return write_null_column(num_rows, true);

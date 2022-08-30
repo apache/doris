@@ -69,6 +69,7 @@ struct ParsedPage {
         page->page_index = page_index;
 
         page->first_array_item_ordinal = footer.first_array_item_ordinal();
+        page->next_array_item_ordinal = footer.next_array_item_ordinal();
 
         return Status::OK();
     }
@@ -89,7 +90,10 @@ struct ParsedPage {
     ordinal_t first_ordinal = 0;
     // number of rows including nulls and not-nulls
     ordinal_t num_rows = 0;
-    // just for array type
+    // record it to get the last array element's size
+    // should be none zero if setted in page
+    ordinal_t next_array_item_ordinal = 0;
+    // keep it for compability, remove it when useless
     ordinal_t first_array_item_ordinal = 0;
 
     PagePointer page_pointer;

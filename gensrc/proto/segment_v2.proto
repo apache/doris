@@ -71,6 +71,7 @@ message DataPageFooterPB {
     // only for array column
     // Save the first array's first item's ordinal.
     optional uint64 first_array_item_ordinal = 4;
+    optional uint64 next_array_item_ordinal = 5;
 }
 
 message IndexPageFooterPB {

@@ -851,6 +851,8 @@ CONF_Bool(enable_simdjson_reader, "false");
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+// write offsets instead of length to speed up seek performance
+CONF_Bool(enable_write_array_offset, "false");
 
 // If set to true, the new scan node framework will be used.
 // This config should be removed when the new scan node is ready.

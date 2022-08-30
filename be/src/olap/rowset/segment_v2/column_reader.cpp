@@ -481,13 +481,38 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     }
     auto& column_offsets =
             static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
-    auto& offsets_data = column_offsets.get_data();
-    for (ssize_t i = start; i < offsets_data.size(); ++i) {
-        offsets_data[i] += offsets_data[i - 1]; // -1 is ok
+    size_t num_items = 0;
+    if (_length_iterator->get_current_page()->next_array_item_ordinal > 0) {
+        // use offsets info
+        if (_length_iterator->get_current_page()->has_remaining()) {
+            // peek read one more to get the last array's length
+            size_t i = 1;
+            ordinal_t save = _length_iterator->get_current_ordinal();
+            RETURN_IF_ERROR(
+                    _length_iterator->next_batch(&i, column_offsets_ptr, &offsets_has_null));
+            RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(save));
+        } else {
+            column_offsets_ptr->insert(
+                    _length_iterator->get_current_page()->next_array_item_ordinal);
+        }
+
+        auto& offsets_data = column_offsets.get_data();
+        num_items = offsets_data.back() - offsets_data[start];
+        // caculate real offsets
+        for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
+            offsets_data[i] = offsets_data[i - 1] + (offsets_data[i + 1] - offsets_data[i]);
+        }
+        column_offsets.pop_back(1);
+    } else {
+        // for compability
+        auto& offsets_data = column_offsets.get_data();
+        for (ssize_t i = start; i < offsets_data.size(); ++i) {
+            offsets_data[i] += offsets_data[i - 1]; // -1 is ok
+        }
+        num_items = offsets_data.back() - offsets_data[start - 1];
     }
 
     auto column_items_ptr = column_array->get_data().assume_mutable();
-    size_t num_items = offsets_data.back() - offsets_data[start - 1];
     if (num_items > 0) {
         size_t num_read = num_items;
         bool items_has_null = false;
