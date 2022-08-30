@@ -26,17 +26,21 @@ under the License.
 
 # Synchronize data through external table
 
-Doris can create external tables that are accessed through the ODBC protocol. After the creation is complete, you can directly query the data of the external table through the SELECT statement, or import the data of the external table through `INSERT INTO SELECT`.
+Doris can create external tables. Once created, you can query the data of the external table directly with the SELECT statement or import the data of the external table with the `INSERT INTO SELECT` method.
 
-This document describes how to create external tables accessed through the ODBC protocol, and how to import data from these external tables. Currently supported data sources include:
+Doris external tables currently support the following data sources.
 
 - MySQL
 - Oracle
 - PostgreSQL
-- SQL Server
-- Hive (supported in version 1.0)
+- SQLServer
+- Hive 
+- Iceberg
+- ElasticSearch
 
-## create external table
+This document describes how to create external tables accessible through the ODBC protocol and how to import data from these external tables.
+
+## Create external table
 
 For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.md) syntax help manual.
 
