@@ -193,13 +193,14 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     bool has_query_mem_tracker = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
-    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker()->limit()) {
+    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker_raw()->limit()) {
         VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
-                    << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->limit(),
-                                            TUnit::BYTES)
+                    << PrettyPrinter::print(
+                               ExecEnv::GetInstance()->process_mem_tracker_raw()->limit(),
+                               TUnit::BYTES)
                     << ". Using process memory limit instead";
-        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker()->limit();
+        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker_raw()->limit();
     }
 
     // we do not use global query-map  for now, to avoid mem-exceeded different fragments
