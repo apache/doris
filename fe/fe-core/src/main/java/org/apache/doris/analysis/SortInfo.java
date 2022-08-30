@@ -242,6 +242,10 @@ public class SortInfo {
                 SlotDescriptor origSlotDesc = origSlotRef.getDesc();
                 SlotDescriptor materializedDesc =
                         analyzer.copySlotDescriptor(origSlotDesc, sortTupleDesc);
+                // set to nullable if the origSlot is outer joined
+                if (analyzer.isOuterJoined(origSlotDesc.getParent().getId())) {
+                    materializedDesc.setIsNullable(true);
+                }
                 SlotRef cloneRef = new SlotRef(materializedDesc);
                 substOrderBy.put(origSlotRef, cloneRef);
                 sortTupleExprs.add(origSlotRef);
