@@ -510,7 +510,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableNereidsPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
-    private boolean enableNereidsRuntimeFilter = false;
+    private boolean enableNereidsRuntimeFilter = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
     private boolean enableNereidsReorderToEliminateCrossJoin = true;
