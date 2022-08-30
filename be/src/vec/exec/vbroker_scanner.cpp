@@ -82,6 +82,7 @@ Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
             }
         }
     }
+    columns.clear();
 
     return _fill_dest_block(output_block, eof);
 }
