@@ -24,13 +24,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.NereidsRulesJobRewriter;
+import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.PlanPostprocessors;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -42,6 +41,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -72,7 +72,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
 
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodes();
@@ -210,6 +210,11 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getAssignedRuntimeFilter() {
-        return RuntimeFilterGenerator.INSTANCE.getRuntimeFilters();
+        return cascadesContext.getRuntimeGenerator().getRuntimeFilters();
+    }
+
+    @VisibleForTesting
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
     }
 }

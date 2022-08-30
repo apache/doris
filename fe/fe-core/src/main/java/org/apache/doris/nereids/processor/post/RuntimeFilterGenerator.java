@@ -38,7 +38,6 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -61,11 +60,6 @@ import java.util.stream.Collectors;
  */
 public class RuntimeFilterGenerator extends PlanPostprocessor {
 
-    /**
-     * s
-     */
-    public static RuntimeFilterGenerator INSTANCE = new RuntimeFilterGenerator();
-
     private static final IdGenerator<RuntimeFilterId> GENERATOR = RuntimeFilterId.createGenerator();
 
     private final Map<ExprId, List<RuntimeFilter>> filtersByExprId = Maps.newHashMap();
@@ -74,22 +68,13 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     private final List<org.apache.doris.planner.RuntimeFilter> origFilters = Lists.newArrayList();
 
-    private SessionVariable sessionVariable;
+    private final SessionVariable sessionVariable;
 
-    private FilterSizeLimits limits;
+    private final FilterSizeLimits limits;
 
-    /**
-     * clear runtime filter and return the INSTANCE
-     * @param ctx connect context
-     * @return the INSTANCE
-     */
-    public static RuntimeFilterGenerator createInstance(ConnectContext ctx) {
-        INSTANCE.filterTargetByTid.clear();
-        INSTANCE.filtersByExprId.clear();
-        INSTANCE.sessionVariable = ctx.getSessionVariable();
-        INSTANCE.limits = new FilterSizeLimits(INSTANCE.sessionVariable);
-        INSTANCE.origFilters.clear();
-        return INSTANCE;
+    public RuntimeFilterGenerator(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
+        this.limits = new FilterSizeLimits(sessionVariable);
     }
 
     @Override
@@ -188,10 +173,12 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     @VisibleForTesting
     public List<RuntimeFilter> getNereridsRuntimeFilter() {
-        return filtersByExprId.values().stream()
+        List<RuntimeFilter> filters = filtersByExprId.values().stream()
                 .reduce(com.clearspring.analytics.util.Lists.newArrayList(), (l, r) -> {
                     l.addAll(r);
                     return l;
                 });
+        filters.sort((a, b) -> a.getId().compareTo(b.getId()));
+        return filters;
     }
 }

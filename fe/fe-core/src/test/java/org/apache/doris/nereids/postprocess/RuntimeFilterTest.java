@@ -19,7 +19,6 @@ package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
@@ -116,7 +115,50 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
     }
 
     @Test
-    public void testTranslateSSB() throws UserException {
+    public void testNestedJoinGenerateRuntimeFilter() throws AnalysisException {
+        String sql = SSBUtils.Q4_1;
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .implement()
+                .postProcess()
+                .matchesPhysicalPlan(
+                        physicalQuickSort(
+                                physicalAggregate(
+                                        physicalAggregate(
+                                                physicalHashJoin(
+                                                        physicalHashJoin(
+                                                                physicalHashJoin(
+                                                                        physicalHashJoin(
+                                                                                physicalOlapScan(),
+                                                                                physicalOlapScan()
+                                                                        ),
+                                                                        physicalFilter(
+                                                                                physicalOlapScan()
+                                                                        )
+                                                                ),
+                                                                physicalFilter(
+                                                                        physicalOlapScan()
+                                                                )
+                                                        ),
+                                                        physicalFilter(
+                                                                physicalOlapScan()
+                                                        )
+                                                ).when(join -> {
+                                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getNereridsRuntimeFilter();
+                                                    return filters.size() == 4
+                                                            && checkRuntimeFilterExpr(filters.get(0), "p_partkey", "lo_partkey")
+                                                            && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "lo_suppkey")
+                                                            && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
+                                                            && checkRuntimeFilterExpr(filters.get(3), "lo_orderdate", "d_datekey");
+                                                })
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testTranslateSSB() throws Exception {
         String[] sqls = {SSBUtils.Q1_1, SSBUtils.Q1_2, SSBUtils.Q1_3,
                 SSBUtils.Q2_1, SSBUtils.Q2_2, SSBUtils.Q2_3,
                 SSBUtils.Q3_1, SSBUtils.Q3_2, SSBUtils.Q3_3, SSBUtils.Q3_4,
@@ -126,7 +168,7 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
         }
     }
 
-    private void translateSQLAndCheckRuntimeFilter(String sql) throws UserException {
+    private void translateSQLAndCheckRuntimeFilter(String sql) throws Exception {
         System.out.println("sql: " + sql);
         NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
         planner.plan(

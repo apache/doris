@@ -27,6 +27,7 @@ import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
@@ -50,6 +51,8 @@ public class CascadesContext {
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
     private JobContext currentJobContext;
+
+    private RuntimeFilterGenerator runtimeFilterGenerator;
 
     /**
      * Constructor of OptimizerContext.
@@ -125,6 +128,15 @@ public class CascadesContext {
     public CascadesContext setJobContext(PhysicalProperties physicalProperties) {
         this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
         return this;
+    }
+
+    public RuntimeFilterGenerator getRuntimeGenerator() {
+        return runtimeFilterGenerator;
+    }
+
+    public RuntimeFilterGenerator createRuntimeFilterGenerator() {
+        this.runtimeFilterGenerator = new RuntimeFilterGenerator(this.getConnectContext().getSessionVariable());
+        return runtimeFilterGenerator;
     }
 
     public CascadesContext bottomUpRewrite(RuleFactory... rules) {

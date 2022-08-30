@@ -99,12 +99,13 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
             NamedExpressionUtil.clear();
             System.out.println("\n\n***** " + sql + " *****\n\n");
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-            PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            PhysicalPlan plan = planner.plan(
                     new NereidsParser().parseSingle(sql),
                     PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(planner.getCascadesContext()));
         }
     }
 

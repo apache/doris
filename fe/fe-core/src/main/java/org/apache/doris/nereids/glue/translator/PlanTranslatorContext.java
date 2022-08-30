@@ -24,6 +24,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -47,6 +49,8 @@ public class PlanTranslatorContext {
 
     private final DescriptorTable descTable = new DescriptorTable();
 
+    private final RuntimeFilterGenerator runtimeFilterGenerator;
+
     /**
      * index from Nereids' slot to legacy slot.
      */
@@ -63,12 +67,20 @@ public class PlanTranslatorContext {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
+    public PlanTranslatorContext(CascadesContext ctx) {
+        runtimeFilterGenerator = ctx.getRuntimeGenerator();
+    }
+
     public List<PlanFragment> getPlanFragments() {
         return planFragments;
     }
 
     public TupleDescriptor generateTupleDesc() {
         return descTable.createTupleDescriptor();
+    }
+
+    public RuntimeFilterGenerator getRuntimeFilterGenerator() {
+        return runtimeFilterGenerator;
     }
 
     public PlanFragmentId nextFragmentId() {
