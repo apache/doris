@@ -946,6 +946,18 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDatetimeV2()) {
+                fn.setArgType(childTypes[2], 2);
+            } else if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDateV2()) {
+                fn.setArgType(ScalarType.DATETIMEV2, 2);
+            }
+            if (fn != null && childTypes[2].isDate()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIME, 2);
+            } else if (fn != null && childTypes[2].isDateV2()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIMEV2, 2);
+            }
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);

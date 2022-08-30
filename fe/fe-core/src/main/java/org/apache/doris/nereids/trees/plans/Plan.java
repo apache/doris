@@ -49,10 +49,6 @@ public interface Plan extends TreeNode<Plan> {
 
     List<Slot> getOutput();
 
-    default List<Slot> computeOutput(Plan... inputs) {
-        throw new IllegalStateException("Not support compute output for " + getClass().getName());
-    }
-
     String treeString();
 
     default Plan withOutput(List<Slot> output) {

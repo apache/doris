@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -156,7 +157,7 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    const std::vector<DeletePredicatePB>& delete_predicates() {
+    const std::vector<RowsetMetaSharedPtr> delete_predicates() {
         return _tablet_meta->delete_predicates();
     }
     bool version_for_delete_predicate(const Version& version);
@@ -228,8 +229,11 @@ public:
     TabletInfo get_tablet_info() const;
 
     void pick_candidate_rowsets_to_cumulative_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets);
-    void pick_candidate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+            std::vector<RowsetSharedPtr>* candidate_rowsets,
+            std::shared_lock<std::shared_mutex>& /* meta lock*/);
+    void pick_candidate_rowsets_to_base_compaction(
+            std::vector<RowsetSharedPtr>* candidate_rowsets,
+            std::shared_lock<std::shared_mutex>& /* meta lock*/);
 
     void calculate_cumulative_point();
     // TODO(ygl):

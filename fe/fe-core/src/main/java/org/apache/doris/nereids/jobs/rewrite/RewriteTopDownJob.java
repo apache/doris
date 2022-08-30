@@ -67,11 +67,11 @@ public class RewriteTopDownJob extends Job {
         List<Rule> validRules = getValidRules(logicalExpression, rules);
         for (Rule rule : validRules) {
             Preconditions.checkArgument(rule.isRewrite(),
-                    "in top down job, rules must be rewritable");
+                    "rules must be rewritable in top down job");
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
-            //In topdown job, there must be only one matching plan.
-            //This `for` loop runs at most once.
+            // In topdown job, there must be only one matching plan.
+            // This `for` loop runs at most once.
             for (Plan before : groupExpressionMatching) {
                 List<Plan> afters = rule.transform(before, context.getPlannerContext());
                 Preconditions.checkArgument(afters.size() == 1);
@@ -80,8 +80,8 @@ public class RewriteTopDownJob extends Job {
                     Pair<Boolean, GroupExpression> pair = context.getPlannerContext()
                             .getMemo().copyIn(after, group, rule.isRewrite());
                     if (pair.first) {
-                        //new group-expr replaced the origin group-expr in `group`,
-                        //run this rule against this `group` again.
+                        // new group-expr replaced the origin group-expr in `group`,
+                        // run this rule against this `group` again.
                         pushTask(new RewriteTopDownJob(group, rules, context));
                         return;
                     }

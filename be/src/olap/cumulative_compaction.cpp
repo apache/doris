@@ -96,8 +96,8 @@ Status CumulativeCompaction::execute_compact_impl() {
 
 Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    std::shared_lock rdlock(_tablet->get_header_lock());
+    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets, rdlock);
 
     if (candidate_rowsets.empty()) {
         return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);

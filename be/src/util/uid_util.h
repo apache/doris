@@ -22,7 +22,6 @@
 
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "gen_cpp/types.pb.h"    // for PUniqueId
-#include "util/hash_util.hpp"
 #include "util/uuid_generator.h"
 
 namespace doris {
@@ -42,9 +41,9 @@ inline void from_hex(T* ret, const std::string& buf) {
     T val = 0;
     for (int i = 0; i < buf.length(); ++i) {
         int buf_val = 0;
-        if (buf.c_str()[i] >= '0' && buf.c_str()[i] <= '9')
+        if (buf.c_str()[i] >= '0' && buf.c_str()[i] <= '9') {
             buf_val = buf.c_str()[i] - '0';
-        else {
+        } else {
             buf_val = buf.c_str()[i] - 'a' + 10;
         }
         val <<= 4;
@@ -117,7 +116,7 @@ struct UniqueId {
     }
 
     // std::unordered_map need this api
-    size_t hash(size_t seed = 0) const { return doris::HashUtil::hash(this, sizeof(*this), seed); }
+    size_t hash(size_t seed = 0) const;
 
     // std::unordered_map need this api
     bool operator==(const UniqueId& rhs) const { return hi == rhs.hi && lo == rhs.lo; }
@@ -140,12 +139,7 @@ struct UniqueId {
 };
 
 // This function must be called 'hash_value' to be picked up by boost.
-inline std::size_t hash_value(const doris::TUniqueId& id) {
-    std::size_t seed = 0;
-    HashUtil::hash_combine(seed, id.lo);
-    HashUtil::hash_combine(seed, id.hi);
-    return seed;
-}
+std::size_t hash_value(const doris::TUniqueId& id);
 
 /// generates a 16 byte UUID
 inline std::string generate_uuid_string() {

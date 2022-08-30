@@ -73,9 +73,9 @@ public class NereidsPlanner extends Planner {
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
-        scanNodeList = planTranslatorContext.getScanNodeList();
+        scanNodeList = planTranslatorContext.getScanNodes();
         descTable = planTranslatorContext.getDescTable();
-        fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
+        fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
 
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());

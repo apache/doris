@@ -34,8 +34,10 @@ class VSlotRef;
 class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : ExecNode(pool, tnode, descs) {}
+            : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+    friend class VScanner;
     friend class NewOlapScanner;
+    friend class ScannerContext;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
@@ -73,7 +75,7 @@ public:
 
 protected:
     // Different data sources register different profiles by implementing this method
-    virtual Status _init_profile() { return Status::OK(); }
+    virtual Status _init_profile();
 
     // Process predicates, extract the predicates in the conjuncts that can be pushed down
     // to the data source, and convert them into common expressions structure ColumnPredicate.
@@ -190,6 +192,36 @@ protected:
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
+
+protected:
+    std::unique_ptr<RuntimeProfile> _scanner_profile;
+
+    // rows read from the scanner (including those discarded by (pre)filters)
+    RuntimeProfile::Counter* _rows_read_counter;
+    // Wall based aggregate read throughput [rows/sec]
+    RuntimeProfile::Counter* _total_throughput_counter;
+    RuntimeProfile::Counter* _num_scanners;
+
+    // time of get block from scanner
+    RuntimeProfile::Counter* _scan_timer = nullptr;
+    // time of prefilter input block from scanner
+    RuntimeProfile::Counter* _prefilter_timer = nullptr;
+    // time of convert input block to output block from scanner
+    RuntimeProfile::Counter* _convert_block_timer = nullptr;
+    // time of filter output block from scanner
+    RuntimeProfile::Counter* _filter_timer = nullptr;
+
+    RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
+    RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
+
+    // Num of pre allocated free blocks
+    RuntimeProfile::Counter* _pre_alloc_free_blocks_num = nullptr;
+    // Num of newly created free blocks when running query
+    RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
+    // Max num of scanner thread
+    RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
 private:
     // Register and get all runtime filters at Init phase.

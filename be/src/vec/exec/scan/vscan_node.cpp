@@ -88,7 +88,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
+    // START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -102,13 +102,16 @@ Status VScanNode::open(RuntimeState* state) {
     if (scanners.empty()) {
         _eos = true;
     } else {
+        COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
     }
     return Status::OK();
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    // INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     if (state->is_cancelled()) {
         _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
         return _scanner_ctx->status();
@@ -139,9 +142,42 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     return Status::OK();
 }
 
+Status VScanNode::_init_profile() {
+    // 1. counters for scan node
+    _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
+    _total_throughput_counter =
+            runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
+    _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
+
+    // 2. counters for scanners
+    _scanner_profile.reset(new RuntimeProfile("VScanner"));
+    runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
+
+    _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
+    _prefilter_timer = ADD_TIMER(_scanner_profile, "ScannerPrefilterTime");
+    _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
+    _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
+
+    _scanner_sched_counter = ADD_COUNTER(_runtime_profile, "ScannerSchedCount", TUnit::UNIT);
+    _scanner_ctx_sched_counter = ADD_COUNTER(_runtime_profile, "ScannerCtxSchedCount", TUnit::UNIT);
+    // time of transfer thread to wait for block from scan thread
+    _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
+    // time of scan thread to wait for worker thread of the thread pool
+    _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
+
+    _pre_alloc_free_blocks_num =
+            ADD_COUNTER(_runtime_profile, "PreAllocFreeBlocksNum", TUnit::UNIT);
+    _newly_create_free_blocks_num =
+            ADD_COUNTER(_runtime_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
+    _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
+
+    return Status::OK();
+}
+
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
-    _scanner_ctx.reset(new ScannerContext(_state, _input_tuple_desc, _output_tuple_desc, scanners,
-                                          limit(), _state->query_options().mem_limit / 20));
+    _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
+                                          scanners, limit(),
+                                          _state->query_options().mem_limit / 20));
     RETURN_IF_ERROR(_scanner_ctx->init());
     RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     return Status::OK();
@@ -189,7 +225,14 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         return Status::OK();
     }
 
-    auto last_expr = _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
+    VExpr* last_expr = nullptr;
+    if (_vconjunct_ctx_ptr) {
+        last_expr = (*_vconjunct_ctx_ptr)->root();
+    } else {
+        DCHECK(_rf_vexpr_set.find(vexprs[0]) == _rf_vexpr_set.end());
+        last_expr = vexprs[0];
+        _rf_vexpr_set.insert(vexprs[0]);
+    }
     for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
         if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
             continue;
@@ -239,7 +282,7 @@ Status VScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::close");
+    // START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::close");
     if (_scanner_ctx.get()) {
         // stop and wait the scanner scheduler to be done
         // _scanner_ctx may not be created for some short circuit case.

@@ -26,6 +26,9 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 public class NullType extends PrimitiveType {
     public static NullType INSTANCE = new NullType();
 
+    private NullType() {
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.NULL;

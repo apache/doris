@@ -18,13 +18,16 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
@@ -73,6 +76,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.LiteralUtils;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileWriter;
@@ -972,8 +976,18 @@ public class StmtExecutor implements ProfileWriter {
             Expr expr = item.getExpr();
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
-                columns.add(new Column(columnName, PrimitiveType.VARCHAR));
-                data.add(expr.getStringValue());
+                columns.add(new Column(columnName, expr.getType()));
+                if (expr instanceof NullLiteral) {
+                    data.add(null);
+                } else if (expr instanceof FloatLiteral) {
+                    data.add(LiteralUtils.getStringValue((FloatLiteral) expr));
+                } else if (expr instanceof DecimalLiteral) {
+                    data.add(((DecimalLiteral) expr).getValue().stripTrailingZeros().toPlainString());
+                } else if (expr instanceof ArrayLiteral) {
+                    data.add(LiteralUtils.getStringValue((ArrayLiteral) expr));
+                } else {
+                    data.add(expr.getStringValue());
+                }
             } else {
                 return false;
             }
@@ -998,19 +1012,18 @@ public class StmtExecutor implements ProfileWriter {
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
-        // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
-        if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()
-                && Env.getCurrentSystemInfo().getBackendIds(true).isEmpty()) {
-            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-            if (handleSelectRequestInFe(parsedSelectStmt)) {
-                return;
-            }
-        }
-
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString);
             return;
+        }
+
+        // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
+        if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()) {
+            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+            if (handleSelectRequestInFe(parsedSelectStmt)) {
+                return;
+            }
         }
 
         MysqlChannel channel = context.getMysqlChannel();

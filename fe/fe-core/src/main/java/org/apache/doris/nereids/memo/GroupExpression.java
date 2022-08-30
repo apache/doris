@@ -69,11 +69,10 @@ public class GroupExpression {
         this.requestPropertiesMap = Maps.newHashMap();
     }
 
-    // TODO: rename
-    public PhysicalProperties getPropertyFromMap(PhysicalProperties requiredPropertySet) {
-        PhysicalProperties outputProperty = requestPropertiesMap.get(requiredPropertySet);
-        Preconditions.checkState(outputProperty != null);
-        return outputProperty;
+    public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
+        PhysicalProperties outputProperties = requestPropertiesMap.get(requestProperties);
+        Preconditions.checkNotNull(outputProperties);
+        return outputProperties;
     }
 
     public int arity() {

@@ -62,6 +62,7 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
 ### 全量
 
 1. 下载使用mysql to doris[这里](https://github.com/apache/doris/tree/master/extension/mysql_to_doris)
+
 2. 配置相关文件
 
    ```shell
@@ -69,19 +70,22 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
    master_host=
    master_port=
    doris_password=
+   doris_odbc_name=''
    
    #mysql.conf
    mysql_host=
    mysql_password=
    ```
 
-   | 配置项         | 说明                    |
-      | -------------- | ----------------------- |
-   | master_host    | Doris FE master节点IP   |
+   | 配置项         | 说明               |
+   |------------------| ----------------------- |
+   | master_host    | Doris FE master节点IP |
    | master_port    | Doris FE query_port端口 |
    | doris_password | Doris 密码(默认root用户) |
-   | mysql_host     | Mysql IP |
+   | doris_odbc_name | be/conf 下odbcinst.ini配置文件中mysql odbc的名称 |
+   | mysql_host     | Mysql IP         |
    | mysql_password | Mysql 密码(默认root用户) |
+
 
 3. 执行`all_tables.sh`脚本
 
