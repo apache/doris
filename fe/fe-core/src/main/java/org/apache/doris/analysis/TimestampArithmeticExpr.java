@@ -92,8 +92,8 @@ public class TimestampArithmeticExpr extends Expr {
      * C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
      *
      * @param funcName timestamp arithmetic function name, used for all function except ADD and SUBTRACT.
-     * @param e1 left child of this function
-     * @param e2 right child of this function
+     * @param e1 non interval literal child of this function
+     * @param e2 interval literal child of this function
      * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
      * @param dataType the return data type of this expression.
      */
@@ -114,8 +114,8 @@ public class TimestampArithmeticExpr extends Expr {
      * to the time value (even in the interval-first case).
      *
      * @param op operator of this function either ADD or SUBTRACT.
-     * @param e1 left child of this function
-     * @param e2 right child of this function
+     * @param e1 non interval literal child of this function
+     * @param e2 interval literal child of this function
      * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
      * @param intervalFirst true if the left child is interval literal
      * @param dataType the return data type of this expression.
