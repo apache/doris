@@ -29,10 +29,8 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Wraps a list of TableRef instances that form a FROM clause, allowing them to be
@@ -46,7 +44,12 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
     private boolean analyzed = false;
     private boolean needToSql = false;
 
-    private final Map<Integer, TableRef> tableRefPositions = new HashMap<Integer, TableRef>();
+    // the tables positions may be changed by 'join reorder' optimization
+    // after reset, the original order information is lost
+    // in the next re-analyze phase, the mis-ordered tables may lead to 'unable to find column xxx' error
+    // now we use originalTableRefOrders to keep track of table order information
+    // so that in reset method, we can recover the original table orders.
+    private final ArrayList<TableRef> originalTableRefOrders = new ArrayList<TableRef>();
 
     public FromClause(List<TableRef> tableRefs) {
         tablerefs = Lists.newArrayList(tableRefs);
@@ -135,8 +138,9 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         analyzed = true;
 
         // save the tableRef's order, will use in reset method later
+        originalTableRefOrders.clear();
         for (int i = 0; i < tablerefs.size(); ++i) {
-            tableRefPositions.put(i, tablerefs.get(i));
+            originalTableRefOrders.add(tablerefs.get(i));
         }
     }
 
@@ -165,7 +169,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         }
         FromClause result = new FromClause(clone);
         for (int i = 0; i < clone.size(); ++i) {
-            result.tableRefPositions.put(i, clone.get(i));
+            result.originalTableRefOrders.add(clone.get(i));
         }
         return result;
     }
@@ -174,8 +178,9 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         for (int i = 0; i < size(); ++i) {
             get(i).reset();
         }
+        // recover original table orders
         for (int i = 0; i < size(); ++i) {
-            tablerefs.set(i, tableRefPositions.get(i));
+            tablerefs.set(i, originalTableRefOrders.get(i));
         }
         this.analyzed = false;
     }
@@ -222,7 +227,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public void set(int i, TableRef tableRef) {
         tablerefs.set(i, tableRef);
-        tableRefPositions.put(i, tableRef);
+        originalTableRefOrders.set(i, tableRef);
     }
 
     public void add(TableRef t) {
@@ -231,16 +236,16 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         // we want to keep tableRefPositions unchanged in that case
         // in other cases, tablerefs.size() would larger than tableRefPositions.size()
         // then we can update tableRefPositions. same logic in addAll method.
-        if (tablerefs.size() > tableRefPositions.size()) {
-            tableRefPositions.put(tablerefs.size() - 1, t);
+        if (tablerefs.size() > originalTableRefOrders.size()) {
+            originalTableRefOrders.add(t);
         }
     }
 
     public void addAll(List<TableRef> t) {
         tablerefs.addAll(t);
-        if (tablerefs.size() > tableRefPositions.size()) {
-            for (int i = tableRefPositions.size(); i < tablerefs.size(); ++i) {
-                tableRefPositions.put(i, t.get(i));
+        if (tablerefs.size() > originalTableRefOrders.size()) {
+            for (int i = originalTableRefOrders.size(); i < tablerefs.size(); ++i) {
+                originalTableRefOrders.add(tablerefs.get(i));
             }
         }
     }
