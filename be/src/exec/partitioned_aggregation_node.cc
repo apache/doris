@@ -911,13 +911,13 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
             << "Backend: " << BackendOptions::get_localhost() << ", "
             << "fragment: " << print_id(state_->fragment_instance_id()) << " "
             << "Used: "
-            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->consumption()
+            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->consumption()
             << ", Limit: "
-            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->limit() << ". "
+            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->limit() << ". "
             << "You can change the limit by session variable exec_mem_limit.";
         string details = Substitute(str.str(), _id, tuple_data_size);
         *status = thread_context()
-                          ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()
+                          ->_thread_mem_tracker_mgr->limiter_mem_tracker()
                           ->mem_limit_exceeded(state_, details, tuple_data_size);
         return nullptr;
     }

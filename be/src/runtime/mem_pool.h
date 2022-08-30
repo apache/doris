@@ -212,9 +212,9 @@ private:
     bool check_integrity(bool check_current_chunk_empty);
 
     void reset_peak() {
-        if (total_allocated_bytes_ - peak_allocated_bytes_ > 65536) {
+        if (total_allocated_bytes_ - peak_allocated_bytes_ > 4096) {
             THREAD_MEM_TRACKER_TRANSFER_FROM(total_allocated_bytes_ - peak_allocated_bytes_,
-                                             ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                             ExecEnv::GetInstance()->process_mem_tracker().get());
             peak_allocated_bytes_ = total_allocated_bytes_;
         }
     }

@@ -303,7 +303,7 @@ Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
         // The limit of the current tracker and parents is less than 0, the consume will not fail,
         // and the current process memory has no excess limit.
         detail += fmt::format("unknown exceed reason, executing_msg:<{}>", msg);
-        print_log_usage_tracker = ExecEnv::GetInstance()->process_mem_tracker_raw();
+        print_log_usage_tracker = ExecEnv::GetInstance()->process_mem_tracker().get();
     }
     auto st = MemTrackerLimiter::mem_limit_exceeded_construct(detail);
     if (print_log_usage_tracker != nullptr)

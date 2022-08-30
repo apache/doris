@@ -203,14 +203,13 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     bool has_query_mem_tracker = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
-    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker_raw()->limit()) {
+    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker()->limit()) {
         VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
-                    << PrettyPrinter::print(
-                               ExecEnv::GetInstance()->process_mem_tracker_raw()->limit(),
-                               TUnit::BYTES)
+                    << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->limit(),
+                                            TUnit::BYTES)
                     << ". Using process memory limit instead";
-        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker_raw()->limit();
+        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker()->limit();
     }
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
@@ -300,9 +299,7 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    if (thread_context()
-                ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()
-                ->any_limit_exceeded()) {
+    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->any_limit_exceeded()) {
         RETURN_LIMIT_EXCEEDED(this, msg);
     }
     return query_status();
