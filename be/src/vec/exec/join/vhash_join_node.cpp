@@ -892,6 +892,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->prepare(state, _intermediate_row_desc));
     }
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _intermediate_row_desc));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, _intermediate_row_desc));
 
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());
@@ -937,8 +938,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
         do {
             SCOPED_TIMER(_probe_next_timer);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &_probe_block, &_probe_eos),
-                                           child(0)->get_next_span(), _probe_eos);
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(0)->get_next_after_projects(state, &_probe_block, &_probe_eos),
+                    child(0)->get_next_span(), _probe_eos);
         } while (_probe_block.rows() == 0 && !_probe_eos);
 
         probe_rows = _probe_block.rows();
@@ -1135,7 +1137,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         RETURN_IF_CANCELLED(state);
 
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next(state, &block, &eos),
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
                                        child(1)->get_next_span(), eos);
         _mem_used += block.allocated_bytes();
 

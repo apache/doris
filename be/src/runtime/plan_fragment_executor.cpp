@@ -339,8 +339,9 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
     while (!_done) {
         _block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
-        RETURN_IF_ERROR_AND_CHECK_SPAN(_plan->get_next(_runtime_state.get(), _block.get(), &_done),
-                                       _plan->get_next_span(), _done);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                _plan->get_next_after_projects(_runtime_state.get(), _block.get(), &_done),
+                _plan->get_next_span(), _done);
 
         if (_block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, _block->rows());

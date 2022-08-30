@@ -1144,7 +1144,7 @@ public class SingleNodePlanner {
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo
                         = materializedViewSelector.selectBestMV(olapScanNode);
                 if (bestIndexInfo == null) {
-                    selectFailed |= true;
+                    selectFailed = true;
                     TupleId tupleId = olapScanNode.getTupleId();
                     selectStmt.updateDisableTuplesMVRewriter(tupleId);
                     LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
