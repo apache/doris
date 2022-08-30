@@ -216,7 +216,7 @@ under the License.
         <javax.activation.version>1.2.0</javax.activation.version>
         <jaxws-api.version>2.3.0</jaxws-api.version>
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
-        <spark.version>2.4.6</spark.version>
+        <spark.version>3.2.2</spark.version>
         <hive.version>2.3.7</hive.version>
         <hadoop.version>2.8.0</hadoop.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->

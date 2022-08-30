@@ -266,7 +266,7 @@ public final class SparkDpp implements java.io.Serializable {
                             }
                             lastBucketKey = curBucketKey;
                         }
-                        InternalRow internalRow = encoder.toRow(rowWithoutBucketKey);
+                        InternalRow internalRow = encoder.createDeserializer().apply(rowWithoutBucketKey);
                         parquetWriter.write(internalRow);
                     }
                     if (parquetWriter != null) {
