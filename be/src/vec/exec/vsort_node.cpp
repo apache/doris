@@ -125,7 +125,7 @@ Status VSortNode::sort_input(RuntimeState* state) {
     bool eos = false;
     do {
         Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &block, &eos),
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, &block, &eos),
                                        child(0)->get_next_span(), eos);
         auto rows = block.rows();
 

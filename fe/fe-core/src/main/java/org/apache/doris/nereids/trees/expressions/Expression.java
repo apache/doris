@@ -32,8 +32,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
@@ -44,8 +42,6 @@ import java.util.Objects;
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
     private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
-
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     public Expression(Expression... children) {
         super(children);
@@ -147,23 +143,4 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         return 0;
     }
 
-    /**
-     * Return true if all the SlotRef in the expr tree is bound to the same column.
-     */
-    public boolean boundToColumn(String column) {
-        for (Expression child : children) {
-            if (!child.boundToColumn(column)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public Expression leftMostNode() {
-        Expression leftChild = this;
-        while (leftChild.children.size() > 0) {
-            leftChild = leftChild.child(0);
-        }
-        return leftChild;
-    }
 }

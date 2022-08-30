@@ -98,4 +98,5 @@ public class GroupPlan extends LogicalLeaf {
     public String toString() {
         return "GroupPlan( " + group.getGroupId() + " )";
     }
+
 }
