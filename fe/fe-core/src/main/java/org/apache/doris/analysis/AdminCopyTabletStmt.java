@@ -80,7 +80,7 @@ public class AdminCopyTabletStmt extends ShowStmt {
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 if (entry.getKey().equalsIgnoreCase(PROP_VERSION)) {
-                    tabletId = Long.valueOf(entry.getValue());
+                    version = Long.valueOf(entry.getValue());
                     iter.remove();
                     continue;
                 } else if (entry.getKey().equalsIgnoreCase(PROP_BACKEND_ID)) {
@@ -117,3 +117,4 @@ public class AdminCopyTabletStmt extends ShowStmt {
         return RedirectStatus.NO_FORWARD;
     }
 }
+
