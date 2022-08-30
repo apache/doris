@@ -42,25 +42,28 @@ import java.util.Optional;
 public class CostAndEnforcerJob extends Job implements Cloneable {
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
-    // Current total cost
-    private double curTotalCost;
 
-    // Children properties from parent plan node.
+    // cost of current plan tree
+    private double curTotalCost;
+    // cost of current plan node
+    private double curNodeCost;
+
+    // List of request property to children
     // Example: Physical Hash Join
     // [ child item: [leftProperties, rightPropertie]]
     // [ [Properties {"", ANY}, Properties {"", BROADCAST}],
     //   [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}]]
     private List<List<PhysicalProperties>> requestChildrenPropertyList;
+    // index of List<request property to children>
+    private int requestPropertyIndex = 0;
 
-    private List<GroupExpression> childrenBestGroupExprList;
+    private List<GroupExpression> childrenBestGroupExprList = Lists.newArrayList();
     private final List<PhysicalProperties> childrenOutputProperty = Lists.newArrayList();
 
-    // Current stage of enumeration through child groups
+    // current child index of travsing all children
     private int curChildIndex = -1;
-    // Indicator of last child group that we waited for optimization
+    // child index in the last time of travsing all children
     private int prevChildIndex = -1;
-    // Current stage of enumeration through outputInputProperties
-    private int curPropertyPairIndex = 0;
 
     public CostAndEnforcerJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.OPTIMIZE_CHILDREN, context);
@@ -99,22 +102,26 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     public void execute() {
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
+            curNodeCost = 0;
             curTotalCost = 0;
-
-            // Get property from groupExpression plan (it's root of subplan).
+            curChildIndex = 0;
+            // List<request property to children>
+            // [ child item: [leftProperties, rightPropertie]]
+            // like :[ [Properties {"", ANY}, Properties {"", BROADCAST}],
+            //         [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}] ]
             RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
             requestChildrenPropertyList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-
-            curChildIndex = 0;
         }
 
-        for (; curPropertyPairIndex < requestChildrenPropertyList.size(); curPropertyPairIndex++) {
-            // children input properties
-            List<PhysicalProperties> requestChildrenProperty = requestChildrenPropertyList.get(curPropertyPairIndex);
+        for (; requestPropertyIndex < requestChildrenPropertyList.size(); requestPropertyIndex++) {
+            // Get one from List<request property to children>
+            // like: [ Properties {"", ANY}, Properties {"", BROADCAST} ],
+            List<PhysicalProperties> requestChildrenProperty = requestChildrenPropertyList.get(requestPropertyIndex);
 
-            // Calculate cost of groupExpression and update total cost
+            // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
-                curTotalCost += CostCalculator.calculateCost(groupExpression);
+                curNodeCost = CostCalculator.calculateCost(groupExpression);
+                curTotalCost += curNodeCost;
             }
 
             // Handle all child plannode.
@@ -177,6 +184,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 }
                 StatsCalculator.estimate(groupExpression);
 
+                curTotalCost -= curNodeCost;
+                curNodeCost = CostCalculator.calculateCost(groupExpression);
+                curTotalCost += curNodeCost;
                 // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
                 recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperty);
                 recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, requestChildrenProperty);
@@ -188,11 +198,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 }
             }
 
-            // Reset child idx and total cost
-            childrenOutputProperty.clear();
-            prevChildIndex = -1;
-            curChildIndex = 0;
-            curTotalCost = 0;
+            clear();
         }
     }
 
@@ -230,6 +236,14 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 curTotalCost, requestProperty);
     }
 
+    private void clear() {
+        childrenOutputProperty.clear();
+        childrenBestGroupExprList.clear();
+        prevChildIndex = -1;
+        curChildIndex = 0;
+        curTotalCost = 0;
+        curNodeCost = 0;
+    }
 
     /**
      * Shallow clone (ignore clone propertiesListList and groupExpression).

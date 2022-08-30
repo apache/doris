@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
+import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
@@ -40,6 +41,7 @@ import java.util.List;
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(JoinCommute.SWAP_OUTER_SWAP_ZIG_ZAG)
+            .add(JoinCommuteProject.SWAP_OUTER_SWAP_ZIG_ZAG)
             .build();
 
     public static final List<Rule> REWRITE_RULES = planRuleFactories()

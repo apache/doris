@@ -21,6 +21,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -201,5 +203,23 @@ public class JoinUtils {
     public static boolean shouldNestedLoopJoin(Join join) {
         JoinType joinType = join.getJoinType();
         return (joinType.isInnerJoin() && join.getHashJoinConjuncts().isEmpty()) || joinType.isCrossJoin();
+    }
+
+    /**
+     * The left and right child of origin predicates need to be swap sometimes.
+     * Case A:
+     * select * from t1 join t2 on t2.id=t1.id
+     * The left plan node is t1 and the right plan node is t2.
+     * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
+     * In this situation, the children of predicate need to be swap => t1.id=t2.id.
+     */
+    public static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
+        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
+            return equalTo;
+        } else {
+            return new EqualTo(equalTo.right(), equalTo.left());
+        }
     }
 }
