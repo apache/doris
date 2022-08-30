@@ -237,23 +237,22 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-Status DeleteHandler::init(std::shared_ptr<Tablet> tablet, TabletSchemaSPtr tablet_schema,
-                           const std::vector<DeletePredicatePB>& delete_conditions,
-                           int64_t version) {
+Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
+                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
     _predicate_mem_pool.reset(new MemPool());
 
-    for (const auto& delete_condition : delete_conditions) {
+    for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
-        if (delete_condition.version() > version) {
+        if (delete_pred->version().first > version) {
             continue;
         }
         // Need the tablet schema at the delete condition to parse the accurate column unique id
-        TabletSchemaSPtr delete_pred_related_schema = tablet->tablet_schema(
-                Version(delete_condition.version(), delete_condition.version()));
+        TabletSchemaSPtr delete_pred_related_schema = delete_pred->tablet_schema();
+        auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
-        temp.filter_version = delete_condition.version();
+        temp.filter_version = delete_pred->version().first;
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {

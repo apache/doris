@@ -305,11 +305,8 @@ private:
 
     static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    static Status _parse_request(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-                                 RowBlockChanger* rb_changer, bool* sc_sorting, bool* sc_directly,
-                                 const std::unordered_map<std::string, AlterMaterializedViewParam>&
-                                         materialized_function_map,
-                                 DescriptorTbl desc_tbl, TabletSchemaSPtr base_tablet_schema);
+    static Status _parse_request(const SchemaChangeParams& sc_params, RowBlockChanger* rb_changer,
+                                 bool* sc_sorting, bool* sc_directly);
 
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,

@@ -43,16 +43,16 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.version = dst_rowset_writer->version();
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+        auto delete_preds = tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));
     }
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*cur_tablet_schema);
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_pb : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(
-                tablet->tablet_schema(Version(del_pred_pb.version(), del_pred_pb.version())));
+    for (auto& del_pred_rs : reader_params.delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_rs->version()));
     }
     reader_params.tablet_schema = merge_tablet_schema;
     RETURN_NOT_OK(reader.init(reader_params));
@@ -116,16 +116,16 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.version = dst_rowset_writer->version();
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        std::copy(tablet->delete_predicates().cbegin(), tablet->delete_predicates().cend(),
+        auto delete_preds = tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
                   std::inserter(reader_params.delete_predicates,
                                 reader_params.delete_predicates.begin()));
     }
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*cur_tablet_schema);
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_pb : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(
-                tablet->tablet_schema(Version(del_pred_pb.version(), del_pred_pb.version())));
+    for (auto& del_pred_rs : reader_params.delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_rs->version()));
     }
     reader_params.tablet_schema = merge_tablet_schema;
     if (tablet->enable_unique_key_merge_on_write()) {
