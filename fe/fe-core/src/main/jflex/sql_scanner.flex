@@ -143,6 +143,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("connection_id", new Integer(SqlParserSymbols.KW_CONNECTION_ID));
         keywordMap.put("consistent", new Integer(SqlParserSymbols.KW_CONSISTENT));
         keywordMap.put("convert", new Integer(SqlParserSymbols.KW_CONVERT));
+        keywordMap.put("copy", new Integer(SqlParserSymbols.KW_COPY));
         keywordMap.put("count", new Integer(SqlParserSymbols.KW_COUNT));
         keywordMap.put("create", new Integer(SqlParserSymbols.KW_CREATE));
         keywordMap.put("creation", new Integer(SqlParserSymbols.KW_CREATION));

@@ -93,6 +93,7 @@ public:
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     OLAPStatus create_from_file(const std::string& file_path);
     OLAPStatus save(const std::string& file_path);
+    OLAPStatus save_as_json(const string& file_path);
     static OLAPStatus save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static OLAPStatus reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
