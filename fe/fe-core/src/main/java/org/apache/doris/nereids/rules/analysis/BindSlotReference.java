@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -209,9 +208,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
             switch (bounded.size()) {
                 case 1:
                     if (!foundInThisScope) {
-                        getScope().getOuterScope().get().setSubqueryToCorrelatedSlotsIfAbsent(
-                                getScope().getOuterScope().get()
-                                        .getSubquery().get(), Lists.newArrayList(bounded.get(0)));
+                        SubqueryExpr subquery = getScope().getOuterScope().get().getSubquery().get();
+                        List<Slot> slots = getScope().getOuterScope().get().getCorrelatedSlots(subquery) == null
+                                ? new ArrayList<>() : getScope().getOuterScope().get().getCorrelatedSlots(subquery);
+                        slots.add(bounded.get(0));
+                        getScope().getOuterScope().get().setSubqueryToCorrelatedSlots(subquery, slots);
                     }
                     return bounded.get(0);
                 default:
@@ -354,10 +355,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
         public Expression visitNot(Not not, C context) {
             Expression child = not.child();
             if (child instanceof Exists) {
-                return new Exists(((Exists) child).getQueryPlan(), true);
+                return visitExistsSubquery(
+                        new Exists(((Exists) child).getQueryPlan(), true), context);
             } else if (child instanceof InSubquery) {
-                return new InSubquery(((InSubquery) child).getCompareExpr(),
-                        ((InSubquery) child).getListQuery(), true);
+                return visitInSubquery(new InSubquery(((InSubquery) child).getCompareExpr(),
+                        ((InSubquery) child).getListQuery(), true), context);
             }
             return visit(not, context);
         }

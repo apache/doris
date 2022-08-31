@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,7 +74,7 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
                         filter.child());
             }
 
-            List<NamedExpression> newAggOutput = agg.getOutputExpressions();
+            List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
             List<Expression> newGroupby = Utils.getCorrelatedSlots(correlatedPredicate,
                     apply.getCorrelationSlot());
             newGroupby.addAll(agg.getGroupByExpressions());

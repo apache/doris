@@ -199,7 +199,6 @@ public class Utils {
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
             List<Expression> conjuncts, List<Expression> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
-                // TODO: support non equal to conditions.
                 expr -> containCorrelatedSlot(slots, expr)));
     }
 }

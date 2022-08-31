@@ -89,9 +89,9 @@ public class Scope {
         return subqueryToOuterCorrelatedSlots.get(subqueryExpr);
     }
 
-    public void setSubqueryToCorrelatedSlotsIfAbsent(SubqueryExpr subqueryExpr,
+    public void setSubqueryToCorrelatedSlots(SubqueryExpr subqueryExpr,
             List<Slot> correlatedSlots) {
-        subqueryToOuterCorrelatedSlots.putIfAbsent(subqueryExpr, correlatedSlots);
+        subqueryToOuterCorrelatedSlots.put(subqueryExpr, correlatedSlots);
     }
 
     /**
