@@ -284,7 +284,7 @@ The above example will import the value of k1 multiplied by 100. The final impor
 
 ## Json root
 
-Doris 支持通过 Json root 抽取 Json 中指定的数据。
+Doris supports extracting data specified in Json through Json root.
 
 **Note: Because for Array type data, Doris will expand the array first, and finally process it in a single line according to the Object format. So the examples later in this document are all explained with Json data in a single Object format. **
 

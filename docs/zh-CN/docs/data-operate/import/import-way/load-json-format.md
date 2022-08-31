@@ -285,7 +285,7 @@ curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", 
 
 ## Json root
 
-Doris supports extracting data specified in Json through Json root.
+Doris 支持通过 Json root 抽取 Json 中指定的数据。
 
 **注：因为对于 Array 类型的数据，Doris 会先进行数组展开，最终按照 Object 格式进行单行处理。所以本文档之后的示例都以单个 Object 格式的 Json 数据进行说明。**
 
