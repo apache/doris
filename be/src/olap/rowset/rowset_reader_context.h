@@ -68,6 +68,8 @@ struct RowsetReaderContext {
 
     // need pass this info to VMergeIterator
     std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
+    std::shared_ptr<RowBlockV2> reuse_block;
+    std::shared_ptr<Schema> reuse_input_schema;
 };
 
 } // namespace doris

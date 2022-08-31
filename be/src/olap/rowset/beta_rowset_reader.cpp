@@ -55,7 +55,12 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         _stats = _context->stats;
     }
     // SegmentIterator will load seek columns on demand
-    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(), *(_context->return_columns));
+
+    if (_context->reuse_input_schema == nullptr) {
+        _context->reuse_input_schema.reset(
+                new Schema(_context->tablet_schema->columns(), *(_context->return_columns)));
+    }
+    _schema = _context->reuse_input_schema;
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
@@ -141,8 +146,11 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(*_schema,
-            std::min(1024, read_context->batch_size), _parent_tracker));
+    if (read_context->reuse_block == nullptr) {
+        read_context->reuse_block.reset(
+                new RowBlockV2(*_schema, std::min(1024, read_context->batch_size), _parent_tracker));
+    }
+    _input_block = read_context->reuse_block;
 
     if (!read_context->is_vec) {
         // init input/output block and row

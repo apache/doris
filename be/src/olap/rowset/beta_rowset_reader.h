@@ -58,7 +58,7 @@ public:
 private:
     bool _should_push_down_value_predicates() const;
 
-    std::unique_ptr<Schema> _schema;
+    std::shared_ptr<Schema> _schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 
@@ -69,7 +69,7 @@ private:
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
-    std::unique_ptr<RowBlockV2> _input_block;
+    std::shared_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
 
