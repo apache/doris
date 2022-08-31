@@ -46,4 +46,10 @@ suite("test_array_functions_with_where") {
     qt_select "SELECT k1, size(k2) FROM ${tableName} WHERE element_at(k2, 1)=1 ORDER BY k1"
     qt_select "SELECT k1, size(k2) FROM ${tableName} WHERE arrays_overlap(k2, k4) ORDER BY k1"
     qt_select "SELECT k1, size(k2) FROM ${tableName} WHERE cardinality(k2)>0 ORDER BY k1, size(k2)"
+
+    test {
+        sql "select k1, size(k2) FROM ${tableName} WHERE k2 = []"
+        // check exception message contains
+        exception "Array type dose not support operand"
+    }
 }
