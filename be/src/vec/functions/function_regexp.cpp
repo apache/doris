@@ -49,24 +49,24 @@ public:
     }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::FRAGMENT_LOCAL) {
-            return Status::OK();
-        }
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            if (context->is_col_constant(1)) {
+                DCHECK(!context->get_function_state(scope));
+                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto& pattern = pattern_col->get_data_at(0).to_string_val();
+                if (pattern.is_null) {
+                    return Status::OK();
+                }
 
-        if (context->is_col_constant(1)) {
-            const auto pattern_col = context->get_constant_col(1)->column_ptr;
-            const auto& pattern = pattern_col->get_data_at(0).to_string_val();
-            if (pattern.is_null) {
-                return Status::OK();
+                std::string error_str;
+                re2::RE2* re =
+                        StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
+                if (re == nullptr) {
+                    context->set_error(error_str.c_str());
+                    return Status::InvalidArgument(error_str);
+                }
+                context->set_function_state(scope, re);
             }
-
-            std::string error_str;
-            re2::RE2* re = StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
-            if (re == nullptr) {
-                context->set_error(error_str.c_str());
-                return Status::InvalidArgument(error_str);
-            }
-            context->set_function_state(scope, re);
         }
         return Status::OK();
     }
@@ -101,9 +101,13 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            re2::RE2* re = reinterpret_cast<re2::RE2*>(context->get_function_state(scope));
-            delete re;
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            if (context->is_col_constant(1)) {
+                re2::RE2* re = reinterpret_cast<re2::RE2*>(context->get_function_state(scope));
+                DCHECK(re);
+                delete re;
+                context->set_function_state(scope, nullptr);
+            }
         }
         return Status::OK();
     }
@@ -124,8 +128,9 @@ struct RegexpReplaceImpl {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
+
             re2::RE2* re = reinterpret_cast<re2::RE2*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
             std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
             if (re == nullptr) {
                 std::string error_str;
@@ -171,8 +176,9 @@ struct RegexpExtractImpl {
                 StringOP::push_empty_string(i, result_data, result_offset);
                 continue;
             }
+
             re2::RE2* re = reinterpret_cast<re2::RE2*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
             std::unique_ptr<re2::RE2> scoped_re;
             if (re == nullptr) {
                 std::string error_str;
