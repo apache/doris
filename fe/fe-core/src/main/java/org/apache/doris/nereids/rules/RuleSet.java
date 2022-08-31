@@ -51,6 +51,8 @@ import java.util.List;
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(JoinCommute.OUTER_LEFT_DEEP)
+            .add(JoinLAsscom.INNER)
+            .add(JoinLAsscomProject.INNER)
             .build();
 
     public static final List<Rule> REWRITE_RULES = planRuleFactories()

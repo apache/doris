@@ -67,7 +67,7 @@ public class JoinLAsscomProject extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), groupPlan())
+        return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(topJoin -> JoinLAsscomHelper.check(type, topJoin, topJoin.left().child()))
                 .when(typeChecker)
                 .then(topJoin -> {

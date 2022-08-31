@@ -81,6 +81,6 @@ public class JoinCommute extends OneExplorationRuleFactory {
 
     private boolean containJoin(GroupPlan groupPlan) {
         List<SlotReference> output = Utils.getOutputSlotReference(groupPlan);
-        return output.stream().map(SlotReference::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        return !output.stream().map(SlotReference::getQualifier).allMatch(output.get(0).getQualifier()::equals);
     }
 }
