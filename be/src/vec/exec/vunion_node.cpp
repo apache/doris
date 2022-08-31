@@ -128,8 +128,8 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     bool mem_reuse = block->mem_reuse();
     MutableBlock mblock =
             mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(
-                                VectorizedUtils::create_columns_with_type_and_name(_row_descriptor)));
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
 
     Block child_block;
     while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
@@ -184,8 +184,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     bool mem_reuse = block->mem_reuse();
     MutableBlock mblock =
             mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(
-                                VectorizedUtils::create_columns_with_type_and_name(_row_descriptor)));
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
     for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
