@@ -17,62 +17,69 @@
 
 #pragma once
 
-#include "exprs/bloomfilter_predicate.h"
-#include "exprs/function_filter.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vec/exec/scan/new_file_scanner.h"
 #include <exec/arrow/arrow_reader.h>
 
+#include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
+#include "vec/exec/scan/new_file_scanner.h"
+#include "vec/exec/scan/vscanner.h"
+
 namespace doris::vectorized {
-    class NewFileArrowScanner : public NewFileScanner {
-    public:
-        NewFileArrowScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                            const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
-        Status open(RuntimeState* state) override;
-    protected:
-        Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
-        virtual ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                   int32_t num_of_columns_from_file,
-                                                   int64_t range_start_offset, int64_t range_size) = 0;
-    private:
-        Status _open_next_reader();
-        Status _next_arrow_batch();
-        Status _init_arrow_batch_if_necessary();
-        Status _append_batch_to_block(Block* block);
-    private:
-        // Reader
-        ArrowReaderWrap* _cur_file_reader;
-        bool _cur_file_eof; // is read over?
-        std::shared_ptr<arrow::RecordBatch> _batch;
-        size_t _arrow_batch_cur_idx;
-    };
+class NewFileArrowScanner : public NewFileScanner {
+public:
+    NewFileArrowScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
+                        const TFileScanRange& scan_range, MemTracker* tracker,
+                        RuntimeProfile* profile);
+    Status open(RuntimeState* state) override;
 
-    class NewFileParquetScanner final : public NewFileArrowScanner {
-    public:
-        NewFileParquetScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                              const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
+protected:
+    Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    virtual ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+                                               int32_t num_of_columns_from_file,
+                                               int64_t range_start_offset, int64_t range_size) = 0;
 
-        ~NewFileParquetScanner() override = default;
+private:
+    Status _open_next_reader();
+    Status _next_arrow_batch();
+    Status _init_arrow_batch_if_necessary();
+    Status _append_batch_to_block(Block* block);
 
-    protected:
-        ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                           int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                           int64_t range_size) override;
+private:
+    // Reader
+    ArrowReaderWrap* _cur_file_reader;
+    bool _cur_file_eof; // is read over?
+    std::shared_ptr<arrow::RecordBatch> _batch;
+    size_t _arrow_batch_cur_idx;
+};
 
-        void _init_profiles(RuntimeProfile* profile) override {};
-    };
+class NewFileParquetScanner final : public NewFileArrowScanner {
+public:
+    NewFileParquetScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
+                          const TFileScanRange& scan_range, MemTracker* tracker,
+                          RuntimeProfile* profile);
 
-    class NewFileORCScanner final : public NewFileArrowScanner {
-    public:
-        NewFileORCScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                          const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
+    ~NewFileParquetScanner() override = default;
 
-        ~NewFileORCScanner() override = default;
+protected:
+    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
 
-    protected:
-        ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                           int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                           int64_t range_size) override;
-        void _init_profiles(RuntimeProfile* profile) override {};
-    };
-}
+    void _init_profiles(RuntimeProfile* profile) override {};
+};
+
+class NewFileORCScanner final : public NewFileArrowScanner {
+public:
+    NewFileORCScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
+                      const TFileScanRange& scan_range, MemTracker* tracker,
+                      RuntimeProfile* profile);
+
+    ~NewFileORCScanner() override = default;
+
+protected:
+    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
+    void _init_profiles(RuntimeProfile* profile) override {};
+};
+} // namespace doris::vectorized

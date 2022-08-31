@@ -61,8 +61,8 @@
 #include "vec/core/block.h"
 #include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -585,7 +585,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
-//        *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
+        //        *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
         if (config::enable_new_scan_node) {
             *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         } else {
@@ -711,7 +711,7 @@ void ExecNode::try_do_aggregate_serde_improve() {
     // TODO(cmy): should be removed when NewOlapScanNode is ready
     ExecNode* child0 = agg_node[0]->_children[0];
     if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
-            typeid(*child0) == typeid(vectorized::NewFileScanNode)) {
+        typeid(*child0) == typeid(vectorized::NewFileScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();

@@ -102,7 +102,9 @@ public:
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
 
-    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) { _conjunct_ctxs = conjunct_ctxs; }
+    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) {
+        _conjunct_ctxs = conjunct_ctxs;
+    }
 
 protected:
     void _discard_conjuncts() {

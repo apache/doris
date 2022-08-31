@@ -18,10 +18,10 @@
 #include "vec/exec/scan/new_file_scan_node.h"
 
 #include "vec/columns/column_const.h"
-#include "vec/exec/scan/new_olap_scanner.h"
-#include "vec/functions/in.h"
 #include "vec/exec/scan/new_file_arrow_scanner.h"
 #include "vec/exec/scan/new_file_text_scanner.h"
+#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/functions/in.h"
 
 namespace doris::vectorized {
 
@@ -81,7 +81,8 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     }
 
     for (auto& scan_range : _scan_ranges) {
-        VScanner* scanner = (VScanner*) _create_scanner(scan_range.scan_range.ext_scan_range.file_scan_range);
+        VScanner* scanner =
+                (VScanner*)_create_scanner(scan_range.scan_range.ext_scan_range.file_scan_range);
         scanners->push_back(scanner);
     }
 
@@ -91,19 +92,19 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
     NewFileScanner* scanner = nullptr;
     switch (scan_range.params.format_type) {
-        case TFileFormatType::FORMAT_PARQUET:
-            scanner = new NewFileParquetScanner(_state, this, _limit_per_scanner,
-                                                scan_range, _scanner_mem_tracker.get(), runtime_profile());
-            break;
-        case TFileFormatType::FORMAT_ORC:
-            scanner = new NewFileORCScanner(_state, this, _limit_per_scanner,
-                                            scan_range, _scanner_mem_tracker.get(), runtime_profile());
-            break;
+    case TFileFormatType::FORMAT_PARQUET:
+        scanner = new NewFileParquetScanner(_state, this, _limit_per_scanner, scan_range,
+                                            _scanner_mem_tracker.get(), runtime_profile());
+        break;
+    case TFileFormatType::FORMAT_ORC:
+        scanner = new NewFileORCScanner(_state, this, _limit_per_scanner, scan_range,
+                                        _scanner_mem_tracker.get(), runtime_profile());
+        break;
 
-        default:
-            scanner = new NewFileTextScanner(_state, this, _limit_per_scanner,
-                                             scan_range, _scanner_mem_tracker.get(), runtime_profile());
-            break;
+    default:
+        scanner = new NewFileTextScanner(_state, this, _limit_per_scanner, scan_range,
+                                         _scanner_mem_tracker.get(), runtime_profile());
+        break;
     }
     _scanner_pool.add(scanner);
     scanner->prepare(_vconjunct_ctx_ptr.get());

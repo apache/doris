@@ -33,6 +33,7 @@ protected:
     Status _init_profile() override;
     Status _process_conjuncts() override;
     Status _init_scanners(std::list<VScanner*>* scanners) override;
+
 private:
     VScanner* _create_scanner(const TFileScanRange& scan_range);
 
@@ -41,4 +42,4 @@ private:
     TFileScanNode _file_scan_node;
     std::unique_ptr<MemTracker> _scanner_mem_tracker;
 };
-}
+} // namespace doris::vectorized

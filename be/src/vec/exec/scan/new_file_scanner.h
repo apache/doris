@@ -31,7 +31,7 @@ public:
     NewFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                    const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
 
-    Status open(RuntimeState *state) override;
+    Status open(RuntimeState* state) override;
 
     Status prepare(VExprContext** vconjunct_ctx_ptr);
 
@@ -68,4 +68,4 @@ protected:
 private:
     Status _init_expr_ctxes();
 };
-}
+} // namespace doris::vectorized
