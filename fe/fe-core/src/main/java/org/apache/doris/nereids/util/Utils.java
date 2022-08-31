@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
@@ -48,7 +49,7 @@ public class Utils {
      *
      * @param f function which would invoke the logic of
      *        stale code from old optimizer that could throw
-     *        a checked exception
+     *        a checked exception.
      */
     public static void execWithUncheckedException(FuncWrapper f) {
         try {
@@ -118,5 +119,31 @@ public class Utils {
     public static List<SlotReference> getOutputSlotReference(Plan plan) {
         return plan.getOutput().stream().map(SlotReference.class::cast)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Get sql string for plan.
+     *
+     * @param planName name of plan, like LogicalJoin.
+     * @param variables variable needed to add into sqlString.
+     * @return the string of PlanNode.
+     */
+    public static String toSqlString(String planName, Object... variables) {
+        Preconditions.checkState(variables.length % 2 == 0);
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(planName).append(" ( ");
+
+        if (variables.length == 0) {
+            return stringBuilder.append(" )").toString();
+        }
+
+        for (int i = 0; i < variables.length - 1; i += 2) {
+            stringBuilder.append(variables[i]).append("=").append(variables[i + 1]);
+            if (i < variables.length - 2) {
+                stringBuilder.append(", ");
+            }
+        }
+
+        return stringBuilder.append(" )").toString();
     }
 }

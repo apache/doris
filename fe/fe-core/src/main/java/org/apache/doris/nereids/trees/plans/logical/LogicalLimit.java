@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,7 +38,7 @@ import java.util.Optional;
  * Logical limit plan
  * eg: select * from table limit 10
  * limit: 10
- *
+ * <p>
  * eg: select * from table order by a limit 100, 10
  * limit: 10
  * offset 100
@@ -51,7 +52,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     public LogicalLimit(long limit, long offset, Optional<GroupExpression> groupExpression,
-                        Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child);
         this.limit = limit;
         this.offset = offset;
@@ -72,7 +73,10 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public String toString() {
-        return "LogicalLimit (offset=" + offset + ", limit=" + limit + ")";
+        return Utils.toSqlString("LogicalLimit",
+                "limit", limit,
+                "offset", offset
+        );
     }
 
     @Override

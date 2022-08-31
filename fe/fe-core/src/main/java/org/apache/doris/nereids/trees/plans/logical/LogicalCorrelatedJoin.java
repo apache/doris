@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,6 +35,7 @@ import java.util.Optional;
 
 /**
  * A relational algebra node with join type converted from apply node to subquery.
+ *
  * @param <LEFT_CHILD_TYPE> input.
  * @param <RIGHT_CHILD_TYPE> subquery.
  */
@@ -76,11 +78,10 @@ public class LogicalCorrelatedJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("LogicalCorrelated ((correlation: ").append(type);
-        correlation.stream().map(c -> sb.append(", ").append(c));
-        sb.append("), (filter: ");
-        filter.ifPresent(expression -> sb.append(", ").append(expression));
-        return sb.append("))").toString();
+        return Utils.toSqlString("LogicalCorrelated",
+                "correlation", correlation,
+                "filter", filter
+        );
     }
 
     @Override

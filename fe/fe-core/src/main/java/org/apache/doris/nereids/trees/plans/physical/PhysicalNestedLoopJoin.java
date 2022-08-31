@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -67,13 +68,10 @@ public class PhysicalNestedLoopJoin<
     @Override
     public String toString() {
         // TODO: Maybe we could pull up this to the abstract class in the future.
-        StringBuilder sb = new StringBuilder();
-        sb.append("PhysicalNestedLoopJoin ([").append(joinType).append("]");
-        otherJoinCondition.ifPresent(
-                expression -> sb.append(", [").append(expression).append("]")
+        return Utils.toSqlString("PhysicalNestedLoopJoin",
+                "type", joinType,
+                "otherJoinCondition", otherJoinCondition
         );
-        sb.append(")");
-        return sb.toString();
     }
 
     @Override

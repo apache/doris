@@ -28,10 +28,10 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -173,18 +173,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("LogicalJoin ([").append(joinType).append("]");
-        sb.append("hashJoinCondition:[");
-        sb.append(StringUtils.join(hashJoinConjuncts, ", "));
-        sb.append("] ");
-        otherJoinCondition.ifPresent(
-                expression -> sb.append(", nonHashJoinCondition [").append(expression).append("]")
+        return Utils.toSqlString("LogicalJoin",
+                "type", joinType,
+                "hashJoinCondition", hashJoinConjuncts,
+                "otherJoinCondition", otherJoinCondition
         );
-        sb.append(")");
-        return sb.toString();
     }
 
-    //TODO:
+    // TODO:
     // 1. consider the order of conjucts in otherJoinCondition and hashJoinConditions
     @Override
     public boolean equals(Object o) {
