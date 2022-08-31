@@ -1042,10 +1042,9 @@ public class FunctionCallExpr extends Expr {
 
         if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn != null && fn.getReturnType().isDatetimeV2()) {
-            Preconditions.checkArgument(children.size() == 1);
-            if (children.get(0) instanceof IntLiteral) {
+            if (children.size() == 1 && children.get(0) instanceof IntLiteral) {
                 fn.setReturnType(ScalarType.createDatetimeV2Type((int) ((IntLiteral) children.get(0)).getLongValue()));
-            } else {
+            } else if (children.size() == 1) {
                 fn.setReturnType(ScalarType.createDatetimeV2Type(6));
             }
         }
