@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -43,7 +44,7 @@ public class CreateViewTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
-
+        Config.enable_array_type = true;
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
@@ -56,6 +57,12 @@ public class CreateViewTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr,
                 connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
+        // create table with array type
+        String createTableWithArrayStmtStr = "create table test.tbl2(id int, c_array array<int(11)>) duplicate key(id)"
+                + " distributed by hash(id) buckets 1 properties('replication_num' = '1');";
+        CreateTableStmt createTableWithArrayStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                createTableWithArrayStmtStr, connectContext);
+        Env.getCurrentEnv().createTable(createTableWithArrayStmt);
     }
 
     @AfterClass
@@ -100,6 +107,10 @@ public class CreateViewTest {
                         + "union all "
                         + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
 
+        // test array type
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view8 as select * from test.tbl2;"));
+
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
 
         View view1 = (View) db.getTableOrDdlException("view1");
@@ -140,6 +151,11 @@ public class CreateViewTest {
         Assert.assertEquals(2, view7.getFullSchema().size());
         Assert.assertNotNull(view7.getColumn("k1"));
         Assert.assertNotNull(view7.getColumn("k2"));
+
+        View view8 = (View) db.getTableOrDdlException("view8");
+        Assert.assertEquals(2, view8.getFullSchema().size());
+        Assert.assertNotNull(view8.getColumn("id"));
+        Assert.assertNotNull(view8.getColumn("c_array"));
     }
 
     @Test
