@@ -87,8 +87,7 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
         String sql = "select d_year, c_nation, SUM(lo_revenue - lo_supplycost) AS PROFIT"
                 + " from lineorder inner join dates on lo_orderdate = d_datekey"
                 + " left outer join supplier on s_suppkey = lo_suppkey"
-                + " full outer join customer on c_custkey = lo_custkey"
-                + " left anti join part on p_partkey = lo_partkey";
+                + " full outer join customer on c_custkey = lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql);
         Assertions.assertTrue(filters.size() == 1
                 && checkRuntimeFilterExpr(filters.get(0), "d_datekey", "lo_orderdate"));
@@ -115,6 +114,20 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
         List<RuntimeFilter> filters = getRuntimeFilters(sql);
         Assertions.assertTrue(filters.size() == 1
                 && checkRuntimeFilterExpr(filters.get(0), "s_suppkey", "c_custkey"));
+    }
+
+    @Test
+    public void testPushDownThroughAggNode() throws AnalysisException {
+        String sql = "select profit"
+                + " from (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder inner join dates"
+                + " on lo_orderdate = d_datekey group by lo_custkey) a"
+                + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
+                + " on b.c_custkey = a.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 3
+                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(1), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(2), "s_suppkey", "c_custkey"));
     }
 
     private List<RuntimeFilter> getRuntimeFilters(String sql) throws AnalysisException {

@@ -80,10 +80,8 @@ public class RuntimeFilter {
         }
         //current we assume that there are certainly different slot reference in equal to.
         //they are not from the same relation.
-        int exchangeTag = 0;
-        if (join.child(0).getOutput().contains(expr.child(1))) {
-            exchangeTag = 1;
-        }
+        int exchangeTag = join.child(0).getOutput().stream().anyMatch(slot -> slot.getExprId().equals(
+                ((SlotReference) expr.child(1)).getExprId())) ? 1 : 0;
         return Pair.of(expr.child(exchangeTag), expr.child(1 ^ exchangeTag));
     }
 

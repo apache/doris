@@ -35,6 +35,7 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -49,7 +50,7 @@ public class PlanTranslatorContext {
 
     private final DescriptorTable descTable = new DescriptorTable();
 
-    private final RuntimeFilterGenerator runtimeFilterGenerator;
+    private RuntimeFilterGenerator runtimeFilterGenerator = null;
 
     /**
      * index from Nereids' slot to legacy slot.
@@ -69,6 +70,10 @@ public class PlanTranslatorContext {
 
     public PlanTranslatorContext(CascadesContext ctx) {
         runtimeFilterGenerator = ctx.getRuntimeGenerator();
+    }
+
+    @VisibleForTesting
+    public PlanTranslatorContext() {
     }
 
     public List<PlanFragment> getPlanFragments() {
