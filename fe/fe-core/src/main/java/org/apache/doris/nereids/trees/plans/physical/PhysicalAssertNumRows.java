@@ -76,12 +76,9 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/nereids/trees/plans/logical/LogicalEnforceSingleRow.java
-        return true;
-=======
+
         PhysicalAssertNumRows that = (PhysicalAssertNumRows) o;
         return assertNumRowsElement.equals(that.assertNumRowsElement);
->>>>>>> 89d0bc59e2 ([feature](nereids) Convert subqueries into algebraic expressions and put them into the query tree):fe/fe-core/src/main/java/org/apache/doris/nereids/trees/plans/physical/PhysicalAssertNumRows.java
     }
 
     @Override
