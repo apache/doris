@@ -72,7 +72,7 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
     std::unique_ptr<BlockCompressionCodec> local_compress_codec;
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), local_compress_codec));
     RETURN_IF_ERROR(read_page(PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
-                              local_compress_codec.get()));
+                              local_compress_codec.get(), false));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
     _mem_size += body.get_size();
     return Status::OK();
@@ -80,7 +80,7 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
 
 Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle, Slice* body,
                                       PageFooterPB* footer, PageTypePB type,
-                                      BlockCompressionCodec* codec) const {
+                                      BlockCompressionCodec* codec, bool pre_decode) const {
     PageReadOptions opts;
     opts.file_reader = _file_reader.get();
     opts.page_pointer = pp;
@@ -92,7 +92,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     opts.type = type;
     opts.encoding_info = _encoding_info;
 
-    return PageIO::read_and_decompress_page(opts, handle, body, footer);
+    return PageIO::read_and_decompress_page(opts, handle, body, footer, pre_decode);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -106,8 +106,8 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     PageHandle handle;
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(
-            _reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec.get()));
+    RETURN_IF_ERROR(_reader->read_page(pp, &handle, &body, &footer, DATA_PAGE,
+                                       _compress_codec.get(), true));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
     PageDecoderOptions opts;

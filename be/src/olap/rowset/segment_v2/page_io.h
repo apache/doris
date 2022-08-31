@@ -115,7 +115,8 @@ public:
     //     `body' points to page body,
     //     `footer' stores the page footer.
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                           Slice* body, PageFooterPB* footer);
+                                           Slice* body, PageFooterPB* footer,
+                                           bool pre_decode = true);
 };
 
 } // namespace segment_v2
