@@ -375,7 +375,7 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs);
+    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0);
 
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
