@@ -2167,4 +2167,57 @@ public class QueryPlanTest extends TestWithFeService {
                 + "KeyColumns[1] (starts from zero) is k3, "
                 + "but corresponding column is k2 in the previous columns declaration."));
     }
+
+    /*
+     At present, after the doris olap table writes data, it can test whether the rollup is hit,
+     but in the unit test environment, be cannot write data, so it cannot be tested.
+     The alternative is to determine whether pre-aggregation is turned on.
+     However, in the normal environment of doris, it can hit rollup
+    */
+    @Test
+    public void testOrthogonalBitmapUnionCountUDAFcanHitRollup() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.bitmap_tb (\n" +
+            "  `id` int(11) NULL COMMENT \"\",\n" +
+            "  `id2` int(11) NULL COMMENT \"\",\n" +
+            "  `id3` bitmap bitmap_union NULL\n" +
+            ") ENGINE=OLAP\n" +
+            "AGGREGATE KEY(`id`,`id2`)\n" +
+            "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\"\n" +
+            ");");
+
+        // String insertTableSql = "insert into test.bitmap_tb select 1 as id, 2 as id2, to_bitmap(3) as id3";
+        //getSqlStmtExecutor(insertTableSql).execute();
+
+        String createRollupSql = "alter TABLE test.bitmap_tb add rollup bitmap_tb_rollup(`id`,`id3`)";
+        AlterTableStmt alterTableStmt = (AlterTableStmt)parseAndAnalyzeStmt(createRollupSql);
+        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            if (alterJobV2.getType() != AlterJobV2.JobType.ROLLUP) {
+                continue;
+            }
+            while (!alterJobV2.getJobState().isFinalState()) {
+                System.out.println(
+                    "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                Thread.sleep(5000);
+            }
+            System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+        }
+
+        String queryBaseTableStr = "explain select id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
+        String explainString1 = getSQLPlanOrErrorMsg(queryBaseTableStr);
+        Assert.assertTrue(explainString1.contains("PREAGGREGATION: ON"));
+
+        String queryRollupTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
+        String explainString2 = getSQLPlanOrErrorMsg(queryRollupTableStr);
+        Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
+
+        //Assert.assertTrue(explainString2.contains("rollup: bitmap_tb_rollup"));
+        //Assert.assertTrue(explainString1.contains("rollup: bitmap_tb"));
+    }
 }
