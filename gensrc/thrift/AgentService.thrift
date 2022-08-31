@@ -250,6 +250,7 @@ struct TSnapshotRequest {
     // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
+    10: optional bool is_copy_tablet_task
 }
 
 struct TReleaseSnapshotRequest {

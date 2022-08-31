@@ -73,6 +73,9 @@ private:
     std::string _get_header_full_path(const TabletSharedPtr& ref_tablet,
                                       const std::string& schema_hash_path) const;
 
+    std::string _get_json_header_full_path(const TabletSharedPtr& ref_tablet,
+                                           const std::string& schema_hash_path) const;
+
     OLAPStatus _link_index_and_data_files(const FilePathDesc& header_path_desc,
                                           const TabletSharedPtr& ref_tablet,
                                           const std::vector<RowsetSharedPtr>& consistent_rowsets);

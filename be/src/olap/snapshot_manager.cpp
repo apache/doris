@@ -285,6 +285,11 @@ std::string SnapshotManager::_get_header_full_path(const TabletSharedPtr& ref_ta
     return header_name_stream.str();
 }
 
+std::string SnapshotManager::_get_json_header_full_path(const TabletSharedPtr& ref_tablet,
+                                                        const std::string& schema_hash_path) const {
+    return fmt::format("{}/{}.hdr.json", schema_hash_path, ref_tablet->tablet_id());
+}
+
 OLAPStatus SnapshotManager::_link_index_and_data_files(
         const FilePathDesc& schema_hash_path_desc, const TabletSharedPtr& ref_tablet,
         const std::vector<RowsetSharedPtr>& consistent_rowsets) {
@@ -309,13 +314,13 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    // snapshot_id_path:
-    //      /data/shard_id/tablet_id/snapshot/time_str/id.timeout/
-    string snapshot_id_path;
     int64_t timeout_s = config::snapshot_expire_time_sec;
     if (request.__isset.timeout) {
         timeout_s = request.timeout;
     }
+    // snapshot_id_path:
+    //      /data/shard_id/tablet_id/snapshot/time_str/id.timeout/
+    std::string snapshot_id_path;
     res = _calc_snapshot_id_path(ref_tablet, timeout_s, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
@@ -329,6 +334,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
     // header_path:
     //      /schema_full_path/tablet_id.hdr
     string header_path = _get_header_full_path(ref_tablet, schema_full_path_desc.filepath);
+    auto json_header_path = _get_json_header_full_path(ref_tablet, schema_full_path_desc.filepath);
     if (FileUtils::check_exist(schema_full_path_desc.filepath)) {
         VLOG_TRACE << "remove the old schema_full_path.";
         FileUtils::remove_all(schema_full_path_desc.filepath);
@@ -454,6 +460,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                       << ", schema hash:" << new_tablet_meta->schema_hash();
         } else if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
+            if (res == OLAP_SUCCESS && request.__isset.is_copy_tablet_task && request.is_copy_tablet_task) {
+                res = new_tablet_meta->save_as_json(json_header_path);
+            }
         } else {
             res = OLAP_ERR_INVALID_SNAPSHOT_VERSION;
         }

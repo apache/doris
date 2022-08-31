@@ -3089,7 +3089,7 @@ public class Catalog {
                     throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
-                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true);
+                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true, -1L);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -4111,9 +4111,9 @@ public class Catalog {
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt,
-                separatePartition, hidePassword, false);
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword, long specificVersion) {
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
+                hidePassword, false, specificVersion);
     }
 
     /**
@@ -4122,8 +4122,8 @@ public class Catalog {
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt,
-                                  List<String> addPartitionStmt, List<String> createRollupStmt,
-                                  boolean separatePartition, boolean hidePassword, boolean getDdlForLike) {
+            List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
+            boolean hidePassword, boolean getDdlForLike, long specificVersion) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -4190,6 +4190,16 @@ public class Catalog {
                 }
             }
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+
+            if (specificVersion != -1) {
+                // for copy tablet operation
+                sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
+                        .append(") BUCKETS 1");
+                sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
+                        + specificVersion + "\"\n" + ")");
+                createTableStmt.add(sb + ";");
+                return;
+            }
 
             if (!Strings.isNullOrEmpty(table.getComment())) {
                 sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");

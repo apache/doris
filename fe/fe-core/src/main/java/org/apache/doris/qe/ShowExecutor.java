@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.AdminDiagnoseTabletStmt;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
@@ -125,6 +126,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
@@ -161,18 +163,22 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang3.tuple.Triple;
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,6 +194,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -344,6 +351,8 @@ public class ShowExecutor {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
+        } else if (stmt instanceof AdminCopyTabletStmt) {
+            handleCopyTablet();
         } else {
             handleEmtpy();
         }
@@ -807,7 +816,7 @@ public class ShowExecutor {
         table.readLock();
         try {
             List<String> createTableStmt = Lists.newArrayList();
-            Catalog.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */);
+            Catalog.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
             if (createTableStmt.isEmpty()) {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
@@ -917,7 +926,7 @@ public class ShowExecutor {
             view.readLock();
             try {
                 List<String> createViewStmt = Lists.newArrayList();
-                Catalog.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */);
+                Catalog.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
                 if (!createViewStmt.isEmpty()) {
                     rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
                 }
@@ -2206,4 +2215,102 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
     }
 
+    private void handleCopyTablet() throws AnalysisException {
+        AdminCopyTabletStmt copyStmt = (AdminCopyTabletStmt) stmt;
+        long tabletId = copyStmt.getTabletId();
+        long version = copyStmt.getVersion();
+        long backendId = copyStmt.getBackendId();
+
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            throw new AnalysisException("Unknown tablet: " + tabletId);
+        }
+
+        // 1. find replica
+        Replica replica = null;
+        if (backendId != -1) {
+            replica = invertedIndex.getReplica(tabletId, backendId);
+        } else {
+            List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+            if (!replicas.isEmpty()) {
+                replica = replicas.get(0);
+            }
+        }
+        if (replica == null) {
+            throw new AnalysisException("Replica not found on backend: " + backendId);
+        }
+        backendId = replica.getBackendId();
+        Backend be = Catalog.getCurrentSystemInfo().getBackend(backendId);
+        if (be == null || !be.isAlive()) {
+            throw new AnalysisException("Unavailable backend: " + backendId);
+        }
+
+        // 2. find version
+        if (version != -1 && replica.getVersion() < version) {
+            throw new AnalysisException("Version is larger than replica max version: " + replica.getVersion());
+        }
+        version = version == -1 ? replica.getVersion() : version;
+
+        // 3. get create table stmt
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(tabletMeta.getDbId());
+        OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
+        if (tbl == null) {
+            throw new AnalysisException("Failed to find table: " + tabletMeta.getTableId());
+        }
+
+        List<String> createTableStmt = Lists.newArrayList();
+        tbl.readLock();
+        try {
+            Catalog.getDdlStmt(tbl, createTableStmt, null, null, false, true /* hide password */, version);
+        } finally {
+            tbl.readUnlock();
+        }
+
+        // 4. create snapshot task
+        SnapshotTask task = new SnapshotTask(null, backendId, tabletId, -1, tabletMeta.getDbId(),
+                tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, tabletMeta.getOldSchemaHash(),
+                copyStmt.getExpirationMinutes() * 60 * 1000, false);
+        task.setIsCopyTabletTask(true);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(1);
+        countDownLatch.addMark(backendId, tabletId);
+        task.setCountDownLatch(countDownLatch);
+
+        // 5. send task and wait
+        AgentBatchTask batchTask = new AgentBatchTask();
+        batchTask.addTask(task);
+        try {
+            AgentTaskQueue.addBatchTask(batchTask);
+            AgentTaskExecutor.submit(batchTask);
+
+            boolean ok = false;
+            try {
+                ok = countDownLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+                ok = false;
+            }
+
+            if (!ok) {
+                throw new AnalysisException(
+                        "Failed to make snapshot for tablet " + tabletId + " on backend: " + backendId);
+            }
+
+            // send result
+            List<List<String>> resultRowSet = Lists.newArrayList();
+            List<String> row = Lists.newArrayList();
+            row.add(String.valueOf(tabletId));
+            row.add(String.valueOf(backendId));
+            row.add(be.getHost());
+            row.add(task.getResultSnapshotPath());
+            row.add(String.valueOf(copyStmt.getExpirationMinutes()));
+            row.add(createTableStmt.get(0));
+            resultRowSet.add(row);
+
+            ShowResultSetMetaData showMetaData = copyStmt.getMetaData();
+            resultSet = new ShowResultSet(showMetaData, resultRowSet);
+        } finally {
+            AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
+        }
+    }
 }

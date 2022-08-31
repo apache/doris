@@ -25,12 +25,11 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Lists;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -80,11 +79,13 @@ public class CreateTableLikeTest {
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
         List<String> newCreateTableStmt = Lists.newArrayList();
         List<String> newAddRollupStmt = Lists.newArrayList();
-        Catalog.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */);
+        Catalog.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */, -1L);
         List<String> existedTableStmt = Lists.newArrayList();
         List<String> existedAddRollupStmt = Lists.newArrayList();
-        Catalog.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */);
-        Assert.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()), existedTableStmt.get(0));
+        Catalog.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */,
+                -1L);
+        Assert.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()),
+                existedTableStmt.get(0));
         checkTableRollup(existedAddRollupStmt, newAddRollupStmt, newTable.getName(), existedTable.getName(), rollupSize);
     }
 

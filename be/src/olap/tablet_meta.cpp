@@ -20,6 +20,7 @@
 #include <boost/algorithm/string.hpp>
 #include <sstream>
 
+#include "exec/local_file_writer.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -291,6 +292,34 @@ std::string TabletMeta::construct_header_file_path(const string& schema_hash_pat
     std::stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
     return header_name_stream.str();
+}
+
+OLAPStatus TabletMeta::save_as_json(const string& file_path) {
+    std::string json_meta;
+    json2pb::Pb2JsonOptions json_options;
+    json_options.pretty_json = true;
+    json_options.bytes_to_base64 = true;
+    to_json(&json_meta, json_options);
+    // save to file
+    LocalFileWriter writer(file_path, 0);
+    Status st = writer.open();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to open for: " << file_path << ", err: " << st.get_error_msg();
+        return OLAP_ERR_IO_ERROR;
+    }
+    size_t written_len = 0;
+    st = writer.write((const uint8_t*) json_meta.data(), json_meta.length(), &written_len);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to write for: " << file_path << ", err: " << st.get_error_msg();
+        return OLAP_ERR_IO_ERROR;
+    }
+    st = writer.close();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to close writer for: " << file_path << ", err: " << st.get_error_msg();
+        return OLAP_ERR_IO_ERROR;
+    }
+
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::save(const string& file_path) {
