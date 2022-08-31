@@ -57,6 +57,11 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         for (int i = 1; i < tablerefs.size(); ++i) {
             tablerefs.get(i).setLeftTblRef(tablerefs.get(i - 1));
         }
+        // save the tableRef's order, will use in reset method later
+        originalTableRefOrders.clear();
+        for (int i = 0; i < tablerefs.size(); ++i) {
+            originalTableRefOrders.add(tablerefs.get(i));
+        }
     }
 
     public FromClause() {

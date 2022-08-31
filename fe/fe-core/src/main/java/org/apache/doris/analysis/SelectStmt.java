@@ -733,12 +733,12 @@ public class SelectStmt extends QueryStmt {
 
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
-        List<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
+        ArrayList<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
         // New pair of table ref and row count
         for (TableRef tblRef : fromClause) {
             if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
                 // Unsupported reorder outer join
-                return;
+                break;
             }
             long rowCount = 0;
             if (tblRef.getTable().getType() == TableType.OLAP) {
@@ -746,6 +746,11 @@ public class SelectStmt extends QueryStmt {
                 LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
             }
             candidates.add(Pair.of(tblRef, rowCount));
+        }
+        int reorderTableCount = candidates.size();
+        if (reorderTableCount < originOrderBackUp.size()) {
+            fromClause.clear();
+            fromClause.addAll(originOrderBackUp.subList(0, reorderTableCount));
         }
         // give InlineView row count
         long last = 0;
@@ -765,6 +770,9 @@ public class SelectStmt extends QueryStmt {
                 // as long as one scheme success, we return this scheme immediately.
                 // in this scheme, candidate.first will be consider to be the big table in star schema.
                 // this scheme might not be fit for snowflake schema.
+                if (reorderTableCount < originOrderBackUp.size()) {
+                    fromClause.addAll(originOrderBackUp.subList(reorderTableCount, originOrderBackUp.size()));
+                }
                 return;
             }
         }
