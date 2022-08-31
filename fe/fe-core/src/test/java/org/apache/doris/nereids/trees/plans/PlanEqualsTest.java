@@ -95,8 +95,8 @@ public class PlanEqualsTest {
         Assertions.assertEquals(expected, actual);
 
         LogicalJoin<Plan, Plan> unexpected = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(
-                new SlotReference(new ExprId(2),"a", BigIntType.INSTANCE, false, Lists.newArrayList()),
-                new SlotReference(new ExprId(3),"b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
+                new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 Optional.empty(), left, right);
         Assertions.assertNotEquals(unexpected, actual);
     }
