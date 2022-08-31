@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -41,12 +40,10 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    private final RuntimeFilterGenerator runtimeFilter;
-
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition, LogicalProperties logicalProperties,
                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, condition, Optional.empty(), logicalProperties, leftChild, rightChild, null);
+        this(joinType, hashJoinConjuncts, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /**
@@ -56,16 +53,10 @@ public class PhysicalHashJoin<
      * @param condition join condition.
      */
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts, Optional<Expression> condition,
-                            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
-                            RuntimeFilterGenerator runtimeFilter) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, condition,
                 groupExpression, logicalProperties, leftChild, rightChild);
-        this.runtimeFilter = runtimeFilter;
-    }
-
-    public RuntimeFilterGenerator getRuntimeFilters() {
-        return runtimeFilter;
     }
 
     @Override
@@ -91,28 +82,18 @@ public class PhysicalHashJoin<
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, groupExpression,
-                logicalProperties, children.get(0), children.get(1), runtimeFilter);
+                logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
-                groupExpression, logicalProperties, left(), right(), runtimeFilter);
+                groupExpression, logicalProperties, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, Optional.empty(),
-            logicalProperties.get(), left(), right(), runtimeFilter);
-    }
-
-    public PhysicalHashJoin<Plan, Plan> withRuntimeFilterGenerator(RuntimeFilterGenerator runtimeFilters) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
-                otherJoinCondition, Optional.empty(), logicalProperties, left(), right(), runtimeFilters);
-    }
-
-    public PhysicalHashJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, groupExpression,
-                logicalProperties, left(), right(), runtimeFilter);
+            logicalProperties.get(), left(), right());
     }
 }

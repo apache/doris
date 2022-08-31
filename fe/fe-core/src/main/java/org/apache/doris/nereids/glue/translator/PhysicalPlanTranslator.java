@@ -261,7 +261,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
         // translate runtime filter
-        context.getRuntimeFilterGenerator().translateRuntimeFilterTarget(olapScan, olapScanNode, context);
+        context.getRuntimeFilterGenerator().translateRuntimeFilterTarget(olapScan, olapScanNode);
         // Create PlanFragment
         // TODO: add data partition after we have physical properties
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);

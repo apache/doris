@@ -86,7 +86,7 @@ public class OriginalPlanner extends Planner {
     }
 
     @Override
-    public List<RuntimeFilter> getAssignedRuntimeFilter() {
+    public List<RuntimeFilter> getRuntimeFilter() {
         return analyzer.getAssignedRuntimeFilter();
     }
 

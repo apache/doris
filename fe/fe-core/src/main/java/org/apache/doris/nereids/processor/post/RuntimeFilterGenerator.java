@@ -25,7 +25,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -44,7 +44,9 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -62,7 +64,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     private static final IdGenerator<RuntimeFilterId> GENERATOR = RuntimeFilterId.createGenerator();
 
-    private final Map<ExprId, List<RuntimeFilter>> filtersByExprId = Maps.newHashMap();
+    private Map<ExprId, List<RuntimeFilter>> filtersByExprId = Maps.newHashMap();
 
     private final Map<ExprId, List<RuntimeFilter.RuntimeFilterTarget>> filterTargetByTid = Maps.newHashMap();
 
@@ -72,16 +74,26 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     private final FilterSizeLimits limits;
 
+    private int deniedJoinLevel;
+
+    private final ImmutableSet<JoinType> deniedJoinType = ImmutableSet.of(
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.RIGHT_ANTI_JOIN,
+            JoinType.FULL_OUTER_JOIN,
+            JoinType.LEFT_OUTER_JOIN
+    );
+
     public RuntimeFilterGenerator(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
+        this.deniedJoinLevel = 0;
     }
 
     @Override
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> join, CascadesContext ctx) {
         Plan left = join.left();
         Plan right = join.right();
-        if (join.getJoinType() == JoinType.INNER_JOIN) {
+        if (!deniedJoinType.contains(join.getJoinType())) {
             List<EqualTo> eqPreds = join.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast).collect(Collectors.toList());
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values()).filter(type ->
@@ -89,11 +101,10 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
             List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
             AtomicInteger cnt = new AtomicInteger();
             final PhysicalHashJoin<Plan, Plan> joinReplica = join;
-            List<Expression> newHashConjuncts = Lists.newArrayList();
             eqPreds.forEach(expr -> {
                 runtimeFilters.addAll(legalTypes.stream()
                         .map(type -> RuntimeFilter.createRuntimeFilter(GENERATOR.getNextId(), expr,
-                                type, cnt.get(), joinReplica, newHashConjuncts))
+                                type, cnt.get(), joinReplica))
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
                 cnt.getAndIncrement();
@@ -102,14 +113,24 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 filtersByExprId.computeIfAbsent(filter.getTargetExpr().getExprId(), k -> new ArrayList<>()).add(filter);
             });
             left = left.accept(this, ctx);
-            runtimeFilters.forEach(RuntimeFilter::setFinalized);
             right = right.accept(this, ctx);
-            join = join.withRuntimeFilterGenerator(this).withHashJoinConjuncts(newHashConjuncts);
         } else {
+            join.getOutput().forEach(slot -> filtersByExprId.remove(slot.getExprId()));
             left = join.left().accept(this, ctx);
             right = join.right().accept(this, ctx);
         }
         return join.withChildren(ImmutableList.of(left, right));
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext ctx) {
+        if (deniedJoinLevel != 0) {
+            MapDifference<ExprId, List<RuntimeFilter>> diff = Maps.difference(filtersByExprId, Maps.toMap(
+                    scan.getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toList()),
+                    k -> Lists.newArrayList()));
+            filtersByExprId = diff.entriesOnlyOnLeft();
+        }
+        return scan;
     }
 
     /**
@@ -154,7 +175,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
      * s
      * @param node s
      */
-    public void translateRuntimeFilterTarget(PhysicalOlapScan scan, OlapScanNode node, PlanTranslatorContext ctx) {
+    public void translateRuntimeFilterTarget(PhysicalOlapScan scan, OlapScanNode node) {
         scan.getOutput().stream()
                 .filter(slot -> filtersByExprId.containsKey(slot.getExprId()))
                 .forEach(slot -> {

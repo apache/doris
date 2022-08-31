@@ -144,4 +144,8 @@ public class PlanChecker {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, initPlan);
         return new PlanChecker(cascadesContext);
     }
+
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
+    }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -31,32 +32,24 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import java.util.List;
-
 /**
  * runtime filter
  */
 public class RuntimeFilter {
-    private final EqualTo expr;
+
+    private final SlotReference srcSlot;
+
+    private final SlotReference targetSlot;
 
     private final RuntimeFilterId id;
 
     private final TRuntimeFilterType type;
 
-    private boolean finalized = false;
-
-    private RuntimeFilter(RuntimeFilterId id, EqualTo expr, TRuntimeFilterType type) {
+    private RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type) {
         this.id = id;
-        this.expr = expr;
+        this.srcSlot = src;
+        this.targetSlot = target;
         this.type = type;
-    }
-
-    public void setFinalized() {
-        this.finalized = true;
-    }
-
-    public boolean getFinalized() {
-        return finalized;
     }
 
     /**
@@ -69,17 +62,16 @@ public class RuntimeFilter {
      * @return s
      */
     public static RuntimeFilter createRuntimeFilter(RuntimeFilterId id, EqualTo conjunction,
-            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin<Plan, Plan> node,
-            List<Expression> newHashConjuncts) {
-        EqualTo expr = checkAndMaybeSwapChild(conjunction, node);
-        newHashConjuncts.add(expr);
-        if (expr == null) {
+            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin<Plan, Plan> node) {
+        Pair<Expression, Expression> srcs = checkAndMaybeSwapChild(conjunction, node);
+        if (srcs == null) {
             return null;
         }
-        return new RuntimeFilter(id, expr, type);
+        return new RuntimeFilter(id, ((SlotReference) srcs.second), ((SlotReference) srcs.first), type);
     }
 
-    private static EqualTo checkAndMaybeSwapChild(EqualTo expr, PhysicalHashJoin<Plan, Plan> join) {
+    private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
+            PhysicalHashJoin<Plan, Plan> join) {
         if (expr.children().stream().anyMatch(Literal.class::isInstance)) {
             return null;
         }
@@ -88,18 +80,19 @@ public class RuntimeFilter {
         }
         //current we assume that there are certainly different slot reference in equal to.
         //they are not from the same relation.
+        int exchangeTag = 0;
         if (join.child(0).getOutput().contains(expr.child(1))) {
-            expr = (EqualTo) expr.withChildren(expr.child(1), expr.child(0));
+            exchangeTag = 1;
         }
-        return expr;
+        return Pair.of(expr.child(exchangeTag), expr.child(1 ^ exchangeTag));
     }
 
     public SlotReference getSrcExpr() {
-        return (SlotReference) expr.child(1);
+        return srcSlot;
     }
 
     public SlotReference getTargetExpr() {
-        return (SlotReference) expr.child(0);
+        return targetSlot;
     }
 
     public RuntimeFilterId getId() {

@@ -17,20 +17,15 @@
 
 package org.apache.doris.nereids.postprocess;
 
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PatternMatchSupported;
-import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.thrift.TQueryOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,130 +48,79 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
     @Test
     public void testGenerateRuntimeFilter() throws AnalysisException {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .implement()
-                .postProcess()
-                .matchesPhysicalPlan(
-                        physicalProject(
-                                physicalHashJoin(
-                                        physicalOlapScan(),
-                                        physicalOlapScan()
-                                ).when(join -> {
-                                    Expression expr = join.getHashJoinConjuncts().get(0);
-                                    Assertions.assertTrue(expr instanceof EqualTo);
-                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getNereridsRuntimeFilter();
-                                    return filters.size() == 1
-                                            && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey");
-                                })
-                        )
-                );
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey"));
     }
 
     @Test
     public void testGenerateRuntimeFilterByIllegalSrcExpr() throws AnalysisException {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = c_custkey";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .implement()
-                .postProcess()
-                .matchesPhysicalPlan(
-                        physicalProject(
-                                physicalNestedLoopJoin(
-                                        physicalOlapScan(),
-                                        physicalOlapScan()
-                                )
-                        )
-                );
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertEquals(0, filters.size());
     }
 
     @Test
     public void testComplexExpressionToRuntimeFilter() throws AnalysisException {
         String sql
                 = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .implement()
-                .postProcess()
-                .matchesPhysicalPlan(
-                        physicalProject(
-                                physicalHashJoin(
-                                        physicalOlapScan(),
-                                        physicalOlapScan()
-                                ).when(join -> {
-                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getNereridsRuntimeFilter();
-                                    return filters.size() == 3
-                                            && checkRuntimeFilterExpr(filters.get(0), "c_name", "s_name")
-                                            && checkRuntimeFilterExpr(filters.get(1), "c_city", "s_city")
-                                            && checkRuntimeFilterExpr(filters.get(2), "c_nation", "s_nation");
-                                })
-                        )
-                );
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 3
+                && checkRuntimeFilterExpr(filters.get(0), "c_name", "s_name")
+                && checkRuntimeFilterExpr(filters.get(1), "c_city", "s_city")
+                && checkRuntimeFilterExpr(filters.get(2), "c_nation", "s_nation"));
     }
 
     @Test
     public void testNestedJoinGenerateRuntimeFilter() throws AnalysisException {
         String sql = SSBUtils.Q4_1;
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .implement()
-                .postProcess()
-                .matchesPhysicalPlan(
-                        physicalQuickSort(
-                                physicalAggregate(
-                                        physicalAggregate(
-                                                physicalHashJoin(
-                                                        physicalHashJoin(
-                                                                physicalHashJoin(
-                                                                        physicalHashJoin(
-                                                                                physicalOlapScan(),
-                                                                                physicalOlapScan()
-                                                                        ),
-                                                                        physicalFilter(
-                                                                                physicalOlapScan()
-                                                                        )
-                                                                ),
-                                                                physicalFilter(
-                                                                        physicalOlapScan()
-                                                                )
-                                                        ),
-                                                        physicalFilter(
-                                                                physicalOlapScan()
-                                                        )
-                                                ).when(join -> {
-                                                    List<RuntimeFilter> filters = join.getRuntimeFilters().getNereridsRuntimeFilter();
-                                                    return filters.size() == 4
-                                                            && checkRuntimeFilterExpr(filters.get(0), "p_partkey", "lo_partkey")
-                                                            && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "lo_suppkey")
-                                                            && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
-                                                            && checkRuntimeFilterExpr(filters.get(3), "lo_orderdate", "d_datekey");
-                                                })
-                                        )
-                                )
-                        )
-                );
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 4
+                && checkRuntimeFilterExpr(filters.get(0), "p_partkey", "lo_partkey")
+                && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "lo_suppkey")
+                && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(3), "lo_orderdate", "d_datekey"));
     }
 
     @Test
-    public void testTranslateSSB() throws Exception {
-        String[] sqls = {SSBUtils.Q1_1, SSBUtils.Q1_2, SSBUtils.Q1_3,
-                SSBUtils.Q2_1, SSBUtils.Q2_2, SSBUtils.Q2_3,
-                SSBUtils.Q3_1, SSBUtils.Q3_2, SSBUtils.Q3_3, SSBUtils.Q3_4,
-                SSBUtils.Q4_1, SSBUtils.Q4_2, SSBUtils.Q4_3};
-        for (String sql : sqls) {
-            translateSQLAndCheckRuntimeFilter(sql);
-        }
+    public void testUnsupportedJoinType() throws AnalysisException {
+        String sql = "select d_year, c_nation, SUM(lo_revenue - lo_supplycost) AS PROFIT"
+                + " from lineorder inner join dates on lo_orderdate = d_datekey"
+                + " left outer join supplier on s_suppkey = lo_suppkey"
+                + " full outer join customer on c_custkey = lo_custkey"
+                + " left anti join part on p_partkey = lo_partkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExpr(filters.get(0), "d_datekey", "lo_orderdate"));
     }
 
-    private void translateSQLAndCheckRuntimeFilter(String sql) throws Exception {
-        System.out.println("sql: " + sql);
+    @Test
+    public void testSubTreeInUnsupportedJoinType() throws AnalysisException {
+        String sql = "select c_custkey"
+                + " from (select lo_custkey from lineorder inner join dates on lo_orderdate = d_datekey) a"
+                + " left outer join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
+                + " on b.c_custkey = a.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 2
+                && checkRuntimeFilterExpr(filters.get(0),  "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "c_custkey"));
+    }
+
+    @Test
+    public void testPushDownEncounterUnsupportedJoinType() throws AnalysisException {
+        String sql = "select c_custkey"
+                + " from (select lo_custkey from lineorder left outer join dates on lo_orderdate = d_datekey) a"
+                + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
+                + " on b.c_custkey = a.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExpr(filters.get(0), "s_suppkey", "c_custkey"));
+    }
+
+    private List<RuntimeFilter> getRuntimeFilters(String sql) throws AnalysisException {
         NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
-        planner.plan(
-                new LogicalPlanAdapter(new NereidsParser().parseSingle(sql)),
-                new TQueryOptions()
-        );
-        Assertions.assertTrue((planner.getExplainString(new ExplainOptions(false, false)).contains("runtime filter")),
-                "Expect runtime filter on HashJoinNode");
+        planner.plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
+        return planner.getCascadesContext().getRuntimeGenerator().getNereridsRuntimeFilter();
     }
 
     private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {

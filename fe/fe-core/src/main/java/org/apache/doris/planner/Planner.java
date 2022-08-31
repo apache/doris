@@ -92,6 +92,6 @@ public abstract class Planner {
 
     public abstract DescriptorTable getDescTable();
 
-    public abstract List<RuntimeFilter> getAssignedRuntimeFilter();
+    public abstract List<RuntimeFilter> getRuntimeFilter();
 
 }
