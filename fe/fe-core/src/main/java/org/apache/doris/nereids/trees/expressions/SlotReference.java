@@ -117,7 +117,8 @@ public class SlotReference extends Slot {
         }
         SlotReference that = (SlotReference) o;
         // The equals of slotRefrance only compares exprId,
-        // because in subqueries with aliases, there will be scenarios where the same exprId but different qualifiers are used,
+        // because in subqueries with aliases,
+        // there will be scenarios where the same exprId but different qualifiers are used,
         // resulting in an error due to different qualifiers during comparison.
         // eg:
         // select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
