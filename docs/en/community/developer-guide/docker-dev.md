@@ -45,23 +45,7 @@ under the License.
 $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 note! [problems with mounting](../../docs/install/source-install/compilation.md)
-=======
-run image
-
-note! [problems with mounting](../../docs/install/source-install/compilation)
->>>>>>> 031fba425 ([typo](fix)Fix community documentation link errors (#11758))
-=======
-<<<<<<< HEAD:docs/en/community/developer-guide/docker-dev.md
-run image
-
-note! [problems with mounting](../../docs/install/source-install/compilation)
-=======
-note! [problems with mounting](../../docs/install/source-install/compilation.md)
->>>>>>> 61fb94f1f (update docker-dev):docs/en/developer/developer-guide/docker-dev.md
->>>>>>> 60096bf7b (update docker-dev)
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 

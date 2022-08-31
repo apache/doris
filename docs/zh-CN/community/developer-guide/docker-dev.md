@@ -45,23 +45,7 @@ under the License.
 $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
-=======
-运行镜像
-
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation/)
->>>>>>> 031fba425 ([typo](fix)Fix community documentation link errors (#11758))
-=======
-<<<<<<< HEAD:docs/zh-CN/community/developer-guide/docker-dev.md
-运行镜像
-
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation/)
-=======
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
->>>>>>> 61fb94f1f (update docker-dev):docs/zh-CN/developer/developer-guide/docker-dev.md
->>>>>>> 60096bf7b (update docker-dev)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 
