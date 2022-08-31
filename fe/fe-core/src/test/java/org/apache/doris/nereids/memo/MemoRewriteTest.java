@@ -229,9 +229,9 @@ public class MemoRewriteTest implements PatternMatchSupported {
      * A -> A(B): will run into dead loop, we can not detect it in the group tree, because B usually not equals
      *            to other object (e.g. UnboundRelation), but can detect the rule's invoke times.
      *
-     *  limit(student)                        limit(1)                          limit(1)
-     *       |                      ->           |                   ->             |                 ->    ...
-     *     any                                  any                                any
+     *      limit(1)                             limit(1)                          limit(1)
+     *         |                      ->           |                   ->             |                 ->    ...
+     * UnboundRelation(student)            UnboundRelation(student)         UnboundRelation(student)
      *
      * you should split A into some states:
      * 1. A(not rewrite)

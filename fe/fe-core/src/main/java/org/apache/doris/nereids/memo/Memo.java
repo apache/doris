@@ -158,19 +158,21 @@ public class Memo {
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 2:                               |                                   |                                |
      * | if targetGroup is null                |              true                 |      new group expression      |
-     * | and same group expression exist       |                                   |                                |
+     * | and same group expression not exist   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 3:                               |                                   |                                |
-     * | if targetGroup is null                |              true                 |      new group expression      |
+     * | if targetGroup is not null            |              true                 |      new group expression      |
      * | and same group expression not exits   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 4:                               |                                   |                                |
-     * | if targetGroup equal to the exists    |              true                 |      new group expression      |
-     * | group expression's owner group        |                                   |                                |
+     * | if targetGroup is not null and not    |              true                 |      new group expression      |
+     * | equal to the existed group            |                                   |                                |
+     * | expression's owner group              |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 5:                               |                                   |                                |
-     * | if targetGroup not equal to the       |              false                |    existed group expression    |
-     * | exists group expression's owner group |                                   |                                |
+     * | if targetGroup is null or equal to    |              false                |    existed group expression    |
+     * | the existed group expression's owner  |                                   |                                |
+     * | group                                 |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * </pre>
      *
@@ -190,15 +192,19 @@ public class Memo {
             return rewriteByExistedPlan(targetGroup, plan);
         }
 
-        // try to create a new group expression
         List<Group> childrenGroups = rewriteChildrenPlansToGroups(plan, targetGroup);
+        plan = replaceChildrenToGroupPlan(plan, childrenGroups);
+
+        // try to create a new group expression
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
 
         // slow check the groupExpression/plan whether exists in the memo
         GroupExpression existedExpression = groupExpressions.get(newGroupExpression);
         if (existedExpression == null) {
+            // case 2 or case 3
             return rewriteByNewGroupExpression(targetGroup, plan, newGroupExpression);
         } else {
+            // case 4 or case 5
             return rewriteByExistedGroupExpression(targetGroup, plan, existedExpression, newGroupExpression);
         }
     }
