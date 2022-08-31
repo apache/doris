@@ -93,6 +93,12 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行JSON格�
 
    这种方式必须配合设置 `read_json_by_line=true` 使用，特殊分隔符还需要指定`line_delimiter`参数，默认`\n`。Doris 在解析时会按照分隔符分隔，然后解析其中的每一行 Object 作为一行数据。
 
+### streaming_load_json_max_mb 参数
+
+一些数据格式，如 JSON，无法进行拆分处理，必须读取全部数据到内存后才能开始解析，因此，这个值用于限制此类格式数据单次导入最大数据量。
+
+默认值为100，单位MB，可参考[BE配置项](../../../admin-manual/config/be-config.md)修改这个参数
+
 ### fuzzy_parse 参数
 
 在 [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md)中，可以添加 `fuzzy_parse` 参数来加速 JSON 数据的导入效率。
@@ -276,6 +282,38 @@ curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", 
 |  100 |    2 |
 +------+------+
 ```
+
+## Json root
+
+Doris supports extracting data specified in Json through Json root.
+
+**注：因为对于 Array 类型的数据，Doris 会先进行数组展开，最终按照 Object 格式进行单行处理。所以本文档之后的示例都以单个 Object 格式的 Json 数据进行说明。**
+
+- 不指定 Json root
+
+  如果没有指定 Json root，则 Doris 会默认使用表中的列名查找 Object 中的元素。示例如下：
+
+  表中包含两列: `id`, `city`
+
+  Json 数据为：
+
+  ```json
+  { "id": 123, "name" : { "id" : "321", "city" : "shanghai" }}
+  ```
+
+  则 Doris 会使用id, city 进行匹配，得到最终数据 123 和 null。
+
+- 指定 Json root
+
+  通过 json_root 指定 Json 数据的根节点。Doris 将通过 json_root 抽取根节点的元素进行解析。默认为空。
+
+  指定 Json root `-H "json_root: $.name"`。则匹配到的元素为：
+
+  ```json
+  { "id" : "321", "city" : "shanghai" }
+  ```
+
+  该元素会被当作新Json进行后续导入操作,得到最终数据 321 和 shanghai
 
 ## NULL 和 Default 值
 

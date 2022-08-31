@@ -92,6 +92,12 @@ Currently only the following two Json formats are supported:
    
    This method must be used with the setting `read_json_by_line=true`, the special delimiter also needs to specify the `line_delimiter` parameter, the default is `\n`. When Doris parses, it will be separated according to the delimiter, and then parse each line of Object as a line of data.
 
+### streaming_load_json_max_mb parameters
+
+Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
+
+The default value is 100, The unit is MB, modify this parameter by referring to the [BE configuration](../../../admin-manual/config/be-config.md).
+
 ### fuzzy_parse parameters
 
 In [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) `fuzzy_parse` parameter can be added to speed up JSON Data import efficiency.
@@ -275,6 +281,38 @@ The above example will import the value of k1 multiplied by 100. The final impor
 | 100 | 2 |
 +------+------+
 ````
+
+## Json root
+
+Doris 支持通过 Json root 抽取 Json 中指定的数据。
+
+**Note: Because for Array type data, Doris will expand the array first, and finally process it in a single line according to the Object format. So the examples later in this document are all explained with Json data in a single Object format. **
+
+- do not specify Json root
+
+  If Json root is not specified, Doris will use the column name in the table to find the element in Object by default. An example is as follows:
+
+  The table contains two columns: `id`, `city`
+
+  The Json data is as follows:
+
+  ```json
+  { "id": 123, "name" : { "id" : "321", "city" : "shanghai" }}
+  ```
+
+  Then use `id`, `city` for matching, and get the final data `123` and `null`
+
+- Specify Json root
+
+  When the import data format is json, you can specify the root node of the Json data through json_root. Doris will extract the elements of the root node through json_root for parsing. Default is empty.
+
+  Specify Json root `-H "json_root: $.name"`. The matched elements are:
+
+  ```json
+  { "id" : "321", "city" : "shanghai" }
+  ```
+
+  The element will be treated as new json for subsequent import operations,and get the final data 321 and shanghai
 
 ## NULL and Default values
 
