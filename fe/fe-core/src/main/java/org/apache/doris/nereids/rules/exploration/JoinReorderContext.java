@@ -26,6 +26,7 @@ package org.apache.doris.nereids.rules.exploration;
 public class JoinReorderContext {
     // left deep tree
     private boolean hasCommute = false;
+    private boolean hasLAsscom = false;
 
     // zig-zag tree
     private boolean hasCommuteZigZag = false;
@@ -38,23 +39,31 @@ public class JoinReorderContext {
     public JoinReorderContext() {
     }
 
+    /**
+     * copy a JoinReorderContext.
+     */
     public void copyFrom(JoinReorderContext joinReorderContext) {
         this.hasCommute = joinReorderContext.hasCommute;
+        this.hasLAsscom = joinReorderContext.hasLAsscom;
         this.hasExchange = joinReorderContext.hasExchange;
         this.hasLeftAssociate = joinReorderContext.hasLeftAssociate;
         this.hasRightAssociate = joinReorderContext.hasRightAssociate;
         this.hasCommuteZigZag = joinReorderContext.hasCommuteZigZag;
     }
 
+    /**
+     * clear all.
+     */
     public void clear() {
         hasCommute = false;
+        hasLAsscom = false;
         hasCommuteZigZag = false;
         hasExchange = false;
         hasRightAssociate = false;
         hasLeftAssociate = false;
     }
 
-    public boolean hasCommute() {
+    public boolean isHasCommute() {
         return hasCommute;
     }
 
@@ -62,7 +71,15 @@ public class JoinReorderContext {
         this.hasCommute = hasCommute;
     }
 
-    public boolean hasExchange() {
+    public boolean isHasLAsscom() {
+        return hasLAsscom;
+    }
+
+    public void setHasLAsscom(boolean hasLAsscom) {
+        this.hasLAsscom = hasLAsscom;
+    }
+
+    public boolean isHasExchange() {
         return hasExchange;
     }
 
@@ -70,7 +87,7 @@ public class JoinReorderContext {
         this.hasExchange = hasExchange;
     }
 
-    public boolean hasRightAssociate() {
+    public boolean isHasRightAssociate() {
         return hasRightAssociate;
     }
 
@@ -78,7 +95,7 @@ public class JoinReorderContext {
         this.hasRightAssociate = hasRightAssociate;
     }
 
-    public boolean hasLeftAssociate() {
+    public boolean isHasLeftAssociate() {
         return hasLeftAssociate;
     }
 
@@ -86,7 +103,7 @@ public class JoinReorderContext {
         this.hasLeftAssociate = hasLeftAssociate;
     }
 
-    public boolean hasCommuteZigZag() {
+    public boolean isHasCommuteZigZag() {
         return hasCommuteZigZag;
     }
 

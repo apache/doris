@@ -34,17 +34,20 @@ import java.util.function.Predicate;
  */
 @Developing
 public class JoinLAsscomProject extends OneExplorationRuleFactory {
-    // for inner-iner
+    // for inner-inner
     public static final JoinLAsscomProject INNER = new JoinLAsscomProject(Type.INNER);
     // for inner-leftOuter or leftOuter-leftOuter
     public static final JoinLAsscomProject OUTER = new JoinLAsscomProject(Type.OUTER);
 
     private final Predicate<LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan>> typeChecker;
 
+    private final Type type;
+
     /**
-     * Specifiy join type.
+     * Specify join type.
      */
     public JoinLAsscomProject(Type type) {
+        this.type = type;
         if (type == Type.INNER) {
             typeChecker = join -> join.getJoinType().isInnerJoin() && join.left().child().getJoinType().isInnerJoin();
         } else {
@@ -65,7 +68,7 @@ public class JoinLAsscomProject extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), groupPlan())
-                .when(JoinLAsscomHelper::check)
+                .when(topJoin -> JoinLAsscomHelper.check(type, topJoin, topJoin.left().child()))
                 .when(typeChecker)
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left().child());

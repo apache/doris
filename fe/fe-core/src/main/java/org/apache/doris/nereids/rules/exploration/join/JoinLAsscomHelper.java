@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -66,18 +67,33 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         List<NamedExpression> newRightProjectExprs = projectPair.first;
 
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c);
+                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c,
+                bottomJoin.getJoinReorderContext());
+        newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
+        newBottomJoin.getJoinReorderContext().setHasCommute(false);
+
         Plan left = JoinReorderCommon.project(newLeftProjectExpr, newBottomJoin).orElse(newBottomJoin);
         Plan right = JoinReorderCommon.project(newRightProjectExprs, b).orElse(b);
 
-        return new LogicalJoin<>(bottomJoin.getJoinType(), newTopHashJoinConjuncts,
-                ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right);
+        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
+                newTopHashJoinConjuncts,
+                ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right,
+                topJoin.getJoinReorderContext());
+        newTopJoin.getJoinReorderContext().setHasLAsscom(true);
+        return newTopJoin;
     }
 
-    public static boolean check(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()) {
-            return false;
+    public static boolean check(Type type, LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+        if (type == Type.INNER) {
+            return !bottomJoin.getJoinReorderContext().isHasCommuteZigZag()
+                    && !topJoin.getJoinReorderContext().isHasLAsscom();
+        } else {
+            // hasCommute will cause to lack of OuterJoinAssocRule:Left
+            return !topJoin.getJoinReorderContext().isHasLeftAssociate()
+                    && !topJoin.getJoinReorderContext().isHasRightAssociate()
+                    && !topJoin.getJoinReorderContext().isHasExchange()
+                    && !bottomJoin.getJoinReorderContext().isHasCommute();
         }
-        return true;
     }
 }

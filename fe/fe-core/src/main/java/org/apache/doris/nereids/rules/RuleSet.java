@@ -50,7 +50,7 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(JoinCommute.OUTER_ZIG_ZAG)
+            .add(JoinCommute.OUTER_LEFT_DEEP)
             .build();
 
     public static final List<Rule> REWRITE_RULES = planRuleFactories()

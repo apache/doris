@@ -71,8 +71,9 @@ class JoinRightAssociateHelper extends ThreeJoinHelper {
      * Check JoinReorderContext.
      */
     public static boolean check(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
-        return !topJoin.getJoinReorderContext().hasCommute() && !topJoin.getJoinReorderContext().hasRightAssociate()
-                && !topJoin.getJoinReorderContext().hasRightAssociate() && !topJoin.getJoinReorderContext()
-                .hasExchange();
+        return !topJoin.getJoinReorderContext().isHasCommute()
+                && !topJoin.getJoinReorderContext().isHasLeftAssociate()
+                && !topJoin.getJoinReorderContext().isHasRightAssociate()
+                && !topJoin.getJoinReorderContext().isHasExchange();
     }
 }

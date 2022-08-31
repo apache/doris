@@ -197,8 +197,9 @@ class JoinExchangeHelper {
     }
 
     public static boolean check(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
-        return !topJoin.getJoinReorderContext().hasCommute() && !topJoin.getJoinReorderContext().hasLeftAssociate()
-                && !topJoin.getJoinReorderContext().hasRightAssociate() && !topJoin.getJoinReorderContext()
-                .hasExchange();
+        return !topJoin.getJoinReorderContext().isHasCommute()
+                && !topJoin.getJoinReorderContext().isHasLeftAssociate()
+                && !topJoin.getJoinReorderContext().isHasRightAssociate()
+                && !topJoin.getJoinReorderContext().isHasExchange();
     }
 }

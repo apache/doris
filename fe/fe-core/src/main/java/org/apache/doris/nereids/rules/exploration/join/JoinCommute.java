@@ -21,8 +21,12 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.Utils;
+
+import java.util.List;
 
 /**
  * Join Commute
@@ -54,7 +58,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                     join.right(), join.left(),
                     join.getJoinReorderContext());
             newJoin.getJoinReorderContext().setHasCommute(true);
-            if (swapType == SwapType.ZIG_ZAG && !isBottomJoin(join)) {
+            if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                 newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
             }
 
@@ -62,19 +66,21 @@ public class JoinCommute extends OneExplorationRuleFactory {
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 
-
     private boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
-        if (swapType == SwapType.LEFT_DEEP && !isBottomJoin(join)) {
+        if (swapType == SwapType.LEFT_DEEP && isNotBottomJoin(join)) {
             return false;
         }
 
-        if (join.getJoinReorderContext().hasCommute() || join.getJoinReorderContext().hasExchange()) {
-            return false;
-        }
-        return true;
+        return !join.getJoinReorderContext().isHasCommute() && !join.getJoinReorderContext().isHasExchange();
     }
 
-    private boolean isBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
-        return false;
+    private boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
+        // TODO: tmp way to judge bottomJoin
+        return containJoin(join.left()) || containJoin(join.right());
+    }
+
+    private boolean containJoin(GroupPlan groupPlan) {
+        List<SlotReference> output = Utils.getOutputSlotReference(groupPlan);
+        return output.stream().map(SlotReference::getQualifier).allMatch(output.get(0).getQualifier()::equals);
     }
 }
