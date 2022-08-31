@@ -40,7 +40,6 @@ public class PhysicalOlapScan extends PhysicalRelation {
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
 
-
     /**
      * Constructor for PhysicalOlapScan.
      *

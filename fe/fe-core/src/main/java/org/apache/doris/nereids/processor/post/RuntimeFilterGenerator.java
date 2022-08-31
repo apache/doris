@@ -89,6 +89,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         this.deniedJoinLevel = 0;
     }
 
+    // TODO: current support inner join, cross join, right outer join, and will support more join type.
     @Override
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> join, CascadesContext ctx) {
         Plan left = join.left();
