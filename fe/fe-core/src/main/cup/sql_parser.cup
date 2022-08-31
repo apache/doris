@@ -4837,12 +4837,10 @@ type ::=
   {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR LPAREN ident_or_text:lenStr RPAREN
   {: ScalarType type = ScalarType.createVarcharType(lenStr);
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR
@@ -4857,12 +4855,10 @@ type ::=
   {: RESULT = new StructType(fields); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR LPAREN ident_or_text:lenStr RPAREN
   {: ScalarType type = ScalarType.createCharType(lenStr);
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR
@@ -4889,7 +4885,6 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_ALL
