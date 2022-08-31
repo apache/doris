@@ -50,9 +50,13 @@ protected:
 
     // Used for constructing tuple
     std::vector<SlotDescriptor*> _required_slot_descs;
+    // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
+    // File slot id to index map.
     std::map<SlotId, int> _file_slot_index_map;
+    // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
+    // Partition slot id to index map
     std::map<SlotId, int> _partition_slot_index_map;
     std::unique_ptr<RowDescriptor> _row_desc;
 

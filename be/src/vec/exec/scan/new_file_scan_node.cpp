@@ -62,6 +62,7 @@ void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
 }
 
 Status NewFileScanNode::_init_profile() {
+    VScanNode::_init_profile();
     return Status::OK();
 }
 
