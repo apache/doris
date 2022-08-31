@@ -284,8 +284,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     // TODO: do real project on column stats
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> projections = project.getProjects();
-        Map<Slot, ColumnStats> childColumnStats = groupExpression.getCopyOfChildStats(0).getSlotToColumnStats();
         StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
+        Map<Slot, ColumnStats> childColumnStats = statsDeriveResult.getSlotToColumnStats();
         Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
             List<SlotReference> slotReferences = projection.collect(SlotReference.class::isInstance);
             if (slotReferences.isEmpty()) {
