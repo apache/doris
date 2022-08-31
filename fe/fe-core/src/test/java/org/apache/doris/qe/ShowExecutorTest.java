@@ -233,10 +233,10 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = env;
 
-                Env.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyBoolean);
+                Env.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyBoolean, anyLong);
                 minTimes = 0;
 
-                Env.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
+                Env.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean, anyLong);
                 minTimes = 0;
 
                 env.getCatalogMgr();

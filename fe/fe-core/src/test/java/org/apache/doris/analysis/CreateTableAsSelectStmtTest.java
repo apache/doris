@@ -333,7 +333,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         List<String> createStmts = Lists.newArrayList();
         for (TableIf tbl : tableMap.values()) {
             List<String> createTableStmts = Lists.newArrayList();
-            Env.getDdlStmt(tbl, createTableStmts, null, null, false, true);
+            Env.getDdlStmt(tbl, createTableStmts, null, null, false, true, -1L);
             createStmts.add(createTableStmts.get(0));
             if (tbl.getName().equals("qs1")) {
                 Assert.assertEquals("CREATE TABLE `qs1` (\n" + "  `k1` int(11) NULL,\n" + "  `k2` int(11) NULL\n"
