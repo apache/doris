@@ -304,6 +304,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
+    auto origin_column_num = _src_block.columns();
 
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
@@ -315,7 +316,12 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        auto column_ptr = _src_block.get_by_position(result_column_id).column;
+        bool is_origin_column = result_column_id < origin_column_num;
+        auto column_ptr =
+                is_origin_column && _src_block_mem_reuse
+                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
+                        : _src_block.get_by_position(result_column_id).column;
+
         DCHECK(column_ptr != nullptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
@@ -373,7 +379,11 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
-    _src_block.clear();
+    if (_src_block_mem_reuse) {
+        _src_block.clear_column_data(origin_column_num);
+    } else {
+        _src_block.clear();
+    }
 
     size_t dest_size = dest_block->columns();
     // do filter
@@ -389,15 +399,18 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
 // TODO: opt the reuse of src_block or dest_block column. some case we have to
 // shallow copy the column of src_block to dest block
 Status BaseScanner::_init_src_block() {
-    DCHECK(_src_block.columns() == 0);
-    for (auto i = 0; i < _num_of_columns_from_file; ++i) {
-        SlotDescriptor* slot_desc = _src_slot_descs[i];
-        if (slot_desc == nullptr) {
-            continue;
+    if (_src_block.is_empty_column()) {
+        for (auto i = 0; i < _num_of_columns_from_file; ++i) {
+            SlotDescriptor* slot_desc = _src_slot_descs[i];
+            if (slot_desc == nullptr) {
+                continue;
+            }
+            auto data_type = slot_desc->get_data_type_ptr();
+            auto column_ptr = data_type->create_column();
+            column_ptr->reserve(_state->batch_size());
+            _src_block.insert(vectorized::ColumnWithTypeAndName(std::move(column_ptr), data_type,
+                                                                slot_desc->col_name()));
         }
-        auto data_type = slot_desc->get_data_type_ptr();
-        _src_block.insert(vectorized::ColumnWithTypeAndName(
-                data_type->create_column(), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
     }
 
     return Status::OK();
