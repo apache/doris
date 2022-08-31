@@ -53,6 +53,16 @@ under the License.
     select QUANTILE_PERCENT(QUANTILE_UNION(v1)) from test_table group by k1, k2, k3;
     
 
+### notice
+
+使用前可以通过如下命令打开 QUANTILE_STATE 开关:
+
+```
+$ mysql-client > admin set frontend config("enable_quantile_state_type"="true");
+```
+
+这种方式下 QUANTILE_STATE 开关会在Fe进程重启后重置，或者在fe.conf中添加`enable_quantile_state_type=true`配置项可永久生效。
+
 ### keywords
 
     QUANTILE_STATE, QUANTILE_UNION, TO_QUANTILE_STATE, QUANTILE_PERCENT
