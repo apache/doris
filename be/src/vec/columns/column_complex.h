@@ -232,7 +232,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "append_data_by_selector is not supported!";
+        this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector);
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
