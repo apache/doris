@@ -342,8 +342,7 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType()
-                    && !targetType.isAssignedStrLenInColDefinition())) {
+            if (!(targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet())) {
                 targetTypeDef.analyze(analyzer);
             }
         } else {
