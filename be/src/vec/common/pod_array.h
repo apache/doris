@@ -450,7 +450,20 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
+// `place` in IAggregateFunctionHelper::streaming_agg_serialize is initialized by placement new, in IAggregateFunctionHelper::create.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wuninitialized"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic pop
+#endif
         insert_assume_reserved(from_begin, from_end);
     }
 

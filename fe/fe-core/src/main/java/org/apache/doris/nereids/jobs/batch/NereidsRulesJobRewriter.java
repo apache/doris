@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
@@ -50,6 +51,7 @@ public class NereidsRulesJobRewriter extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
+                .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(ImmutableList.of(new SwapFilterAndProject())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))

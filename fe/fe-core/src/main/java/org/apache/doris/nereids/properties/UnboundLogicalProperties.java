@@ -37,4 +37,14 @@ public class UnboundLogicalProperties extends LogicalProperties {
     public List<Slot> getOutput() {
         throw new UnboundException("getOutput");
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof UnboundLogicalProperties;
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
+    }
 }

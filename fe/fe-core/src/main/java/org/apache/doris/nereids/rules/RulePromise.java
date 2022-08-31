@@ -25,6 +25,8 @@ public enum RulePromise {
     IMPLEMENT,
     REWRITE,
     ANALYSIS,
+
+    // just for check plan in UT
     PLAN_CHECK
     ;
 

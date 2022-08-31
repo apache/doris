@@ -81,9 +81,10 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public String toString() {
-        return "PhysicalOlapScan (["
-                + Utils.qualifiedName(qualifier, olapTable.getName())
-                + "], [index id=" + selectedIndexId + "] )";
+        return Utils.toSqlString("PhysicalOlapScan",
+                "qualifier", Utils.qualifiedName(qualifier, olapTable.getName()),
+                "output", getOutput()
+        );
     }
 
     @Override

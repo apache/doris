@@ -227,15 +227,15 @@ Status VExpr::create_expr_trees(ObjectPool* pool, const std::vector<doris::TExpr
 
 Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
                       const RowDescriptor& row_desc) {
-    for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc));
+    for (auto ctx : ctxs) {
+        RETURN_IF_ERROR(ctx->prepare(state, row_desc));
     }
     return Status::OK();
 }
 
 void VExpr::close(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
-    for (int i = 0; i < ctxs.size(); ++i) {
-        ctxs[i]->close(state);
+    for (auto ctx : ctxs) {
+        ctx->close(state);
     }
 }
 

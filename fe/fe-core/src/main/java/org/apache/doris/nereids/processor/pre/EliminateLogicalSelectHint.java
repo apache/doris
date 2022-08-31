@@ -65,8 +65,8 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
                 try {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(value.get())));
                 } catch (Throwable t) {
-                    throw new AnalysisException("Can not set session variable '" + key + "' = '"
-                            + value.get() + "'", t);
+                    throw new AnalysisException("Can not set session variable '"
+                            + key + "' = '" + value.get() + "'", t);
                 }
             }
         }

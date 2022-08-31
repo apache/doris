@@ -25,15 +25,14 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Logical OlapScan.
@@ -85,8 +84,10 @@ public class LogicalOlapScan extends LogicalRelation {
 
     @Override
     public String toString() {
-        return "ScanOlapTable (" + qualifiedName() + ", output: " + getOutput().stream().map(Objects::toString)
-                .collect(Collectors.joining(", ", "[", "]")) + ")";
+        return Utils.toSqlString("LogicalOlapScan",
+                "qualifier", qualifiedName(),
+                "output", getOutput()
+        );
     }
 
     @Override

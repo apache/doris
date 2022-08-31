@@ -106,8 +106,9 @@ Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
         _child_eos = false;
     }
     DCHECK_EQ(block->rows(), 0);
-    RETURN_IF_ERROR_AND_CHECK_SPAN(child(_child_idx)->get_next(state, block, &_child_eos),
-                                   child(_child_idx)->get_next_span(), _child_eos);
+    RETURN_IF_ERROR_AND_CHECK_SPAN(
+            child(_child_idx)->get_next_after_projects(state, block, &_child_eos),
+            child(_child_idx)->get_next_span(), _child_eos);
     if (_child_eos) {
         // Even though the child is at eos, it's not OK to close() it here. Once we close
         // the child, the row batches that it produced are invalid. Marking the batch as
@@ -148,7 +149,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         child_block.clear();
         // The first batch from each child is always fetched here.
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(_child_idx)->get_next(state, &child_block, &_child_eos),
+                child(_child_idx)->get_next_after_projects(state, &child_block, &_child_eos),
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {

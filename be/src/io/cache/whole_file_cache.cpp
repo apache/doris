@@ -36,7 +36,16 @@ WholeFileCache::~WholeFileCache() {}
 
 Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
     if (_cache_file_reader == nullptr) {
-        RETURN_IF_ERROR(_generate_cache_reader(offset, result.size));
+        auto st = _generate_cache_reader(offset, result.size);
+        if (!st.ok()) {
+            WARN_IF_ERROR(_remote_file_reader->close(),
+                          fmt::format("Close remote file reader failed: {}",
+                                      _remote_file_reader->path().native()));
+            return st;
+        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(_remote_file_reader->close(),
+                                       fmt::format("Close remote file reader failed: {}",
+                                                   _remote_file_reader->path().native()));
     }
     std::shared_lock<std::shared_mutex> rlock(_cache_lock);
     RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -99,41 +108,11 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                                 fmt::format("Check local cache file exist failed. {}",
                                             cache_file.native()));
                     }
-                    LOG(INFO) << "Download cache file from remote file: "
-                              << _remote_file_reader->path().native() << " -> "
-                              << cache_file.native();
-                    std::unique_ptr<char[]> file_buf(new char[_remote_file_reader->size()]);
-                    Slice file_slice(file_buf.get(), _remote_file_reader->size());
-                    size_t bytes_read = 0;
+                    size_t req_size = _remote_file_reader->size();
                     RETURN_NOT_OK_STATUS_WITH_WARN(
-                            _remote_file_reader->read_at(0, file_slice, &bytes_read),
-                            fmt::format("read remote file failed. {}",
-                                        _remote_file_reader->path().native()));
-                    if (bytes_read != _remote_file_reader->size()) {
-                        LOG(ERROR) << "read remote file failed: "
-                                   << _remote_file_reader->path().native()
-                                   << ", bytes read: " << bytes_read
-                                   << " vs file size: " << _remote_file_reader->size();
-                        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
-                    }
-                    io::FileWriterPtr file_writer;
-                    RETURN_NOT_OK_STATUS_WITH_WARN(
-                            io::global_local_filesystem()->create_file(cache_file, &file_writer),
-                            fmt::format("Create local cache file failed: {}", cache_file.native()));
-                    RETURN_NOT_OK_STATUS_WITH_WARN(
-                            file_writer->append(file_slice),
-                            fmt::format("Write local cache file failed: {}", cache_file.native()));
-                    RETURN_NOT_OK_STATUS_WITH_WARN(
-                            file_writer->close(),
-                            fmt::format("Close local cache file failed: {}", cache_file.native()));
-                    io::FileWriterPtr done_file_writer;
-                    RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->create_file(
-                                                           cache_done_file, &done_file_writer),
-                                                   fmt::format("Create local done file failed: {}",
-                                                               cache_done_file.native()));
-                    RETURN_NOT_OK_STATUS_WITH_WARN(done_file_writer->close(),
-                                                   fmt::format("Close local done file failed: {}",
-                                                               cache_done_file.native()));
+                            download_cache_to_local(cache_file, cache_done_file,
+                                                    _remote_file_reader, req_size),
+                            "Download cache from remote to local failed.");
                     return Status::OK();
                 };
                 download_st.set_value(func());

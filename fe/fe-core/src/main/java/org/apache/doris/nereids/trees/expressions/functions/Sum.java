@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -48,6 +49,9 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     public DataType getDataType() {
         DataType dataType = child().getDataType();
         if (dataType instanceof LargeIntType) {
+            return dataType;
+        } else if (dataType instanceof DecimalType) {
+            // TODO: precision + 10
             return dataType;
         } else if (dataType instanceof IntegralType) {
             return BigIntType.INSTANCE;

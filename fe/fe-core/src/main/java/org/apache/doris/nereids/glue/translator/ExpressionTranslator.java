@@ -258,14 +258,22 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
-        return new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
+        ArithmeticExpr arithmeticExpr =  new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
                 binaryArithmetic.child(1).accept(this, context));
+        return arithmeticExpr;
     }
 
     @Override
     public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
-        return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.left().accept(this, context),
-                arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString());
+        if (arithmetic.getFuncName() == null) {
+            return new TimestampArithmeticExpr(arithmetic.getOp(), arithmetic.left().accept(this, context),
+                    arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
+                    arithmetic.isIntervalFirst(), arithmetic.getDataType().toCatalogDataType());
+        } else {
+            return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.left().accept(this, context),
+                    arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
+                    arithmetic.getDataType().toCatalogDataType());
+        }
     }
 }

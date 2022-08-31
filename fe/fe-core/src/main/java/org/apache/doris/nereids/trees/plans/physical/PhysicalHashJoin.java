@@ -24,9 +24,9 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -66,16 +66,11 @@ public class PhysicalHashJoin<
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("PhysicalHashJoin ([").append(joinType).append("]");
-        sb.append("hashJoinCondition:[");
-        sb.append(StringUtils.join(hashJoinConjuncts, ", "));
-        sb.append("] ");
-        otherJoinCondition.ifPresent(
-                expression -> sb.append(", nonHashJoinCondition [").append(expression).append("]")
+        return Utils.toSqlString("PhysicalHashJoin",
+                "type", joinType,
+                "hashJoinCondition", hashJoinConjuncts,
+                "otherJoinCondition", otherJoinCondition
         );
-        sb.append(")");
-        return sb.toString();
     }
 
     @Override
