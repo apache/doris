@@ -1,7 +1,7 @@
 ---
 {
-"title": "Doris Docker 快速搭建开发环境",
-"language": "zh-CN"
+    "title": "Doris Docker 快速搭建开发环境",
+    "language": "zh-CN"
 }
 
 ---
