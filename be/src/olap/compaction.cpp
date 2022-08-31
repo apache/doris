@@ -231,6 +231,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
+              << ", input_row_num=" << _input_row_num
+              << ", output_row_num=" << _output_rowset->num_rows()
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy="
               << _tablet->cumulative_compaction_policy()->name() << ".";
