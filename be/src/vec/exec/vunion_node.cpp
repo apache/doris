@@ -66,7 +66,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     // Prepare const expr lists.
     for (const std::vector<VExprContext*>& exprs : _const_expr_lists) {
-        RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(exprs, state, _row_descriptor));
     }
 
     // Prepare result expr lists.
@@ -129,7 +129,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     MutableBlock mblock =
             mem_reuse ? MutableBlock::build_mutable_block(block)
                       : MutableBlock(Block(
-                                VectorizedUtils::create_columns_with_type_and_name(row_desc())));
+                                VectorizedUtils::create_columns_with_type_and_name(_row_descriptor)));
 
     Block child_block;
     while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
@@ -185,7 +185,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     MutableBlock mblock =
             mem_reuse ? MutableBlock::build_mutable_block(block)
                       : MutableBlock(Block(
-                                VectorizedUtils::create_columns_with_type_and_name(row_desc())));
+                                VectorizedUtils::create_columns_with_type_and_name(_row_descriptor)));
     for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
