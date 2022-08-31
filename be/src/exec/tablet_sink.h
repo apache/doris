@@ -185,8 +185,8 @@ public:
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
     virtual Status add_block(vectorized::Block* block,
-                             const vectorized::IColumn::Selector& selector,
-                             const std::vector<int64_t>& tablet_ids) {
+                             const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                             std::vector<int64_t>>& payload) {
         LOG(FATAL) << "add block to NodeChannel not supported";
         return Status::OK();
     }

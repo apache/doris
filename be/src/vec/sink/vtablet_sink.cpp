@@ -162,8 +162,8 @@ Status VNodeChannel::open_wait() {
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block,
-                               const vectorized::IColumn::Selector& selector,
-                               const std::vector<int64_t>& tablet_ids) {
+                               const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                               std::vector<int64_t>>& payload) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
@@ -187,8 +187,8 @@ Status VNodeChannel::add_block(vectorized::Block* block,
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), selector);
-    for (auto tablet_id : tablet_ids) {
+    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), *(payload.first));
+    for (auto tablet_id : payload.second) {
         _cur_add_block_request.add_tablet_ids(tablet_id);
     }
 
@@ -485,17 +485,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
 
-    //if pending bytes is more than 500M, wait
-    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
-    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
-    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
-    //}
-
-    std::vector<std::unordered_map<NodeChannel*, vectorized::IColumn::Selector*>>
-            channel_to_row_ids;
-    std::vector<std::unordered_map<NodeChannel*, std::vector<int64_t>>> channel_to_tablet_ids;
-    channel_to_row_ids.resize(_channels.size());
-    channel_to_tablet_ids.resize(_channels.size());
+    std::vector<std::unordered_map<
+            NodeChannel*,
+            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
+            channel_to_payload;
+    channel_to_payload.resize(_channels.size());
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -535,34 +529,31 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             DCHECK(it != _channels[j]->_channels_by_tablet.end())
                     << "unknown tablet, tablet_id=" << tablet_index;
             for (const auto& channel : it->second) {
-                if (channel_to_row_ids[j].count(channel.get()) < 1) {
-                    channel_to_row_ids[j].insert(
-                            {channel.get(), new vectorized::IColumn::Selector()});
-                    channel_to_tablet_ids[j].insert({channel.get(), std::vector<int64_t>()});
+                if (channel_to_payload[j].count(channel.get()) < 1) {
+                    channel_to_payload[j].insert(
+                            {channel.get(),
+                             std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                       std::vector<int64_t>> {
+                                     std::unique_ptr<vectorized::IColumn::Selector>(
+                                             new vectorized::IColumn::Selector()),
+                                     std::vector<int64_t>()}});
                 }
-                channel_to_row_ids[j][channel.get()]->push_back(i);
-                channel_to_tablet_ids[j][channel.get()].push_back(tid);
+                channel_to_payload[j][channel.get()].first->push_back(i);
+                channel_to_payload[j][channel.get()].second.push_back(tid);
             }
             _number_output_rows++;
         }
     }
     for (size_t i = 0; i < _channels.size(); i++) {
-        for (const auto& entry : channel_to_row_ids[i]) {
+        for (const auto& entry : channel_to_payload[i]) {
             // if this node channel is already failed, this add_row will be skipped
-            auto st = entry.first->add_block(&block, *(entry.second),
-                                             channel_to_tablet_ids[i][entry.first]);
+            auto st = entry.first->add_block(&block, entry.second);
             if (!st.ok()) {
                 _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
                                              st.get_error_msg());
             }
         }
     }
-    for (size_t i = 0; i < _channels.size(); i++) {
-        for (const auto& entry : channel_to_row_ids[i]) {
-            delete entry.second;
-        }
-    }
-
     // check intolerable failure
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
