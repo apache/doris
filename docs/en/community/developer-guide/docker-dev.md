@@ -29,9 +29,9 @@ under the License.
 
 ## Related detailed document navigation
 
-- [Developing mirror compilation using Docker](/docs/install/source-install/compilation)
-- [Deploying Doris](/docs/install/install-deploy)
-- [VSCode Be Development Debugging](./be-vscode-dev)
+- [Developing mirror compilation using Docker](../../docs/install/source-install/compilation.md#developing-mirror-compilation-using-docker-recommended)
+- [Deploying Doris](../../docs/install/install-deploy.md#cluster-deployment)
+- [VSCode Be Development Debugging](./be-vscode-dev.md)
 
 ## Environment preparation
 
