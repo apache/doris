@@ -62,9 +62,9 @@ suite("test_explain_tpch_sf_1_q20") {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 23> `s_name` ASC") && 
-		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 25> = <slot 36>\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- <slot 36>") && 
+		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
+				"  |  equal join conjunct: <slot 25> <slot 17> = <slot 36> <slot 33> <slot 15>\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- <slot 36> <slot 33> <slot 15>") && 
 		explainStr.contains("vec output tuple id: 13") && 
 		explainStr.contains("output slot ids: 38 39 \n" + 
 				"  |  hash output slot ids: 26 27 ") && 
@@ -77,9 +77,10 @@ suite("test_explain_tpch_sf_1_q20") {
 		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 17>, RF001[in_or_bloom] -> `s_nationkey`") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 33> = <slot 9> `l_suppkey`\n" + 
-				"  |  equal join conjunct: <slot 31> = <slot 8> `l_partkey`\n" + 
-				"  |  other join predicates: <slot 53> > 0.5 * <slot 57>\n" + 
+				"  |  equal join conjunct: <slot 33> <slot 15> = <slot 9> `l_suppkey`\n" + 
+				"  |  equal join conjunct: <slot 31> <slot 3> = <slot 8> `l_partkey`\n" + 
+				"  |  other join predicates: <slot 53> > 0.5 * <slot 57>") && 
+		explainStr.contains("other join predicates: <slot 53> > 0.5 * <slot 57>\n" + 
 				"  |  runtime filters: RF002[in_or_bloom] <- <slot 9> `l_suppkey`, RF003[in_or_bloom] <- <slot 8> `l_partkey`") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 36 \n" + 

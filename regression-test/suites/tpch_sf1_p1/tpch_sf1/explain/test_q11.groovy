@@ -59,17 +59,31 @@ suite("test_explain_tpch_sf_1_q11") {
 				"  |  order by: <slot 22> `\$a\$1`.`\$c\$2` DESC") && 
 		explainStr.contains("cross join:\n" + 
 				"  |  predicates: <slot 9> sum(`ps_supplycost` * `ps_availqty`) > <slot 20> sum(`ps_supplycost` * `ps_availqty`) * 0.0001") && 
-		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 9> sum(`ps_supplycost` * `ps_availqty`))\n" + 
-				"  |  group by: <slot 8> `ps_partkey`") && 
+		explainStr.contains("VAGGREGATE (update finalize)\n" + 
+				"  |  output: sum(<slot 31> <slot 25>  * <slot 32> <slot 26> <slot 2>)\n" + 
+				"  |  group by: <slot 30> <slot 24> <slot 0>") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 29> <slot 5> = `n_nationkey`\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- `n_nationkey`") && 
+		explainStr.contains("vec output tuple id: 13") && 
+		explainStr.contains("output slot ids: 30 31 32 \n" + 
+				"  |  hash output slot ids: 24 25 26 ") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
+				"  |  equal join conjunct: `ps_suppkey` = `s_suppkey`\n" + 
+				"  |  runtime filters: RF001[in_or_bloom] <- `s_suppkey`") && 
+		explainStr.contains("vec output tuple id: 12") && 
+		explainStr.contains("output slot ids: 24 25 26 29 \n" + 
+				"  |  hash output slot ids: 0 1 2 5 ") && 
+		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF001[in_or_bloom] -> `ps_suppkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: sum(<slot 19> sum(`ps_supplycost` * `ps_availqty`))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  output: sum(<slot 43> * <slot 44>)\n" + 
+				"  |  output: sum(<slot 43> <slot 38> <slot 12> * <slot 44> <slot 39> <slot 13>)\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 42> = `n_nationkey`\n" + 
+				"  |  equal join conjunct: <slot 42> <slot 16> = `n_nationkey`\n" + 
 				"  |  runtime filters: RF002[in_or_bloom] <- `n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 15") && 
 		explainStr.contains("output slot ids: 43 44 \n" + 
@@ -86,28 +100,10 @@ suite("test_explain_tpch_sf_1_q11") {
 				"     PREDICATES: `n_name` = 'GERMANY'") && 
 		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF002[in_or_bloom] -> <slot 16>") && 
-		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  STREAMING\n" + 
-				"  |  output: sum(<slot 31> * <slot 32>)\n" + 
-				"  |  group by: <slot 30>") && 
-		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 29> = `n_nationkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `n_nationkey`") && 
-		explainStr.contains("vec output tuple id: 13") && 
-		explainStr.contains("output slot ids: 30 31 32 \n" + 
-				"  |  hash output slot ids: 24 25 26 ") && 
-		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
-				"  |  equal join conjunct: `ps_suppkey` = `s_suppkey`\n" + 
-				"  |  runtime filters: RF001[in_or_bloom] <- `s_suppkey`") && 
-		explainStr.contains("vec output tuple id: 12") && 
-		explainStr.contains("output slot ids: 24 25 26 29 \n" + 
-				"  |  hash output slot ids: 0 1 2 5 ") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> `ps_suppkey`") && 
 		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `n_name` = 'GERMANY'") && 
 		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> <slot 5>")
+				"     runtime filters: RF000[in_or_bloom] -> <slot 5>") 
             
         }
     }

@@ -57,13 +57,9 @@ suite("test_explain_tpch_sf_1_q13") {
 				"  |  STREAMING\n" + 
 				"  |  output: count(*)\n" + 
 				"  |  group by: <slot 5> count(`o_orderkey`)") && 
-		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: count(<slot 5> count(`o_orderkey`))\n" + 
-				"  |  group by: <slot 4> `c_custkey`") && 
-		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  STREAMING\n" + 
-				"  |  output: count(<slot 15>)\n" + 
-				"  |  group by: <slot 12>") && 
+		explainStr.contains("VAGGREGATE (update finalize)\n" + 
+				"  |  output: count(<slot 15> <slot 3>)\n" + 
+				"  |  group by: <slot 12> <slot 0>") && 
 		explainStr.contains("join op: LEFT OUTER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `c_custkey` = `o_custkey`") && 
 		explainStr.contains("vec output tuple id: 6") && 

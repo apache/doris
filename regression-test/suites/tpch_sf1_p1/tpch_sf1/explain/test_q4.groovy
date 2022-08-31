@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain_tpch_sf_1_q4") {
+suite("test_explain_tpch_sf_1_q04") {
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
@@ -54,7 +54,7 @@ suite("test_explain_tpch_sf_1_q4") {
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
 				"  |  output: count(*)\n" + 
-				"  |  group by: <slot 41>") && 
+				"  |  group by: <slot 41> <slot 34>") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `o_orderkey` = `l_orderkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- `l_orderkey`") && 

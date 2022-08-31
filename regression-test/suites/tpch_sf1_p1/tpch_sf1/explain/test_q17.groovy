@@ -47,13 +47,13 @@ suite("test_explain_tpch_sf_1_q17") {
 				"  |  output: sum(<slot 12> sum(`l_extendedprice`))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  output: sum(<slot 21>)\n" + 
+				"  |  output: sum(<slot 21> <slot 15> <slot 8>)\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 17> = <slot 2> `l_partkey`\n" + 
-				"  |  other join predicates: <slot 32> < 0.2 * <slot 36>\n" + 
+				"  |  equal join conjunct: <slot 17> <slot 7> = <slot 2> `l_partkey`\n" + 
+				"  |  other join predicates: <slot 32> < 0.2 * <slot 36>") && 
+		explainStr.contains("other join predicates: <slot 32> < 0.2 * <slot 36>\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- <slot 2> `l_partkey`") && 
-		explainStr.contains("other join predicates: <slot 32> < 0.2 * <slot 36>") && 
 		explainStr.contains("vec output tuple id: 8") && 
 		explainStr.contains("output slot ids: 21 \n" + 
 				"  |  hash output slot ids: 3 14 15 ") && 
@@ -75,7 +75,7 @@ suite("test_explain_tpch_sf_1_q17") {
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_brand` = 'Brand#23', `p_container` = 'MED BOX'\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> <slot 7>")
+				"     runtime filters: RF000[in_or_bloom] -> <slot 7>") 
             
         }
     }

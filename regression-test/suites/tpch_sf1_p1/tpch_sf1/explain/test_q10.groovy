@@ -67,16 +67,16 @@ suite("test_explain_tpch_sf_1_q10") {
 				"  |  group by: <slot 16> `c_custkey`, <slot 17> `c_name`, <slot 18> `c_acctbal`, <slot 19> `c_phone`, <slot 20> `n_name`, <slot 21> `c_address`, <slot 22> `c_comment`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
-				"  |  output: sum(<slot 53> * (1 - <slot 54>))\n" + 
-				"  |  group by: <slot 60>, <slot 61>, <slot 62>, <slot 64>, <slot 67>, <slot 63>, <slot 65>") && 
+				"  |  output: sum(<slot 53> <slot 39> <slot 32> <slot 2> * (1 - <slot 54> <slot 40> <slot 33> <slot 3>))\n" + 
+				"  |  group by: <slot 60> <slot 46> <slot 0>, <slot 61> <slot 47> , <slot 62> <slot 48> <slot 4>, <slot 64> <slot 50> <slot 7>, <slot 67> <slot 5>, <slot 63> <slot 49> <slot 6>, <slot 65> <slot 51> <slot 8>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 52> = `n_nationkey`\n" + 
+				"  |  equal join conjunct: <slot 52> <slot 14> = `n_nationkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- `n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 8") && 
 		explainStr.contains("output slot ids: 53 54 60 61 62 63 64 65 67 \n" + 
 				"  |  hash output slot ids: 48 49 50 51 5 39 40 46 47 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 36> = `c_custkey`\n" + 
+				"  |  equal join conjunct: <slot 36> <slot 9> = `c_custkey`\n" + 
 				"  |  runtime filters: RF001[in_or_bloom] <- `c_custkey`") && 
 		explainStr.contains("vec output tuple id: 7") && 
 		explainStr.contains("output slot ids: 39 40 46 47 48 49 50 51 52 \n" + 
@@ -95,7 +95,7 @@ suite("test_explain_tpch_sf_1_q10") {
 				"     runtime filters: RF000[in_or_bloom] -> <slot 14>") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` >= '1993-10-01 00:00:00', `o_orderdate` < '1994-01-01 00:00:00'\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> <slot 9>")
+				"     runtime filters: RF001[in_or_bloom] -> <slot 9>") 
             
         }
     }

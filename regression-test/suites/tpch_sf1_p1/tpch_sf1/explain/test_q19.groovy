@@ -66,7 +66,7 @@ suite("test_explain_tpch_sf_1_q19") {
 				"  |  output: sum(<slot 10> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  output: sum(<slot 12> * (1 - <slot 13>))\n" + 
+				"  |  output: sum(<slot 12> <slot 0> * (1 - <slot 13> ))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_partkey` = `p_partkey`\n" + 

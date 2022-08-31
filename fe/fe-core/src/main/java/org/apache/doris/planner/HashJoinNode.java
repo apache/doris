@@ -459,11 +459,10 @@ public class HashJoinNode extends PlanNode {
                 boolean needSetToNullable =
                         getChild(0) instanceof CrossJoinNode && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
-                    if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
-                        continue;
-                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
+                    SlotRef leftSlotRef = new SlotRef(leftSlotDesc);
+                    outputSlotDesc.setSourceExpr(leftSlotRef);
                     if (leftNullable) {
                         outputSlotDesc.setIsNullable(true);
                         leftNullableNumber++;
@@ -471,7 +470,7 @@ public class HashJoinNode extends PlanNode {
                     if (needSetToNullable) {
                         outputSlotDesc.setIsNullable(true);
                     }
-                    srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
+                    srcTblRefToOutputTupleSmap.put(leftSlotRef, new SlotRef(outputSlotDesc));
                 }
             }
         }
@@ -481,11 +480,10 @@ public class HashJoinNode extends PlanNode {
                 boolean needSetToNullable =
                         getChild(1) instanceof CrossJoinNode && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
-                    if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
-                        continue;
-                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
+                    SlotRef rightSlotRef = new SlotRef(rightSlotDesc);
+                    outputSlotDesc.setSourceExpr(rightSlotRef);
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
                         rightNullableNumber++;
@@ -493,7 +491,7 @@ public class HashJoinNode extends PlanNode {
                     if (needSetToNullable) {
                         outputSlotDesc.setIsNullable(true);
                     }
-                    srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
+                    srcTblRefToOutputTupleSmap.put(rightSlotRef, new SlotRef(outputSlotDesc));
                 }
             }
         }

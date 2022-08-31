@@ -63,8 +63,8 @@ suite("test_explain_tpch_sf_1_q12") {
 				"  |  group by: <slot 7> `l_shipmode`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
-				"  |  output: sum(CASE WHEN ((<slot 18> = '1-URGENT' OR <slot 18> = '2-HIGH') AND (<slot 18> = '1-URGENT' OR <slot 18> = '2-HIGH')) THEN 1 ELSE 0 END), sum(CASE WHEN <slot 18> != '1-URGENT' AND <slot 18> != '2-HIGH' THEN 1 ELSE 0 END)\n" + 
-				"  |  group by: <slot 13>") && 
+				"  |  output: sum(CASE WHEN ((<slot 18>  = '1-URGENT' OR <slot 18>  = '2-HIGH') AND (<slot 18>  = '1-URGENT' OR <slot 18>  = '2-HIGH')) THEN 1 ELSE 0 END), sum(CASE WHEN <slot 18>  != '1-URGENT' AND <slot 18>  != '2-HIGH' THEN 1 ELSE 0 END)\n" + 
+				"  |  group by: <slot 13> <slot 0>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_orderkey` = `o_orderkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- `o_orderkey`") && 

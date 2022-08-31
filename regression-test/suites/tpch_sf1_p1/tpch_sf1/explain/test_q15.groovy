@@ -48,8 +48,8 @@ suite("test_explain_tpch_sf_1_q15") {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 23> `s_suppkey` ASC") && 
-		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 33> = <slot 17> max(`total_revenue`)") && 
+		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[Src column hash been transformed by expr]\n" + 
+				"  |  equal join conjunct: <slot 33> <slot 7> <slot 5> sum(`l_extendedprice` * (1 - `l_discount`)) = <slot 17> max(`total_revenue`)") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 34 35 36 37 39 \n" + 
 				"  |  hash output slot ids: 33 28 29 30 31 ") && 

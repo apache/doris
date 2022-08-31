@@ -1629,31 +1629,35 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        Assert.assertTrue(explainString
+                .contains("OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 5>  `k1`\n"
+                + "    <slot 7> <slot 4> 999"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 5> <slot 0> 1\n"
+                + "    <slot 7> <slot 3> 999"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 5> <slot 0> 1\n"
+                + "    <slot 7> <slot 3> 999"));
     }
 
     @Test
@@ -2056,10 +2060,10 @@ public class QueryPlanTest extends TestWithFeService {
         String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n" + "SELECT a.aid,\n" + "       b.bid\n" + "FROM\n"
                 + "  (SELECT 3 AS aid)a\n" + "RIGHT JOIN\n" + "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> AS INT)\n" + "    CAST(<slot 5> AS INT)"));
+        Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n"
+                + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
     }
 
     @Test

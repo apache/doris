@@ -69,8 +69,8 @@ suite("test_explain_tpch_sf_1_q22") {
 				"  |  group by: <slot 29> `cntrycode`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
-				"  |  output: count(*), sum(<slot 37>)\n" + 
-				"  |  group by: substr(<slot 36>, 1, 2)") && 
+				"  |  output: count(*), sum(<slot 37> <slot 26>)\n" + 
+				"  |  group by: substr(<slot 36> <slot 25>, 1, 2)") && 
 		explainStr.contains("join op: LEFT ANTI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `c_custkey` = `o_custkey`") && 
 		explainStr.contains("vec output tuple id: 10") && 

@@ -100,6 +100,8 @@ public class SingleNodePlanner {
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
     private Map<Analyzer, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
 
+    private List<AggregateInfo> aggregateInfoList = new ArrayList<>();
+
     public SingleNodePlanner(PlannerContext ctx) {
         this.ctx = ctx;
     }
@@ -1063,7 +1065,7 @@ public class SingleNodePlanner {
                         .getSlots()
                         .stream()
                         .anyMatch(SlotDescriptor::isMaterialized)) {
-                    aggregateInfo.materializeRequiredSlots(analyzer, null);
+                    aggregateInfoList.forEach(a -> a.materializeRequiredSlots(analyzer, null));
                 }
                 root.getChildren().get(1).setCompactData(true);
                 root.assignConjuncts(analyzer);
@@ -1177,6 +1179,7 @@ public class SingleNodePlanner {
         Preconditions.checkState(selectStmt.getAggInfo() != null);
         // add aggregation, if required
         AggregateInfo aggInfo = selectStmt.getAggInfo();
+        aggregateInfoList.add(aggInfo);
         // aggInfo.substitueGroupingExpr(analyzer);
         PlanNode newRoot = new AggregationNode(ctx.getNextNodeId(), root, aggInfo);
         newRoot.init(analyzer);

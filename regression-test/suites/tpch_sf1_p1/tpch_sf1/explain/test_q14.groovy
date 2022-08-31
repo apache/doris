@@ -44,7 +44,7 @@ suite("test_explain_tpch_sf_1_q14") {
 				"  |  output: sum(<slot 6> sum(CASE WHEN `p_type` LIKE 'PROMO%' THEN `l_extendedprice` * (1 - `l_discount`) ELSE 0 END)), sum(<slot 7> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  output: sum(CASE WHEN <slot 14> LIKE 'PROMO%' THEN <slot 10> * (1 - <slot 11>) ELSE 0 END), sum(<slot 10> * (1 - <slot 11>))\n" + 
+				"  |  output: sum(CASE WHEN <slot 14> <slot 0> LIKE 'PROMO%' THEN <slot 10>  * (1 - <slot 11> <slot 2>) ELSE 0 END), sum(<slot 10>  * (1 - <slot 11> <slot 2>))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_partkey` = `p_partkey`\n" + 

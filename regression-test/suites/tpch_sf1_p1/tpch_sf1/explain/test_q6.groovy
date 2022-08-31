@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain_tpch_sf_1_q6") {
+suite("test_explain_tpch_sf_1_q06") {
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))

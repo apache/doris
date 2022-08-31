@@ -68,22 +68,26 @@ suite("test_explain_tpch_sf_1_q18") {
 				"  |  group by: <slot 18> `c_name`, <slot 19> `c_custkey`, <slot 20> `o_orderkey`, <slot 21> `o_orderdate`, <slot 22> `o_totalprice`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
-				"  |  output: sum(<slot 53>)\n" + 
-				"  |  group by: <slot 58>, <slot 59>, <slot 54>, <slot 55>, <slot 56>") && 
-		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 44> = <slot 8> `l_orderkey`\n" + 
+				"  |  output: sum(<slot 53> <slot 45> <slot 37> <slot 31> <slot 16>)\n" + 
+				"  |  group by: <slot 58> <slot 50> <slot 42> <slot 12>, <slot 59> <slot 51> <slot 43> <slot 13>, <slot 54> <slot 46> <slot 38> <slot 32> <slot 5>, <slot 55> <slot 47> <slot 39> <slot 33> <slot 14>, <slot 56> <slot 48> <slot 40> <slot 34> <slot 15>") && 
+		explainStr.contains("join op: LEFT SEMI JOIN(COLOCATE[])[]\n" + 
+				"  |  equal join conjunct: <slot 44> <slot 36> <slot 30> <slot 11> = <slot 8> `l_orderkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- <slot 8> `l_orderkey`") && 
 		explainStr.contains("vec output tuple id: 14") && 
 		explainStr.contains("output slot ids: 53 54 55 56 58 59 \n" + 
 				"  |  hash output slot ids: 48 50 51 45 46 47 ") && 
+		explainStr.contains("VAGGREGATE (update finalize)\n" + 
+				"  |    |  output: sum(`l_quantity`)\n" + 
+				"  |    |  group by: `l_orderkey`") && 
+		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 38> = <slot 2> `l_orderkey`\n" + 
+				"  |  equal join conjunct: <slot 38> <slot 32> <slot 5> = <slot 2> `l_orderkey`\n" + 
 				"  |  runtime filters: RF001[in_or_bloom] <- <slot 2> `l_orderkey`") && 
 		explainStr.contains("vec output tuple id: 13") && 
 		explainStr.contains("output slot ids: 44 45 46 47 48 50 51 \n" + 
 				"  |  hash output slot ids: 36 37 38 39 40 42 43 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 35> = `c_custkey`\n" + 
+				"  |  equal join conjunct: <slot 35> <slot 17> = `c_custkey`\n" + 
 				"  |  runtime filters: RF002[in_or_bloom] <- `c_custkey`") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 36 37 38 39 40 42 43 \n" + 
@@ -100,13 +104,9 @@ suite("test_explain_tpch_sf_1_q18") {
 				"  |  output: sum(`l_quantity`)\n" + 
 				"  |  group by: `l_orderkey`") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
-		explainStr.contains("VAGGREGATE (update finalize)\n" + 
-				"  |  output: sum(`l_quantity`)\n" + 
-				"  |  group by: `l_orderkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> <slot 5>, RF002[in_or_bloom] -> <slot 17>")
+				"     runtime filters: RF001[in_or_bloom] -> <slot 5>, RF002[in_or_bloom] -> <slot 17>") 
             
         }
     }

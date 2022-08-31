@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain_tpch_sf_1_q5") {
+suite("test_explain_tpch_sf_1_q05") {
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
@@ -59,30 +59,30 @@ suite("test_explain_tpch_sf_1_q5") {
 				"  |  group by: <slot 16> `n_name`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
-				"  |  output: sum(<slot 61> * (1 - <slot 62>))\n" + 
-				"  |  group by: <slot 72>") && 
+				"  |  output: sum(<slot 61> <slot 47> <slot 36> <slot 27> <slot 20>  * (1 - <slot 62> <slot 48> <slot 37> <slot 28> <slot 21> <slot 2>))\n" + 
+				"  |  group by: <slot 72> <slot 58> <slot 0>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 60> = `r_regionkey`\n" + 
+				"  |  equal join conjunct: <slot 60> <slot 12> = `r_regionkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- `r_regionkey`") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 61 62 72 \n" + 
 				"  |  hash output slot ids: 48 58 47 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 44> = `n_nationkey`\n" + 
+				"  |  equal join conjunct: <slot 44> <slot 35> <slot 10> = `n_nationkey`\n" + 
 				"  |  runtime filters: RF001[in_or_bloom] <- `n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 47 48 58 60 \n" + 
 				"  |  hash output slot ids: 0 36 37 12 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 31> = `c_custkey`\n" + 
-				"  |  equal join conjunct: <slot 35> = `c_nationkey`\n" + 
-				"  |  runtime filters: RF002[in_or_bloom] <- `c_custkey`, RF003[in_or_bloom] <- `c_nationkey`") &&  
+				"  |  equal join conjunct: <slot 31> <slot 24> <slot 4> = `c_custkey`\n" + 
+				"  |  equal join conjunct: <slot 35> <slot 10> = `c_nationkey`\n" + 
+				"  |  runtime filters: RF002[in_or_bloom] <- `c_custkey`, RF003[in_or_bloom] <- `c_nationkey`") && 
 		explainStr.contains("vec output tuple id: 10") && 
 		explainStr.contains("output slot ids: 36 37 44 \n" + 
 				"  |  hash output slot ids: 35 27 28 ") && 
-		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 23> = `s_suppkey`\n" + 
-				"  |  runtime filters: RF004[in_or_bloom] <- `s_suppkey`") &&  
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
+				"  |  equal join conjunct: <slot 23> <slot 7> = `s_suppkey`\n" + 
+				"  |  runtime filters: RF004[in_or_bloom] <- `s_suppkey`") && 
 		explainStr.contains("vec output tuple id: 9") && 
 		explainStr.contains("output slot ids: 27 28 31 35 \n" + 
 				"  |  hash output slot ids: 20 21 24 10 ") && 
@@ -103,7 +103,7 @@ suite("test_explain_tpch_sf_1_q5") {
 				"     runtime filters: RF001[in_or_bloom] -> <slot 10>, RF003[in_or_bloom] -> <slot 10>") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` >= '1994-01-01 00:00:00', `o_orderdate` < '1995-01-01 00:00:00'\n" + 
-				"     runtime filters: RF002[in_or_bloom] -> <slot 4>")
+				"     runtime filters: RF002[in_or_bloom] -> <slot 4>") 
             
         }
     }

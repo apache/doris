@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain_tpch_sf_1_q3") {
+suite("test_explain_tpch_sf_1_q03") {
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
@@ -53,15 +53,11 @@ suite("test_explain_tpch_sf_1_q3") {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 14> <slot 13> sum(`l_extendedprice` * (1 - `l_discount`)) DESC, <slot 15> <slot 11> `o_orderdate` ASC") && 
-		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 13> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
-				"  |  group by: <slot 10> `l_orderkey`, <slot 11> `o_orderdate`, <slot 12> `o_shippriority`") && 
-		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  STREAMING\n" + 
-				"  |  output: sum(<slot 27> * (1 - <slot 28>))\n" + 
-				"  |  group by: <slot 26>, <slot 30>, <slot 31>") && 
+		explainStr.contains("VAGGREGATE (update finalize)\n" + 
+				"  |  output: sum(<slot 27> <slot 19>  * (1 - <slot 28> <slot 20> <slot 2>))\n" + 
+				"  |  group by: <slot 26> <slot 18> <slot 0>, <slot 30> <slot 22> <slot 3>, <slot 31> <slot 23> <slot 4>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 24> = `c_custkey`\n" + 
+				"  |  equal join conjunct: <slot 24> <slot 7> = `c_custkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- `c_custkey`") && 
 		explainStr.contains("vec output tuple id: 6") && 
 		explainStr.contains("output slot ids: 26 27 28 30 31 \n" + 
@@ -79,7 +75,7 @@ suite("test_explain_tpch_sf_1_q3") {
 				"     PREDICATES: `c_mktsegment` = 'BUILDING'") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` < '1995-03-15 00:00:00'\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> <slot 7>")
+				"     runtime filters: RF000[in_or_bloom] -> <slot 7>") 
             
         }
     }
