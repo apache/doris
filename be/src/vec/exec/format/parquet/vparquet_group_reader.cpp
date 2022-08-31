@@ -62,16 +62,34 @@ Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
 }
 
 Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_eof) {
+    size_t batch_read_rows = 0;
+    bool has_eof = false;
+    int col_idx = 0;
     for (auto& read_col : _read_columns) {
         auto slot_desc = read_col._slot_desc;
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
-        size_t batch_read_rows = 0;
-        RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
-                column_ptr, column_type, batch_size, &batch_read_rows, _batch_eof));
-        _read_rows += batch_read_rows;
+        size_t col_read_rows = 0;
+        bool col_eof = false;
+        while (!col_eof && col_read_rows < batch_size) {
+            size_t loop_rows = 0;
+            RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
+                    column_ptr, column_type, batch_size - col_read_rows, &loop_rows, &col_eof));
+            col_read_rows += loop_rows;
+        }
+        if (col_idx > 0 && (has_eof ^ col_eof)) {
+            return Status::Corruption("The number of rows are not equal among parquet columns");
+        }
+        if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
+            return Status::Corruption("Can't read the same number of rows among parquet columns");
+        }
+        batch_read_rows = col_read_rows;
+        has_eof = col_eof;
+        col_idx++;
     }
+    _read_rows += batch_read_rows;
+    *_batch_eof = has_eof;
     // use data fill utils read column data to column ptr
     return Status::OK();
 }
