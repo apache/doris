@@ -27,10 +27,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -112,9 +112,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
 
     @Override
     public String toString() {
-        return "LogicalAggregate (phase: [" + aggPhase.name() + "], output: ["
-                + StringUtils.join(outputExpressions, ", ")
-                + "], groupBy: [" + StringUtils.join(groupByExpressions, ", ") + "])";
+        return Utils.toSqlString("LogicalAggregate",
+                "phase", aggPhase,
+                "outputExpr", outputExpressions,
+                "groupByExpr", groupByExpressions
+        );
     }
 
     @Override
@@ -186,7 +188,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
-                                                 List<NamedExpression> outputExpressionList) {
+            List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList,
                 disassembled, normalized, aggPhase, child());
     }
