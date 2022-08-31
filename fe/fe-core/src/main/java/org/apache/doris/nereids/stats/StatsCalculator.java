@@ -285,17 +285,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> projections = project.getProjects();
         Map<Slot, ColumnStats> childColumnStats = groupExpression.getCopyOfChildStats(0).getSlotToColumnStats();
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(groupExpression.getCopyOfChildStats(0));
+        StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
         Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
             List<SlotReference> slotReferences = projection.collect(SlotReference.class::isInstance);
             if (slotReferences.isEmpty()) {
-                ColumnStats columnStats = new ColumnStats();
-                columnStats.setAvgSize(1);
-                columnStats.setMaxSize(1);
-                columnStats.setNdv(1);
-                columnStats.setNumNulls(0);
-                return new AbstractMap.SimpleEntry<>(projection.toSlot(), columnStats);
+                return new AbstractMap.SimpleEntry<>(projection.toSlot(), ColumnStats.createDefaultColumnStats());
             } else {
+                // TODO: just a trick here, need to do real project on column stats
                 return new AbstractMap.SimpleEntry<>(projection.toSlot(), childColumnStats.get(slotReferences.get(0)));
             }
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
