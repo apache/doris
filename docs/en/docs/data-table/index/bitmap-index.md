@@ -68,7 +68,6 @@ DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
     * `TINYINT`
     * `SMALLINT`
     * `INT`
-    * `UNSIGNEDINT`
     * `BIGINT`
     * `CHAR`
     * `VARCHAR`
