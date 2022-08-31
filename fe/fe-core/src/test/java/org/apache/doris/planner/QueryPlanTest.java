@@ -2178,21 +2178,21 @@ public class QueryPlanTest extends TestWithFeService {
     public void testOrthogonalBitmapUnionCountUDAFcanHitRollup() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         createTable("CREATE TABLE test.bitmap_tb (\n"
-            + "  `id` int(11) NULL COMMENT \"\",\n"
-            + "  `id2` int(11) NULL COMMENT \"\",\n"
-            + "  `id3` bitmap bitmap_union NULL\n"
-            + ") ENGINE=OLAP\n"
-            + "AGGREGATE KEY(`id`,`id2`)\n"
-            + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
-            + "PROPERTIES (\n"
-            + " \"replication_num\" = \"1\"\n"
-            + ");");
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` int(11) NULL COMMENT \"\",\n"
+                + "  `id3` bitmap bitmap_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`,`id2`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
 
         // String insertTableSql = "insert into test.bitmap_tb select 1 as id, 2 as id2, to_bitmap(3) as id3";
         //getSqlStmtExecutor(insertTableSql).execute();
 
         String createRollupSql = "alter TABLE test.bitmap_tb add rollup bitmap_tb_rollup(`id`,`id3`)";
-        AlterTableStmt alterTableStmt = (AlterTableStmt)parseAndAnalyzeStmt(createRollupSql);
+        AlterTableStmt alterTableStmt = (AlterTableStmt) parseAndAnalyzeStmt(createRollupSql);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
@@ -2202,7 +2202,7 @@ public class QueryPlanTest extends TestWithFeService {
             }
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
-                    "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                        "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(5000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
