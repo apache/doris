@@ -78,6 +78,9 @@ public class RuntimeFilter {
         if (expr.child(0).equals(expr.child(1))) {
             return null;
         }
+        if (!expr.children().stream().allMatch(SlotReference.class::isInstance)) {
+            return null;
+        }
         //current we assume that there are certainly different slot reference in equal to.
         //they are not from the same relation.
         int exchangeTag = join.child(0).getOutput().stream().anyMatch(slot -> slot.getExprId().equals(

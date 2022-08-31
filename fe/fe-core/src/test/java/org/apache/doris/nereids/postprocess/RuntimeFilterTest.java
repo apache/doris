@@ -25,14 +25,13 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSupported {
+public class RuntimeFilterTest extends SSBTestBase {
 
     @Override
     public void runBeforeEach() throws Exception {
@@ -128,6 +127,19 @@ public class RuntimeFilterTest extends SSBTestBase implements PatternMatchSuppor
                 && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey")
                 && checkRuntimeFilterExpr(filters.get(1), "d_datekey", "lo_orderdate")
                 && checkRuntimeFilterExpr(filters.get(2), "s_suppkey", "c_custkey"));
+    }
+
+    @Test
+    public void testDoNotPushDownThroughAggFunction() throws AnalysisException {
+        String sql = "select profit"
+                + " from (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder inner join dates"
+                + " on lo_orderdate = d_datekey group by lo_custkey) a"
+                + " inner join (select sum(c_custkey) c_custkey from customer inner join supplier on c_custkey = s_suppkey group by s_suppkey) b"
+                + " on b.c_custkey = a.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 2
+                && checkRuntimeFilterExpr(filters.get(0), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "c_custkey"));
     }
 
     private List<RuntimeFilter> getRuntimeFilters(String sql) throws AnalysisException {
