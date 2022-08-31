@@ -82,6 +82,10 @@ public class FunctionCallExpr extends Expr {
                     .addAll(DECIMAL_SAME_TYPE_SET)
                     .addAll(DECIMAL_WIDER_TYPE_SET)
                     .addAll(STDDEV_FUNCTION_SET).build();
+
+    private static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("now").add("current_timestamp").add("localtime").add("localtimestamp").build();
     private static final int STDDEV_DECIMAL_SCALE = 9;
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
@@ -1033,6 +1037,16 @@ public class FunctionCallExpr extends Expr {
                 if (fn.getReturnType().isDatetimeV2()) {
                     fn.setReturnType(children.get(0).getType());
                 }
+            }
+        }
+
+        if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
+                && fn != null && fn.getReturnType().isDatetimeV2()) {
+            Preconditions.checkArgument(children.size() == 1);
+            if (children.get(0) instanceof IntLiteral) {
+                fn.setReturnType(ScalarType.createDatetimeV2Type((int) ((IntLiteral) children.get(0)).getLongValue()));
+            } else {
+                fn.setReturnType(ScalarType.createDatetimeV2Type(6));
             }
         }
 

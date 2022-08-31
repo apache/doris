@@ -933,6 +933,9 @@ public:
     bool from_unixtime(int64_t, const std::string& timezone);
     bool from_unixtime(int64_t, const cctz::time_zone& ctz);
 
+    bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
+    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, const int scale);
+
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.
         // MySQL convert both to int with left value type and then compare

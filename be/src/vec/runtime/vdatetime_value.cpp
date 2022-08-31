@@ -2608,6 +2608,31 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
 }
 
 template <typename T>
+bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+                                   const std::string& timezone, const int scale) {
+    cctz::time_zone ctz;
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
+        return false;
+    }
+    return from_unixtime(timestamp, nano_seconds, ctz, scale);
+}
+
+template <typename T>
+bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+                                   const cctz::time_zone& ctz, const int scale) {
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(
+                    std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
+
+    const auto tp = cctz::convert(t, ctz);
+
+    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+             nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
+    return true;
+}
+
+template <typename T>
 const char* DateV2Value<T>::month_name() const {
     if (date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
         return nullptr;
