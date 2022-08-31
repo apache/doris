@@ -172,7 +172,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     // TODO: We should subtract those pruned column, and consider the expression transformations in the node.
     @Override
-    public StatsDeriveResult visitPhysicalProject(PhysicalProject<Plan> project, Void context) {
+    public StatsDeriveResult visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
         return computeProject(project);
     }
 

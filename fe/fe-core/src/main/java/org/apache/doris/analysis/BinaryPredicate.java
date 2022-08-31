@@ -330,6 +330,9 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
                 throw new AnalysisException("Bitmap type dose not support operand: " + toSql());
             }
+            if (e.getType().isArrayType()) {
+                throw new AnalysisException("Array type dose not support operand: " + toSql());
+            }
         }
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {

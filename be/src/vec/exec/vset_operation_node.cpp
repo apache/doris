@@ -242,7 +242,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         block.clear_column_data();
         SCOPED_TIMER(_build_timer);
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &block, &eos),
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, &block, &eos),
                                        child(0)->get_next_span(), eos);
 
         size_t allocated_bytes = block.allocated_bytes();
@@ -309,8 +309,9 @@ Status VSetOperationNode::process_probe_block(RuntimeState* state, int child_id,
     _probe_rows = 0;
 
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR_AND_CHECK_SPAN(child(child_id)->get_next(state, &_probe_block, eos),
-                                   child(child_id)->get_next_span(), *eos);
+    RETURN_IF_ERROR_AND_CHECK_SPAN(
+            child(child_id)->get_next_after_projects(state, &_probe_block, eos),
+            child(child_id)->get_next_span(), *eos);
     _probe_rows = _probe_block.rows();
     RETURN_IF_ERROR(extract_probe_column(_probe_block, _probe_columns, child_id));
     return Status::OK();

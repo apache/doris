@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -51,15 +52,15 @@ public class LogicalEnforceSingleRow<CHILD_TYPE extends Plan> extends LogicalUna
     }
 
     @Override
-    public List<Slot> computeOutput(Plan child) {
+    public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
-                .addAll(child.getOutput())
+                .addAll(child().getOutput())
                 .build();
     }
 
     @Override
     public String toString() {
-        return "LogicalEnforceSingleRow (" + this.child(0).toString() + ")";
+        return Utils.toSqlString("LogicalEnforceSingleRow");
     }
 
     @Override
@@ -67,7 +68,10 @@ public class LogicalEnforceSingleRow<CHILD_TYPE extends Plan> extends LogicalUna
         if (this == o) {
             return true;
         }
-        return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return true;
     }
 
     @Override

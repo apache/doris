@@ -74,7 +74,6 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -2683,9 +2682,9 @@ public class Env {
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword, long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false);
+                hidePassword, false, specificVersion);
     }
 
     /**
@@ -2695,7 +2694,7 @@ public class Env {
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
             List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
-            boolean hidePassword, boolean getDdlForLike) {
+            boolean hidePassword, boolean getDdlForLike, long specificVersion) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -2763,6 +2762,17 @@ public class Env {
                 }
             }
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+
+            if (specificVersion != -1) {
+                // for copy tablet operation
+                sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
+                        .append(") BUCKETS 1");
+                sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
+                        + specificVersion + "\"\n" + ")");
+                createTableStmt.add(sb + ";");
+                return;
+            }
+
 
             addTableComment(olapTable, sb);
 
@@ -5006,16 +5016,5 @@ public class Env {
             }
         }
         return count;
-    }
-
-    public TableName getTableNameByTableId(Long tableId) {
-        for (String dbName : getInternalCatalog().getDbNames()) {
-            DatabaseIf db = getInternalCatalog().getDbNullable(dbName);
-            Optional<Table> table = db.getTable(tableId);
-            if (table.isPresent()) {
-                return new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), table.get().getName());
-            }
-        }
-        return null;
     }
 }

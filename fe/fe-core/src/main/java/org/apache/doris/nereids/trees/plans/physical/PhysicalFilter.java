@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -44,7 +45,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     public PhysicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
-                          LogicalProperties logicalProperties, CHILD_TYPE child) {
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child);
         this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
     }
@@ -55,7 +56,9 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return "PhysicalFilter (" + predicates + ")";
+        return Utils.toSqlString("PhysicalFilter",
+                "predicates", predicates
+        );
     }
 
     @Override

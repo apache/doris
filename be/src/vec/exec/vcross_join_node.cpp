@@ -60,7 +60,7 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next(state, &block, &eos),
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
                                        child(1)->get_next_span(), eos);
         auto rows = block.rows();
         auto mem_usage = block.allocated_bytes();
@@ -117,7 +117,8 @@ Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                         release_block_memory(_left_block);
                         timer.stop();
                         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                                child(0)->get_next(state, &_left_block, &_left_side_eos),
+                                child(0)->get_next_after_projects(state, &_left_block,
+                                                                  &_left_side_eos),
                                 child(0)->get_next_span(), _left_side_eos);
                         timer.start();
                     } while (_left_block.rows() == 0 && !_left_side_eos);

@@ -313,6 +313,20 @@ std::string TabletMeta::construct_header_file_path(const string& schema_hash_pat
     return header_name_stream.str();
 }
 
+Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
+    std::string json_meta;
+    json2pb::Pb2JsonOptions json_options;
+    json_options.pretty_json = true;
+    json_options.bytes_to_base64 = true;
+    to_json(&json_meta, json_options);
+    // save to file
+    io::FileWriterPtr file_writer;
+    RETURN_IF_ERROR(dir->fs()->create_file(file_path, &file_writer));
+    RETURN_IF_ERROR(file_writer->append(json_meta));
+    RETURN_IF_ERROR(file_writer->close());
+    return Status::OK();
+}
+
 Status TabletMeta::save(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);

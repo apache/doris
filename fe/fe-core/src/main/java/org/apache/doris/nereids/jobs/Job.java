@@ -39,11 +39,11 @@ public abstract class Job {
     }
 
     public void pushTask(Job job) {
-        context.getPlannerContext().pushJob(job);
+        context.getCascadesContext().pushJob(job);
     }
 
     public RuleSet getRuleSet() {
-        return context.getPlannerContext().getRuleSet();
+        return context.getCascadesContext().getRuleSet();
     }
 
     /**

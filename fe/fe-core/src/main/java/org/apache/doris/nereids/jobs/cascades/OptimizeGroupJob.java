@@ -42,11 +42,11 @@ public class OptimizeGroupJob extends Job {
         }
         if (!group.isExplored()) {
             for (GroupExpression logicalGroupExpression : group.getLogicalExpressions()) {
-                context.getPlannerContext().pushJob(new OptimizeGroupExpressionJob(logicalGroupExpression, context));
+                context.getCascadesContext().pushJob(new OptimizeGroupExpressionJob(logicalGroupExpression, context));
             }
         }
         for (GroupExpression physicalGroupExpression : group.getPhysicalExpressions()) {
-            context.getPlannerContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
+            context.getCascadesContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
         }
         group.setExplored(true);
     }

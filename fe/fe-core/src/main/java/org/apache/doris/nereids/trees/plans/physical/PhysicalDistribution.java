@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,9 +44,16 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     }
 
     public PhysicalDistribution(DistributionSpec spec, Optional<GroupExpression> groupExpression,
-                                LogicalProperties logicalProperties, CHILD_TYPE child) {
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
         this.distributionSpec = spec;
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("PhysicalDistribution",
+                "distributionSpec", distributionSpec
+        );
     }
 
     @Override
@@ -62,7 +70,7 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
-            logicalProperties, children.get(0));
+                logicalProperties, children.get(0));
     }
 
     @Override
@@ -73,6 +81,6 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
-            logicalProperties.get(), child());
+                logicalProperties.get(), child());
     }
 }

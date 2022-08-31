@@ -452,7 +452,10 @@ public class HashJoinNode extends PlanNode {
         int leftNullableNumber = 0;
         int rightNullableNumber = 0;
         if (copyLeft) {
-            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
+            //cross join do not have OutputTblRefIds
+            List<TupleId> srcTupleIds = getChild(0) instanceof CrossJoinNode ? getChild(0).getOutputTupleIds()
+                    : getChild(0).getOutputTblRefIds();
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(srcTupleIds)) {
                 // if the child is cross join node, the only way to get the correct nullable info of its output slots
                 // is to check if the output tuple ids are outer joined or not.
                 // then pass this nullable info to hash join node will be correct.
@@ -476,8 +479,9 @@ public class HashJoinNode extends PlanNode {
             }
         }
         if (copyRight) {
-            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl()
-                    .getTupleDesc(getChild(1).getOutputTblRefIds())) {
+            List<TupleId> srcTupleIds = getChild(1) instanceof CrossJoinNode ? getChild(1).getOutputTupleIds()
+                    : getChild(1).getOutputTblRefIds();
+            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(srcTupleIds)) {
                 boolean needSetToNullable =
                         getChild(1) instanceof CrossJoinNode && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
@@ -1080,13 +1084,17 @@ public class HashJoinNode extends PlanNode {
         }
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                // TODO: Enable it after we support new optimizers
+                // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                // } else
                 msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
+            // TODO Enable it after we support new optimizers
+            // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         }
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
@@ -1256,5 +1264,26 @@ public class HashJoinNode extends PlanNode {
             }
         }
         return true;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvOutputTupleDesc(TupleDescriptor vOutputTupleDesc) {
+        this.vOutputTupleDesc = vOutputTupleDesc;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
+        this.vIntermediateTupleDescList = vIntermediateTupleDescList;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvSrcToOutputSMap(List<Expr> lhs) {
+        this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
     }
 }

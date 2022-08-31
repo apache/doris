@@ -84,7 +84,8 @@ class PruneOlapScanPartitionTest {
                 olapTable.getPartitionColumnNames();
                 result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
                         .collect(Collectors.toSet());
-
+                olapTable.getName();
+                result = "tbl";
             }};
         LogicalOlapScan scan = new LogicalOlapScan(olapTable);
         SlotReference slotRef = new SlotReference("col1", IntegerType.INSTANCE);
@@ -148,6 +149,8 @@ class PruneOlapScanPartitionTest {
                 olapTable.getPartitionColumnNames();
                 result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
                         .collect(Collectors.toSet());
+                olapTable.getName();
+                result = "tbl";
             }};
         LogicalOlapScan scan = new LogicalOlapScan(olapTable);
         Expression left = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));

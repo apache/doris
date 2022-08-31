@@ -180,7 +180,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(nestedLoopJoin, context);
     }
 
-    public R visitPhysicalProject(PhysicalProject<Plan> project, C context) {
+    public R visitPhysicalProject(PhysicalProject<? extends Plan> project, C context) {
         return visit(project, context);
     }
 

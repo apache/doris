@@ -1119,6 +1119,12 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 * Description: The number of threads in the DownloadCache thread pool. In the download cache task of FileCache, the download cache operation will be submitted to the thread pool as a thread task and wait to be scheduled. After the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
 * Default value: 102400
 
+### `download_cache_buffer_size`
+
+* Type: int64
+* Description: The size of the buffer used to receive data when downloading the cache.
+* Default value: 10485760
+
 ### `single_replica_load_brpc_port`
 
 * Type: int32

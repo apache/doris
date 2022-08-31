@@ -90,6 +90,8 @@ public class DistributedPlannerTest {
         Deencapsulation.setField(inputPlanRoot, "conjuncts", Lists.newArrayList());
         new Expectations() {
             {
+                inputPlanRoot.getOutputTupleDesc();
+                result = null;
                 inputFragment.isPartitioned();
                 result = true;
                 plannerContext.getNextNodeId();
