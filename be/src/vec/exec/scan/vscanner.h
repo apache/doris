@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "exprs/expr_context.h"
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -62,6 +63,9 @@ protected:
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
+    // to filter src tuple directly.
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+
 public:
     VScanNode* get_parent() { return _parent; }
 
@@ -97,6 +101,10 @@ public:
     void set_status_on_failure(const Status& st) { _status = st; }
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
+
+    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) {
+        _conjunct_ctxs = conjunct_ctxs;
+    }
 
 protected:
     void _discard_conjuncts() {
@@ -151,6 +159,11 @@ protected:
     // watch to count the time wait for scanner thread
     MonotonicStopWatch _watch;
     int64_t _scanner_wait_worker_timer = 0;
+
+    // File formats based push down predicate
+    std::vector<ExprContext*> _conjunct_ctxs;
+
+    const std::vector<TExpr> _pre_filter_texprs;
 };
 
 } // namespace doris::vectorized
