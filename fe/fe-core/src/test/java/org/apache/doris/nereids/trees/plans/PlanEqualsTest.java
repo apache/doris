@@ -65,7 +65,7 @@ public class PlanEqualsTest {
         Assertions.assertEquals(expected, actual);
 
         LogicalAggregate<Plan> unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
-                new SlotReference(new ExprId(0), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
                 child);
         Assertions.assertNotEquals(unexpected, actual);
     }
@@ -95,8 +95,8 @@ public class PlanEqualsTest {
         Assertions.assertEquals(expected, actual);
 
         LogicalJoin<Plan, Plan> unexpected = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(
-                new SlotReference("a", BigIntType.INSTANCE, false, Lists.newArrayList()),
-                new SlotReference("b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
+                new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 Optional.empty(), left, right);
         Assertions.assertNotEquals(unexpected, actual);
     }
@@ -151,7 +151,7 @@ public class PlanEqualsTest {
 
         LogicalSort<Plan> unexpected = new LogicalSort<>(
                 ImmutableList.of(new OrderKey(
-                        new SlotReference(new ExprId(1), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
                 child);
         Assertions.assertNotEquals(unexpected, actual);
@@ -211,8 +211,8 @@ public class PlanEqualsTest {
 
         PhysicalHashJoin<Plan, Plan> unexpected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
-                        new SlotReference("a", BigIntType.INSTANCE, false, Lists.newArrayList()),
-                        new SlotReference("b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                        new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
+                        new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 Optional.empty(), logicalProperties, left, right);
         Assertions.assertNotEquals(unexpected, actual);
     }
@@ -288,7 +288,7 @@ public class PlanEqualsTest {
 
         PhysicalQuickSort<Plan> unexpected = new PhysicalQuickSort<>(
                 ImmutableList.of(new OrderKey(
-                        new SlotReference(new ExprId(1), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
                 logicalProperties,
                 child);

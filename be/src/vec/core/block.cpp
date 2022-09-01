@@ -918,11 +918,14 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     }
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs) {
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
+            if (reserve_size != 0) {
+                _columns.back()->reserve(reserve_size);
+            }
         }
     }
 }

@@ -78,7 +78,9 @@ public:
     // Skip current page(will not read and parse) if the page is filtered by predicates.
     Status skip_page() { return _page_reader->skip_page(); }
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.
-    Status skip_values(size_t num_values);
+    // when skip_data = false, the underlying decoder will not skip data,
+    // only used when maintaining the consistency of _remaining_num_values.
+    Status skip_values(size_t num_values, bool skip_data = true);
 
     // Load page data into the underlying container,
     // and initialize the repetition and definition level decoder for current page data.
@@ -88,6 +90,7 @@ public:
     // null values are generated from definition levels
     // the caller should maintain the consistency after analyzing null values from definition levels.
     void insert_null_values(ColumnPtr& doris_column, size_t num_values);
+    void insert_null_values(MutableColumnPtr& doris_column, size_t num_values);
     // Get the raw data of current page.
     Slice& get_page_data() { return _page_data; }
 
