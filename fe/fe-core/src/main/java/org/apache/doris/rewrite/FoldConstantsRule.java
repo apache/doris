@@ -55,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -353,6 +354,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
+            queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
             if (context.getSessionVariable().getTimeZone().equals("CST")) {
                 queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
