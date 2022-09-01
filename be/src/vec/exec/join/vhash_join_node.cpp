@@ -200,9 +200,9 @@ struct ProcessHashTableProbe {
                     }
                 }
             } else {
-                bool need_nullable_convert[column_length];
+                bool need_nullable_convert[column_length] = {false};
                 for (int i = 0; i < column_length; ++i) {
-                    if (output_slot_flags[i]) {
+                    if (output_slot_flags[i] && !_build_blocks.empty()) {
                         need_nullable_convert[i] =
                                 probe_all &&
                                 !_build_blocks[0].get_by_position(i).column->is_nullable();
