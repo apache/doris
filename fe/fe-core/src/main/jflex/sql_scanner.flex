@@ -304,7 +304,6 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("next", new Integer(SqlParserSymbols.KW_NEXT));
         keywordMap.put("no", new Integer(SqlParserSymbols.KW_NO));
         keywordMap.put("not", new Integer(SqlParserSymbols.KW_NOT));
-        keywordMap.put("not_null", new Integer(SqlParserSymbols.KW_NOT_NULL));
         keywordMap.put("null", new Integer(SqlParserSymbols.KW_NULL));
         keywordMap.put("nulls", new Integer(SqlParserSymbols.KW_NULLS));
         keywordMap.put("observer", new Integer(SqlParserSymbols.KW_OBSERVER));
