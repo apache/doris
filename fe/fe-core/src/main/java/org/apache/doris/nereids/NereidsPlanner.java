@@ -24,8 +24,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.batch.AdjustApplyFromCorrelatToUnCorrelatJob;
-import org.apache.doris.nereids.jobs.batch.ConvertApplyToJoinJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.RewriteJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
@@ -138,18 +136,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        subqueryRewrite();
         new RewriteJob(cascadesContext).execute();
-    }
-
-    /**
-     * Subquery unnesting.
-     * 1. Adjust the plan in correlated logicalApply so that there are no correlated columns in the subquery.
-     * 2. Convert logicalApply to a logicalJoin.
-     */
-    private void subqueryRewrite() {
-        new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).execute();
-        new ConvertApplyToJoinJob(cascadesContext).execute();
     }
 
     private void deriveStats() {
