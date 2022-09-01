@@ -69,11 +69,11 @@ public class PushDownPredicateTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""), "student");
 
-        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of("score"));
+        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of(""), "score");
 
-        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of("course"));
+        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of(""), "course");
     }
 
     @Test

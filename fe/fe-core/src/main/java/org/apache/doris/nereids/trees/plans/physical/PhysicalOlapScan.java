@@ -37,8 +37,8 @@ public class PhysicalOlapScan extends PhysicalRelation {
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
-    private final List<Long> selectedTabletId;
-    private final List<Long> selectedPartitionId;
+    private final List<Long> selectedTabletIds;
+    private final List<Long> selectedPartitionIds;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -46,15 +46,14 @@ public class PhysicalOlapScan extends PhysicalRelation {
      * @param olapTable OlapTable in Doris
      * @param qualifier qualifier of table name
      */
-    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, long selectedIndexId,
-            List<Long> selectedTabletId, List<Long> selectedPartitionId, DistributionSpec distributionSpec,
+    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, String name, long selectedIndexId,
+            List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
-
+        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, name, groupExpression, logicalProperties);
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
-        this.selectedTabletId = selectedTabletId;
-        this.selectedPartitionId = selectedPartitionId;
+        this.selectedTabletIds = selectedTabletIds;
+        this.selectedPartitionIds = selectedPartitionIds;
         this.distributionSpec = distributionSpec;
     }
 
@@ -62,12 +61,12 @@ public class PhysicalOlapScan extends PhysicalRelation {
         return selectedIndexId;
     }
 
-    public List<Long> getSelectedTabletId() {
-        return selectedTabletId;
+    public List<Long> getSelectedTabletIds() {
+        return selectedTabletIds;
     }
 
-    public List<Long> getSelectedPartitionId() {
-        return selectedPartitionId;
+    public List<Long> getSelectedPartitionIds() {
+        return selectedPartitionIds;
     }
 
     public OlapTable getTable() {
@@ -81,7 +80,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalOlapScan",
-                "qualifier", Utils.qualifiedName(qualifier, olapTable.getName()),
+                "qualified", Utils.qualifiedName(qualifier, name),
                 "output", getOutput()
         );
     }
@@ -96,14 +95,14 @@ public class PhysicalOlapScan extends PhysicalRelation {
         }
         PhysicalOlapScan that = (PhysicalOlapScan) o;
         return selectedIndexId == that.selectedIndexId
-                && Objects.equals(selectedTabletId, that.selectedTabletId)
-                && Objects.equals(selectedPartitionId, that.selectedPartitionId)
+                && Objects.equals(selectedTabletIds, that.selectedTabletIds)
+                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
                 && Objects.equals(olapTable, that.olapTable);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(selectedIndexId, selectedPartitionId, selectedTabletId, olapTable);
+        return Objects.hash(selectedIndexId, selectedPartitionIds, selectedTabletIds, olapTable);
     }
 
     @Override
@@ -113,13 +112,13 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletId, selectedPartitionId,
-                distributionSpec, groupExpression, logicalProperties);
+        return new PhysicalOlapScan(olapTable, qualifier, name, selectedIndexId, selectedTabletIds,
+                selectedPartitionIds, distributionSpec, groupExpression, logicalProperties);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletId, selectedPartitionId,
-                distributionSpec, Optional.empty(), logicalProperties.get());
+        return new PhysicalOlapScan(olapTable, qualifier, name, selectedIndexId, selectedTabletIds,
+                selectedPartitionIds, distributionSpec, Optional.empty(), logicalProperties.get());
     }
 }

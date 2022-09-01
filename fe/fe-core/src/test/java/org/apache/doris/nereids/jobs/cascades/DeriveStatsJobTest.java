@@ -100,7 +100,7 @@ public class DeriveStatsJobTest {
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        return new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
+        return new LogicalOlapScan(table1, Collections.emptyList(), table1.getName()).withLogicalProperties(
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
     }
 
