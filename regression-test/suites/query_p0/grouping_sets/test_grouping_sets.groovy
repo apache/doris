@@ -42,4 +42,20 @@ suite("test_grouping_sets") {
                  select if(k0 = 1, 2, k0) k_if, k1, sum(k2) k2_sum from test_query_db.baseall where k0 is null or k2 = 1991
                  group by grouping sets((k_if, k1),()) order by k_if, k1, k2_sum
                """
+
+    test {
+        sql """
+              SELECT k1, k2, SUM(k3) FROM test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
+            """
+        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
+    }
+
+    test {
+        sql """
+              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
+            """
+        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
+    }
 }
