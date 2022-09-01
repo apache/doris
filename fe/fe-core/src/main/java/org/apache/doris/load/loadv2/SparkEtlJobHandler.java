@@ -241,7 +241,6 @@ public class SparkEtlJobHandler {
             }
             status.setTrackingUrl(handle.getUrl() != null ? handle.getUrl() : report.getTrackingUrl());
             status.setProgress((int) (report.getProgress() * 100));
-            status.setAppId(appId);
         } else {
             // state from handle
             if (handle == null) {
