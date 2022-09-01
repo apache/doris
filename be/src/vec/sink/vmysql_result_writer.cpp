@@ -17,12 +17,17 @@
 
 #include "vec/sink/vmysql_result_writer.h"
 
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exprs/vexpr.h"
@@ -31,13 +36,11 @@
 
 namespace doris {
 namespace vectorized {
+
 VMysqlResultWriter::VMysqlResultWriter(BufferControlBlock* sinker,
                                        const std::vector<VExprContext*>& output_vexpr_ctxs,
                                        RuntimeProfile* parent_profile)
-        : VResultWriter(),
-          _sinker(sinker),
-          _output_vexpr_ctxs(output_vexpr_ctxs),
-          _parent_profile(parent_profile) {}
+        : _sinker(sinker), _output_vexpr_ctxs(output_vexpr_ctxs), _parent_profile(parent_profile) {}
 
 Status VMysqlResultWriter::init(RuntimeState* state) {
     _init_profile();
@@ -127,29 +130,16 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
 
             _buffer.open_dynamic_mode();
-            buf_ret = _buffer.push_string("[", 1);
-            bool begin = true;
-            for (auto j = offsets[i - 1]; j < offsets[i]; ++j) {
-                if (!begin) {
-                    buf_ret = _buffer.push_string(", ", 2);
-                }
-                const auto& data = column_array.get_data_ptr();
-                if (data->is_null_at(j)) {
-                    buf_ret = _buffer.push_string("NULL", strlen("NULL"));
-                } else {
-                    if (WhichDataType(remove_nullable(nested_type_ptr)).is_string()) {
-                        buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
-                        buf_ret = _buffer.push_string("'", 1);
-                    } else {
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
-                    }
-                }
-                begin = false;
+            const auto& [json, status] = _convert_array_to_json_string(
+                    column_array, offsets[i - 1], offsets[i] - offsets[i - 1], nested_type_ptr);
+            if (status.ok()) {
+                buf_ret = _buffer.push_string(json.c_str(), json.length());
+                _buffer.close_dynamic_mode();
+                result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
+            } else {
+                _buffer.close_dynamic_mode();
+                buf_ret = -1;
             }
-            buf_ret = _buffer.push_string("]", 1);
-            _buffer.close_dynamic_mode();
-            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else if constexpr (type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
                          type == TYPE_DECIMAL128) {
@@ -258,148 +248,95 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     return Status::OK();
 }
 
-int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_idx,
-                                      const DataTypePtr& type, MysqlRowBuffer& buffer) {
-    WhichDataType which(type->get_type_id());
-    if (which.is_nullable() && column_ptr->is_null_at(row_idx)) {
-        return buffer.push_null();
-    }
+const std::pair<std::string, Status> VMysqlResultWriter::_convert_array_to_json_string(
+        const ColumnArray& column_array, uint64_t start, uint64_t size,
+        const DataTypePtr& nested_type_ptr) {
+    std::ostringstream out;
+    out << "[";
+    bool is_first = true;
+    for (uint64_t i = 0, offset = start + i; i < size; ++i, ++offset) {
+        if (is_first) {
+            is_first = false;
+        } else {
+            out << ", ";
+        }
+        auto& data_ptr = column_array.get_data_ptr();
+        if (data_ptr->is_null_at(offset)) {
+            out << "null";
+            continue;
+        }
 
-    ColumnPtr column;
-    if (which.is_nullable()) {
-        column = assert_cast<const ColumnNullable&>(*column_ptr).get_nested_column_ptr();
-        which = WhichDataType(assert_cast<const DataTypeNullable&>(*type).get_nested_type());
-    } else {
-        column = column_ptr;
-    }
-
-    if (which.is_uint8()) {
-        auto& data = assert_cast<const ColumnUInt8&>(*column).get_data();
-        return buffer.push_tinyint(data[row_idx]);
-    } else if (which.is_int8()) {
-        auto& data = assert_cast<const ColumnInt8&>(*column).get_data();
-        return buffer.push_tinyint(data[row_idx]);
-    } else if (which.is_int16()) {
-        auto& data = assert_cast<const ColumnInt16&>(*column).get_data();
-        return buffer.push_smallint(data[row_idx]);
-    } else if (which.is_int32()) {
-        auto& data = assert_cast<const ColumnInt32&>(*column).get_data();
-        return buffer.push_int(data[row_idx]);
-    } else if (which.is_int64()) {
-        auto& data = assert_cast<const ColumnInt64&>(*column).get_data();
-        return buffer.push_bigint(data[row_idx]);
-    } else if (which.is_int128()) {
-        auto& data = assert_cast<const ColumnInt128&>(*column).get_data();
-        auto v = LargeIntValue::to_string(data[row_idx]);
-        return buffer.push_string(v.c_str(), v.size());
-    } else if (which.is_float32()) {
-        auto& data = assert_cast<const ColumnFloat32&>(*column).get_data();
-        return buffer.push_float(data[row_idx]);
-    } else if (which.is_float64()) {
-        auto& data = assert_cast<const ColumnFloat64&>(*column).get_data();
-        return buffer.push_double(data[row_idx]);
-    } else if (which.is_string()) {
-        int buf_ret = 0;
-        const auto string_val = column->get_data_at(row_idx);
-        if (string_val.data == nullptr) {
+        const auto& column_item = remove_nullable(data_ptr);
+        WhichDataType which(remove_nullable(nested_type_ptr));
+        if (which.is_uint8()) {
+            auto value = assert_cast<const ColumnUInt8&>(*column_item).get_data()[offset];
+            out << (value ? "true" : "false");
+        } else if (which.is_int8()) {
+            auto value = assert_cast<const ColumnInt8&>(*column_item).get_data()[offset];
+            out << static_cast<int>(value);
+        } else if (which.is_int16()) {
+            auto value = assert_cast<const ColumnInt16&>(*column_item).get_data()[offset];
+            out << value;
+        } else if (which.is_int32()) {
+            auto value = assert_cast<const ColumnInt32&>(*column_item).get_data()[offset];
+            out << value;
+        } else if (which.is_int64()) {
+            auto value = assert_cast<const ColumnInt64&>(*column_item).get_data()[offset];
+            out << value;
+        } else if (which.is_int128()) {
+            auto value = assert_cast<const ColumnInt128&>(*column_item).get_data()[offset];
+            out << std::quoted(LargeIntValue::to_string(value));
+        } else if (which.is_float32()) {
+            auto value = assert_cast<const ColumnFloat32&>(*column_item).get_data()[offset];
+            out << value;
+        } else if (which.is_float64()) {
+            auto value = assert_cast<const ColumnFloat64&>(*column_item).get_data()[offset];
+            out << value;
+        } else if (which.is_decimal128()) {
+            auto value = assert_cast<const DataTypeDecimal<Decimal128>&>(
+                                 *remove_nullable(nested_type_ptr))
+                                 .to_string(*column_item, offset);
+            out << std::quoted(value);
+        } else if (which.is_date_or_datetime()) {
+            auto value = assert_cast<const ColumnVector<Int64>&>(*column_item)[offset].get<Int64>();
+            VecDateTimeValue datetime;
+            memcpy(static_cast<void*>(&datetime), static_cast<void*>(&value), sizeof(value));
+            if (which.is_date()) {
+                datetime.cast_to_date();
+            }
+            char buf[64];
+            datetime.to_string(buf);
+            out << std::quoted(buf);
+        } else if (which.is_string()) {
+            const auto string_val = column_item->get_data_at(offset);
             if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                buf_ret = buffer.push_string(tmp_val, string_val.size);
+                out << R"("")";
             } else {
-                buf_ret = buffer.push_null();
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                writer.String(string_val.data, string_val.size);
+                out << buffer.GetString();
+            }
+        } else if (which.is_array()) {
+            const auto& sub_column_array = assert_cast<const ColumnArray&>(*column_item);
+            const auto& sub_offsets = sub_column_array.get_offsets();
+            const auto& [json, status] = _convert_array_to_json_string(
+                    sub_column_array, sub_offsets[offset - 1],
+                    sub_offsets[offset] - sub_offsets[offset - 1],
+                    assert_cast<const DataTypeArray&>(*remove_nullable(nested_type_ptr))
+                            .get_nested_type());
+            if (status.ok()) {
+                out << json;
+            } else {
+                return {json, status};
             }
         } else {
-            buf_ret = buffer.push_string(string_val.data, string_val.size);
+            LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
+            return {"", Status::InternalError("Invalid type")};
         }
-        return buf_ret;
-    } else if (which.is_date_or_datetime()) {
-        auto& column_vector = assert_cast<const ColumnVector<Int64>&>(*column);
-        auto value = column_vector[row_idx].get<Int64>();
-        VecDateTimeValue datetime;
-        memcpy(static_cast<void*>(&datetime), static_cast<void*>(&value), sizeof(value));
-        if (which.is_date()) {
-            datetime.cast_to_date();
-        }
-        char buf[64];
-        char* pos = datetime.to_string(buf);
-        return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_date_v2()) {
-        auto& column_vector = assert_cast<const ColumnVector<UInt32>&>(*column);
-        auto value = column_vector[row_idx].get<UInt32>();
-        DateV2Value<DateV2ValueType> datev2;
-        memcpy(static_cast<void*>(&datev2), static_cast<void*>(&value), sizeof(value));
-        char buf[64];
-        char* pos = datev2.to_string(buf);
-        return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_decimal32()) {
-        DataTypePtr nested_type = type;
-        if (type->is_nullable()) {
-            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-        }
-        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type.get())
-                                   ->to_string(*column, row_idx);
-        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-    } else if (which.is_decimal64()) {
-        DataTypePtr nested_type = type;
-        if (type->is_nullable()) {
-            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-        }
-        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type.get())
-                                   ->to_string(*column, row_idx);
-        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-    } else if (which.is_decimal128()) {
-        if (config::enable_decimalv3) {
-            DataTypePtr nested_type = type;
-            if (type->is_nullable()) {
-                nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-            }
-            auto decimal_str = assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type.get())
-                                       ->to_string(*column, row_idx);
-            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-        } else {
-            auto& column_data =
-                    static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
-            DecimalV2Value decimal_val(column_data[row_idx]);
-            auto decimal_str = decimal_val.to_string();
-            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-        }
-    } else if (which.is_array()) {
-        auto& column_array = assert_cast<const ColumnArray&>(*column);
-        auto& offsets = column_array.get_offsets();
-        DataTypePtr sub_type;
-        if (type->is_nullable()) {
-            auto& nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-            sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
-        } else {
-            sub_type = assert_cast<const DataTypeArray&>(*type).get_nested_type();
-        }
-
-        int start = offsets[row_idx - 1];
-        int length = offsets[row_idx] - start;
-        const auto& data = column_array.get_data_ptr();
-
-        int buf_ret = buffer.push_string("[", strlen("["));
-        bool begin = true;
-        for (int i = 0; i < length; ++i) {
-            int position = start + i;
-            if (begin) {
-                begin = false;
-            } else {
-                buf_ret = buffer.push_string(", ", strlen(", "));
-            }
-            if (data->is_null_at(position)) {
-                buf_ret = buffer.push_string("NULL", strlen("NULL"));
-            } else {
-                buf_ret = _add_one_cell(data, position, sub_type, buffer);
-            }
-        }
-        buf_ret = buffer.push_string("]", strlen("]"));
-        return buf_ret;
-    } else {
-        LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
-        return -1;
     }
+    out << "]";
+    return {out.str(), Status::OK()};
 }
 
 Status VMysqlResultWriter::append_row_batch(const RowBatch* batch) {

@@ -19,6 +19,7 @@
 #include "runtime/primitive_type.h"
 #include "util/mysql_row_buffer.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
 #include "vec/sink/vresult_writer.h"
 
@@ -37,13 +38,13 @@ public:
                        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
                        RuntimeProfile* parent_profile);
 
-    virtual Status init(RuntimeState* state) override;
+    Status init(RuntimeState* state) override;
 
-    virtual Status append_row_batch(const RowBatch* batch) override;
+    Status append_row_batch(const RowBatch* batch) override;
 
-    virtual Status append_block(Block& block) override;
+    Status append_block(Block& block) override;
 
-    virtual Status close() override;
+    Status close() override;
 
 private:
     void _init_profile();
@@ -51,8 +52,9 @@ private:
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
                            const DataTypePtr& nested_type_ptr = nullptr, int scale = -1);
-    int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
-                      MysqlRowBuffer& buffer);
+    const std::pair<std::string, Status> _convert_array_to_json_string(
+            const ColumnArray& column_array, uint64_t start, uint64_t size,
+            const DataTypePtr& nested_type_ptr);
 
 private:
     BufferControlBlock* _sinker;

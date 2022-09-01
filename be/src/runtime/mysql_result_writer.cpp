@@ -17,6 +17,8 @@
 
 #include "runtime/mysql_result_writer.h"
 
+#include <cstdint>
+
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/buffer_control_block.h"
@@ -30,6 +32,117 @@
 #include "vec/core/block.h"
 
 namespace doris {
+
+std::pair<std::string, Status> convert_array_to_json_string(const CollectionValue* collection_value,
+                                                            const TypeDescriptor& child_type) {
+    std::ostringstream out;
+    ArrayIterator iter = collection_value->iterator(child_type.type);
+    out << "[";
+    for (bool is_first = true; iter.has_next(); iter.next()) {
+        if (is_first) {
+            is_first = false;
+        } else {
+            out << ", ";
+        }
+
+        void* item = iter.get();
+        if (!item) {
+            out << "null";
+            continue;
+        }
+
+        switch (child_type.type) {
+        case TYPE_BOOLEAN: {
+            auto value = *static_cast<bool*>(item);
+            out << (value ? "true" : "false");
+            break;
+        }
+        case TYPE_TINYINT: {
+            auto value = *static_cast<int8_t*>(item);
+            out << static_cast<int>(value);
+            break;
+        }
+        case TYPE_SMALLINT: {
+            auto value = *static_cast<int16_t*>(item);
+            out << value;
+            break;
+        }
+        case TYPE_INT: {
+            auto value = *static_cast<int32_t*>(item);
+            out << value;
+            break;
+        }
+        case TYPE_BIGINT: {
+            auto value = *static_cast<int64_t*>(item);
+            out << value;
+            break;
+        }
+        case TYPE_LARGEINT: {
+            auto value = static_cast<const PackedInt128*>(item)->value;
+            out << std::quoted(LargeIntValue::to_string(value));
+            break;
+        }
+        case TYPE_FLOAT: {
+            auto value = *static_cast<float*>(item);
+            out << value;
+            break;
+        }
+        case TYPE_DOUBLE: {
+            auto value = *static_cast<double*>(item);
+            out << value;
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            DecimalV2Val data;
+            iter.get(&data);
+            auto value = DecimalV2Value::from_decimal_val(data);
+            out << std::quoted(value.to_string(DecimalV2Value::SCALE));
+            break;
+        }
+        case TYPE_DATE:
+            [[fallthrough]];
+        case TYPE_DATETIME: {
+            DateTimeVal data;
+            iter.get(&data);
+            auto value = DateTimeValue::from_datetime_val(data);
+            char buffer[64];
+            value.to_string(buffer);
+            out << std::quoted(buffer);
+            break;
+        }
+        case TYPE_CHAR:
+            [[fallthrough]];
+        case TYPE_VARCHAR:
+            [[fallthrough]];
+        case TYPE_STRING: {
+            const auto* value = static_cast<const StringValue*>(item);
+            if (value->len == 0) {
+                out << R"("")";
+            } else {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                writer.String(value->ptr, value->len);
+                out << buffer.GetString();
+            }
+            break;
+        }
+        case TYPE_ARRAY: {
+            auto [json, status] = convert_array_to_json_string(
+                    static_cast<const CollectionValue*>(item), child_type.children[0]);
+            if (status.ok()) {
+                out << json;
+            } else {
+                return {"", Status::InternalError("Failed to convert array to json string.")};
+            }
+            break;
+        }
+        default:
+            return {"", Status::InternalError("Failed to convert array to json string.")};
+        }
+    }
+    out << "]";
+    return {out.str(), Status::OK()};
+}
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
                                      const std::vector<ExprContext*>& output_expr_ctxs,
@@ -161,51 +274,16 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     }
 
     case TYPE_ARRAY: {
-        auto child_type = type.children[0];
-        auto array_value = (const CollectionValue*)(item);
-
-        ArrayIterator iter = array_value->iterator(child_type.type);
-
-        _row_buffer->open_dynamic_mode();
-
-        buf_ret = _row_buffer->push_string("[", 1);
-
-        int begin = 0;
-        while (iter.has_next() && !buf_ret) {
-            if (begin != 0) {
-                buf_ret = _row_buffer->push_string(", ", 2);
-            }
-            if (!iter.get()) {
-                buf_ret = _row_buffer->push_string("NULL", 4);
-            } else {
-                if (child_type.is_string_type()) {
-                    buf_ret = _row_buffer->push_string("'", 1);
-                    buf_ret = _add_row_value(index, child_type, iter.get());
-                    buf_ret = _row_buffer->push_string("'", 1);
-                } else if (child_type.is_date_type()) {
-                    DateTimeVal data;
-                    iter.get(&data);
-                    auto datetime_value = DateTimeValue::from_datetime_val(data);
-                    buf_ret = _add_row_value(index, child_type, &datetime_value);
-                } else if (child_type.is_decimal_type()) {
-                    DecimalV2Val data;
-                    iter.get(&data);
-                    auto decimal_value = DecimalV2Value::from_decimal_val(data);
-                    buf_ret = _add_row_value(index, child_type, &decimal_value);
-                } else {
-                    buf_ret = _add_row_value(index, child_type, iter.get());
-                }
-            }
-
-            iter.next();
-            begin++;
+        const auto& child_type = type.children[0];
+        const auto* collection_value = static_cast<const CollectionValue*>(item);
+        auto [json, status] = convert_array_to_json_string(collection_value, child_type);
+        if (status.ok()) {
+            _row_buffer->open_dynamic_mode();
+            buf_ret = _row_buffer->push_string(json.c_str(), json.length());
+            _row_buffer->close_dynamic_mode();
+        } else {
+            buf_ret = -1;
         }
-
-        if (!buf_ret) {
-            buf_ret = _row_buffer->push_string("]", 1);
-        }
-
-        _row_buffer->close_dynamic_mode();
         break;
     }
 
