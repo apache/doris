@@ -129,7 +129,7 @@ public:
         check_valid_allocation(list);
 #endif
         if (nullptr == list) {
-            // free memory directly if the point to free list is null
+            // free memory directly if the pointer to free list is null
             free(ptr);
         } else {
             // Add node to front of list.
