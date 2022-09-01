@@ -56,8 +56,8 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 ````
 vi /etc/security/limits.conf
-*soft nofile 65536
-*hard nofile 65536
+* soft nofile 65536
+* hard nofile 65536
 ````
 
 ##### Clock synchronization
