@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
@@ -45,15 +46,21 @@ public class RewriteJob extends BatchRulesJob {
      */
     public RewriteJob(CascadesContext cascadesContext) {
         super(cascadesContext);
-        subqueryRewrite();
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                /**
+                 * Subquery unnesting.
+                 * 1. Adjust the plan in correlated logicalApply so that there are no correlated columns in the subquery.
+                 * 2. Convert logicalApply to a logicalJoin.
+                 */
+                .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
+                .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
-                //.add(topDownBatch(ImmutableList.of(new ColumnPruning())))
+                .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(ImmutableList.of(new SwapFilterAndProject())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
@@ -62,15 +69,5 @@ public class RewriteJob extends BatchRulesJob {
                 .build();
 
         rulesJob.addAll(jobs);
-    }
-
-    /**
-     * Subquery unnesting.
-     * 1. Adjust the plan in correlated logicalApply so that there are no correlated columns in the subquery.
-     * 2. Convert logicalApply to a logicalJoin.
-     */
-    private void subqueryRewrite() {
-        new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).execute();
-        new ConvertApplyToJoinJob(cascadesContext).execute();
     }
 }
