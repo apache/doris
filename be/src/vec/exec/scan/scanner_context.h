@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 
@@ -123,6 +124,8 @@ public:
 
     VScanNode* parent() { return _parent; }
 
+    OpentelemetrySpan scan_span() { return _scan_span; }
+
 public:
     // the unique id of this context
     std::string ctx_id;
@@ -209,6 +212,8 @@ private:
 
     int64_t _num_ctx_scheduling = 0;
     int64_t _num_scanner_scheduling = 0;
+
+    OpentelemetrySpan _scan_span;
 };
 } // namespace vectorized
 } // namespace doris
