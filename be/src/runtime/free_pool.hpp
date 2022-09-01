@@ -130,6 +130,7 @@ public:
 #endif
         if (nullptr == list) {
             // free memory directly if the pointer to free list is null
+            LOG(ERROR) << "The free list was released, and this may cause memory leak.";
             free(ptr);
         } else {
             // Add node to front of list.
