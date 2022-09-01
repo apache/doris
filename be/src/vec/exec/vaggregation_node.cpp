@@ -515,7 +515,7 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
     DCHECK(_agg_data.without_key != nullptr);
     block->clear();
 
-    *block = VectorizedUtils::create_empty_columnswithtypename(row_desc());
+    *block = VectorizedUtils::create_empty_columnswithtypename(_row_descriptor);
     int agg_size = _aggregate_evaluators.size();
 
     MutableColumns columns(agg_size);
@@ -1002,7 +1002,7 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
                                                         bool* eos) {
     bool mem_reuse = block->mem_reuse();
-    auto column_withschema = VectorizedUtils::create_columns_with_type_and_name(row_desc());
+    auto column_withschema = VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
     int key_size = _probe_expr_ctxs.size();
 
     MutableColumns key_columns;

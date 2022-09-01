@@ -267,7 +267,7 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }
-    RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, row_desc()));
+    RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
         (*(_vconjunct_ctx_ptr.get()))->mark_as_stale();
@@ -879,7 +879,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
+            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
