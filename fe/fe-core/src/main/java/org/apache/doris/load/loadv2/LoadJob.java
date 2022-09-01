@@ -784,6 +784,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
             // tracking url
             jobInfo.add(loadingStatus.getTrackingUrl());
+            jobInfo.add(loadingStatus.getAppId());
             jobInfo.add(loadStatistic.toJson());
             // transaction id
             jobInfo.add(transactionId);

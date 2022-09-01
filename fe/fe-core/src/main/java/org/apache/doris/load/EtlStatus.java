@@ -37,6 +37,7 @@ public class EtlStatus implements Writable {
 
     private TEtlState state;
     private String trackingUrl;
+    private String appId;
     private Map<String, String> stats;
     private Map<String, String> counters;
     // not persist
@@ -57,6 +58,7 @@ public class EtlStatus implements Writable {
         this.progress = 0;
         this.failMsg = "";
         this.dppResult = null;
+        this.appId = "";
     }
 
     public TEtlState getState() {
@@ -76,8 +78,16 @@ public class EtlStatus implements Writable {
         return trackingUrl;
     }
 
+    public String getAppId() {
+        return appId;
+    }
+
     public void setTrackingUrl(String trackingUrl) {
         this.trackingUrl = Strings.nullToEmpty(trackingUrl);
+    }
+
+    public void setAppId(String appId) {
+        this.appId = appId;
     }
 
     public Map<String, String> getStats() {
@@ -156,6 +166,7 @@ public class EtlStatus implements Writable {
                 + ", progress=" + progress
                 + ", failMsg='" + failMsg + '\''
                 + ", dppResult='" + dppResult + '\''
+                + ", appid='" + appId + '\''
                 + '}';
     }
 
