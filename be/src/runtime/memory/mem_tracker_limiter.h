@@ -73,7 +73,7 @@ public:
             auto st = Status::MemoryLimitExceeded(
                     fmt::format("process memory used {} exceed limit {}, failed_alloc_size={}",
                     PerfCounters::get_vm_rss(), MemInfo::mem_limit(), bytes));
-            ExecEnv::GetInstance()->new_process_mem_tracker()->print_log_usage(st.get_error_msg());
+            ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(st.get_error_msg());
             return st;
         }
         return Status::OK();

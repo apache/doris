@@ -462,7 +462,7 @@ int main(int argc, char** argv) {
 
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
-        doris::ExecEnv::GetInstance()->new_process_mem_tracker()->enable_print_log_usage();
+        doris::ExecEnv::GetInstance()->process_mem_tracker_raw()->enable_print_log_usage();
         sleep(1);
     }
 

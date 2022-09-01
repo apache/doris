@@ -32,6 +32,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
     _limiter_tracker = mem_tracker;
+    _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
@@ -39,6 +40,7 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     _task_id = "";
     _fragment_instance_id = TUniqueId();
     _limiter_tracker = ExecEnv::GetInstance()->new_process_mem_tracker();
+    _limiter_tracker_raw = ExecEnv::GetInstance()->process_mem_tracker_raw();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
@@ -54,7 +56,7 @@ void ThreadMemTrackerMgr::exceeded(Status failed_try_consume_st) {
         _cb_func();
     }
     if (is_attach_query()) {
-        auto st = _limiter_tracker->mem_limit_exceeded(fmt::format("exec node:<{}>", ""),
+        auto st = _limiter_tracker_raw->mem_limit_exceeded(fmt::format("exec node:<{}>", ""),
                                                        _limiter_tracker->parent().get(),
                                                        failed_try_consume_st);
         exceeded_cancel_task(st.get_error_msg());
