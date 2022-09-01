@@ -185,6 +185,11 @@ public:
         LOG(FATAL) << "scatter not supported in ColumnDictionary";
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
+    }
+
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
         for (size_t i = 0; i < sel_size; i++) {

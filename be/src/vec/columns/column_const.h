@@ -165,6 +165,11 @@ public:
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+    }
+
     void get_extremes(Field& min, Field& max) const override { data->get_extremes(min, max); }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
