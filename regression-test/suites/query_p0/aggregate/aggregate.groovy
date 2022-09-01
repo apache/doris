@@ -79,6 +79,7 @@ suite("aggregate") {
         }
     }
 
+    sql " sync "
     qt_aggregate """ select max(upper(c_string)), min(upper(c_string)) from ${tableName} """
     qt_aggregate """ select avg(c_bigint), avg(c_double) from ${tableName} """
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from ${tableName} """
