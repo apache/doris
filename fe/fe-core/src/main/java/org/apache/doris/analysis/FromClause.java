@@ -51,11 +51,23 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
     private boolean analyzed_ = false;
     private boolean needToSql = false;
 
+    // the tables positions may be changed by 'join reorder' optimization
+    // after reset, the original order information is lost
+    // in the next re-analyze phase, the mis-ordered tables may lead to 'unable to find column xxx' error
+    // now we use originalTableRefOrders to keep track of table order information
+    // so that in reset method, we can recover the original table orders.
+    private final ArrayList<TableRef> originalTableRefOrders = new ArrayList<TableRef>();
+
     public FromClause(List<TableRef> tableRefs) {
         tableRefs_ = Lists.newArrayList(tableRefs);
         // Set left table refs to ensure correct toSql() before analysis.
         for (int i = 1; i < tableRefs_.size(); ++i) {
             tableRefs_.get(i).setLeftTblRef(tableRefs_.get(i - 1));
+        }
+        // save the tableRef's order, will use in reset method later
+        originalTableRefOrders.clear();
+        for (int i = 0; i < tableRefs_.size(); ++i) {
+            originalTableRefOrders.add(tableRefs_.get(i));
         }
     }
 
@@ -156,6 +168,12 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         checkFromHiveTable(analyzer);
 
         analyzed_ = true;
+
+        // save the tableRef's order, will use in reset method later
+        originalTableRefOrders.clear();
+        for (int i = 0; i < tableRefs_.size(); ++i) {
+            originalTableRefOrders.add(tableRefs_.get(i));
+        }
     }
 
     private void checkExternalTable(Analyzer analyzer) throws UserException {
@@ -210,7 +228,12 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         for (TableRef tblRef : tableRefs_) {
             clone.add(tblRef.clone());
         }
-        return new FromClause(clone);
+
+        FromClause result = new FromClause(clone);
+        for (int i = 0; i < clone.size(); ++i) {
+            result.originalTableRefOrders.add(clone.get(i));
+        }
+        return result;
     }
 
     public void reset() {
@@ -230,6 +253,10 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             //     set(i, newTblRef);
             // }
             get(i).reset();
+        }
+        // recover original table orders
+        for (int i = 0; i < size(); ++i) {
+            tableRefs_.set(i, originalTableRefOrders.get(i));
         }
         this.analyzed_ = false;
     }
@@ -252,8 +279,27 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
     public Iterator<TableRef> iterator() { return tableRefs_.iterator(); }
     public int size() { return tableRefs_.size(); }
     public TableRef get(int i) { return tableRefs_.get(i); }
-    public void set(int i, TableRef tableRef) { tableRefs_.set(i, tableRef); }
-    public void add(TableRef t) { tableRefs_.add(t); }
-    public void addAll(List<TableRef> t) { tableRefs_.addAll(t); }
+    public void set(int i, TableRef tableRef) {
+        tableRefs_.set(i, tableRef);
+        originalTableRefOrders.set(i, tableRef);
+    }
+    public void add(TableRef t) { 
+        tableRefs_.add(t); 
+        // join reorder will call add method after call clear method.
+        // we want to keep tableRefPositions unchanged in that case
+        // in other cases, tableRefs_.size() would larger than tableRefPositions.size()
+        // then we can update tableRefPositions. same logic in addAll method.
+        if (tableRefs_.size() > originalTableRefOrders.size()) {
+            originalTableRefOrders.add(t);
+        }
+    }
+    public void addAll(List<TableRef> t) { 
+        tableRefs_.addAll(t); 
+        if (tableRefs_.size() > originalTableRefOrders.size()) {
+            for (int i = originalTableRefOrders.size(); i < tableRefs_.size(); ++i) {
+                originalTableRefOrders.add(tableRefs_.get(i));
+            }
+        }
+    }
     public void clear() { tableRefs_.clear(); }
 }
