@@ -128,9 +128,13 @@ public:
 #ifndef NDEBUG
         check_valid_allocation(list);
 #endif
-        // Add node to front of list.
-        node->next = list->next;
-        list->next = node;
+        if (nullptr == list) {
+            free(ptr);
+        } else {
+            // Add node to front of list.
+            node->next = list->next;
+            list->next = node;
+        }
     }
 
     // Returns an allocation that is at least 'size'. If the current allocation
