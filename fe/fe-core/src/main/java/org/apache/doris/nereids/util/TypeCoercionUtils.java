@@ -110,10 +110,10 @@ public class TypeCoercionUtils {
                 returnType = DecimalType.forType(input);
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
+            } else if (expected instanceof NumericType) {
+                // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
+                returnType = expected.defaultConcreteType();
             }
-        } else if (input instanceof NumericType && expected instanceof NumericType) {
-            // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
-            returnType = expected.defaultConcreteType();
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalType) {
                 returnType = DecimalType.SYSTEM_DEFAULT;
@@ -122,7 +122,9 @@ public class TypeCoercionUtils {
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             }
-        } else if (input instanceof PrimitiveType
+        }
+
+        if (returnType == null && input instanceof PrimitiveType
                 && expected instanceof CharacterType) {
             returnType = StringType.INSTANCE;
         }
