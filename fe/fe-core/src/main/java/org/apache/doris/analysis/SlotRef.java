@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
@@ -205,9 +206,13 @@ public class SlotRef extends Expr {
         StringBuilder sb = new StringBuilder();
 
         if (tblName != null) {
-            return tblName.toSql() + "." + label + sb.toString();
+            return tblName.toSql() + "." + label;
         } else if (label != null) {
-            return label + sb.toString();
+            if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                return label + "[#" + desc.getId().asInt() + "]";
+            } else {
+                return label;
+            }
         } else if (desc.getSourceExprs() != null) {
             if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
                 if (desc.getId().asInt() != 1) {
