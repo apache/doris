@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 public class DoubleType extends FractionalType {
     public static DoubleType INSTANCE = new DoubleType();
 
+    private static final int WIDTH = 8;
+
     private DoubleType() {
     }
 
@@ -52,5 +54,10 @@ public class DoubleType extends FractionalType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

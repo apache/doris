@@ -15,35 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+suite("agg_with_const") {
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+    sql """
+        DROP TABLE IF EXISTS t1
+       """
 
-/**
- * Datetime type in Nereids.
- */
-public class DateTimeType extends PrimitiveType {
+    sql """CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)
+        DISTRIBUTED BY HASH(col3)
+        BUCKETS 1
+        PROPERTIES(
+            "replication_num"="1"
+        )
+        """
 
-    public static DateTimeType INSTANCE = new DateTimeType();
+    sql """
+    insert into t1 values(1994, 1994, 1995)
+    """
 
-    private static final int WIDTH = 16;
+    qt_select """
+        select count(2) + 1, sum(2) + sum(col1) from t1
+    """
 
-    private DateTimeType() {
-    }
+    qt_select """
+        select count(*) from t1
+    """
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.DATETIME;
-    }
+    qt_select """
+         select count(2) + 1, sum(2) + sum(2) from t1
+    """
 
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof DateTimeType;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
-    }
 }
