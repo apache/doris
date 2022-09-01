@@ -142,6 +142,22 @@ public class RuntimeFilterTest extends SSBTestBase {
                 && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "c_custkey"));
     }
 
+    @Test
+    public void testCrossJoin() throws AnalysisException {
+        String sql = "select c_custkey, lo_custkey from lineorder, customer where lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey"));
+    }
+
+    @Test
+    public void testSubQueryAlias() throws AnalysisException {
+        String sql = "select c_custkey, lo_custkey from lineorder l, customer c where c.c_custkey = l.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey"));
+    }
+
     private List<RuntimeFilter> getRuntimeFilters(String sql) throws AnalysisException {
         NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
         planner.plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
