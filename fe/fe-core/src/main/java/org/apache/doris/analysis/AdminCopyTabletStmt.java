@@ -75,6 +75,9 @@ public class AdminCopyTabletStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "NODE");
         }
 
+        if (properties == null) {
+            return;
+        }
         try {
             Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
             while (iter.hasNext()) {
