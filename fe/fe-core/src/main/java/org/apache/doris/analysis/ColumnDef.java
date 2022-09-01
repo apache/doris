@@ -174,8 +174,7 @@ public class ColumnDef {
         // When string type length is not assigned, it need to be assigned to 1.
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
-            if (targetType.getPrimitiveType().isStringType()
-                    && !targetType.isAssignedStrLenInColDefinition()) {
+            if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
                 targetType.setLength(1);
             }
         }

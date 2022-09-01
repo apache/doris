@@ -80,8 +80,6 @@ public class ScalarType extends Type {
     // Only used for type CHAR.
     @SerializedName(value = "len")
     private int len = -1;
-    @SerializedName(value = "isAssignedStrLenInColDefinition")
-    private boolean isAssignedStrLenInColDefinition = false;
 
     // Only used if type is DECIMAL. -1 (for both) is used to represent a
     // decimal with any precision and scale.
@@ -446,8 +444,9 @@ public class ScalarType extends Type {
     @Override
     public int getLength() { return len; }
     public void setLength(int len) {this.len = len; }
-    public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
-    public void setAssignedStrLenInColDefinition() { this.isAssignedStrLenInColDefinition = true; }
+    public boolean isLengthSet() {
+        return getPrimitiveType() == PrimitiveType.HLL || len > 0 || !Strings.isNullOrEmpty(lenStr);
+    }
 
     // add scalar infix to override with getPrecision
     public int getScalarScale() { return scale; }
