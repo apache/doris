@@ -166,7 +166,8 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
-    INIT_AND_SCOPE_REENTRANT_SPAN_IF(scanner->runtime_state(), ctx->scan_span(), "VScanner::scan");
+    INIT_AND_SCOPE_REENTRANT_SPAN_IF(ctx->state()->enable_profile(), ctx->state()->get_tracer(),
+                                     ctx->scan_span(), "VScanner::scan");
     SCOPED_ATTACH_TASK(scanner->runtime_state());
 
     Thread::set_self_name("_scanner_scan");

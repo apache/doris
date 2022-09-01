@@ -62,10 +62,11 @@ using OpentelemetryScope = opentelemetry::trace::Scope;
     auto span = tracer->StartSpan(name);         \
     OpentelemetryScope scope {span};
 
-#define START_AND_SCOPE_SPAN_IF(state, name) OpenTelemetryScopeWrapper(state, name)
+#define START_AND_SCOPE_SPAN_IF(enable, tracer, name) \
+    OpenTelemetryScopeWrapper(enable, tracer, name)
 
-#define INIT_AND_SCOPE_REENTRANT_SPAN_IF(state, reentrant_span, name) \
-    OpenTelemetryScopeWrapper(state, reentrant_span, name)
+#define INIT_AND_SCOPE_REENTRANT_SPAN_IF(enable, tracer, reentrant_span, name) \
+    OpenTelemetryScopeWrapper(enable, tracer, reentrant_span, name)
 
 namespace telemetry {
 

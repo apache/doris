@@ -18,27 +18,27 @@
 #pragma once
 
 #include "opentelemetry/trace/provider.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 
+using OpentelemetryTracer = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer>;
 using OpentelemetryScope = opentelemetry::trace::Scope;
 using OpentelemetrySpan = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>;
 
 class OpenTelemetryScopeWrapper {
 public:
-    OpenTelemetryScopeWrapper(RuntimeState* state, const std::string& name) {
-        if (state->enable_profile()) {
-            auto span = state->get_tracer()->StartSpan(name);
+    OpenTelemetryScopeWrapper(bool enable, OpentelemetryTracer tracer, const std::string& name) {
+        if (enable) {
+            auto span = tracer->StartSpan(name);
             _scope.reset(new OpentelemetryScope(span));
         }
     }
 
-    OpenTelemetryScopeWrapper(RuntimeState* state, OpentelemetrySpan& span,
+    OpenTelemetryScopeWrapper(bool enable, OpentelemetryTracer tracer, OpentelemetrySpan& span,
                               const std::string& name) {
-        if (state->enable_profile()) {
+        if (enable) {
             if (UNLIKELY(!span)) {
-                span = state->get_tracer()->StartSpan(name);
+                span = tracer->StartSpan(name);
             }
             _scope.reset(new OpentelemetryScope(span));
         }
