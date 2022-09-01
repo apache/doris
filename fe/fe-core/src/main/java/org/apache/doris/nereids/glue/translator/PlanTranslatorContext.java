@@ -122,7 +122,7 @@ public class PlanTranslatorContext {
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef = new SlotRef(slotDescriptor);
-        slotRef.setLabel(slotReference.getQualifiedName());
+        slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
