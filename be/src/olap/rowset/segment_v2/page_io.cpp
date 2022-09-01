@@ -193,7 +193,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         opts.stats->uncompressed_bytes_read += body_size;
     }
 
-    if (opts.encoding_info) {
+    if (opts.pre_decode && opts.encoding_info) {
         auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
         if (pre_decoder) {
             RETURN_IF_ERROR(pre_decoder->decode(
