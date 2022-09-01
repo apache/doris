@@ -109,7 +109,7 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
 }
 
 Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                        Slice* body, PageFooterPB* footer, bool pre_decode) {
+                                        Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
 
@@ -197,7 +197,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         opts.stats->uncompressed_bytes_read += body_size;
     }
 
-    if (pre_decode && opts.encoding_info) {
+    if (opts.pre_decode && opts.encoding_info) {
         auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
         if (pre_decoder) {
             RETURN_IF_ERROR(pre_decoder->decode(

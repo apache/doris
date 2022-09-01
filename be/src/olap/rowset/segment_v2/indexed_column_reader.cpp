@@ -91,8 +91,9 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     opts.kept_in_memory = _kept_in_memory;
     opts.type = type;
     opts.encoding_info = _encoding_info;
+    opts.pre_decode = pre_decode;
 
-    return PageIO::read_and_decompress_page(opts, handle, body, footer, pre_decode);
+    return PageIO::read_and_decompress_page(opts, handle, body, footer);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

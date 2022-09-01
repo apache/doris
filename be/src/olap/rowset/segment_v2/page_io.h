@@ -67,6 +67,9 @@ struct PageReadOptions {
 
     const EncodingInfo* encoding_info = nullptr;
 
+    // index_page should not be pre-decoded
+    bool pre_decode = true;
+
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
@@ -115,8 +118,7 @@ public:
     //     `body' points to page body,
     //     `footer' stores the page footer.
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                           Slice* body, PageFooterPB* footer,
-                                           bool pre_decode = true);
+                                           Slice* body, PageFooterPB* footer);
 };
 
 } // namespace segment_v2
