@@ -208,7 +208,9 @@ public class SlotRef extends Expr {
         if (tblName != null) {
             return tblName.toSql() + "." + label;
         } else if (label != null) {
-            if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
                 return label + "[#" + desc.getId().asInt() + "]";
             } else {
                 return label;
