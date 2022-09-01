@@ -912,7 +912,7 @@ uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
     // not covered by year_week_table, calculate at runtime
     uint32_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
-    uint8_t week = calc_week(*this, mode | 2, &year);
+    uint8_t week = calc_week(*this, mode | 2, &year, true);
     // When the mode WEEK_FIRST_WEEKDAY is not set,
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {
