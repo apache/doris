@@ -38,7 +38,7 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalJoin(), groupPlan())
+        return logicalJoin(logicalJoin(), group())
             .when(JoinLAsscomHelper::check)
             .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
                     && (join.left().getJoinType().isInnerJoin() || join.left().getJoinType().isLeftOuterJoin()))
