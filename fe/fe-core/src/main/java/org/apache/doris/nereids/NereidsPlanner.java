@@ -29,7 +29,7 @@ import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
-import org.apache.doris.nereids.jobs.batch.PushDownNotSlotReferenceExpressionOfOnClauseJob;
+import org.apache.doris.nereids.jobs.batch.SingleSidePredicateJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -149,7 +149,7 @@ public class NereidsPlanner extends Planner {
         new NormalizeExpressionRulesJob(cascadesContext).execute();
         new JoinReorderRulesJob(cascadesContext).execute();
         new PredicatePushDownRulesJob(cascadesContext).execute();
-        new PushDownNotSlotReferenceExpressionOfOnClauseJob(cascadesContext).execute();
+        new SingleSidePredicateJob(cascadesContext).execute();
         new DisassembleRulesJob(cascadesContext).execute();
     }
 

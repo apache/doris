@@ -30,12 +30,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -49,24 +47,7 @@ import java.util.stream.Collectors;
 /**
  * push down expression which is not slot reference
  */
-public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRuleFactory {
-
-    private static class ListBuilder<T> {
-        List<T> list;
-
-        public ListBuilder(List<T> list) {
-            this.list = Lists.newArrayList(list);
-        }
-
-        public ListBuilder<T> addAll(List<T> element) {
-            list.addAll(Lists.newArrayList(element));
-            return this;
-        }
-
-        public List<T> get() {
-            return list;
-        }
-    }
+public class SingleSidePredicate extends OneRewriteRuleFactory {
 
     /**
      * key : slotReference of a arithmetic expression
@@ -75,7 +56,7 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
      *     value : aliased arithmetic expression
      * }
      */
-    private final Map<SlotReference, Map<Expression, Expression>> exprMap = new HashMap<>();
+    private final Map<SlotReference, Map<Expression, Expression>> SlotReferenceToExpressionMap = new HashMap<>();
 
     /**
      * rewrite example:
@@ -92,13 +73,12 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getCondition().isPresent()
-                        && ((ImmutableList) join.getCondition().get()
-                        .collect(Arithmetic.class::isInstance)).size() > 0)
+                .when(join -> join.getJoinType() == JoinType.INNER_JOIN
+                        && join.getCondition().isPresent())
                 .then(join -> {
                     join.getCondition().get().accept(
                             new TreeCollectVisitor(),
-                            exprMap);
+                            SlotReferenceToExpressionMap);
 
                     List<Plan> children = join.children().stream()
                             .map(GroupPlan.class::cast)
@@ -106,8 +86,8 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
                                 List<NamedExpression> slots = p.getOutput()
                                                 .stream()
                                                 .filter(SlotReference.class::isInstance)
-                                                .filter(ref -> exprMap.containsKey(ref))
-                                                .map(ref -> exprMap.get(ref).values())
+                                                .filter(ref -> SlotReferenceToExpressionMap.containsKey(ref))
+                                                .map(ref -> SlotReferenceToExpressionMap.get(ref).values())
                                                 .flatMap(Collection::stream)
                                                 .map(NamedExpression.class::cast)
                                                 .collect(Collectors.toList());
@@ -120,7 +100,7 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
                     return joinAddProjects
                             .withCondition(Optional.of(join.getCondition().get().accept(
                                     new TreeReplaceVisitor(),
-                                    exprMap.values().stream()
+                                    SlotReferenceToExpressionMap.values().stream()
                                             .reduce(new HashMap<>(), (map1, map2) -> {
                                                 map1.putAll(map2);
                                                 return map1;
@@ -139,7 +119,7 @@ public class PushDownNotSlotReferenceExpressionOfOnClause extends OneRewriteRule
             Set<SlotReference> set = new HashSet<>(expr.collect(SlotReference.class::isInstance));
             if (set.size() == 1) {
                 SlotReference ref = set.iterator().next();
-                context.computeIfAbsent(ref, key -> new HashMap<>()).put(expr, new Alias(expr, expr.toString()));
+                context.computeIfAbsent(ref, key -> new HashMap<>()).put(expr, new Alias(expr, expr.toSql()));
             }
             return expr;
         }
