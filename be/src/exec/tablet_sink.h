@@ -67,12 +67,15 @@ struct AddBatchCounter {
     int64_t add_batch_num = 0;
     // time passed between marked close and finish close
     int64_t close_wait_time_ms = 0;
+    // time consumed by rpc
+    int64_t add_batch_rpc_time_us = 0;
 
     AddBatchCounter& operator+=(const AddBatchCounter& rhs) {
         add_batch_execution_time_us += rhs.add_batch_execution_time_us;
         add_batch_wait_execution_time_us += rhs.add_batch_wait_execution_time_us;
         add_batch_num += rhs.add_batch_num;
         close_wait_time_ms += rhs.close_wait_time_ms;
+        add_batch_rpc_time_us += rhs.add_batch_rpc_time_us;
         return *this;
     }
     friend AddBatchCounter operator+(const AddBatchCounter& lhs, const AddBatchCounter& rhs) {
@@ -88,7 +91,7 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) { watch.start(); }
     ~ReusableClosure() {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -120,6 +123,7 @@ public:
     void reset() {
         cntl.Reset();
         cid = cntl.call_id();
+        watch.reset();
     }
 
     bool try_set_in_flight() {
@@ -152,6 +156,7 @@ public:
 
     brpc::Controller cntl;
     T result;
+    MonotonicStopWatch watch;
 
 private:
     brpc::CallId cid;

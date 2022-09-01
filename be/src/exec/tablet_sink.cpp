@@ -202,6 +202,7 @@ Status NodeChannel::open_wait() {
             // will be blocked.
             _add_batches_finished = true;
         }
+        _add_batch_counter.add_batch_rpc_time_us += _add_batch_closure->watch.elapsed_time() / 1000;
     });
 
     _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
@@ -242,6 +243,7 @@ Status NodeChannel::open_wait() {
             _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
             _add_batch_counter.add_batch_num++;
         }
+        _add_batch_counter.add_batch_rpc_time_us += _add_batch_closure->watch.elapsed_time() / 1000;
     });
     return status;
 }
@@ -330,13 +332,14 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 }
 
 void NodeChannel::_sleep_if_memory_exceed() {
-    size_t begin_us = _mem_exceeded_block_ns / 1000;
+    static size_t times = 1;
     while (!_cancelled && _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
-        if (_mem_exceeded_block_ns / 1000 - begin_us > 5000000) {
-            begin_us = _mem_exceeded_block_ns / 1000;
-            LOG(INFO) << "sink sleeps too long, pending_batches_bytes = " << _pending_batches_bytes
+        if (_mem_exceeded_block_ns / 1000 / times > 60000000) {
+            ++times;
+            LOG(INFO) << "sink sleep, mem_exceeded_block_us = " << _mem_exceeded_block_ns
+                      << ", pending_batches_bytes = " << _pending_batches_bytes
                       << ", max_pending_batches_bytes = " << _max_pending_batches_bytes
                       << ", is_packet_in_flight = " << _add_batch_closure->is_packet_in_flight()
                       << ", next_packet_seq = " << _next_packet_seq
@@ -1088,11 +1091,12 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
            << ", txn_id=" << _txn_id
-           << ", node add batch time(ms)/wait execution time(ms)/close time(ms)/num: ";
+           << ", node add batch time(ms)/wait execution time(ms)/rpc time(ms)/close time(ms)/num: ";
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
                << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
-               << pair.second.close_wait_time_ms << ")(" << pair.second.add_batch_num << ")} ";
+               << pair.second.close_wait_time_ms << ")(" << (pair.second.add_batch_rpc_time_us / 1000)
+               << ")(" << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
     } else {
