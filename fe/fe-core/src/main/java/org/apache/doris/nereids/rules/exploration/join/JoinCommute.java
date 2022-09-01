@@ -63,6 +63,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
             }
 
             return newJoin;
+            // return JoinReorderCommon.project(new ArrayList<>(join.getOutput()), newJoin).get();
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 

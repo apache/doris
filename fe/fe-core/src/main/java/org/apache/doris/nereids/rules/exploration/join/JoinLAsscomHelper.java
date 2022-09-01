@@ -20,16 +20,19 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Common function for JoinLAsscom
@@ -61,10 +64,27 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
     /**
      * Create newTopJoin.
      */
-    public LogicalJoin<? extends Plan, ? extends Plan> newTopJoin() {
+    public Plan newTopJoin() {
         Pair<List<NamedExpression>, List<NamedExpression>> projectPair = splitProjectExprs(bOutput);
         List<NamedExpression> newLeftProjectExpr = projectPair.second;
         List<NamedExpression> newRightProjectExprs = projectPair.first;
+
+        // If add project to B, we should add all slotReference used by hashOnCondition.
+        // TODO: Does nonHashOnCondition also need to be considered.
+        List<SlotReference> onUsedSlotRef = bottomJoin.getHashJoinConjuncts().stream()
+                .flatMap(expr -> {
+                    List<SlotReference> usedSlotRefs = expr.collect(SlotReference.class::isInstance);
+                    return usedSlotRefs.stream();
+                }).filter(Utils.getOutputSlotReference(bottomJoin)::contains).collect(Collectors.toList());
+        boolean addRightProject = !newRightProjectExprs.isEmpty();
+        boolean addLeftProject = !newLeftProjectExpr.isEmpty();
+        onUsedSlotRef.forEach(slotRef -> {
+            if (addRightProject && bOutput.contains(slotRef)) {
+                newRightProjectExprs.add(slotRef);
+            } else if (addLeftProject && aOutput.contains(slotRef)) {
+                newLeftProjectExpr.add(slotRef);
+            }
+        });
 
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                 newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c,
@@ -80,7 +100,9 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
                 ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right,
                 topJoin.getJoinReorderContext());
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
+
         return newTopJoin;
+        // return JoinReorderCommon.project(new ArrayList<>(topJoin.getOutput()), newTopJoin).get();
     }
 
     public static boolean check(Type type, LogicalJoin<? extends Plan, GroupPlan> topJoin,
