@@ -235,7 +235,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ", output_row_num=" << _output_rowset->num_rows()
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy="
-              << _tablet->cumulative_compaction_policy()->name() << ".";
+              << _tablet->cumulative_compaction_policy()->name()
+              << ", compact_row_per_second=" << _input_row_num / watch.get_elapse_second();
 
     return Status::OK();
 }
