@@ -373,5 +373,17 @@ suite("test_json_load", "p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+
+	// case14: more invalid json
+    	try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            create_test_table1.call(testTable)
+            sql "TRUNCATE TABLE ${testTable}"
+            load_json_data.call('', 'true', 'json', '', '',
+                            '', '', 'true', 'invalid_json_2.json', true)
+            qt_select "select * from ${testTable}"
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
     }
 }
