@@ -21,8 +21,10 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
@@ -69,6 +72,8 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
     private final List<org.apache.doris.planner.RuntimeFilter> origFilters = Lists.newArrayList();
 
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
+
+    private final Map<ExprId, ExprId> aliasToChild = Maps.newHashMap();
 
     private final SessionVariable sessionVariable;
 
@@ -120,6 +125,15 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         return join.withChildren(ImmutableList.of(left, right));
     }
 
+    @Override
+    public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
+        project.getProjects().stream().filter(Alias.class::isInstance)
+                .map(Alias.class::cast)
+                .forEach(expr -> aliasToChild.put(((SlotReference) expr.child()).getExprId(), expr.getExprId()));
+        return project.withChildren(project.children().stream()
+                .map(plan -> plan.accept(this, ctx)).collect(Collectors.toList()));
+    }
+
     /**
      * s
      * @param join s
@@ -136,26 +150,29 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
             TupleId tid = ctx.findSlotRef(exprId).getDesc().getParent().getId();
             if (filterTargetByExprId.containsKey(exprId) && filtersByExprId.containsKey(exprId)) {
                 List<RuntimeFilter.RuntimeFilterTarget> targets = filterTargetByExprId.get(exprId);
-                origFilters.addAll(filtersByExprId.get(exprId).stream().map(filter -> {
-                    SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
-                    SlotRef target = exprIdToOlapScanNodeSlotRef.get(filter.getTargetExpr().getExprId());
-                    org.apache.doris.planner.RuntimeFilter origFilter
-                            = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
-                            filter.getId(), node, src, filter.getExprOrder(), target,
-                            ImmutableMap.of(tid, ImmutableList.of(target.getSlotId())),
-                            filter.getType(), limits
-                    );
-                    targets.stream()
-                            .map(nereidsTarget -> nereidsTarget.toOriginRuntimeFilterTarget(
-                                    node,
-                                    exprIdToOlapScanNodeSlotRef.get(nereidsTarget.getExpr().getExprId())))
-                            .forEach(origFilter::addTarget);
-                    origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
-                    origFilter.markFinalized();
-                    origFilter.assignToPlanNodes();
-                    origFilter.extractTargetsPosition();
-                    return origFilter;
-                }).collect(Collectors.toList()));
+                origFilters.addAll(filtersByExprId.get(exprId).stream()
+                        .filter(RuntimeFilter::isUninitialized)
+                        .map(filter -> {
+                            SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
+                            SlotRef target = exprIdToOlapScanNodeSlotRef.get(filter.getTargetExpr().getExprId());
+                            org.apache.doris.planner.RuntimeFilter origFilter
+                                    = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
+                                    filter.getId(), node, src, filter.getExprOrder(), target,
+                                    ImmutableMap.of(tid, ImmutableList.of(target.getSlotId())),
+                                    filter.getType(), limits
+                            );
+                            targets.stream()
+                                    .map(nereidsTarget -> nereidsTarget.toOriginRuntimeFilterTarget(
+                                            node,
+                                            exprIdToOlapScanNodeSlotRef.get(nereidsTarget.getExpr().getExprId())))
+                                    .forEach(origFilter::addTarget);
+                            origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
+                            origFilter.markFinalized();
+                            origFilter.assignToPlanNodes();
+                            origFilter.extractTargetsPosition();
+                            filter.setFinalized();
+                            return origFilter;
+                        }).collect(Collectors.toList()));
             }
         });
     }
@@ -168,13 +185,18 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
      */
     public void translateRuntimeFilterTarget(PhysicalOlapScan scan, OlapScanNode node, PlanTranslatorContext ctx) {
         scan.getOutput().stream()
-                .peek(expr -> exprIdToOlapScanNodeSlotRef.put(expr.getExprId(), ctx.findSlotRef(expr.getExprId())))
-                .filter(slot -> filtersByExprId.containsKey(slot.getExprId()))
-                .forEach(slot -> filtersByExprId.get(slot.getExprId())
-                        .forEach(nereidsFilter -> filterTargetByExprId.computeIfAbsent(
+                .map(slot -> Pair.of(((SlotReference) slot), slotTransfer(slot.getExprId())))
+                .filter(pair -> filtersByExprId.containsKey(pair.second))
+                .peek(pair -> exprIdToOlapScanNodeSlotRef.put(pair.first.getExprId(),
+                        ctx.findSlotRef(pair.first.getExprId())))
+                .forEach(pair -> filtersByExprId.get(pair.second)
+                        .stream().peek(nereidsFilter -> filterTargetByExprId.computeIfAbsent(
                                 nereidsFilter.getTargetExpr().getExprId(),
                                 k -> new ArrayList<>()).add(
-                                        new RuntimeFilter.RuntimeFilterTarget(node, nereidsFilter.getTargetExpr()))));
+                                        new RuntimeFilter.RuntimeFilterTarget(node, pair.first)))
+                        .filter(nereidsFilter -> !nereidsFilter.getTargetExpr().getExprId()
+                                .equals(pair.first.getExprId()))
+                        .forEach(nereidsFilter -> nereidsFilter.setTargetSlot(pair.first)));
     }
 
     public List<org.apache.doris.planner.RuntimeFilter> getRuntimeFilters() {
@@ -194,5 +216,9 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 });
         filters.sort((a, b) -> a.getId().compareTo(b.getId()));
         return filters;
+    }
+
+    private ExprId slotTransfer(ExprId exprId) {
+        return aliasToChild.getOrDefault(exprId, exprId);
     }
 }

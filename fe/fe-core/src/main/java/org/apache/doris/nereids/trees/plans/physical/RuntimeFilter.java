@@ -36,13 +36,15 @@ public class RuntimeFilter {
 
     private final SlotReference srcSlot;
 
-    private final SlotReference targetSlot;
+    private SlotReference targetSlot;
 
     private final RuntimeFilterId id;
 
     private final TRuntimeFilterType type;
 
     private final int exprOrder;
+
+    private boolean finalized = false;
 
     private RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type,
             int exprOrder) {
@@ -107,6 +109,18 @@ public class RuntimeFilter {
 
     public int getExprOrder() {
         return exprOrder;
+    }
+
+    public void setTargetSlot(SlotReference targetSlot) {
+        this.targetSlot = targetSlot;
+    }
+
+    public boolean isUninitialized() {
+        return !finalized;
+    }
+
+    public void setFinalized() {
+        this.finalized = true;
     }
 
     /**

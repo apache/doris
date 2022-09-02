@@ -28,6 +28,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.planner.PlanFragment;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -162,11 +163,32 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
-    public void testRightSemiJoin() throws AnalysisException {
-        String sql = "SELECT * FROM lineorder RIGHT SEMI JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey";
+    public void testView() throws Exception {
+        createView("create view if not exists v1 as \n"
+                + "        select * \n"
+                + "        from customer");
+        createView("create view if not exists v2 as\n"
+                + "        select *\n"
+                + "        from lineorder");
+        createView("create view if not exists v3 as \n"
+                + "        select *\n"
+                + "        from v1 join (\n"
+                + "            select *\n"
+                + "            from v2\n"
+                + "            ) t \n"
+                + "        on v1.c_custkey = t.lo_custkey");
+        String sql = "select * from (\n"
+                + "            select * \n"
+                + "            from part p \n"
+                + "            join v2 on p.p_partkey = v2.lo_partkey) t1 \n"
+                + "        join (\n"
+                + "            select * \n"
+                + "            from supplier s \n"
+                + "            join v3 on s.s_region = v3.c_region) t2 \n"
+                + "        on t1.p_partkey = t2.lo_partkey\n"
+                + "        order by t1.lo_custkey, t1.p_partkey, t2.s_suppkey, t2.c_custkey, t2.lo_orderkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql);
-        Assertions.assertTrue(filters.size() == 1
-                && checkRuntimeFilterExpr(filters.get(0), "s_suppkey", "lo_suppkey"));
+        Assertions.assertTrue(filters.size() == 4);
     }
 
     private List<RuntimeFilter> getRuntimeFilters(String sql) throws AnalysisException {
@@ -174,7 +196,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         PhysicalPlan plan = planner.plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
         System.out.println(plan.treeString());
         PlanTranslatorContext context = new PlanTranslatorContext(planner.getCascadesContext());
-        new PhysicalPlanTranslator().translatePlan(plan, context);
+        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, context);
+        System.out.println(root.getFragmentId());
         return context.getRuntimeFilterGenerator().getNereridsRuntimeFilter();
     }
 
