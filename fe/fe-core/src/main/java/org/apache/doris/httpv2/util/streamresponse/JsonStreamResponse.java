@@ -75,6 +75,8 @@ public class JsonStreamResponse extends StreamResponseInf {
             // suffix contains msg, code.
             writeResponseSuffix(jsonWriter);
             jsonWriter.endObject();
+        } catch (SQLException e) {
+            LOG.warn("Write response error.", e);
         } finally {
             jsonWriter.flush();
             try {
