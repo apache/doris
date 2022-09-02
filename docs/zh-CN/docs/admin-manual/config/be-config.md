@@ -1120,6 +1120,12 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 * 描述: DownloadCache线程池线程数目. 在FileCache的缓存下载任务之中, 缓存下载操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
 * 默认值：102400
 
+### `download_cache_buffer_size`
+
+* 类型: int64
+* 描述: 下载缓存时用于接收数据的buffer的大小。
+* 默认值: 10485760
+
 ### `serialize_batch`
 
 默认值：false

@@ -116,16 +116,13 @@ public class SlotReference extends Slot {
             return false;
         }
         SlotReference that = (SlotReference) o;
-        return nullable == that.nullable
-                && dataType.equals(that.dataType)
-                && exprId.equals(that.exprId)
-                && name.equals(that.name)
-                && qualifier.equals(that.qualifier);
+        return exprId.equals(that.exprId);
+
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(exprId, name, qualifier, nullable);
+        return Objects.hash(exprId);
     }
 
     public Column getColumn() {

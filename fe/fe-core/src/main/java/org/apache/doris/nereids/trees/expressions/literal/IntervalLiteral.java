@@ -51,17 +51,25 @@ public class IntervalLiteral extends Expression {
      * Supported time unit.
      */
     public enum TimeUnit {
-        YEAR("YEAR"),                               // YEARS
-        MONTH("MONTH"),                             // MONTHS
-        WEEK("WEEK"),                               // WEEKS
-        DAY("DAY"),                                 // DAYS
-        HOUR("HOUR"),                               // HOURS
-        MINUTE("MINUTE"),                           // MINUTES
-        SECOND("SECOND");                            // SECONDS
+        YEAR("YEAR", false),
+        MONTH("MONTH", false),
+        WEEK("WEEK", false),
+        DAY("DAY", false),
+        HOUR("HOUR", true),
+        MINUTE("MINUTE", true),
+        SECOND("SECOND", true);
+
         private final String description;
 
-        TimeUnit(String description) {
+        private final boolean isDateTimeUnit;
+
+        TimeUnit(String description, boolean isDateTimeUnit) {
             this.description = description;
+            this.isDateTimeUnit = isDateTimeUnit;
+        }
+
+        public boolean isDateTimeUnit() {
+            return isDateTimeUnit;
         }
 
         @Override

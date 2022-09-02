@@ -1084,7 +1084,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
-                Env.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true);
+                Env.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true, -1L);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -1588,6 +1588,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // version and version hash
         if (versionInfo != null) {
             partition.updateVisibleVersion(versionInfo);
+            partition.setNextVersion(versionInfo + 1);
         }
         long version = partition.getVisibleVersion();
 

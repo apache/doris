@@ -90,9 +90,10 @@ std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num)
                     .get_data()[row_num];
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
-    std::stringstream ss;
-    ss << val;
-    return ss.str();
+
+    char buf[64];
+    char* pos = val.to_string(buf, scale_);
+    return std::string(buf, pos - buf - 1);
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
@@ -104,7 +105,7 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
     char buf[64];
-    char* pos = value.to_string(buf);
+    char* pos = value.to_string(buf, scale_);
     // DateTime to_string the end is /0
     ostr.write(buf, pos - buf - 1);
 }

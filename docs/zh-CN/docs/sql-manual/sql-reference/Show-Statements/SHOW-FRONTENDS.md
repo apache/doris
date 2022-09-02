@@ -48,6 +48,7 @@ SHOW FRONTENDS;
 5.  LastHeartbeat 是最近一次心跳。
 6. IsHelper 表示该节点是否是 bdbje 中的 helper 节点。
 7. ErrMsg 用于显示心跳失败时的错误信息。
+8. CurrentConnected 表示是否是当前连接的FE节点
 
 ### Example
 

@@ -444,20 +444,29 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     auto target_columns = block->mutate_columns();
     size_t column_count = block->columns();
     IteratorRowRef cur_row = _ref;
+    IteratorRowRef pre_row_ref = _ref;
+
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
         _block_row_locations.resize(_batch_size);
     }
+    int continuous_row_in_block = 0;
     do {
-        const auto& src_block = cur_row.block;
-        assert(src_block->columns() == column_count);
-        for (size_t i = 0; i < column_count; ++i) {
-            target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
-                                           cur_row.row_pos);
-        }
         if (UNLIKELY(_reader->_reader_context.record_rowids)) {
             _block_row_locations[target_block_row] = _cur_child->current_row_location();
         }
         ++target_block_row;
+        ++continuous_row_in_block;
+        // cur block finished, copy before merge_next cause merge_next will
+        // clear block column data
+        if (pre_row_ref.row_pos + continuous_row_in_block == pre_row_ref.block->rows()) {
+            const auto& src_block = pre_row_ref.block;
+            for (size_t i = 0; i < column_count; ++i) {
+                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                     pre_row_ref.row_pos, continuous_row_in_block);
+            }
+            continuous_row_in_block = 0;
+            pre_row_ref.block = nullptr;
+        }
         auto res = _merge_next(&cur_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
@@ -470,7 +479,32 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-    } while (target_block_row < _batch_size);
+        if (target_block_row >= _batch_size) {
+            if (continuous_row_in_block > 0) {
+                const auto& src_block = pre_row_ref.block;
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            }
+            return Status::OK();
+        }
+        if (continuous_row_in_block == 0) {
+            pre_row_ref = _ref;
+            continue;
+        }
+        // copy row if meet a new block
+        if (cur_row.block != pre_row_ref.block) {
+            const auto& src_block = pre_row_ref.block;
+            for (size_t i = 0; i < column_count; ++i) {
+                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                     pre_row_ref.row_pos, continuous_row_in_block);
+            }
+            continuous_row_in_block = 0;
+            pre_row_ref = cur_row;
+        }
+    } while (true);
 
     return Status::OK();
 }

@@ -707,6 +707,8 @@ CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 CONF_Int32(download_cache_thread_pool_thread_num, "48");
 // number of download cache thread pool queue size
 CONF_Int32(download_cache_thread_pool_queue_size, "102400");
+// download cache buffer size
+CONF_Int64(download_cache_buffer_size, "10485760");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -841,7 +843,7 @@ CONF_Validator(file_cache_type, [](const std::string config) -> bool {
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
-CONF_Bool(enable_simdjson_reader, "true");
+CONF_Bool(enable_simdjson_reader, "false");
 
 // number of s3 scanner thread pool size
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
@@ -850,7 +852,7 @@ CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
 // If set to true, the new scan node framework will be used.
 // This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "false");
+CONF_Bool(enable_new_scan_node, "true");
 
 #ifdef BE_TEST
 // test s3

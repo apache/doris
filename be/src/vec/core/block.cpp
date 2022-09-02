@@ -640,6 +640,14 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
+void Block::append_block_by_selector(MutableColumns& columns,
+                                     const IColumn::Selector& selector) const {
+    DCHECK(data.size() == columns.size());
+    for (size_t i = 0; i < data.size(); i++) {
+        data[i].column->append_data_by_selector(columns[i], selector);
+    }
+}
+
 Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
     ColumnPtr filter_column = block->get_by_position(filter_column_id).column;
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
@@ -918,11 +926,14 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     }
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs) {
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
+            if (reserve_size != 0) {
+                _columns.back()->reserve(reserve_size);
+            }
         }
     }
 }

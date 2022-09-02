@@ -187,9 +187,13 @@ public:
         return result;
     }
 
-    void copy_row(vectorized::Block* block) {
+    // `advanced = false` when current block finished
+    void copy_rows(vectorized::Block* block, bool advanced = true) {
         vectorized::Block& src = _block;
         vectorized::Block& dst = *block;
+        if (_cur_batch_num == 0 || _index_in_block - _cur_batch_num < 0) {
+            return;
+        }
 
         for (size_t i = 0; i < _num_columns; ++i) {
             auto& s_col = src.get_by_position(i);
@@ -199,8 +203,14 @@ public:
             vectorized::ColumnPtr& d_cp = d_col.column;
 
             //copy a row to dst block column by column
-            ((vectorized::IColumn&)(*d_cp)).insert_from(*s_cp, _index_in_block);
+            size_t start = _index_in_block - _cur_batch_num + 1;
+            if (advanced) {
+                start--;
+            }
+            DCHECK(start >= 0);
+            ((vectorized::IColumn&)(*d_cp)).insert_range_from(*s_cp, start, _cur_batch_num);
         }
+        _cur_batch_num = 0;
     }
 
     RowLocation current_row_location() {
@@ -224,6 +234,17 @@ public:
 
     void set_skip(bool skip) const { _skip = skip; }
 
+    void add_cur_batch() { _cur_batch_num++; }
+
+    void reset_cur_batch() { _cur_batch_num = 0; }
+
+    bool is_cur_block_finished() {
+        if (_index_in_block == _block.rows() - 1) {
+            return true;
+        }
+        return false;
+    }
+
 private:
     // Load next block into _block
     Status _load_next_block();
@@ -246,6 +267,7 @@ private:
     std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;
     bool _record_rowids = false;
+    size_t _cur_batch_num = 0;
 };
 
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
@@ -344,7 +366,7 @@ private:
 
     VMergeHeap _merge_heap;
 
-    int block_row_max = 0;
+    int _block_row_max = 0;
     int _sequence_id_idx = -1;
     bool _is_unique = false;
     bool _is_reverse = false;
@@ -372,31 +394,48 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 
     _origin_iters.clear();
 
-    block_row_max = opts.block_row_max;
+    _block_row_max = opts.block_row_max;
 
     return Status::OK();
 }
 
 Status VMergeIterator::next_batch(vectorized::Block* block) {
     if (UNLIKELY(_record_rowids)) {
-        _block_row_locations.resize(block_row_max);
+        _block_row_locations.resize(_block_row_max);
     }
     size_t row_idx = 0;
-    while (block->rows() < block_row_max) {
+    VMergeIteratorContext* pre_ctx = nullptr;
+    while (block->rows() < _block_row_max) {
         if (_merge_heap.empty()) break;
 
         auto ctx = _merge_heap.top();
         _merge_heap.pop();
 
         if (!ctx->need_skip()) {
-            // copy current row to block
-            ctx->copy_row(block);
+            ctx->add_cur_batch();
+            if (pre_ctx != ctx) {
+                if (pre_ctx) {
+                    pre_ctx->copy_rows(block);
+                }
+                pre_ctx = ctx;
+            }
             if (UNLIKELY(_record_rowids)) {
                 _block_row_locations[row_idx] = ctx->current_row_location();
             }
             row_idx++;
+            if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
+                // current block finished, ctx not advance
+                // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
+                ctx->copy_rows(block, false);
+                pre_ctx = nullptr;
+            }
         } else if (_merged_rows != nullptr) {
             (*_merged_rows)++;
+            // need skip cur row, so flush rows in pre_ctx
+            if (pre_ctx) {
+                pre_ctx->copy_rows(block);
+                pre_ctx = nullptr;
+            }
         }
 
         RETURN_IF_ERROR(ctx->advance());

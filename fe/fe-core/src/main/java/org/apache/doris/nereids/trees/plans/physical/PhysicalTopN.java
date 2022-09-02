@@ -25,10 +25,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -117,9 +117,10 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
 
     @Override
     public String toString() {
-        return "PhysicalTopN ("
-                + "limit=" + limit
-                + ", offset=" + offset
-                + ", " + StringUtils.join(orderKeys, ", ") + ")";
+        return Utils.toSqlString("PhysicalTopN",
+                "limit", limit,
+                "offset", offset,
+                "orderKeys", orderKeys
+        );
     }
 }
