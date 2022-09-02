@@ -1278,6 +1278,37 @@ bool OlapTableSink::_validate_cell(const TypeDescriptor& type, const std::string
         }
         break;
     }
+    case TYPE_ARRAY: {
+        auto array_val = (CollectionValue*)slot;
+        DCHECK(type.children.size() == 1);
+        auto nested_type = type.children[0];
+        if (nested_type.type != TYPE_ARRAY && nested_type.type != TYPE_CHAR &&
+            nested_type.type != TYPE_VARCHAR && nested_type.type != TYPE_STRING) {
+            break;
+        }
+        auto iter = array_val->iterator(nested_type.type);
+        while (iter.has_next()) {
+            auto data = iter.get();
+            // validate array nested element is nullable
+            if (data == nullptr) {
+                if (!type.contains_null) {
+                    fmt::format_to(error_msg,
+                                   "null element for null nested column of ARRAY, column={}, "
+                                   "type={} ",
+                                   col_name, type.debug_string());
+                    return false;
+                }
+            } else {
+                // validate array nested element data
+                if (!_validate_cell(nested_type, col_name, data, slot_index, error_msg, batch)) {
+                    fmt::format_to(error_msg, "ARRAY or elements invalid");
+                    return false;
+                }
+            }
+            iter.next();
+        }
+        break;
+    }
     default:
         break;
     }
@@ -1301,43 +1332,6 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
                 continue;
             }
             void* slot = tuple->get_slot(desc->tuple_offset());
-
-            if (desc->type().type == TYPE_ARRAY) {
-                auto array_val = (CollectionValue*)slot;
-                DCHECK(desc->type().children.size() == 1);
-                auto nested_type = desc->type().children[0];
-                if (nested_type.type != TYPE_CHAR && nested_type.type != TYPE_VARCHAR &&
-                    nested_type.type != TYPE_STRING) {
-                    continue;
-                }
-                auto iter = array_val->iterator(nested_type.type);
-                while (iter.has_next()) {
-                    auto data = iter.get();
-                    // validate array nested element is nullable
-                    if (data == nullptr) {
-                        if (!desc->type().contains_null) {
-                            fmt::format_to(
-                                    error_msg,
-                                    "null element for null nested column of ARRAY, column={}, "
-                                    "type={} ",
-                                    desc->col_name(), desc->type().debug_string());
-                            row_valid = false;
-                            break;
-                        }
-                    } else {
-                        // validate array nested element data
-                        row_valid = _validate_cell(nested_type, desc->col_name(), data, i,
-                                                   error_msg, batch);
-                        if (!row_valid) {
-                            fmt::format_to(error_msg, "ARRAY or elements invalid");
-                            break;
-                        }
-                    }
-                    iter.next();
-                }
-                continue;
-            }
-
             row_valid = _validate_cell(desc->type(), desc->col_name(), slot, i, error_msg, batch);
         }
 

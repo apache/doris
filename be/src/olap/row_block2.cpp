@@ -72,9 +72,16 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
                     helper->set_null(cid);
                 } else {
                     helper->set_not_null(cid);
-                    helper->set_field_content_shallow(
-                            cid,
-                            reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+                    if (is_scalar_type(_schema.column(cid)->type())) {
+                        helper->set_field_content_shallow(
+                                cid,
+                                reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+                    } else {
+                        helper->set_field_content(
+                                cid,
+                                reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)),
+                                _pool.get());
+                    }
                 }
             }
         } else {
@@ -82,8 +89,15 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
                 uint16_t row_idx = _selection_vector[i];
                 dst->get_row(i, helper);
                 helper->set_not_null(cid);
-                helper->set_field_content_shallow(
-                        cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+                if (is_scalar_type(_schema.column(cid)->type())) {
+                    helper->set_field_content_shallow(
+                            cid,
+                            reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+                } else {
+                    helper->set_field_content(
+                            cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)),
+                            _pool.get());
+                }
             }
         }
     }

@@ -676,8 +676,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
         DCHECK(type.children.size() == 1);
         auto nested_type = type.children[0];
-        if (nested_type.type == TYPE_CHAR || nested_type.type == TYPE_VARCHAR ||
-            nested_type.type == TYPE_STRING) {
+        if (nested_type.type == TYPE_ARRAY || nested_type.type == TYPE_CHAR ||
+            nested_type.type == TYPE_VARCHAR || nested_type.type == TYPE_STRING) {
             const auto& offsets = column_array->get_offsets();
             vectorized::IColumn::Permutation permutation(offsets.back());
             for (size_t r = 0; r < offsets.size(); ++r) {
