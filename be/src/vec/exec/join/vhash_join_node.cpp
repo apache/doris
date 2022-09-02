@@ -200,7 +200,8 @@ struct ProcessHashTableProbe {
                     }
                 }
             } else {
-                bool need_nullable_convert[column_length] = {false};
+                bool need_nullable_convert[column_length];
+                memset(need_nullable_convert, 0, column_length);
                 for (int i = 0; i < column_length; ++i) {
                     if (output_slot_flags[i] && !_build_blocks.empty()) {
                         need_nullable_convert[i] =
