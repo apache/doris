@@ -125,9 +125,10 @@ public class StreamLoadPlanner {
             throw new UserException("There is no sequence column in the table " + destTable.getName());
         }
         resetAnalyzer();
-        // construct tuple descriptor, used for scanNode and dataSink
+        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+        // construct tuple descriptor, used for scanNode
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
-        // construct tuple descriptor, used for scanNode and dataSink
+        // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
