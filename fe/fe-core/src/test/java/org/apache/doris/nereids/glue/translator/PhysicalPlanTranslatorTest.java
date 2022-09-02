@@ -58,7 +58,7 @@ public class PhysicalPlanTranslatorTest {
         t1Output.add(col2);
         t1Output.add(col3);
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
-        PhysicalOlapScan scan = new PhysicalOlapScan(t1, qualifier, "t1", 0L,
+        PhysicalOlapScan scan = new PhysicalOlapScan(t1, qualifier,     0L,
                 Collections.emptyList(), Collections.emptyList(), null,
                 Optional.empty(),
                 t1Properties);

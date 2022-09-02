@@ -227,16 +227,16 @@ public class PlanEqualsTest {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
 
-        PhysicalOlapScan actual = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"), olapTable.getName(),
+        PhysicalOlapScan actual = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 Optional.empty(), logicalProperties);
 
-        PhysicalOlapScan expected = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"), olapTable.getName(),
+        PhysicalOlapScan expected = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 Optional.empty(), logicalProperties);
         Assertions.assertEquals(expected, actual);
 
-        PhysicalOlapScan unexpected = new PhysicalOlapScan(olapTable, Lists.newArrayList("b"), olapTable.getName(),
+        PhysicalOlapScan unexpected = new PhysicalOlapScan(olapTable, Lists.newArrayList("b"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 Optional.empty(), logicalProperties);
         Assertions.assertNotEquals(unexpected, actual);

@@ -49,7 +49,7 @@ public class AggregateDisassembleTest {
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""), "student");
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
     }
 
     /**

@@ -46,7 +46,6 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
             new PhysicalOlapScan(
                     olapScan.getTable(),
                     olapScan.getQualifier(),
-                    olapScan.getName(),
                     olapScan.getSelectedIndexId(),
                     olapScan.getSelectedTabletId(),
                     olapScan.getSelectedPartitionIds(),

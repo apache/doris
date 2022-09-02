@@ -46,10 +46,10 @@ public class PhysicalOlapScan extends PhysicalRelation {
      * @param olapTable OlapTable in Doris
      * @param qualifier qualifier of table name
      */
-    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, String name, long selectedIndexId,
+    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, name, groupExpression, logicalProperties);
+        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = selectedTabletIds;
@@ -80,7 +80,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalOlapScan",
-                "qualified", Utils.qualifiedName(qualifier, name),
+                "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
                 "output", getOutput()
         );
     }
@@ -112,13 +112,13 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(olapTable, qualifier, name, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, groupExpression, logicalProperties);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(olapTable, qualifier, name, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, Optional.empty(), logicalProperties.get());
     }
 }

@@ -42,11 +42,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
     protected final List<String> qualifier;
-    protected final String name;
     protected final List<Long> selectedPartitionIds;
 
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier, String name) {
-        this(type, table, qualifier, name, Optional.empty(), Optional.empty(), Collections.emptyList());
+    public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
+        this(type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -55,17 +54,14 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param table Doris table
      * @param qualifier qualified relation name
      */
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier, String name,
-            Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
+    public LogicalRelation(PlanType type, Table table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds) {
         super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-        this.name = Objects.requireNonNull(name);
         this.selectedPartitionIds = ImmutableList.copyOf(
                 Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
-        this.table.setName(Utils.qualifiedName(qualifier, name));
     }
 
     public Table getTable() {
@@ -74,10 +70,6 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     public List<String> getQualifier() {
         return qualifier;
-    }
-
-    public String getName() {
-        return name;
     }
 
     @Override
@@ -119,14 +111,14 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        return Utils.qualifiedNameParts(qualifier, name);
+        return Utils.qualifiedNameParts(qualifier, table.getName());
     }
 
     /**
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        return Utils.qualifiedName(qualifier, name);
+        return Utils.qualifiedName(qualifier, table.getName());
     }
 
     public List<Long> getSelectedPartitionIds() {

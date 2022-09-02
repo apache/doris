@@ -104,13 +104,13 @@ public class RewriteTopDownJobTest {
     private static class LogicalBoundRelation extends LogicalRelation {
 
         public LogicalBoundRelation(Table table, List<String> qualifier) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, "");
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
         }
 
         public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, "", groupExpression, logicalProperties,
-                    Collections.emptyList());
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+                    groupExpression, logicalProperties, Collections.emptyList());
         }
 
         @Override

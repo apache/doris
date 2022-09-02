@@ -78,7 +78,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName), table.getName());
+            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
@@ -95,7 +95,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName), table.getName());
+            return new LogicalOlapScan((OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);

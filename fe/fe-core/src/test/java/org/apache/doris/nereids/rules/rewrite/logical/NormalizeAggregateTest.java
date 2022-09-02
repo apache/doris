@@ -48,7 +48,7 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""), "student");
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
     }
 
     /**
