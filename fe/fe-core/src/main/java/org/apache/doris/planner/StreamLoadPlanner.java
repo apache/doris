@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -84,6 +85,7 @@ public class StreamLoadPlanner {
 
     private StreamLoadScanNode scanNode;
     private TupleDescriptor tupleDesc;
+    private TupleDescriptor scanTupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
@@ -124,6 +126,8 @@ public class StreamLoadPlanner {
         }
         resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
+        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        // construct tuple descriptor, used for scanNode and dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
@@ -132,13 +136,25 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+
+            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            scanSlotDesc.setIsMaterialized(true);
+            scanSlotDesc.setColumn(col);
+            scanSlotDesc.setIsNullable(col.isAllowNull());
+            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                if (importColumnDesc.getColumnName() != null
+                        && importColumnDesc.getColumnName().equals(col.getName())) {
+                    scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                    break;
+                }
+            }
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
 
         // create scan node
-        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
+        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
         scanNode.init(analyzer);
         descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
