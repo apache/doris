@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.AssertNumRowsElement.Assertion;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
@@ -32,15 +34,18 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -148,10 +153,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     true);
         } else if (not.child() instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) not.child();
-            BinaryPredicate binaryPredicate =  new BinaryPredicate(Operator.NE,
+            BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.NE,
                     equalTo.child(0).accept(this, context),
                     equalTo.child(1).accept(this, context));
             return binaryPredicate;
+        } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
+            return new BoolLiteral(true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
                     not.child(0).accept(this, context),
@@ -274,6 +281,32 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.left().accept(this, context),
                     arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
                     arithmetic.getDataType().toCatalogDataType());
+        }
+    }
+
+    public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(
+            AssertNumRowsElement assertNumRowsElement) {
+        return new org.apache.doris.analysis.AssertNumRowsElement(assertNumRowsElement.getDesiredNumOfRows(),
+                assertNumRowsElement.getSubqueryString(), translateAssertion(assertNumRowsElement.getAssertion()));
+    }
+
+    private static org.apache.doris.analysis.AssertNumRowsElement.Assertion translateAssertion(
+            AssertNumRowsElement.Assertion assertion) {
+        switch (assertion) {
+            case EQ:
+                return Assertion.EQ;
+            case NE:
+                return Assertion.NE;
+            case LT:
+                return Assertion.LT;
+            case LE:
+                return Assertion.LE;
+            case GT:
+                return Assertion.GT;
+            case GE:
+                return Assertion.GE;
+            default:
+                throw new AnalysisException("UnSupported type: " + assertion);
         }
     }
 }

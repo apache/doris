@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -33,6 +34,11 @@ import java.util.Objects;
 public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     public ScalarSubquery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
+    }
+
+    public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots) {
+        super(Objects.requireNonNull(subquery, "subquery can not be null"),
+                Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"));
     }
 
     @Override
