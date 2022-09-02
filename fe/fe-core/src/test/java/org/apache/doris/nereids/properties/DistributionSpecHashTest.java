@@ -187,9 +187,9 @@ public class DistributionSpecHashTest {
         // require slots is not contained by target
         Assertions.assertFalse(natural2.satisfy(natural1));
         // other shuffle type with same order
-        Assertions.assertFalse(join.satisfy(natural2));
-        Assertions.assertFalse(aggregate.satisfy(natural2));
-        Assertions.assertFalse(enforce.satisfy(natural2));
+        Assertions.assertTrue(join.satisfy(natural2));
+        Assertions.assertTrue(aggregate.satisfy(natural2));
+        Assertions.assertTrue(enforce.satisfy(natural2));
     }
 
     @Test
@@ -446,8 +446,8 @@ public class DistributionSpecHashTest {
         // require slots is not contained by target
         Assertions.assertFalse(enforce2.satisfy(enforce1));
         // other shuffle type with same order
-        Assertions.assertFalse(join.satisfy(enforce2));
-        Assertions.assertFalse(aggregate.satisfy(enforce2));
-        Assertions.assertFalse(natural.satisfy(enforce2));
+        Assertions.assertTrue(join.satisfy(enforce2));
+        Assertions.assertTrue(aggregate.satisfy(enforce2));
+        Assertions.assertTrue(natural.satisfy(enforce2));
     }
 }

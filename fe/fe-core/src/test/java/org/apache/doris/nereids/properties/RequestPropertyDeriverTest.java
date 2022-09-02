@@ -187,7 +187,7 @@ public class RequestPropertyDeriverTest {
     public void testGlobalAggregateWithoutPartition() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         PhysicalAggregate aggregate = new PhysicalAggregate<>(
-                Lists.newArrayList(key),
+                Lists.newArrayList(),
                 Lists.newArrayList(key),
                 Lists.newArrayList(),
                 AggPhase.GLOBAL,

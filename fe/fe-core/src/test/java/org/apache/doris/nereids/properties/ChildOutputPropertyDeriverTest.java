@@ -94,7 +94,7 @@ public class ChildOutputPropertyDeriverTest {
                 result = new GroupId(0, 0);
 
                 colocateTableIndex.isGroupUnstable(new GroupId(0, 0));
-                result = true;
+                result = false;
             }
         };
 
