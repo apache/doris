@@ -25,7 +25,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,7 +45,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -70,11 +68,11 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     private final List<org.apache.doris.planner.RuntimeFilter> origFilters = Lists.newArrayList();
 
+    private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
+
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
-
-    private int deniedJoinLevel;
 
     private final ImmutableSet<JoinType> deniedJoinType = ImmutableSet.of(
             JoinType.LEFT_ANTI_JOIN,
@@ -86,7 +84,6 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
     public RuntimeFilterGenerator(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
-        this.deniedJoinLevel = 0;
     }
 
     // TODO: current support inner join, cross join, right outer join, and will support more join type.
@@ -123,17 +120,6 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         return join.withChildren(ImmutableList.of(left, right));
     }
 
-    @Override
-    public PhysicalPlan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext ctx) {
-        if (deniedJoinLevel != 0) {
-            MapDifference<ExprId, List<RuntimeFilter>> diff = Maps.difference(filtersByExprId, Maps.toMap(
-                    scan.getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toList()),
-                    k -> Lists.newArrayList()));
-            filtersByExprId = diff.entriesOnlyOnLeft();
-        }
-        return scan;
-    }
-
     /**
      * s
      * @param join s
@@ -152,15 +138,17 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 List<RuntimeFilter.RuntimeFilterTarget> targets = filterTargetByExprId.get(exprId);
                 origFilters.addAll(filtersByExprId.get(exprId).stream().map(filter -> {
                     SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
-                    SlotRef target = ctx.findSlotRef(filter.getTargetExpr().getExprId());
+                    SlotRef target = exprIdToOlapScanNodeSlotRef.get(filter.getTargetExpr().getExprId());
                     org.apache.doris.planner.RuntimeFilter origFilter
                             = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
-                            filter.getId(), node, src, 0, target,
+                            filter.getId(), node, src, filter.getExprOrder(), target,
                             ImmutableMap.of(tid, ImmutableList.of(target.getSlotId())),
                             filter.getType(), limits
                     );
                     targets.stream()
-                            .map(nereidsTarget -> nereidsTarget.toOriginRuntimeFilterTarget(ctx, node))
+                            .map(nereidsTarget -> nereidsTarget.toOriginRuntimeFilterTarget(
+                                    node,
+                                    exprIdToOlapScanNodeSlotRef.get(nereidsTarget.getExpr().getExprId())))
                             .forEach(origFilter::addTarget);
                     origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
                     origFilter.markFinalized();
@@ -174,19 +162,19 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     /**
      * s
+     * @param scan s
      * @param node s
+     * @param ctx s
      */
-    public void translateRuntimeFilterTarget(PhysicalOlapScan scan, OlapScanNode node) {
+    public void translateRuntimeFilterTarget(PhysicalOlapScan scan, OlapScanNode node, PlanTranslatorContext ctx) {
         scan.getOutput().stream()
+                .peek(expr -> exprIdToOlapScanNodeSlotRef.put(expr.getExprId(), ctx.findSlotRef(expr.getExprId())))
                 .filter(slot -> filtersByExprId.containsKey(slot.getExprId()))
-                .forEach(slot -> {
-                    filtersByExprId.get(slot.getExprId()).forEach(nereidsFilter -> {
-                        filterTargetByExprId.computeIfAbsent(
+                .forEach(slot -> filtersByExprId.get(slot.getExprId())
+                        .forEach(nereidsFilter -> filterTargetByExprId.computeIfAbsent(
                                 nereidsFilter.getTargetExpr().getExprId(),
                                 k -> new ArrayList<>()).add(
-                                        new RuntimeFilter.RuntimeFilterTarget(node, nereidsFilter.getTargetExpr()));
-                    });
-                });
+                                        new RuntimeFilter.RuntimeFilterTarget(node, nereidsFilter.getTargetExpr()))));
     }
 
     public List<org.apache.doris.planner.RuntimeFilter> getRuntimeFilters() {
@@ -200,7 +188,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
     @VisibleForTesting
     public List<RuntimeFilter> getNereridsRuntimeFilter() {
         List<RuntimeFilter> filters = filtersByExprId.values().stream()
-                .reduce(com.clearspring.analytics.util.Lists.newArrayList(), (l, r) -> {
+                .reduce(Lists.newArrayList(), (l, r) -> {
                     l.addAll(r);
                     return l;
                 });

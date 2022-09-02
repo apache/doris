@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -45,11 +42,15 @@ public class RuntimeFilter {
 
     private final TRuntimeFilterType type;
 
-    private RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type) {
+    private final int exprOrder;
+
+    private RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type,
+            int exprOrder) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlot = target;
         this.type = type;
+        this.exprOrder = exprOrder;
     }
 
     /**
@@ -67,7 +68,7 @@ public class RuntimeFilter {
         if (srcs == null) {
             return null;
         }
-        return new RuntimeFilter(id, ((SlotReference) srcs.second), ((SlotReference) srcs.first), type);
+        return new RuntimeFilter(id, ((SlotReference) srcs.second), ((SlotReference) srcs.first), type, exprOrder);
     }
 
     private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
@@ -104,38 +105,36 @@ public class RuntimeFilter {
         return type;
     }
 
+    public int getExprOrder() {
+        return exprOrder;
+    }
+
     /**
      * runtime filter target
      */
     public static class RuntimeFilterTarget {
         OlapScanNode node;
-        Expression expr;
+        SlotReference expr;
 
-        public RuntimeFilterTarget(OlapScanNode node, Expression expr) {
+        public RuntimeFilterTarget(OlapScanNode node, SlotReference expr) {
             this.node = node;
             this.expr = expr;
         }
 
         /**
          * s
-         * @param ctx s
          * @param node s
+         * @param targetSlotRef s
          * @return s
          */
         public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toOriginRuntimeFilterTarget(
-                PlanTranslatorContext ctx, HashJoinNode node) {
+                HashJoinNode node, SlotRef targetSlotRef) {
             return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(
-                    this.node, slotRefTransfer(((SlotReference) expr).getExprId(), this.node, ctx
-                    ), true,
-                    node.getFragmentId().equals(this.node.getFragmentId())
-            );
+                    this.node, targetSlotRef, true, node.getFragmentId().equals(this.node.getFragmentId()));
         }
 
-        private SlotRef slotRefTransfer(ExprId eid, OlapScanNode node, PlanTranslatorContext ctx) {
-            SlotDescriptor slotDesc = node.getTupleDesc().getColumnSlot(
-                    ctx.findSlotRef(eid).getColumnName()
-            );
-            return new SlotRef(slotDesc);
+        public SlotReference getExpr() {
+            return expr;
         }
     }
 }
