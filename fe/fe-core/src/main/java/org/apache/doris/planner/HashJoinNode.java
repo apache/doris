@@ -86,6 +86,8 @@ public class HashJoinNode extends PlanNode {
     private TupleDescriptor vOutputTupleDesc;
     private ExprSubstitutionMap vSrcToOutputSMap;
 
+    boolean hasTupleIsNullPredicate = false;
+
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
         super(id, "HASH JOIN");
@@ -190,6 +192,11 @@ public class HashJoinNode extends PlanNode {
      * @param slotIdList
      */
     private void initHashOutputSlotIds(List<SlotId> slotIdList, Analyzer analyzer) {
+        if (hasTupleIsNullPredicate) {
+            // we have to keep all slots from children if there is a tuple is null predicate
+            // this is just a workaround solution in dev1.1.2, master doesn't have such problem
+            return;
+        }
         Set<SlotId> hashOutputSlotIdSet = Sets.newHashSet();
         // step1: change output slot id to src slot id
         if (vSrcToOutputSMap != null) {
@@ -451,6 +458,7 @@ public class HashJoinNode extends PlanNode {
             tupleIsNullLhs
                     .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
             vSrcToOutputSMap.updateLhsExprs(tupleIsNullLhs);
+            hasTupleIsNullPredicate = true;
         }
         // Condition1: the right child is null-side
         // Condition2: the right child is a inline view
@@ -467,6 +475,7 @@ public class HashJoinNode extends PlanNode {
                 }
                 newLhsList.addAll(tupleIsNullLhs);
                 vSrcToOutputSMap.updateLhsExprs(newLhsList);
+                hasTupleIsNullPredicate = true;
             }
         }
         // 4. change the outputSmap
