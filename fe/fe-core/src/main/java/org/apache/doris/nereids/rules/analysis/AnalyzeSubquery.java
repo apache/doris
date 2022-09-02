@@ -21,6 +21,8 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -28,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -60,52 +63,14 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
                             }
 
                             // first step: Replace the subquery of predicate in LogicalFilter
-                            Expression newPredicates =
-                                    recursiveReplacePredicate(filter.getPredicates());
                             // second step: Replace subquery with LogicalApply
-                            return new LogicalFilter<>(newPredicates, analyzedSubquery(
+                            return new LogicalFilter<>(new ReplaceSubquery().replace(filter.getPredicates()),
+                                    analyzedSubquery(
                                     subqueryExprs, (LogicalPlan) filter.child(), ctx.cascadesContext
                             ));
                         })
                 )
         );
-    }
-
-    /**
-     * The Subquery in the LogicalFilter will change to LogicalApply, so we must replace the origin Subquery.
-     * LogicalFilter(predicate(contain subquery)) -> LogicalFilter(predicate(not contain subquery)
-     * Replace the subquery in logical with the relevant expression.
-     *
-     * The replacement rules are as follows:
-     * before:
-     *      1.filter(t1.a = scalarSubquery(output b));
-     *      2.filter(inSubquery);   inSubquery = (t1.a in select ***);
-     *      3.filter(exists);   exists = (select ***);
-     *
-     * after:
-     *      1.filter(t1.a = b);
-     *      2.filter(True);
-     *      3.filter(True);
-     */
-    private Expression replaceSubquery(SubqueryExpr expr) {
-        if (expr instanceof InSubquery || expr instanceof Exists) {
-            return BooleanLiteral.TRUE;
-        } else if (expr instanceof ScalarSubquery) {
-            return expr.getQueryPlan().getOutput().get(0);
-        }
-        throw new AnalysisException("UnSupported subquery type: " + expr.getClass());
-    }
-
-    private Expression recursiveReplacePredicate(Expression oldPredicate) {
-        List<Expression> newChildren = oldPredicate.children().isEmpty() ? new ArrayList<>()
-                : oldPredicate.children().stream()
-                        .map(this::recursiveReplacePredicate)
-                        .collect(Collectors.toList());
-
-        if (oldPredicate instanceof SubqueryExpr) {
-            return replaceSubquery((SubqueryExpr) oldPredicate);
-        }
-        return newChildren.isEmpty() ? oldPredicate : oldPredicate.withChildren(newChildren);
     }
 
     private LogicalPlan analyzedSubquery(List<SubqueryExpr> subqueryExprs,
@@ -130,5 +95,42 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
             projects.add(subquery.getQueryPlan().getOutput().get(0));
         }
         return new LogicalProject(projects, newApply);
+    }
+
+    /**
+     * The Subquery in the LogicalFilter will change to LogicalApply, so we must replace the origin Subquery.
+     * LogicalFilter(predicate(contain subquery)) -> LogicalFilter(predicate(not contain subquery)
+     * Replace the subquery in logical with the relevant expression.
+     *
+     * The replacement rules are as follows:
+     * before:
+     *      1.filter(t1.a = scalarSubquery(output b));
+     *      2.filter(inSubquery);   inSubquery = (t1.a in select ***);
+     *      3.filter(exists);   exists = (select ***);
+     *
+     * after:
+     *      1.filter(t1.a = b);
+     *      2.filter(True);
+     *      3.filter(True);
+     */
+    private static class ReplaceSubquery extends DefaultExpressionRewriter {
+        public Expression replace(Expression expression) {
+            return (Expression) expression.accept(this, null);
+        }
+
+        @Override
+        public Object visitExistsSubquery(Exists exists, Object context) {
+            return BooleanLiteral.TRUE;
+        }
+
+        @Override
+        public Object visitInSubquery(InSubquery in, Object context) {
+            return BooleanLiteral.TRUE;
+        }
+
+        @Override
+        public Object visitScalarSubquery(ScalarSubquery scalar, Object context) {
+            return scalar.getQueryPlan().getOutput().get(0);
+        }
     }
 }
