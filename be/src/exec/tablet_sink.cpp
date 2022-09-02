@@ -1306,6 +1306,10 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
                 auto array_val = (CollectionValue*)slot;
                 DCHECK(desc->type().children.size() == 1);
                 auto nested_type = desc->type().children[0];
+                if (nested_type.type != TYPE_CHAR && nested_type.type != TYPE_VARCHAR &&
+                    nested_type.type != TYPE_STRING) {
+                    continue;
+                }
                 auto iter = array_val->iterator(nested_type.type);
                 while (iter.has_next()) {
                     auto data = iter.get();

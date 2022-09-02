@@ -676,17 +676,20 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
         DCHECK(type.children.size() == 1);
         auto nested_type = type.children[0];
-        const auto& offsets = column_array->get_offsets();
-        vectorized::IColumn::Permutation permutation(offsets.back());
-        for (size_t r = 0; r < offsets.size(); ++r) {
-            for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
-                permutation[c] = rows ? (*rows)[r] : r;
+        if (nested_type.type == TYPE_CHAR || nested_type.type == TYPE_VARCHAR ||
+            nested_type.type == TYPE_STRING) {
+            const auto& offsets = column_array->get_offsets();
+            vectorized::IColumn::Permutation permutation(offsets.back());
+            for (size_t r = 0; r < offsets.size(); ++r) {
+                for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
+                    permutation[c] = rows ? (*rows)[r] : r;
+                }
             }
+            fmt::format_to(error_prefix, "ARRAY type failed: ");
+            RETURN_IF_ERROR(_validate_column(
+                    state, nested_type, nested_type.contains_null, column_array->get_data_ptr(),
+                    slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
         }
-        fmt::format_to(error_prefix, "ARRAY type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, nested_type, nested_type.contains_null,
-                                         column_array->get_data_ptr(), slot_index, filter_bitmap,
-                                         stop_processing, error_prefix, &permutation));
         break;
     }
     default:
