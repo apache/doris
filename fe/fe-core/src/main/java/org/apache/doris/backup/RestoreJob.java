@@ -578,6 +578,8 @@ public class RestoreJob extends AbstractJob {
                                 // Partition already exist.
                                 PartitionInfo localPartInfo = localOlapTbl.getPartitionInfo();
                                 PartitionInfo remotePartInfo = remoteOlapTbl.getPartitionInfo();
+                                ReplicaAllocation remoteReplicaAlloc = remotePartInfo.getReplicaAllocation(
+                                        remotePartition.getId());
                                 if (localPartInfo.getType() == PartitionType.RANGE
                                         || localPartInfo.getType() == PartitionType.LIST) {
                                     PartitionItem localItem = localPartInfo.getItem(localPartition.getId());
@@ -586,8 +588,7 @@ public class RestoreJob extends AbstractJob {
                                     if (localItem.equals(remoteItem)) {
                                         // Same partition, same range
                                         if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition,
-                                                localTbl, backupPartInfo, partitionName, tblInfo, remotePartInfo,
-                                                remotePartition)) {
+                                                localTbl, backupPartInfo, partitionName, tblInfo, remoteReplicaAlloc)) {
                                             return;
                                         }
                                     } else {
@@ -600,8 +601,7 @@ public class RestoreJob extends AbstractJob {
                                 } else {
                                     // If this is a single partitioned table.
                                     if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition, localTbl,
-                                            backupPartInfo, partitionName, tblInfo, remotePartInfo,
-                                            remotePartition)) {
+                                            backupPartInfo, partitionName, tblInfo, remoteReplicaAlloc)) {
                                         return;
                                     }
                                 }
@@ -949,16 +949,13 @@ public class RestoreJob extends AbstractJob {
 
     private boolean genFileMappingWhenBackupReplicasEqual(PartitionInfo localPartInfo, Partition localPartition,
             Table localTbl, BackupPartitionInfo backupPartInfo, String partitionName, BackupOlapTableInfo tblInfo,
-            PartitionInfo remotePartInfo, Partition remotePartition) {
+            ReplicaAllocation remoteReplicaAlloc) {
         short restoreReplicaNum;
-        short localReplicaNum;
+        short localReplicaNum = localPartInfo.getReplicaAllocation(localPartition.getId()).getTotalReplicaNum();
         if (!reserveReplica) {
             restoreReplicaNum = replicaAlloc.getTotalReplicaNum();
-            localReplicaNum = localPartInfo.getReplicaAllocation(localPartition.getId()).getTotalReplicaNum();
         } else {
-            ReplicaAllocation originReplicaAlloc = remotePartInfo.getReplicaAllocation(remotePartition.getId());
-            restoreReplicaNum = originReplicaAlloc.getTotalReplicaNum();
-            localReplicaNum = localPartInfo.getReplicaAllocation(localPartition.getId()).getTotalReplicaNum();
+            restoreReplicaNum = remoteReplicaAlloc.getTotalReplicaNum();
         }
         if (localReplicaNum != restoreReplicaNum) {
             status = new Status(ErrCode.COMMON_ERROR, "Partition " + partitionName
