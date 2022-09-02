@@ -163,12 +163,12 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
         tablet->set_tablet_state(TABLET_SHUTDOWN);
         tablet->save_meta();
         {
-            std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(_shutdown_tablets_lock);
+            WriteLock shutdown_tablets_wrlock(_shutdown_tablets_lock);
             _shutdown_tablets.push_back(tablet);
         }
         LOG(INFO) << "set tablet to shutdown state."
                   << "tablet_id=" << tablet->tablet_id()
-                  << ", tablet_path=" << tablet->tablet_path();
+                  << ", tablet_path=" << tablet->tablet_path_desc().debug_string();
 
         res = OLAP_ERR_ENGINE_INSERT_OLD_TABLET;
     }
