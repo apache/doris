@@ -143,7 +143,7 @@ public class StreamLoadPlanner {
             scanSlotDesc.setColumn(col);
             scanSlotDesc.setIsNullable(col.isAllowNull());
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
-                if (importColumnDesc.getColumnName() != null
+                if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
                         && importColumnDesc.getColumnName().equals(col.getName())) {
                     scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
                     break;
