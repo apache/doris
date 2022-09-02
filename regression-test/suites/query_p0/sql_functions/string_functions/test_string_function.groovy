@@ -19,6 +19,11 @@ suite("test_string_function") {
     sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
+
     qt_sql "select append_trailing_char_if_absent('a','c');"
     qt_sql "select append_trailing_char_if_absent('ac','c');"
 
