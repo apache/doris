@@ -250,7 +250,8 @@ public class DiskRebalancer extends Rebalancer {
             Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
+            throw new SchedException(Status.UNRECOVERABLE,
+                    String.format("cluster %s for tag %s does not exist", tabletCtx.getCluster(), tabletCtx.getTag()));
         }
         if (tabletCtx.getTempSrcBackendId() == -1 || tabletCtx.getTempSrcPathHash() == -1) {
             throw new SchedException(Status.UNRECOVERABLE,
