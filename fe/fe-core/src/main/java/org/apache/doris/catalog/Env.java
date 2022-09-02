@@ -3634,7 +3634,7 @@ public class Env {
         this.alter.processCreateMaterializedView(stmt);
     }
 
-    public void createMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt) throws AnalysisException {
+    public void createMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt) throws UserException {
         this.alter.processCreateMultiTableMaterializedView(stmt);
     }
 

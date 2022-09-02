@@ -19,26 +19,31 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 
+import com.google.gson.annotations.SerializedName;
+
 public class MVRefreshInfo {
-    private final boolean neverRefresh;
+    @SerializedName("neverRefresh")
+    private boolean neverRefresh;
+    @SerializedName("refreshMethod")
     private RefreshMethod refreshMethod;
+    @SerializedName("triggerInfo")
     private MVRefreshTriggerInfo triggerInfo;
 
+    // For deserialization
+    public MVRefreshInfo() {}
+
     public MVRefreshInfo(boolean neverRefresh) {
-        this.neverRefresh = neverRefresh;
-        if (!neverRefresh) {
-            refreshMethod = RefreshMethod.COMPLETE;
-            triggerInfo = null;
-        }
+        this(neverRefresh, RefreshMethod.COMPLETE, null);
     }
 
     public MVRefreshInfo(RefreshMethod method, MVRefreshTriggerInfo trigger) {
-        this.neverRefresh = false;
-        this.refreshMethod = method;
-        if (!neverRefresh) {
-            refreshMethod = RefreshMethod.COMPLETE;
-            triggerInfo = trigger;
-        }
+        this(false, method, trigger);
+    }
+
+    public MVRefreshInfo(boolean neverRefresh, RefreshMethod method, MVRefreshTriggerInfo trigger) {
+        this.neverRefresh = neverRefresh;
+        refreshMethod = method;
+        triggerInfo = trigger;
     }
 
     void analyze(Analyzer analyzer) throws UserException {
@@ -60,8 +65,20 @@ public class MVRefreshInfo {
         return sb.toString();
     }
 
+    public boolean isNeverRefresh() {
+        return neverRefresh;
+    }
+
+    public RefreshMethod getRefreshMethod() {
+        return refreshMethod;
+    }
+
+    public MVRefreshTriggerInfo getTriggerInfo() {
+        return triggerInfo;
+    }
+
     enum RefreshMethod {
-        FAST, COMPLETE, FORCE
+        COMPLETE, FAST, FORCE
     }
 
     enum RefreshTrigger {
@@ -72,4 +89,3 @@ public class MVRefreshInfo {
         IMMEDIATE, DEFERRED
     }
 }
-

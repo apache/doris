@@ -700,7 +700,7 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/SET-VARIABLE",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET"
                             ]
                         },
