@@ -1058,9 +1058,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkState(false);
     }
 
-    /**
-     * Create a table based on an existing table name
-     **/
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
         try {
             DatabaseIf db = getDbOrDdlException(stmt.getExistedDbName());
@@ -1157,8 +1154,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     } else {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
-                    // AggregateType.NONE cause the table to change to the AGGREGATE KEY when analyze is used,
-                    // cause CURRENT_TIMESTAMP to report an error.
                     columnDef = new ColumnDef(name, typeDef, false, null,
                             column.isAllowNull(), defaultValue, column.getComment());
                 }
