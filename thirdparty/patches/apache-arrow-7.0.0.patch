@@ -1,0 +1,70 @@
+diff --git a/cpp/src/arrow/adapters/orc/adapter.cc b/cpp/src/arrow/adapters/orc/adapter.cc
+index 03243e7..cbb3ed9 100644
+--- a/cpp/src/arrow/adapters/orc/adapter.cc
++++ b/cpp/src/arrow/adapters/orc/adapter.cc
+@@ -47,9 +47,6 @@
+ #include "arrow/util/visibility.h"
+ #include "orc/Exceptions.hh"
+
+-// alias to not interfere with nested orc namespace
+-namespace liborc = orc;
+-
+ #define ORC_THROW_NOT_OK(s)                   \
+   do {                                        \
+     Status _s = (s);                          \
+@@ -198,6 +195,11 @@ class ORCFileReader::Impl {
+     return Init();
+   }
+
++  virtual liborc::Reader* GetRawORCReader() {
++    return reader_.get();
++  }
++
++
+   Status Init() {
+     int64_t nstripes = reader_->getNumberOfStripes();
+     stripes_.resize(nstripes);
+@@ -504,6 +506,7 @@ class ORCFileReader::Impl {
+     return Status::OK();
+   }
+
++
+   Status NextStripeReader(int64_t batch_size, std::shared_ptr<RecordBatchReader>* out) {
+     return NextStripeReader(batch_size, {}, out);
+   }
+@@ -531,6 +534,10 @@ Result<std::unique_ptr<ORCFileReader>> ORCFileReader::Open(
+   return std::move(result);
+ }
+
++liborc::Reader* ORCFileReader::GetRawORCReader() {
++  return impl_->GetRawORCReader();
++}
++
+ Result<std::shared_ptr<const KeyValueMetadata>> ORCFileReader::ReadMetadata() {
+   return impl_->ReadMetadata();
+ }
+diff --git a/cpp/src/arrow/adapters/orc/adapter.h b/cpp/src/arrow/adapters/orc/adapter.h
+index 223efa5..a0d112a 100644
+--- a/cpp/src/arrow/adapters/orc/adapter.h
++++ b/cpp/src/arrow/adapters/orc/adapter.h
+@@ -30,6 +30,10 @@
+ #include "arrow/type_fwd.h"
+ #include "arrow/util/macros.h"
+ #include "arrow/util/visibility.h"
++#include "orc/Reader.hh"
++
++// alias to not interfere with nested orc namespace
++namespace liborc = orc;
+
+ namespace arrow {
+ namespace adapters {
+@@ -50,6 +54,9 @@ class ARROW_EXPORT ORCFileReader {
+   ARROW_DEPRECATED("Deprecated in 6.0.0. Use Result-returning overload instead.")
+   static Status Open(const std::shared_ptr<io::RandomAccessFile>& file, MemoryPool* pool,
+                      std::unique_ptr<ORCFileReader>* reader);
++ 
++  /// \brief Get ORC reader from inside.
++  liborc::Reader* GetRawORCReader();
+
+   /// \brief Creates a new ORC reader
+   ///

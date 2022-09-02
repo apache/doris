@@ -1,4 +1,6 @@
 #!/bin/bash
+# shellcheck disable=2034
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -27,25 +29,25 @@
 ###################################################
 
 # thirdparties will be downloaded and unpacked here
-export TP_SOURCE_DIR=$TP_DIR/src
+export TP_SOURCE_DIR="${TP_DIR:-.}/src"
 
 # thirdparties will be installed to here
-export TP_INSTALL_DIR=$TP_DIR/installed
+export TP_INSTALL_DIR="${TP_DIR:-.}/installed"
 
 # patches for all thirdparties
-export TP_PATCH_DIR=$TP_DIR/patches
+export TP_PATCH_DIR="${TP_DIR:-.}/patches"
 
 # header files of all thirdparties will be intalled to here
-export TP_INCLUDE_DIR=$TP_INSTALL_DIR/include
+export TP_INCLUDE_DIR="${TP_INSTALL_DIR}/include"
 
 # libraries of all thirdparties will be intalled to here
-export TP_LIB_DIR=$TP_INSTALL_DIR/lib
+export TP_LIB_DIR="${TP_INSTALL_DIR}/lib"
 
 # all java libraries will be unpacked to here
-export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
+export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 
 # source of all dependencies, default unuse it
-export REPOSITORY_URL=
+# export REPOSITORY_URL=
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -155,6 +157,16 @@ HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
 HYPERSCAN_SOURCE=hyperscan-5.4.0
 HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
 
+# vectorscan (support arm for hyperscan)
+MACHINE_TYPE=$(uname -m)
+if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+    echo "use vectorscan instead of hyperscan on aarch64"
+    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.7.tar.gz"
+    HYPERSCAN_NAME=vectorscan-5.4.7.tar.gz
+    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.7
+    HYPERSCAN_MD5SUM="ae924ccce79ef9bf6bf118693ae14fe5"
+fi
+
 # ragel (dependency for hyperscan)
 RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
 RAGEL_NAME=ragel-6.10.tar.gz
@@ -180,16 +192,16 @@ ODBC_SOURCE=unixODBC-2.3.7
 ODBC_MD5SUM="274a711b0c77394e052db6493840c6f9"
 
 # leveldb
-LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/v1.20.tar.gz"
-LEVELDB_NAME=leveldb-1.20.tar.gz
-LEVELDB_SOURCE=leveldb-1.20
-LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
+LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/refs/tags/1.23.tar.gz"
+LEVELDB_NAME=leveldb-1.23.tar.gz
+LEVELDB_SOURCE=leveldb-1.23
+LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0.tar.gz"
-BRPC_NAME="incubator-brpc-1.0.0.tar.gz"
-BRPC_SOURCE="incubator-brpc-1.0.0"
-BRPC_MD5SUM="73b201192a10107628e3af5ccd643676"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.2.0.tar.gz"
+BRPC_NAME="incubator-brpc-1.2.0.tar.gz"
+BRPC_SOURCE="incubator-brpc-1.2.0"
+BRPC_MD5SUM="556c024d5f770dbd2336ca4541ae8c96"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -411,65 +423,65 @@ SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
 SSE2NEON_SOURCE=sse2neon-1.5.1
 SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
 
-
-
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT
-OPENSSL
-THRIFT
-PROTOBUF
-GFLAGS
-GLOG
-GTEST
-RAPIDJSON
-SNAPPY
-GPERFTOOLS
-ZLIB
-LZ4
-BZIP
-LZO2
-CURL
-RE2
-HYPERSCAN
-RAGEL
-BOOST
-MYSQL
-ODBC
-LEVELDB
-BRPC
-ROCKSDB
-CYRUS_SASL
-LIBRDKAFKA
-FLATBUFFERS
-ARROW
-BROTLI
-ZSTD
-S2
-BITSHUFFLE
-CROARINGBITMAP
-FMT
-PARALLEL_HASHMAP
-ORC
-JEMALLOC
-CCTZ
-DATATABLES
-BOOTSTRAP_TABLE_JS
-BOOTSTRAP_TABLE_CSS
-TSAN_HEADER
-AWS_SDK
-LZMA
-XML2
-IDN
-GSASL
-KRB5
-HDFS3
-LIBDIVIDE
-PDQSORT
-BENCHMARK
-XSIMD
-SIMDJSON
-NLOHMANN_JSON
-OPENTELEMETRY_PROTO
-OPENTELEMETRY
-LIBBACKTRACE
-SSE2NEON"
+export TP_ARCHIVES=(
+    'LIBEVENT'
+    'OPENSSL'
+    'THRIFT'
+    'PROTOBUF'
+    'GFLAGS'
+    'GLOG'
+    'GTEST'
+    'RAPIDJSON'
+    'SNAPPY'
+    'GPERFTOOLS'
+    'ZLIB'
+    'LZ4'
+    'BZIP'
+    'LZO2'
+    'CURL'
+    'RE2'
+    'HYPERSCAN'
+    'RAGEL'
+    'BOOST'
+    'MYSQL'
+    'ODBC'
+    'LEVELDB'
+    'BRPC'
+    'ROCKSDB'
+    'CYRUS_SASL'
+    'LIBRDKAFKA'
+    'FLATBUFFERS'
+    'ARROW'
+    'BROTLI'
+    'ZSTD'
+    'S2'
+    'BITSHUFFLE'
+    'CROARINGBITMAP'
+    'FMT'
+    'PARALLEL_HASHMAP'
+    'ORC'
+    'JEMALLOC'
+    'CCTZ'
+    'DATATABLES'
+    'BOOTSTRAP_TABLE_JS'
+    'BOOTSTRAP_TABLE_CSS'
+    'TSAN_HEADER'
+    'AWS_SDK'
+    'LZMA'
+    'XML2'
+    'IDN'
+    'GSASL'
+    'KRB5'
+    'HDFS3'
+    'LIBDIVIDE'
+    'PDQSORT'
+    'BENCHMARK'
+    'XSIMD'
+    'SIMDJSON'
+    'NLOHMANN_JSON'
+    'OPENTELEMETRY_PROTO'
+    'OPENTELEMETRY'
+    'LIBBACKTRACE'
+    'SSE2NEON'
+)
