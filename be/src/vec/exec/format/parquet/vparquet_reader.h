@@ -82,14 +82,13 @@ public:
     int64_t size() const { return _file_reader->size(); }
 
 private:
-    int32_t _next_row_group_id();
+    bool _next_row_group_reader();
     Status _init_read_columns(const std::vector<SlotDescriptor*>& tuple_slot_descs);
     Status _init_row_group_readers(const std::vector<ExprContext*>& conjunct_ctxs);
     void _init_conjuncts(const std::vector<ExprContext*>& conjunct_ctxs);
     // Page Index Filter
     bool _has_page_index(std::vector<tparquet::ColumnChunk>& columns);
-    Status _process_page_index(tparquet::RowGroup& row_group,
-                               std::vector<RowRange>& skipped_row_ranges);
+    Status _process_page_index(tparquet::RowGroup& row_group);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
@@ -114,7 +113,8 @@ private:
     std::shared_ptr<FileMetaData> _file_metadata;
     tparquet::FileMetaData* _t_metadata;
     std::shared_ptr<PageIndex> _page_index;
-    std::vector<std::shared_ptr<RowGroupReader>> _row_group_readers;
+    std::list<std::shared_ptr<RowGroupReader>> _row_group_readers;
+    std::shared_ptr<RowGroupReader> _current_group_reader;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     int32_t _current_row_group_id;
     //        std::shared_ptr<Statistics> _statistics;
@@ -129,6 +129,7 @@ private:
     int64_t _range_start_offset;
     int64_t _range_size;
     cctz::time_zone* _ctz;
+    std::vector<RowRange> _skipped_row_ranges;
 
     const TupleDescriptor* _tuple_desc; // get all slot info
 };
