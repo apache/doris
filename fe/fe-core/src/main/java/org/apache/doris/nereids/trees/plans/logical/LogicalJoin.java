@@ -28,10 +28,10 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -133,30 +133,30 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public List<Slot> computeOutput(Plan leftInput, Plan rightInput) {
+    public List<Slot> computeOutput() {
 
-        List<Slot> newLeftOutput = leftInput.getOutput().stream().map(o -> o.withNullable(true))
+        List<Slot> newLeftOutput = left().getOutput().stream().map(o -> o.withNullable(true))
                 .collect(Collectors.toList());
 
-        List<Slot> newRightOutput = rightInput.getOutput().stream().map(o -> o.withNullable(true))
+        List<Slot> newRightOutput = right().getOutput().stream().map(o -> o.withNullable(true))
                 .collect(Collectors.toList());
 
         switch (joinType) {
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
-                return ImmutableList.copyOf(leftInput.getOutput());
+                return ImmutableList.copyOf(left().getOutput());
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
-                return ImmutableList.copyOf(rightInput.getOutput());
+                return ImmutableList.copyOf(right().getOutput());
             case LEFT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
-                        .addAll(leftInput.getOutput())
+                        .addAll(left().getOutput())
                         .addAll(newRightOutput)
                         .build();
             case RIGHT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
                         .addAll(newLeftOutput)
-                        .addAll(rightInput.getOutput())
+                        .addAll(right().getOutput())
                         .build();
             case FULL_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
@@ -165,26 +165,22 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                         .build();
             default:
                 return ImmutableList.<Slot>builder()
-                        .addAll(leftInput.getOutput())
-                        .addAll(rightInput.getOutput())
+                        .addAll(left().getOutput())
+                        .addAll(right().getOutput())
                         .build();
         }
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("LogicalJoin ([").append(joinType).append("]");
-        sb.append("hashJoinCondition:[");
-        sb.append(StringUtils.join(hashJoinConjuncts, ", "));
-        sb.append("] ");
-        otherJoinCondition.ifPresent(
-                expression -> sb.append(", nonHashJoinCondition [").append(expression).append("]")
+        return Utils.toSqlString("LogicalJoin",
+                "type", joinType,
+                "hashJoinCondition", hashJoinConjuncts,
+                "otherJoinCondition", otherJoinCondition
         );
-        sb.append(")");
-        return sb.toString();
     }
 
-    //TODO:
+    // TODO:
     // 1. consider the order of conjucts in otherJoinCondition and hashJoinConditions
     @Override
     public boolean equals(Object o) {

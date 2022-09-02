@@ -237,9 +237,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
     auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
     block.reset(new vectorized::Block());
     for (const auto& slot_desc : tuple_slots) {
-        auto is_nullable = slot_desc->is_nullable();
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(),
-                                                                                  is_nullable);
+        auto data_type = slot_desc->get_data_type_ptr();
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
@@ -351,10 +349,40 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);
     auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
+
+    TSlotDescriptor tslot_desc;
+    {
+        tslot_desc.id = 14;
+        tslot_desc.parent = 0;
+        TTypeDesc type;
+        {
+            TTypeNode node;
+            node.__set_type(TTypeNodeType::ARRAY);
+            node.contains_null = true;
+            TTypeNode inner;
+            inner.__set_type(TTypeNodeType::SCALAR);
+            TScalarType scalar_type;
+            scalar_type.__set_type(TPrimitiveType::STRING);
+            inner.__set_scalar_type(scalar_type);
+            inner.contains_null = true;
+            type.types.push_back(node);
+            type.types.push_back(inner);
+        }
+        tslot_desc.slotType = type;
+        tslot_desc.columnPos = 14;
+        tslot_desc.byteOffset = 0;
+        tslot_desc.nullIndicatorByte = 0;
+        tslot_desc.nullIndicatorBit = -1;
+        tslot_desc.colName = "list_string";
+        tslot_desc.slotIdx = 14;
+        tslot_desc.isMaterialized = true;
+    }
+    SlotDescriptor string_slot(tslot_desc);
+    tuple_slots.emplace_back(&string_slot);
+
     std::vector<ParquetReadColumn> read_columns;
     for (const auto& slot : tuple_slots) {
-        ParquetReadColumn column(slot);
-        read_columns.emplace_back(column);
+        read_columns.emplace_back(ParquetReadColumn(slot));
     }
 
     LocalFileReader file_reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
@@ -377,9 +405,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_slots) {
-        auto is_nullable = slot_desc->is_nullable();
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(),
-                                                                                  is_nullable);
+        auto data_type =
+                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
         MutableColumnPtr data_column = data_type->create_column();
         block.insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
@@ -387,7 +414,16 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     bool batch_eof = false;
     auto stb = row_group_reader->next_batch(&block, 1024, &batch_eof);
     EXPECT_TRUE(stb.ok());
-    LOG(WARNING) << "block data: " << block.dump_data(0, 10);
+
+    LocalFileReader result("./be/test/exec/test_data/parquet_scanner/group-reader.txt", 0);
+    auto rst = result.open();
+    EXPECT_TRUE(rst.ok());
+    uint8_t result_buf[result.size() + 1];
+    result_buf[result.size()] = '\0';
+    int64_t bytes_read;
+    bool eof;
+    result.read(result_buf, result.size(), &bytes_read, &eof);
+    ASSERT_STREQ(block.dump_data(0, 10).c_str(), reinterpret_cast<char*>(result_buf));
 }
 } // namespace vectorized
 

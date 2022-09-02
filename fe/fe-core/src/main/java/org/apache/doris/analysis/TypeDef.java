@@ -129,8 +129,7 @@ public class TypeDef implements ParseNode {
             throw new AnalysisException("Array unsupported sub-type: " + type.toSql());
         }
 
-        if (type.getPrimitiveType().isStringType()
-                && !type.isAssignedStrLenInColDefinition()) {
+        if (type.getPrimitiveType().isStringType() && !type.isLengthSet()) {
             type.setLength(1);
         }
         analyze(type);

@@ -260,7 +260,9 @@ struct TQueryGlobals {
   3: optional string time_zone
 
   // Set to true if in a load plan, the max_filter_ratio is 0.0
-  4: optional bool load_zero_tolerance = false;
+  4: optional bool load_zero_tolerance = false
+
+  5: optional i32 nano_seconds
 }
 
 

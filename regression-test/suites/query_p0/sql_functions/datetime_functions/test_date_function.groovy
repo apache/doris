@@ -249,6 +249,14 @@ suite("test_date_function") {
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """
     qt_sql """ select yearweek('2020-7-1') """
+    qt_sql """ select yearweek('1989-03-21', 0) """
+    qt_sql """ select yearweek('1989-03-21', 1) """
+    qt_sql """ select yearweek('1989-03-21', 2) """
+    qt_sql """ select yearweek('1989-03-21', 3) """
+    qt_sql """ select yearweek('1989-03-21', 4) """
+    qt_sql """ select yearweek('1989-03-21', 5) """
+    qt_sql """ select yearweek('1989-03-21', 6) """
+    qt_sql """ select yearweek('1989-03-21', 7) """
 
     qt_sql """ select count(*) from (select * from numbers("200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
@@ -295,4 +303,12 @@ suite("test_date_function") {
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
     qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
+
+    qt_sql """ select length(cast(now() as string)), length(cast(now(0) as string)), length(cast(now(1) as string)),
+                      length(cast(now(2) as string)), length(cast(now(3) as string)), length(cast(now(4) as string)),
+                      length(cast(now(5) as string)), length(cast(now(6) as string)); """
+    qt_sql """ select length(cast(current_timestamp() as string)), length(cast(current_timestamp(0) as string)),
+                      length(cast(current_timestamp(1) as string)), length(cast(current_timestamp(2) as string)),
+                      length(cast(current_timestamp(3) as string)), length(cast(current_timestamp(4) as string)),
+                      length(cast(current_timestamp(5) as string)), length(cast(current_timestamp(6) as string)); """
 }

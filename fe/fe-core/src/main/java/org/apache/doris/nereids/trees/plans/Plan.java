@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -43,11 +44,27 @@ public interface Plan extends TreeNode<Plan> {
 
     LogicalProperties getLogicalProperties();
 
-    default LogicalProperties computeLogicalProperties(Plan... inputs) {
+    boolean canBind();
+
+    default boolean bound() {
+        return !(getLogicalProperties() instanceof UnboundLogicalProperties);
+    }
+
+    default boolean childrenBound() {
+        return children()
+                .stream()
+                .allMatch(Plan::bound);
+    }
+
+    default LogicalProperties computeLogicalProperties() {
         throw new IllegalStateException("Not support compute logical properties for " + getClass().getName());
     }
 
     List<Slot> getOutput();
+
+    default List<Slot> computeOutput() {
+        throw new IllegalStateException("Not support compute output for " + getClass().getName());
+    }
 
     String treeString();
 

@@ -397,6 +397,11 @@ public:
         LOG(FATAL) << "scatter not supported in PredicateColumnType";
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
+    }
+
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             insert_string_to_res_column(sel, sel_size,

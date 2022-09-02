@@ -194,6 +194,11 @@ public:
         return this->template scatter_impl<Self>(num_columns, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector);
+    }
+
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool structure_equals(const IColumn& rhs) const override {

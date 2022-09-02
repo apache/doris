@@ -166,12 +166,16 @@ void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
     }
 }
 
-Status ColumnChunkReader::skip_values(size_t num_values) {
+Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Skip too many values in current page");
     }
     _remaining_num_values -= num_values;
-    return _page_decoder->skip_values(num_values);
+    if (skip_data) {
+        return _page_decoder->skip_values(num_values);
+    } else {
+        return Status::OK();
+    }
 }
 
 void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_values) {
@@ -180,7 +184,16 @@ void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_v
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    data_column->insert_default();
+    for (int i = 0; i < num_values; ++i) {
+        data_column->insert_default();
+    }
+    _remaining_num_values -= num_values;
+}
+
+void ColumnChunkReader::insert_null_values(MutableColumnPtr& doris_column, size_t num_values) {
+    for (int i = 0; i < num_values; ++i) {
+        doris_column->insert_default();
+    }
     _remaining_num_values -= num_values;
 }
 

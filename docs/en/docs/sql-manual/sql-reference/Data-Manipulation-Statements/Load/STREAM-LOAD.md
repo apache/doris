@@ -99,7 +99,7 @@ Parameter introduction:
 
 11. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
 
-12. format: Specify the import data format, the default is csv, and json format is supported.
+12. format: Specify the import data format, the default is csv, and csv_with_names(filter out the first row of your csv file), csv_with_names_and_types(filter out the first two lines of your csv file), json format are supported.
 
 13. jsonpaths: The way of importing json is divided into: simple mode and matching mode.
 

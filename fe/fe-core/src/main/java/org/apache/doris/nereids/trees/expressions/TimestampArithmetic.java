@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -84,7 +85,15 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return DateTimeType.INSTANCE;
+        int dateChildIndex = 0;
+        if (intervalFirst) {
+            dateChildIndex = 1;
+        }
+        if (child(dateChildIndex).getDataType() instanceof DateTimeType || timeUnit.isDateTimeUnit()) {
+            return DateTimeType.INSTANCE;
+        } else {
+            return DateType.INSTANCE;
+        }
     }
 
     public String getFuncName() {
