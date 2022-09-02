@@ -37,7 +37,7 @@ Cluster function, showing a cluster-based monitoring panel.
 
 On the home page, click "Cluster" in the navigation bar to enter the cluster function.
 
-![](/images/doris-manager/clustermanagenent-1.png)
+![](../../../../images/doris-manager/clustermanagenent-1.png)
 
 The operation and maintenance monitoring panel provides various performance monitoring indicators of the cluster for users to gain insight into the cluster status. Users can control the start and stop operations of the cluster through buttons in the upper right corner.
 
@@ -50,16 +50,16 @@ Users can view disk usage through pie charts, and view the number of databases, 
 Displays information about FE nodes, BE nodes, and brokers in the cluster.
 Provides fields including Node ID, Node Type, Host IP, and Node Status.
 
-![](/images/doris-manager/clustermanagenent-2.png)
+![](../../../../images/doris-manager/clustermanagenent-2.png)
 
 ## Parameter configuration
 
 Parameter configuration provides parameter name, parameter type, parameter value type, thermal effect and operation fields.
 
-![](/images/doris-manager/clustermanagenent-3.png)
+![](../../../../images/doris-manager/clustermanagenent-3.png)
 
 -   **Operation**: Click the "Edit" button, you can edit and modify the corresponding configuration value, you can choose the corresponding effective method; click the "View current value" button, you can view the current value corresponding to the host IP
 
-![](/images/doris-manager/clustermanagenent-4.png)
+![](../../../../images/doris-manager/clustermanagenent-4.png)
 
-![](/images/doris-manager/clustermanagenent-5.png)
+![](../../../../images/doris-manager/clustermanagenent-5.png)

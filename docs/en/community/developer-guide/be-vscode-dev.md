@@ -138,7 +138,7 @@ mkdir -p /soft/be/storage
 
 4. Install the vscode ms c++ debugging plug-in, the plug-in identified by the red box in the figure below
 
-![](/images/image-20210618104042192.png)
+![](../../../images/image-20210618104042192.png)
 
 5. Create a launch.json file, the content of the file is as follows:
 
@@ -209,7 +209,7 @@ ps -ef | grep palo*
 
 As shown in the figure:
 
-![](/images/image-20210618095240216.png)
+![](../../../images/image-20210618095240216.png)
 
 Among them, 15200 is the process id of the currently running be.
 
@@ -278,7 +278,7 @@ An example of a complete launch.json is as follows:
 
    You can start your debugging journey with the rest,
 
-![](/images/image-20210618091006146.png)
+![](../../../images/image-20210618091006146.png)
 
 ## Debugging(LLDB)
 

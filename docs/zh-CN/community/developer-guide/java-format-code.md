@@ -61,11 +61,11 @@ mvn clean install -DskipTests -Dcheckstyle.skip
 
 **注意：** 保证`Checkstyle`的版本在9.3及以上（推荐使用最新版本）。
 
-![](/images/idea-checkstyle-version.png)
+![](../../../images/idea-checkstyle-version.png)
 
 **可以使用 `Checkstyle-IDEA` 插件来对代码进行 `Checkstyle` 检测**。
 
-![](/images/idea-checkstyle-plugin-cn.png)
+![](../../../images/idea-checkstyle-plugin-cn.png)
 
 ### VS Code
 
@@ -85,7 +85,7 @@ Checkstyle 会按照 [Class and Interface Declarations](https://www.oracle.com/j
 
 在导入上面的 `build-support/IntelliJ-code-format.xml` 文件后，使用 `Code/Rearrange Code` 自动完成排序
 
-![](/images/idea-rearrange-code.png)
+![](../../../images/idea-rearrange-code.png)
 
 ## Remove unused header
 

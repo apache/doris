@@ -63,11 +63,11 @@ Click the plus sign under Configuration File, select `Use a local Checkstyle fil
 
 **NOTE:** Make sure that the version of `Checkstyle` is 9.3 or newer (the latest version is recommended).
 
-![](/images/idea-checkstyle-version.png)
+![](../../../images/idea-checkstyle-version.png)
 
 **You can use `Checkstyle-IDEA` plugin to check `Checkstyle` of your code real-time.**
 
-![](/images/idea-checkstyle-plugin-en.png)
+![](../../../images/idea-checkstyle-plugin-en.png)
 
 ### VS Code
 
@@ -87,7 +87,7 @@ Checkstyle will check declarations order according to [Class and Interface Decla
 
 After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearrange Code` to auto rearrange code.
 
-![](/images/idea-rearrange-code.png)
+![](../../../images/idea-rearrange-code.png)
 
 ## Remove unused header
 

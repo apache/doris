@@ -42,13 +42,13 @@ The space administrator can mainly perform the following operations in the space
 
 The super administrator can operate the completed space through the button to the right of the space name. Space administrators can click to enter the space to manage clusters or data in the space.
 
-![](/images/doris-manager/spacelist-1.png)
+![](../../../../images/doris-manager/spacelist-1.png)
 
 ## Unfinished space
 
 Doris Manger provides a draft save function of the space creation process to record the incomplete space creation process. Super administrators can view the list of unfinished spaces by switching tabs, and perform recovery or deletion operations.
 
-![](/images/doris-manager/spacelist-2.png)
+![](../../../../images/doris-manager/spacelist-2.png)
 
 # New space
 
@@ -62,11 +62,11 @@ Space information includes space name, space introduction, and selection of spac
 
 Space name and administrator are required/optional fields.
 
-![](/images/doris-manager/spacelist-3.png)
+![](../../../../images/doris-manager/spacelist-3.png)
 
 ### 2 Add host
 
-![](/images/doris-manager/spacelist-4.png)
+![](../../../../images/doris-manager/spacelist-4.png)
 
 #### Configure SSH login-free
 
@@ -117,13 +117,13 @@ Enter the host IP to add a new host, or add it in batches.
 
 The system will automatically perform verification according to the host status. When the verification is completed, the Agent will start sending back the heartbeat, and you can click to proceed to the next step.
 
-![](/images/doris-manager/spacelist-5.png)
+![](../../../../images/doris-manager/spacelist-5.png)
 
 ### 5 Planning Nodes
 
 Click the Assign Node button to plan FE/BE/Broker nodes for the host.
 
-![](/images/doris-manager/spacelist-6.png)
+![](../../../../images/doris-manager/spacelist-6.png)
 
 ### 6 Configuration Parameters
 
@@ -133,13 +133,13 @@ Configure parameters for the nodes planned in the previous step. You can use the
 
 The system will automatically perform verification according to the status of the host installation progress. When the verification is completed, it will start the node and return the heartbeat. You can click to proceed to the next step.
 
-![](/images/doris-manager/spacelist-7.png)
+![](../../../../images/doris-manager/spacelist-7.png)
 
 ### 8 Complete the creation
 
 Complete the above steps to complete the new cluster.
 
-![](/images/doris-manager/spacelist-8.png)
+![](../../../../images/doris-manager/spacelist-8.png)
 
 ## Cluster hosting
 
@@ -157,7 +157,7 @@ Click the Link Test button to test it.
 
 ### 3 Hosting Options
 
-![](/images/doris-manager/spacelist-9.png)
+![](../../../../images/doris-manager/spacelist-9.png)
 
 #### Configure SSH login-free
 
@@ -195,13 +195,13 @@ For details, please refer to: https://blog.csdn.net/universe_hao/article/details
 
 The system will automatically perform verification according to the host status. When the verification is completed, the Agent will start sending back the heartbeat, and you can click to proceed to the next step.
 
-![](/images/doris-manager/spacelist-10.png)
+![](../../../../images/doris-manager/spacelist-10.png)
 
 ### 5 Verify the cluster
 
 Verify the cluster quantile instance installation verification, instance dependency verification, and instance startup verification. After the verification is successful, click Next to complete the creation.
 
-![](/images/doris-manager/spacelist-11.png)
+![](../../../../images/doris-manager/spacelist-11.png)
 
 ### 6 Complete access
 

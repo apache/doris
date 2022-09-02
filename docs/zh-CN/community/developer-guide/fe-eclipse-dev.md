@@ -110,7 +110,7 @@ Note:
 
 至此，FE 导入完成。Eclipse 中的工程目录大致如下：
 
-![](/images/eclipse-import-fe-project-1.png)
+![](../../../images/eclipse-import-fe-project-1.png)
 
 
 ### 使用maven工程导入

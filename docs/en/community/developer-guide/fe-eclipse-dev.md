@@ -109,7 +109,7 @@ Note:
 
 At this point, FE project import is complete. The project directory in Eclipse is roughly as follows:
 
-![](/images/eclipse-import-fe-project-1.png)
+![](../../../images/eclipse-import-fe-project-1.png)
 
 ### Import as maven project
 

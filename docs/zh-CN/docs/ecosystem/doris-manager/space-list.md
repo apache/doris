@@ -42,13 +42,13 @@ under the License.
 
 超级管理员可以通过空间名称右侧按钮对已完成空间进行操作。空间管理员可以点击进入空间，对空间内的集群或数据进行管理操作。
 
-![](/images/doris-manager/spacelist-1.png)
+![](../../../../images/doris-manager/spacelist-1.png)
 
 ## 未完成空间
 
 Doris Manger 提供了空间创建流程的草稿保存功能，用以记录未完成的空间创建流程。超级管理员可从通过切换tab页查看未完成空间列表，进行恢复或是删除操作。
 
-![](/images/doris-manager/spacelist-2.png)
+![](../../../../images/doris-manager/spacelist-2.png)
 
 # 新建空间
 
@@ -62,11 +62,11 @@ Doris Manger 提供了空间创建流程的草稿保存功能，用以记录未�
 
 空间名称、管理员为必填/选字段。
 
-![](/images/doris-manager/spacelist-3.png)
+![](../../../../images/doris-manager/spacelist-3.png)
 
 ### 2 添加主机
 
-![](/images/doris-manager/spacelist-4.png)
+![](../../../../images/doris-manager/spacelist-4.png)
 
 #### 配置SSH免登陆
 
@@ -117,13 +117,13 @@ ssh agent01@xx.xxx.xx.xx
 
 系统会根据主机状态自动进行校验，当校验完成时既Agent启动回传心跳，可点击进行下一步。
 
-![](/images/doris-manager/spacelist-5.png)
+![](../../../../images/doris-manager/spacelist-5.png)
 
 ### 5 规划节点
 
 点击分配节点按钮，对主机进行FE/BE/Broker节点的规划。
 
-![](/images/doris-manager/spacelist-6.png)
+![](../../../../images/doris-manager/spacelist-6.png)
 
 ### 6 配置参数
 
@@ -133,13 +133,13 @@ ssh agent01@xx.xxx.xx.xx
 
 系统会根据主机安装进度状态自动进行校验，当校验完成时既启动节点并回传心跳，可点击进行下一步。
 
-![](/images/doris-manager/spacelist-7.png)
+![](../../../../images/doris-manager/spacelist-7.png)
 
 ### 8 完成创建
 
 完成以上步骤即可完成新建集群。
 
-![](/images/doris-manager/spacelist-8.png)
+![](../../../../images/doris-manager/spacelist-8.png)
 
 ## 集群托管
 
@@ -157,7 +157,7 @@ ssh agent01@xx.xxx.xx.xx
 
 ### 3 托管选项
 
-![](/images/doris-manager/spacelist-9.png)
+![](../../../../images/doris-manager/spacelist-9.png)
 
 #### 配置SSH免登陆
 
@@ -195,12 +195,12 @@ ssh agent01@xx.xxx.xx.xx
 
 系统会根据主机状态自动进行校验，当校验完成时既Agent启动回传心跳，可点击进行下一步。
 
-![](/images/doris-manager/spacelist-10.png)
+![](../../../../images/doris-manager/spacelist-10.png)
 
 ### 5 校验集群
 校验集群分位实例安装校验、实例依赖校验、实例启动校验，校验成功后点击下一步即可完成创建。
 
-![](/images/doris-manager/spacelist-11.png)
+![](../../../../images/doris-manager/spacelist-11.png)
 
 ### 6 完成接入
 完成以上步骤即可完成集群托管。

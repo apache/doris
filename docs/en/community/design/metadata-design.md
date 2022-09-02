@@ -54,7 +54,7 @@ At the same time, metadata is stored in the memory as a whole in a tree-like hie
 
 The following figure shows the contents stored in Doris meta-information.
 
-![](/images/metadata_contents.png)
+![](../../../images/metadata_contents.png)
 
 As shown above, Doris's metadata mainly stores four types of data:
 
@@ -65,7 +65,7 @@ As shown above, Doris's metadata mainly stores four types of data:
 
 ## Data stream
 
-![](/images/metadata_stream.png)
+![](../../../images/metadata_stream.png)
 
 The data flow of metadata is as follows:
 

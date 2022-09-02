@@ -40,7 +40,7 @@ Dashboard 模板会不定期更新。更新模板的方式见最后一小节。
 
 Doris 使用 [Prometheus](https://prometheus.io/) 和 [Grafana](https://grafana.com/) 进项监控项的采集和展示。
 
-![](/images/dashboard_overview.png)
+![](../../../../images/dashboard_overview.png)
 
 1. Prometheus
     
@@ -120,7 +120,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
 
 整个监控架构如下图所示：
 
-![](/images/monitor_arch.png)
+![](../../../../images/monitor_arch.png)
 
 1. 黄色部分为 Prometheus 相关组件。Prometheus Server 为 Prometheus 的主进程，目前 Prometheus 通过 Pull 的方式访问 Doris 节点的监控接口，然后将时序数据存入时序数据库 TSDB 中（TSDB 包含在 Prometheus 进程中，无需单独部署）。Prometheus 也支持通过搭建 [Push Gateway](https://github.com/prometheus/pushgateway) 的方式，允许被监控系统将监控数据通过 Push 的方式推到 Push Gateway, 再由 Prometheus Server 通过 Pull 的方式从 Push Gateway 中获取数据。
 2. [Alert Manager](https://github.com/prometheus/alertmanager) 为 Prometheus 报警组件，需单独部署（暂不提供方案，可参照官方文档自行搭建）。通过 Alert Manager，用户可以配置报警策略，接收邮件、短信等报警。
@@ -264,7 +264,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
 
 1. 顶栏
 
-    ![](/images/dashboard_navibar.png)
+    ![](../../../../images/dashboard_navibar.png)
     
     * 左上角为 Dashboard 名称。
     * 右上角显示当前监控时间范围，可以下拉选择不同的时间范围，还可以指定定时刷新页面间隔。
@@ -276,7 +276,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
     
 2. Row
 
-    ![](/images/dashboard_row.png)
+    ![](../../../../images/dashboard_row.png)
 
     Grafana 中，Row 的概念，即一组图表的集合。如上图中的 Overview、Cluster Overview 即两个不同的 Row。可以通过点击 Row，对 Row 进行折叠。当前 Dashboard 有如下 Rows（持续更新中）：
     
@@ -289,7 +289,7 @@ jvm_heap_size_bytes{type="used"} 10113221064
 
 3. 图表
 
-    ![](/images/dashboard_panel.png)
+    ![](../../../../images/dashboard_panel.png)
 
     一个典型的图标分为以下几部分：
     

@@ -87,12 +87,12 @@ For more git usage, please visit: [git usage](https://www.atlassian.com/git/tuto
 #### (1) New PR
 Switch to your GitHub page in the browser, switch to the submitted branch yourbranchname\\ and click the `Compare & pull request` button to create it, as shown in the following figure:
 
-![new PR](/images/new-pr.png)
+![new PR](../../../images/new-pr.png)
 
 #### (2) preparation branch
 At this time, the `Create pull request` button will appear. If not, please check whether the branch is selected correctly or click on `compare across forks' to re-select the repo and branch.
 
-![create PR](/images//create-pr.png)
+![create PR](../../../images//create-pr.png)
 
 #### (3) Fill Commit Message
 Here, please fill in the summary and details of the comment, and then click `Create pull request` to create it.
@@ -109,12 +109,12 @@ For how to write Commit Message, here are some Tips:
 
 For more details, see <https://chris.beams.io/posts/git-commit>.
 
-![create PR](/images/create-pr.png)
+![create PR](../../../images/create-pr.png)
 
 #### (4) Complete the creation
 After successful creation, you can see that Doris project needs review, you can wait for us to review and join, you can also contact us directly.
 
-![create PR](/images/create-pr3.png)
+![create PR](../../../images/create-pr3.png)
 
 So far, your PR creation is complete. Read more about PR [collaborating-with-issues-and-pull-requests] (https://help.github.com/categories/collaborating-with-issues-and-pull-requests/).
 

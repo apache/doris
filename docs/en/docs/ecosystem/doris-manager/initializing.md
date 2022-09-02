@@ -32,12 +32,12 @@ After the deployment is complete, the super administrator needs to complete the 
 
 The first step of initialization is to manage users, which mainly completes the selection and configuration of authentication methods. Currently Doris Manger supports local user authentication.
 
-![](/images/doris-manager/initializing-1.png)
+![](../../../../images/doris-manager/initializing-1.png)
 
 ### Local user authentication
 
 Local user authentication is the user system that comes with Doris Manger. User registration can be completed by filling in the user name, email address and password. User addition, information modification, deletion and permission relationship are all completed locally.
 
-![](/images/doris-manager/initializing-2.png)
+![](../../../../images/doris-manager/initializing-2.png)
 
 At this point, the local initialization process has been completed. Super administrators can create spaces, space administrators can enter the space, manage the space, add and invite users to enter the space for data analysis, etc.

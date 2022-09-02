@@ -36,7 +36,7 @@ Bloom filter is actually composed of an extremely long binary bit array and a se
 
 Figure below shows an example of Bloom Filter with m=18, k=3 (m is the size of the Bit array, and k is the number of Hash functions). The three elements of x, y, and z in the set are hashed into the bit array through three different hash functions. When querying the element w, after calculating by the Hash function, because one bit is 0, w is not in the set.
 
-![Bloom_filter.svg](/images/Bloom_filter.svg.png)
+![Bloom_filter.svg](../../../../images/Bloom_filter.svg.png)
 
 So how to judge whether the plot and the elements are in the set? Similarly, all the offset positions of this element are obtained after hash function calculation. If these positions are all 1, then it is judged that this element is in this set, if one is not 1, then it is judged that this element is not in this set. It's that simple!
 

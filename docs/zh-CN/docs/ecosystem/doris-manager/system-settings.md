@@ -41,9 +41,9 @@ under the License.
 
  Doris Manger 将会为新用户分配临时密码，新用户需要使用所设定的用户名/邮箱和临时密码登录，登录后可在“账户设置”中创建新密码。
 
-![](/images/doris-manager/systemsettings-1.png)
+![](../../../../images/doris-manager/systemsettings-1.png)
 
-![](/images/doris-manager/systemsettings-2.png)
+![](../../../../images/doris-manager/systemsettings-2.png)
 
 
 ### 编辑用户
@@ -54,7 +54,7 @@ under the License.
 
 点击选择选择“编辑”可以修改用户名、邮箱。若更新用户邮箱，则用户需要使用更新后的邮箱进行登录，密码不会被更新。
 
-![](/images/doris-manager/systemsettings-3.png)
+![](../../../../images/doris-manager/systemsettings-3.png)
 
 #### 重置用户密码
 
@@ -69,7 +69,7 @@ under the License.
 
 注意，超级管理员不能停用自己的用户账户，系统内至少要有一位非停用状态的超级管理员用户。
 
-![](/images/doris-manager/systemsettings-4.png)
+![](../../../../images/doris-manager/systemsettings-4.png)
 
 
 ## 用户权限说明

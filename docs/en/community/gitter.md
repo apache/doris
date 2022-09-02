@@ -38,11 +38,11 @@ Entering [https://gitter.im/apache-doris/Lobby](https://gitter.im/apache-doris/L
 
 Click on the `SIGN IN TO START TALKING` below to login. It can support two login modes, Github account or Twitter account. The author uses Github account to login, as follows:
 
-![](/images/login-gitter1.png)
+![](../../images/login-gitter1.png)
 
 After clicking on the red circle, enter the Github account and password to log into the chat room and start technical or community discussions:
 
-![](/images/login-gitter2.png)
+![](../../images/login-gitter2.png)
 
 You can use Gitter as well as Wechat, and get functions that are more comfortable for developers and technicians than Wechat, such as directly mentioning an activity for discussion, directly searching history chat records, etc.
 

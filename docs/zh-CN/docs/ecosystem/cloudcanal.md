@@ -29,7 +29,7 @@ under the License.
 ## 介绍
 
 CloudCanal 社区版是一款由 [ClouGence 公司](https://www.clougence.com) 发行的集结构迁移、数据全量迁移/校验/订正、增量实时同步为一体的免费数据迁移同步平台。产品包含完整的产品化能力，助力企业打破数据孤岛、完成数据互融互通，从而更好的使用数据。
-![image.png](/images/cloudcanal/cloudcanal-1.jpg)
+![image.png](../../../images/cloudcanal/cloudcanal-1.jpg)
 
 ## 下载安装
 
@@ -65,7 +65,7 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 - 数据源管理-> 新增数据源
 - 选择自建数据库中 Doris
 
-![image.png](/images/cloudcanal/cloudcanal-2.jpg)
+![image.png](../../../images/cloudcanal/cloudcanal-2.jpg)
 
 > Tips:
 >
@@ -81,31 +81,31 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 - 选择 **源** 和 **目标** 数据库
 - 点击 下一步
 
-![image.png](/images/cloudcanal/cloudcanal-3.jpg)
+![image.png](../../../images/cloudcanal/cloudcanal-3.jpg)
 
 - 选择 **增量同步**，并且启用 **全量数据初始化**
 - 不勾选 DDL 同步(暂不支持)
 - 点击下一步
 
-![image.png](/images/cloudcanal/cloudcanal-4.png)
+![image.png](../../../images/cloudcanal/cloudcanal-4.png)
 
 - 选择订阅的表，**结构迁移自动创建的表为主键模型的表，因此暂不支持无主键表**
 - 点击下一步
 
-![image.png](/images/cloudcanal/cloudcanal-5.png)
+![image.png](../../../images/cloudcanal/cloudcanal-5.png)
 
 - 配置列映射
 - 点击下一步
 
-![image.png](/images/cloudcanal/cloudcanal-6.png)
+![image.png](../../../images/cloudcanal/cloudcanal-6.png)
 
 - 创建任务
 
-![image.png](/images/cloudcanal/cloudcanal-7.png)
+![image.png](../../../images/cloudcanal/cloudcanal-7.png)
 
 - 查看任务状态。任务创建后，会自动完成结构迁移、全量、增量阶段。
 
-![image.png](/images/cloudcanal/cloudcanal-8.jpg)
+![image.png](../../../images/cloudcanal/cloudcanal-8.jpg)
 
 ## 参考资料
 

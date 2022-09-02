@@ -38,16 +38,16 @@ under the License.
 
 如果空间信息已经完备，空间管理员可以在此查看并编辑空间相关信息，包括空间名称、空间简介、空间管理员等等。
 
-![](/images/doris-manager/spacemanagement-1.png)
+![](../../../../images/doris-manager/spacemanagement-1.png)
 
 ## 成员
 
 在“空间管理”界面的二级导航栏中选择“成员”，进入成员管理页面。此页面可以查看当前空间下的所有用户，您可以对成员进行移除操作。
 
-![](/images/doris-manager/spacemanagement-2.png)
+![](../../../../images/doris-manager/spacemanagement-2.png)
 
 ## 角色
 
 空间管理员可以通过单击导航栏“角色”按钮，查看所有角色和角色成员。新成员默认属于"空间成员"角色和"空间管理员"角色。默认角色有"空间管理员"和"空间成员"且不可被其他管理员更改。
 
-![](/images/doris-manager/spacemanagement-3.png)
+![](../../../../images/doris-manager/spacemanagement-3.png)

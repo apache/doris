@@ -110,7 +110,7 @@ mvn release:perform
 
 After successful execution, the version just released can be found in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories)
 
-![](/images/staging-repositories.png)
+![](../../../images/staging-repositories.png)
 
 **Note that the `.asc` signature file needs to be included.**
 

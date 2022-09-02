@@ -41,9 +41,9 @@ Click the Add User button to create a new user with username and email informati
 
  Doris Manger will assign a temporary password to the new user. The new user needs to log in with the set username/email and temporary password. After logging in, you can create a new password in "Account Settings".
 
-![](/images/doris-manager/systemsettings-1.png)
+![](../../../../images/doris-manager/systemsettings-1.png)
 
-![](/images/doris-manager/systemsettings-2.png)
+![](../../../../images/doris-manager/systemsettings-2.png)
 
 
 ### Edit User
@@ -54,7 +54,7 @@ Super administrators can manage users, including editing user information, reset
 
 Click to select and select "Edit" to modify the user name and email address. If the user mailbox is updated, the user needs to log in with the updated mailbox, and the password will not be updated.
 
-![](/images/doris-manager/systemsettings-3.png)
+![](../../../../images/doris-manager/systemsettings-3.png)
 
 #### reset user password
 
@@ -69,7 +69,7 @@ Click Activate User on the right side of the user to reactivate the user. The us
 
 Note that super administrators cannot deactivate their own user accounts, and there must be at least one non-deactivated super administrator user in the system.
 
-![](/images/doris-manager/systemsettings-4.png)
+![](../../../../images/doris-manager/systemsettings-4.png)
 
 
 ## User permission description
