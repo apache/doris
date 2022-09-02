@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_system.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -46,14 +47,14 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
-    if (config::file_cache_type.empty()) {
-        segment->_file_reader = std::move(file_reader);
-    } else {
+    if (fs->type() != io::FileSystemType::LOCAL && !config::file_cache_type.empty()) {
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
         segment->_file_reader = cache_reader;
         FileCacheManager::instance()->add_file_cache(cache_path, cache_reader);
+    } else {
+        segment->_file_reader = std::move(file_reader);
     }
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);

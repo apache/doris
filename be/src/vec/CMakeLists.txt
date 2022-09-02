@@ -239,6 +239,10 @@ set(VEC_FILES
   exec/scan/scanner_scheduler.cpp
   exec/scan/new_olap_scan_node.cpp
   exec/scan/new_olap_scanner.cpp
+  exec/scan/new_file_arrow_scanner.cpp
+  exec/scan/new_file_scan_node.cpp
+  exec/scan/new_file_scanner.cpp
+  exec/scan/new_file_text_scanner.cpp
 )
 
 add_library(Vec STATIC
