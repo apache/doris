@@ -73,7 +73,7 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
                                 std::vector<RowRange>& row_ranges) {
     _stream_reader =
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
-    _row_ranges = &row_ranges;
+    _row_ranges = row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field, _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
     if (_chunk_reader->max_def_level() > 1) {
@@ -94,7 +94,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             return Status::OK();
         }
         RETURN_IF_ERROR(_chunk_reader->next_page());
-        if (_row_ranges->size() != 0) {
+        if (_row_ranges.size() != 0) {
             _skipped_pages();
         }
         RETURN_IF_ERROR(_chunk_reader->load_page_data());
@@ -160,7 +160,7 @@ Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::C
                                std::vector<RowRange>& row_ranges) {
     _stream_reader =
             new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
-    _row_ranges = &row_ranges;
+    _row_ranges = row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, &field->children[0], _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
     if (_chunk_reader->max_def_level() > 4) {
@@ -191,7 +191,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             return Status::OK();
         }
         RETURN_IF_ERROR(_chunk_reader->next_page());
-        if (_row_ranges->size() != 0) {
+        if (_row_ranges.size() != 0) {
             _skipped_pages();
         }
         RETURN_IF_ERROR(_chunk_reader->load_page_data());
