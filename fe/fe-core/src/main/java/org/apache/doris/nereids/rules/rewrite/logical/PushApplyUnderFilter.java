@@ -50,7 +50,7 @@ import java.util.Optional;
 public class PushApplyUnderFilter extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(any(), logicalFilter()).when(LogicalApply::isCorrelated).then(apply -> {
+        return logicalApply(group(), logicalFilter()).when(LogicalApply::isCorrelated).then(apply -> {
             LogicalFilter<GroupPlan> filter = apply.right();
             List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());
             Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(

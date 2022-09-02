@@ -23,9 +23,8 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -57,20 +56,20 @@ public class Scope {
     private final List<Slot> slots;
 
     private final Optional<SubqueryExpr> ownerSubquery;
-    private Map<SubqueryExpr, List<Slot>> subqueryToOuterCorrelatedSlots;
+    private List<Slot> correlatedSlots;
 
     public Scope(Optional<Scope> outerScope, List<Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
         this.outerScope = outerScope;
         this.slots = slots;
         this.ownerSubquery = subqueryExpr;
-        this.subqueryToOuterCorrelatedSlots = new HashMap<>();
+        this.correlatedSlots = new ArrayList<>();
     }
 
     public Scope(List<Slot> slots) {
         this.outerScope = Optional.empty();
         this.slots = slots;
         this.ownerSubquery = Optional.empty();
-        this.subqueryToOuterCorrelatedSlots = new HashMap<>();
+        this.correlatedSlots = new ArrayList<>();
     }
 
     public List<Slot> getSlots() {
@@ -85,13 +84,8 @@ public class Scope {
         return ownerSubquery;
     }
 
-    public List<Slot> getCorrelatedSlots(SubqueryExpr subqueryExpr) {
-        return subqueryToOuterCorrelatedSlots.get(subqueryExpr);
-    }
-
-    public void setSubqueryToCorrelatedSlots(SubqueryExpr subqueryExpr,
-            List<Slot> correlatedSlots) {
-        subqueryToOuterCorrelatedSlots.put(subqueryExpr, correlatedSlots);
+    public List<Slot> getCorrelatedSlots() {
+        return correlatedSlots;
     }
 
     /**

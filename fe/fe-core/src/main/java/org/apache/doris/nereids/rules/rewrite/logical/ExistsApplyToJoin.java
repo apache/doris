@@ -61,10 +61,14 @@ import java.util.ArrayList;
  *       /       \         -->       /           \
  *     input    queryPlan          input        queryPlan
  *
- *    UnCorrelated -> CROSS_JOIN(Count(1))
- *         apply                Filter(count(1) = 0)
+ *    UnCorrelated -> CROSS_JOIN(Count(*))
+ *                                    Filter(count(*) = 0)
+ *                                          |
+ *         apply                       Cross_Join
  *      /       \         -->       /           \
- *    input    queryPlan          input        count(1)
+ *    input    queryPlan          input       agg(output:count(*))
+ *                                               |
+ *                                             limit(1)
  *                                               |
  *                                             queryPlan
  */
@@ -99,10 +103,10 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedNotExist(LogicalApply unapply) {
+        LogicalLimit newLimit = new LogicalLimit<>(1, 0, (LogicalPlan) unapply.right());
         Alias alias = new Alias(new Count(), "count(*)");
         LogicalAggregate newAgg = new LogicalAggregate<>(new ArrayList<>(),
-                ImmutableList.of(alias),
-                (LogicalPlan) unapply.right());
+                ImmutableList.of(alias), newLimit);
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 (LogicalPlan) unapply.left(), newAgg);
         return new LogicalFilter<>(new EqualTo(newAgg.getOutput().get(0),

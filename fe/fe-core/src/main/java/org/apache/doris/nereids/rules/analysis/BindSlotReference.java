@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.planner.PlannerContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -166,7 +167,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         return (E) new SlotBinder(toScope(boundedSlots), plan, cascadesContext).bind(expr);
     }
 
-    private class SlotBinder extends SubExprAnalyzer<Void> {
+    private class SlotBinder extends SubExprAnalyzer {
         private final Plan plan;
 
         public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {
@@ -179,7 +180,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitUnboundAlias(UnboundAlias unboundAlias, Void context) {
+        public Expression visitUnboundAlias(UnboundAlias unboundAlias, PlannerContext context) {
             Expression child = unboundAlias.child().accept(this, context);
             if (child instanceof NamedExpression) {
                 return new Alias(child, ((NamedExpression) child).getName());
@@ -190,7 +191,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Slot visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
+        public Slot visitUnboundSlot(UnboundSlot unboundSlot, PlannerContext context) {
             Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
             boolean foundInThisScope = !boundedOpt.get().isEmpty();
             // Currently only looking for symbols on the previous level.
@@ -208,11 +209,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             switch (bounded.size()) {
                 case 1:
                     if (!foundInThisScope) {
-                        SubqueryExpr subquery = getScope().getOuterScope().get().getSubquery().get();
-                        List<Slot> slots = getScope().getOuterScope().get().getCorrelatedSlots(subquery) == null
-                                ? new ArrayList<>() : getScope().getOuterScope().get().getCorrelatedSlots(subquery);
-                        slots.add(bounded.get(0));
-                        getScope().getOuterScope().get().setSubqueryToCorrelatedSlots(subquery, slots);
+                        getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                     }
                     return bounded.get(0);
                 default:
@@ -224,7 +221,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
+        public Expression visitUnboundStar(UnboundStar unboundStar, PlannerContext context) {
             if (!(plan instanceof LogicalProject)) {
                 throw new AnalysisException("UnboundStar must exists in Projection");
             }
@@ -241,7 +238,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             }
         }
 
-        private BoundStar bindQualifiedStar(List<String> qualifierStar, Void context) {
+        private BoundStar bindQualifiedStar(List<String> qualifierStar, PlannerContext context) {
             // FIXME: compatible with previous behavior:
             // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
             List<Slot> slots = getScope().getSlots().stream().filter(boundSlot -> {
@@ -342,7 +339,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     /**
      * Use the visitor to iterate sub expression.
      */
-    private static class SubExprAnalyzer<C> extends DefaultExpressionRewriter<C> {
+    private static class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
         private final Scope scope;
         private final CascadesContext cascadesContext;
 
@@ -352,7 +349,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitNot(Not not, C context) {
+        public Expression visitNot(Not not, PlannerContext context) {
             Expression child = not.child();
             if (child instanceof Exists) {
                 return visitExistsSubquery(
@@ -365,7 +362,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitExistsSubquery(Exists exists, C context) {
+        public Expression visitExistsSubquery(Exists exists, PlannerContext context) {
             AnalyzedResult analyzedResult = analyzeSubquery(exists);
 
             return new Exists(analyzedResult.getLogicalPlan(),
@@ -373,7 +370,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitInSubquery(InSubquery expr, C context) {
+        public Expression visitInSubquery(InSubquery expr, PlannerContext context) {
             AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
             checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -386,7 +383,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitScalarSubquery(ScalarSubquery scalar, C context) {
+        public Expression visitScalarSubquery(ScalarSubquery scalar, PlannerContext context) {
             AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
             checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -432,7 +429,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     .newAnalyzer(Optional.of(subqueryScope))
                     .analyze();
             return new AnalyzedResult((LogicalPlan) subqueryContext.getMemo().copyOut(false),
-                    subqueryScope.getCorrelatedSlots(expr));
+                    subqueryScope.getCorrelatedSlots());
         }
 
         private Scope genScopeWithSubquery(SubqueryExpr expr) {

@@ -47,9 +47,10 @@ public class RewriteJob extends BatchRulesJob {
     public RewriteJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
-                /**
+                /*
                  * Subquery unnesting.
-                 * 1. Adjust the plan in correlated logicalApply so that there are no correlated columns in the subquery.
+                 * 1. Adjust the plan in correlated logicalApply
+                 *    so that there are no correlated columns in the subquery.
                  * 2. Convert logicalApply to a logicalJoin.
                  */
                 .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)

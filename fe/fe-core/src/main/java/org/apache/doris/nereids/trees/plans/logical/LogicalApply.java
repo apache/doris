@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -60,7 +59,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, List<Expression> correlationSlot,
             SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter) {
         super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild);
-        this.correlationSlot = correlationSlot == null ? new ArrayList<>() : ImmutableList.copyOf(correlationSlot);
+        this.correlationSlot = correlationSlot == null ? ImmutableList.of() : ImmutableList.copyOf(correlationSlot);
         this.subqueryExpr = Objects.requireNonNull(subqueryExpr, "subquery can not be null");
         this.correlationFilter = correlationFilter;
     }

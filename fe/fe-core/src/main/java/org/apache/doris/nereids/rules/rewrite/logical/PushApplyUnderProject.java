@@ -49,7 +49,7 @@ import java.util.List;
 public class PushApplyUnderProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(any(), logicalProject()).when(LogicalApply::isCorrelated).then(apply -> {
+        return logicalApply(group(), logicalProject()).when(LogicalApply::isCorrelated).then(apply -> {
             LogicalProject<GroupPlan> project = apply.right();
             LogicalApply newCorrelate = new LogicalApply<>(apply.left(),
                     project.child(), apply.getCorrelationSlot(), apply.getSubqueryExpr(),

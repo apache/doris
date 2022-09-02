@@ -43,25 +43,24 @@ import java.util.List;
  *              Filter(correlated predicate(Input.e = this.f)/Unapply predicate)
  *                          |
  *                         child
+ *
+ * after:
  *              apply
  *         /              \
  * Input(output:b)        agg
  *                         |
  *              Filter(correlated predicate(Input.e = this.f)/Unapply predicate)
  *                         |
- *                  Project(output:a,child.output)
+ *                  Project(output:a,this.f, Unapply predicate(slots))
  *                          |
  *                         child
  */
 public class ApplyPullFilterOnProjectUnderAgg extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(any(), logicalAggregate(logicalProject(logicalFilter())))
+        return logicalApply(group(), logicalAggregate(logicalProject(logicalFilter())))
                 .when(LogicalApply::isCorrelated).then(apply -> {
                     LogicalAggregate<LogicalProject<LogicalFilter<GroupPlan>>> agg = apply.right();
-                    if (!agg.getGroupByExpressions().isEmpty()) {
-                        return apply;
-                    }
 
                     LogicalProject<LogicalFilter<GroupPlan>> project = agg.child();
                     LogicalFilter<GroupPlan> filter = project.child();

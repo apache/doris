@@ -287,10 +287,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(
             AssertNumRowsElement assertNumRowsElement) {
         return new org.apache.doris.analysis.AssertNumRowsElement(assertNumRowsElement.getDesiredNumOfRows(),
-                assertNumRowsElement.getSubqueryString(), translateAsserTion(assertNumRowsElement.getAssertion()));
+                assertNumRowsElement.getSubqueryString(), translateAssertion(assertNumRowsElement.getAssertion()));
     }
 
-    private static org.apache.doris.analysis.AssertNumRowsElement.Assertion translateAsserTion(
+    private static org.apache.doris.analysis.AssertNumRowsElement.Assertion translateAssertion(
             AssertNumRowsElement.Assertion assertion) {
         switch (assertion) {
             case EQ:
@@ -306,7 +306,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             case GE:
                 return Assertion.GE;
             default:
-                return null;
+                throw new AnalysisException("UnSupported type: " + assertion);
         }
     }
 }

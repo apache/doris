@@ -22,7 +22,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -35,12 +36,12 @@ public abstract class SubqueryExpr extends Expression {
 
     public SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
-        this.correlateSlots = new ArrayList<>();
+        this.correlateSlots = ImmutableList.of();
     }
 
     public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
-        this.correlateSlots = Objects.requireNonNull(correlateSlots, "correlateSlots can not be null");
+        this.correlateSlots = ImmutableList.copyOf(correlateSlots);
     }
 
     public List<Slot> getCorrelateSlots() {

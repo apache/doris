@@ -45,21 +45,21 @@ import java.util.stream.Collectors;
  * before:
  *              apply
  *          /              \
- * Input(output:b)    agg(output:fn,c; group by:null)
+ * Input(output:b)    agg(output:fn; group by:null)
  *                              |
  *              Filter(correlated predicate(Input.e = this.f)/Unapply predicate)
  *
  * end:
  *          apply(correlated predicate(Input.e = this.f))
  *         /              \
- * Input(output:b)    agg(output:fn,c; group by:this.f)
+ * Input(output:b)    agg(output:fn,this.f; group by:this.f)
  *                              |
  *                    Filter(Uncorrelated predicate)
  */
 public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(any(), logicalAggregate(logicalFilter())).when(LogicalApply::isCorrelated).then(apply -> {
+        return logicalApply(group(), logicalAggregate(logicalFilter())).when(LogicalApply::isCorrelated).then(apply -> {
             LogicalAggregate<LogicalFilter<GroupPlan>> agg = apply.right();
             LogicalFilter<GroupPlan> filter = agg.child();
             List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -182,8 +183,11 @@ public class Utils {
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
         correlatedPredicates.stream().forEach(predicate -> {
+            if (!(predicate instanceof BinaryExpression)) {
+                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
+            }
             BinaryExpression binaryExpression = (BinaryExpression) predicate;
-            if (containCorrelatedSlot(correlatedSlots, binaryExpression.left())) {
+            if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
                 if (binaryExpression.right() instanceof SlotReference) {
                     slots.add(binaryExpression.right());
                 }
@@ -199,6 +203,6 @@ public class Utils {
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
             List<Expression> conjuncts, List<Expression> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
-                expr -> containCorrelatedSlot(slots, expr)));
+                expr -> expr.anyMatch(slots::contains)));
     }
 }

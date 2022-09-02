@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -40,7 +41,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * AnalyzeSubquery. translate from subquery to correlatedJoin.
+ * AnalyzeSubquery. translate from subquery to LogicalApply.
  * In two steps
  * The first step is to replace the predicate corresponding to the filter where the subquery is located.
  * The second step converts the subquery into an apply node.
@@ -58,23 +59,24 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
                                 return filter;
                             }
 
-                            Optional<Expression> newPredicates =
+                            // first step: Replace the subquery of predicate in LogicalFilter
+                            Expression newPredicates =
                                     recursiveReplacePredicate(filter.getPredicates());
-                            if (newPredicates.isPresent()) {
-                                return new LogicalFilter<>(
-                                        newPredicates.get(),
-                                        analyzedSubquery(subqueryExprs,
-                                                (LogicalPlan) filter.child(), ctx.cascadesContext));
-                            }
-                            return analyzedSubquery(subqueryExprs,
-                                    (LogicalPlan) filter.child(), ctx.cascadesContext);
+                            // second step: Replace subquery with LogicalApply
+                            return new LogicalFilter<>(newPredicates, analyzedSubquery(
+                                    subqueryExprs, (LogicalPlan) filter.child(), ctx.cascadesContext
+                            ));
                         })
                 )
         );
     }
 
     /**
-     * Convert expressions with subqueries in filter.
+     * The Subquery in the LogicalFilter will change to LogicalApply, so we must replace the origin Subquery.
+     * LogicalFilter(predicate(contain subquery)) -> LogicalFilter(predicate(not contain subquery)
+     * Replace the subquery in logical with the relevant expression.
+     *
+     * The replacement rules are as follows:
      * before:
      *      1.filter(t1.a = scalarSubquery(output b));
      *      2.filter(inSubquery);   inSubquery = (t1.a in select ***);
@@ -85,27 +87,25 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
      *      2.filter(True);
      *      3.filter(True);
      */
-    private Optional<Expression> replaceSubquery(SubqueryExpr expr) {
+    private Expression replaceSubquery(SubqueryExpr expr) {
         if (expr instanceof InSubquery || expr instanceof Exists) {
-            return Optional.of(BooleanLiteral.TRUE);
+            return BooleanLiteral.TRUE;
         } else if (expr instanceof ScalarSubquery) {
-            return Optional.of(expr.getQueryPlan().getOutput().get(0));
+            return expr.getQueryPlan().getOutput().get(0);
         }
-        return Optional.empty();
+        throw new AnalysisException("UnSupported subquery type: " + expr.getClass());
     }
 
-    private Optional<Expression> recursiveReplacePredicate(Expression oldPredicate) {
-        List<Optional<Expression>> newChildren = oldPredicate.children()
-                .stream()
-                .map(this::recursiveReplacePredicate)
-                .filter(Optional::isPresent)
-                .collect(Collectors.toList());
+    private Expression recursiveReplacePredicate(Expression oldPredicate) {
+        List<Expression> newChildren = oldPredicate.children().isEmpty() ? new ArrayList<>()
+                : oldPredicate.children().stream()
+                        .map(this::recursiveReplacePredicate)
+                        .collect(Collectors.toList());
 
         if (oldPredicate instanceof SubqueryExpr) {
             return replaceSubquery((SubqueryExpr) oldPredicate);
         }
-        return newChildren.isEmpty() ? Optional.of(oldPredicate) : Optional.of(oldPredicate.withChildren(
-                newChildren.stream().map(expr -> expr.get()).collect(Collectors.toList())));
+        return newChildren.isEmpty() ? oldPredicate : oldPredicate.withChildren(newChildren);
     }
 
     private LogicalPlan analyzedSubquery(List<SubqueryExpr> subqueryExprs,
