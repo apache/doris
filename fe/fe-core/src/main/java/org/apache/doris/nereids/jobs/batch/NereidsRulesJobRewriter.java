@@ -47,6 +47,14 @@ public class NereidsRulesJobRewriter extends BatchRulesJob {
     public NereidsRulesJobRewriter(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                /*
+                 * Subquery unnesting.
+                 * 1. Adjust the plan in correlated logicalApply
+                 *    so that there are no correlated columns in the subquery.
+                 * 2. Convert logicalApply to a logicalJoin.
+                 */
+                .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
+                .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))

@@ -91,6 +91,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.OlapTableFactory;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
@@ -104,7 +105,6 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -1726,14 +1726,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
         LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
-        // indexes
-        TableIndexes indexes = new TableIndexes(stmt.getIndexes());
-
         // create table
         long tableId = idGeneratorBuffer.getNextId();
-        OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
-                defaultDistributionInfo, indexes);
-
+        TableType tableType = OlapTableFactory.getTableType(stmt);
+        OlapTable olapTable = (OlapTable) new OlapTableFactory()
+                .init(tableType)
+                .withTableId(tableId)
+                .withTableName(tableName)
+                .withSchema(baseSchema)
+                .withKeysType(keysType)
+                .withPartitionInfo(partitionInfo)
+                .withDistributionInfo(defaultDistributionInfo)
+                .withExtraParams(stmt)
+                .build();
         olapTable.setComment(stmt.getComment());
 
         // set base index id

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.CheckedMath;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -69,6 +70,13 @@ public class JoinEstimation {
         return statsDeriveResult;
     }
 
+    private static Expression removeCast(Expression parent) {
+        if (parent instanceof Cast) {
+            return removeCast(((Cast) parent).child());
+        }
+        return parent;
+    }
+
     // TODO: If the condition of Join Plan could any expression in addition to EqualTo type,
     //       we should handle that properly.
     private static long getSemiJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
@@ -89,9 +97,9 @@ public class JoinEstimation {
         Map<Slot, ColumnStats> rightSlotToColStats = rightStats.getSlotToColumnStats();
         double minSelectivity = 1.0;
         for (Expression eqJoinPredicate : eqConjunctList) {
-            long lhsNdv = leftSlotToColStats.get(eqJoinPredicate.child(0)).getNdv();
+            long lhsNdv = leftSlotToColStats.get(removeCast(eqJoinPredicate.child(0))).getNdv();
             lhsNdv = Math.min(lhsNdv, leftStats.getRowCount());
-            long rhsNdv = rightSlotToColStats.get(eqJoinPredicate.child(1)).getNdv();
+            long rhsNdv = rightSlotToColStats.get(removeCast(eqJoinPredicate.child(1))).getNdv();
             rhsNdv = Math.min(rhsNdv, rightStats.getRowCount());
             // Skip conjuncts with unknown NDV on either side.
             if (lhsNdv == -1 || rhsNdv == -1) {

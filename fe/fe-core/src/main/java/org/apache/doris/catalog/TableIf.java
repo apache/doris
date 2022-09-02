@@ -93,14 +93,14 @@ public interface TableIf {
 
     String getComment(boolean escapeQuota);
 
-    public TTableDescriptor toThrift();
+    TTableDescriptor toThrift();
 
     /**
      * Doris table type.
      */
-    public enum TableType {
+    enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI,
-        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE;
+        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW;
 
         public String toEngineName() {
             switch (this) {

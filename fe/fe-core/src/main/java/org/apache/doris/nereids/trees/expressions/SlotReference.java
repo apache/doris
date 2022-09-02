@@ -116,10 +116,19 @@ public class SlotReference extends Slot {
             return false;
         }
         SlotReference that = (SlotReference) o;
+        // The equals of slotRefrance only compares exprId,
+        // because in subqueries with aliases,
+        // there will be scenarios where the same exprId but different qualifiers are used,
+        // resulting in an error due to different qualifiers during comparison.
+        // eg:
+        // select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
+        //
+        // For aa, the qualifier of aa in the subquery is empty, but in the output column of agg,
+        // the qualifier of aa is t2. but both actually represent the same column.
         return exprId.equals(that.exprId);
-
     }
 
+    // The contains method needs to use hashCode, so similar to equals, it only compares exprId
     @Override
     public int hashCode() {
         return Objects.hash(exprId);

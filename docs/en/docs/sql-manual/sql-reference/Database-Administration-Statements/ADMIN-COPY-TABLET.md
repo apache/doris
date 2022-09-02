@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN-COPY-TABLET"
+    "title": "ADMIN-COPY-TABLET",
     "language": "en"
 }
 ---
