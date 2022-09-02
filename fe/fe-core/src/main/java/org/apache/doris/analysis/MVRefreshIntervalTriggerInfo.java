@@ -17,10 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import com.google.gson.annotations.SerializedName;
+
 public class MVRefreshIntervalTriggerInfo {
+    @SerializedName("startTime")
     private String startTime;
+    @SerializedName("interval")
     private long interval;
+    @SerializedName("timeUnit")
     private String timeUnit;
+
+    // For deserialization
+    public MVRefreshIntervalTriggerInfo() {}
 
     public MVRefreshIntervalTriggerInfo(String startTime, long interval, String timeUnit) {
         this.startTime = startTime;
