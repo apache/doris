@@ -60,7 +60,7 @@ public class JoinRightAssociateProject extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), groupPlan())
+        return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(JoinRightAssociateHelper::check)
                 .when(typeChecker)
                 .then(topJoin -> {

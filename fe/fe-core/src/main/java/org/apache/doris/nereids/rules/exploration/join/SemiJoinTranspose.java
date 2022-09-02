@@ -49,7 +49,7 @@ public class SemiJoinTranspose extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalJoin(), groupPlan()).when(this::check).then(topJoin -> {
+        return logicalJoin(logicalJoin(), group()).when(this::check).then(topJoin -> {
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
             GroupPlan a = bottomJoin.left();
             GroupPlan b = bottomJoin.right();

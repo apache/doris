@@ -29,7 +29,7 @@ public class JoinLeftAssociateProject extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(groupPlan(), logicalProject(innerLogicalJoin()))
+        return innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
                 .when(JoinLeftAssociateHelper::check)
                 .then(topJoin -> {
                     JoinLeftAssociateHelper helper = JoinLeftAssociateHelper.of(topJoin, topJoin.right().child());

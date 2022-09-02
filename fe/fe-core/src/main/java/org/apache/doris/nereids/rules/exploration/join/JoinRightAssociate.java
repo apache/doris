@@ -53,7 +53,7 @@ public class JoinRightAssociate extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(logicalJoin(), groupPlan())
+        return innerLogicalJoin(logicalJoin(), group())
                 .when(JoinRightAssociateHelper::check)
                 .when(typeChecker)
                 .then(topJoin -> {
