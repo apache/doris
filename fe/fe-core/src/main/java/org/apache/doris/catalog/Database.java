@@ -193,6 +193,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         writeLock();
         try {
             this.fullQualifiedName = newName;
+            for (Table table : idToTable.values()) {
+                table.setQualifiedDbName(fullQualifiedName);
+            }
         } finally {
             writeUnlock();
         }
@@ -653,6 +656,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void setName(String name) {
         this.fullQualifiedName = name;
+        for (Table table : nameToTable.values()) {
+            table.setQualifiedDbName(name);
+        }
     }
 
     public synchronized void addFunction(Function function) throws UserException {
