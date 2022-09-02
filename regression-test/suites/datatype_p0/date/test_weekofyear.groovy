@@ -20,12 +20,12 @@ suite("test_weekofyear") {
     sql "DROP TABLE IF EXISTS woy"
     
     sql """
-            CREATE TABLE IF NOT EXISTS woy (
-                c0 int,
-                c1 char(10)       
-                )
-            UNIQUE KEY(c0)
-            DISTRIBUTED BY HASH(c0) BUCKETS 1 properties("replication_num" = "1");
+        CREATE TABLE IF NOT EXISTS woy (
+            c0 int,
+            c1 varchar(10)       
+            )
+        DUPLICATE KEY(c0)
+        DISTRIBUTED BY HASH(c0) BUCKETS 1 properties("replication_num" = "1")
         """
     sql "insert into woy values(20000101, '2000-01-01')"
     sql "insert into woy values(20000110, '2000-01-10')"
