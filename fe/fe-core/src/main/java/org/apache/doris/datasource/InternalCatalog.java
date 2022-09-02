@@ -1058,6 +1058,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkState(false);
     }
 
+    /**
+     * Create a table based on an existing table name
+     **/
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
         try {
             DatabaseIf db = getDbOrDdlException(stmt.getExistedDbName());
