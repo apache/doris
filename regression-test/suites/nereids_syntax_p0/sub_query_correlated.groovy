@@ -155,9 +155,9 @@ suite ("sub_query_correlated") {
     """
 
     //qt_exist_uncorr """
-    sql """
+    /*sql """
         select * from subquery1 where exists (select subquery3.k3 from subquery3)
-    """
+    """*/
     
     //qt_in_with_in_and_scalar """
     sql """
@@ -195,9 +195,9 @@ suite ("sub_query_correlated") {
     """
 
     //qt_exist_unCorrelated
-    sql """
+    /*sql """
         select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery3.v2 = 2);
-    """
+    """*/
 
     //qt_not_exists_unCorrelated
     /*sql """
