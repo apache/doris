@@ -62,11 +62,11 @@ import java.util.stream.Collectors;
  */
 public class RuntimeFilterGenerator extends PlanPostprocessor {
 
-    private static final IdGenerator<RuntimeFilterId> GENERATOR = RuntimeFilterId.createGenerator();
+    private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
 
     private Map<ExprId, List<RuntimeFilter>> filtersByExprId = Maps.newHashMap();
 
-    private final Map<ExprId, List<RuntimeFilter.RuntimeFilterTarget>> filterTargetByTid = Maps.newHashMap();
+    private final Map<ExprId, List<RuntimeFilter.RuntimeFilterTarget>> filterTargetByExprId = Maps.newHashMap();
 
     private final List<org.apache.doris.planner.RuntimeFilter> origFilters = Lists.newArrayList();
 
@@ -104,7 +104,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
             final PhysicalHashJoin<Plan, Plan> joinReplica = join;
             eqPreds.forEach(expr -> {
                 runtimeFilters.addAll(legalTypes.stream()
-                        .map(type -> RuntimeFilter.createRuntimeFilter(GENERATOR.getNextId(), expr,
+                        .map(type -> RuntimeFilter.createRuntimeFilter(generator.getNextId(), expr,
                                 type, cnt.get(), joinReplica))
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
@@ -148,8 +148,8 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
         join.getHashJoinConjuncts().forEach(expr -> {
             ExprId exprId = ((SlotReference) expr.child(0)).getExprId();
             TupleId tid = ctx.findSlotRef(exprId).getDesc().getParent().getId();
-            if (filterTargetByTid.containsKey(exprId) && filtersByExprId.containsKey(exprId)) {
-                List<RuntimeFilter.RuntimeFilterTarget> targets = filterTargetByTid.get(exprId);
+            if (filterTargetByExprId.containsKey(exprId) && filtersByExprId.containsKey(exprId)) {
+                List<RuntimeFilter.RuntimeFilterTarget> targets = filterTargetByExprId.get(exprId);
                 origFilters.addAll(filtersByExprId.get(exprId).stream().map(filter -> {
                     SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
                     SlotRef target = ctx.findSlotRef(filter.getTargetExpr().getExprId());
@@ -181,7 +181,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 .filter(slot -> filtersByExprId.containsKey(slot.getExprId()))
                 .forEach(slot -> {
                     filtersByExprId.get(slot.getExprId()).forEach(nereidsFilter -> {
-                        filterTargetByTid.computeIfAbsent(
+                        filterTargetByExprId.computeIfAbsent(
                                 nereidsFilter.getTargetExpr().getExprId(),
                                 k -> new ArrayList<>()).add(
                                         new RuntimeFilter.RuntimeFilterTarget(node, nereidsFilter.getTargetExpr()));

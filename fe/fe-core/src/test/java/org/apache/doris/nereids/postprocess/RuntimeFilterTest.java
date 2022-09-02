@@ -21,9 +21,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 
 import org.junit.jupiter.api.Assertions;
@@ -158,10 +161,21 @@ public class RuntimeFilterTest extends SSBTestBase {
                 && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey"));
     }
 
+    @Test
+    public void testRightSemiJoin() throws AnalysisException {
+        String sql = "SELECT * FROM lineorder RIGHT SEMI JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExpr(filters.get(0), "s_suppkey", "lo_suppkey"));
+    }
+
     private List<RuntimeFilter> getRuntimeFilters(String sql) throws AnalysisException {
         NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
-        planner.plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
-        return planner.getCascadesContext().getRuntimeGenerator().getNereridsRuntimeFilter();
+        PhysicalPlan plan = planner.plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
+        System.out.println(plan.treeString());
+        PlanTranslatorContext context = new PlanTranslatorContext(planner.getCascadesContext());
+        new PhysicalPlanTranslator().translatePlan(plan, context);
+        return context.getRuntimeFilterGenerator().getNereridsRuntimeFilter();
     }
 
     private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {
