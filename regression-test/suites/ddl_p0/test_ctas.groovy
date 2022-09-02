@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_ctas") {
-    sql """
+    try {
+        sql """
     CREATE TABLE IF NOT EXISTS `test_ctas` (
       `test_varchar` varchar(150) NULL,
       `test_datetime` datetime NULL,
@@ -31,9 +32,9 @@ suite("test_ctas") {
     )
     """
 
-    sql """ INSERT INTO test_ctas(test_varchar, test_datetime) VALUES ('test1','2022-04-27 16:00:33'),('test2','2022-04-27 16:00:54') """
+        sql """ INSERT INTO test_ctas(test_varchar, test_datetime) VALUES ('test1','2022-04-27 16:00:33'),('test2','2022-04-27 16:00:54') """
 
-    sql """ 
+        sql """ 
     CREATE TABLE IF NOT EXISTS `test_ctas1` 
     PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
@@ -42,12 +43,13 @@ suite("test_ctas") {
     ) as select * from test_ctas;
     """
 
-    qt_select """SHOW CREATE TABLE `test_ctas1`"""
+        qt_select """SHOW CREATE TABLE `test_ctas1`"""
 
-    qt_select """select count(*) from test_ctas1"""
+        qt_select """select count(*) from test_ctas1"""
+    } finally {
+        sql """ DROP TABLE IF EXISTS test_ctas """
 
-    sql """ DROP TABLE IF EXISTS test_ctas """
-
-    sql """ DROP TABLE IF EXISTS test_ctas1 """
+        sql """ DROP TABLE IF EXISTS test_ctas1 """
+    }
 
 }

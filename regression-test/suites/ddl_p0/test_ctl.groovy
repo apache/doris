@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_ctl") {
-    sql """
+    try {
+        sql """
     CREATE TABLE IF NOT EXISTS `test_ctl` (
       `test_varchar` varchar(150) NULL,
       `test_datetime` datetime NULL,
@@ -31,14 +32,15 @@ suite("test_ctl") {
     )
     """
 
-    sql """ 
+        sql """ 
     CREATE TABLE IF NOT EXISTS `test_ctl1` LIKE `test_ctl`
     """
 
-    qt_select """SHOW CREATE TABLE `test_ctl1`"""
+        qt_select """SHOW CREATE TABLE `test_ctl1`"""
+    } finally {
+        sql """ DROP TABLE IF EXISTS test_ctl """
 
-    sql """ DROP TABLE IF EXISTS test_ctl """
-
-    sql """ DROP TABLE IF EXISTS test_ctl1 """
+        sql """ DROP TABLE IF EXISTS test_ctl1 """
+    }
 
 }
