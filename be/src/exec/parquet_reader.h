@@ -104,7 +104,7 @@ private:
                             int32_t* wbtyes);
 
 private:
-    void prefetch_batch(std::promise<Status>* status);
+    void prefetch_batch();
     Status read_next_batch();
 
 private:
@@ -137,7 +137,7 @@ private:
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
 
-    std::promise<Status> thread_status;
+    std::thread _prefetch_thread;
 };
 
 } // namespace doris

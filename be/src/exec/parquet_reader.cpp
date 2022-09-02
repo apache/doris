@@ -103,8 +103,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
 
-        std::thread thread(&ParquetReaderWrap::prefetch_batch, this, &thread_status);
-        thread.detach();
+        _prefetch_thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
 
         // read batch
         RETURN_IF_ERROR(read_next_batch());
@@ -134,7 +133,9 @@ void ParquetReaderWrap::close() {
     // must wait the pre_fetch thread finish.
     // because it may still use ParquetReader to read data, which may cause
     // heap-after-use bug.
-    thread_status.get_future().get();
+    if (_prefetch_thread.joinable()) {
+        _prefetch_thread.join();
+    }
     arrow::Status st = _parquet->Close();
     if (!st.ok()) {
         LOG(WARNING) << "close parquet file error: " << st.ToString();
@@ -541,7 +542,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     return read_record_batch(tuple_slot_descs, eof);
 }
 
-void ParquetReaderWrap::prefetch_batch(std::promise<Status>* status) {
+void ParquetReaderWrap::prefetch_batch() {
     auto insert_batch = [this](const auto& batch) {
         std::unique_lock<std::mutex> lock(_mtx);
         while (!_closed && _queue.size() == _max_queue_size) {
@@ -572,8 +573,6 @@ void ParquetReaderWrap::prefetch_batch(std::promise<Status>* status) {
         std::for_each(batches.begin(), batches.end(), insert_batch);
         current_group++;
     }
-    // the status' value is meaningless, just for notifying that thread is done.
-    status->set_value(Status::OK());
 }
 
 Status ParquetReaderWrap::read_next_batch() {
