@@ -82,10 +82,10 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
             LogicalAggregate newAgg = new LogicalAggregate<>(
                     newGroupby, newAggOutput,
                     newUnCorrelatedFilter == null ? filter.child() : newUnCorrelatedFilter);
-            return new LogicalApply<>(apply.left(),
-                    newAgg, apply.getCorrelationSlot(),
+            return new LogicalApply<>(apply.getCorrelationSlot(),
                     apply.getSubqueryExpr(),
-                    Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)));
+                    Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)),
+                    apply.left(), newAgg);
         }).toRule(RuleType.APPLY_PULL_FILTER_ON_AGG);
     }
 }

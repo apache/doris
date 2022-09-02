@@ -122,9 +122,9 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
     private LogicalPlan addApply(SubqueryExpr subquery,
             LogicalPlan childPlan, CascadesContext ctx) {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
-        LogicalApply newApply = new LogicalApply(childPlan, subquery.getQueryPlan(),
+        LogicalApply newApply = new LogicalApply(
                 subquery.getCorrelateSlots(),
-                subquery, Optional.empty());
+                subquery, Optional.empty(), childPlan, subquery.getQueryPlan());
         List<Slot> projects = new ArrayList<>(childPlan.getOutput());
         if (subquery instanceof ScalarSubquery) {
             projects.add(subquery.getQueryPlan().getOutput().get(0));

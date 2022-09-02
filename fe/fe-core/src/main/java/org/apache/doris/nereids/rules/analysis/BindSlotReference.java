@@ -366,7 +366,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             AnalyzedResult analyzedResult = analyzeSubquery(exists);
 
             return new Exists(analyzedResult.getLogicalPlan(),
-                    getSlots(exists, analyzedResult), exists.isNot());
+                    analyzedResult.getCorrelatedSlots(), exists.isNot());
         }
 
         @Override
@@ -379,7 +379,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             return new InSubquery(
                     expr.getCompareExpr().accept(this, context),
                     new ListQuery(analyzedResult.getLogicalPlan()),
-                    getSlots(expr, analyzedResult), expr.isNot());
+                    analyzedResult.getCorrelatedSlots(), expr.isNot());
         }
 
         @Override
@@ -390,7 +390,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             checkRootIsAgg(analyzedResult);
             checkHasGroupBy(analyzedResult);
 
-            return new ScalarSubquery(analyzedResult.getLogicalPlan(), getSlots(scalar, analyzedResult));
+            return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
         }
 
         private void checkOutputColumn(LogicalPlan plan) {
@@ -436,11 +436,6 @@ public class BindSlotReference implements AnalysisRuleFactory {
             return new Scope(getScope().getOuterScope(),
                     getScope().getSlots(),
                     Optional.ofNullable(expr));
-        }
-
-        private List<Slot> getSlots(SubqueryExpr subqueryExpr, AnalyzedResult analyzedResult) {
-            return analyzedResult.getCorrelatedSlots().isEmpty()
-                    ? subqueryExpr.getCorrelateSlots() : analyzedResult.getCorrelatedSlots();
         }
 
         public Scope getScope() {

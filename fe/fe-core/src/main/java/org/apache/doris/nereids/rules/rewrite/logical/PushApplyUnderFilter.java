@@ -64,15 +64,15 @@ public class PushApplyUnderFilter extends OneRewriteRuleFactory {
             }
 
             if (unCorrelatedPredicate.isEmpty()) {
-                return new LogicalApply<>(apply.left(),
-                        filter.child(), apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                        Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)));
+                return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+                        Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)),
+                        apply.left(), filter.child());
             } else {
                 LogicalFilter<GroupPlan> newFilter = new LogicalFilter<>(
                         ExpressionUtils.and(unCorrelatedPredicate), filter.child());
-                return new LogicalApply<>(apply.left(),
-                        newFilter, apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                        Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)));
+                return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+                        Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)),
+                        apply.left(), newFilter);
             }
         }).toRule(RuleType.PUSH_APPLY_UNDER_FILTER);
     }

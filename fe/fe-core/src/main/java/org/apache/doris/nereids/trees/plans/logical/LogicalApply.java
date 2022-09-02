@@ -56,18 +56,20 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
      */
     public LogicalApply(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, List<Expression> correlationSlot,
-            SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter) {
+            List<Expression> correlationSlot,
+            SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild);
         this.correlationSlot = correlationSlot == null ? ImmutableList.of() : ImmutableList.copyOf(correlationSlot);
         this.subqueryExpr = Objects.requireNonNull(subqueryExpr, "subquery can not be null");
         this.correlationFilter = correlationFilter;
     }
 
-    public LogicalApply(LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery, List<Expression> correlationSlot,
-            SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter) {
-        this(Optional.empty(), Optional.empty(), input, subquery,
-                correlationSlot, subqueryExpr, correlationFilter);
+    public LogicalApply(List<Expression> correlationSlot, SubqueryExpr subqueryExpr,
+            Optional<Expression> correlationFilter,
+            LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery) {
+        this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr, correlationFilter,
+                input, subquery);
     }
 
     public List<Expression> getCorrelationSlot() {
@@ -153,19 +155,19 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     @Override
     public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalApply<>(children.get(0), children.get(1),
-                correlationSlot, subqueryExpr, correlationFilter);
+        return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
+                left(), right());
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalApply<>(groupExpression, Optional.of(logicalProperties),
-                left(), right(), correlationSlot, subqueryExpr, correlationFilter);
+                correlationSlot, subqueryExpr, correlationFilter, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalApply<>(Optional.empty(), logicalProperties,
-                left(), right(), correlationSlot, subqueryExpr, correlationFilter);
+                correlationSlot, subqueryExpr, correlationFilter, left(), right());
     }
 }

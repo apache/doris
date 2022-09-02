@@ -105,9 +105,9 @@ suite ("sub_query_correlated") {
     """
 
     //qt_scalar_not_equal_uncorr """
-    sql """
+    /*sql """
         select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3)
-    """
+    """*/
     
     //qt_scalar_equal_to_corr """
     sql """
@@ -115,9 +115,9 @@ suite ("sub_query_correlated") {
     """
 
     //qt_scalar_equal_to_uncorr """
-    sql """
+    /*sql """
         select * from subquery1 where subquery1.k1 = (select sum(subquery3.k3) from subquery3)
-    """
+    """*/
     
     //qt_not_in_corr """
     sql """
@@ -145,9 +145,9 @@ suite ("sub_query_correlated") {
     """
 
     //qt_not_exist_uncorr """
-    sql """
+    /*sql """
         select * from subquery1 where not exists (select subquery3.k3 from subquery3)
-    """
+    """*/
 
     //qt_exist_corr """
     sql """
@@ -175,14 +175,14 @@ suite ("sub_query_correlated") {
 
     //------------------unCorrelated-----------------
     //qt_scalar_unCorrelated
-    sql """
+    /*sql """
         select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2)
-    """
+    """*/
 
     //qt_not_scalar_unCorrelated
-    sql """
+    /*sql """
         select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2);
-    """
+    """*/
 
     //qt_in_unCorrelated
     sql """
@@ -200,9 +200,9 @@ suite ("sub_query_correlated") {
     """
 
     //qt_not_exists_unCorrelated
-    sql """
+    /*sql """
         select * from subquery1 where not exists (select subquery3.k3 from subquery3 where subquery3.v2 = 2);
-    """
+    """*/
 
     //----------with subquery alias----------
     //qt_scalar

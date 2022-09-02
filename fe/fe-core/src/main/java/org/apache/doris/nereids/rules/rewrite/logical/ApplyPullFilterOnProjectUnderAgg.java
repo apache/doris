@@ -77,8 +77,8 @@ public class ApplyPullFilterOnProjectUnderAgg extends OneRewriteRuleFactory {
                     LogicalFilter newFilter = new LogicalFilter<>(filter.getPredicates(), newProject);
                     LogicalAggregate newAgg = new LogicalAggregate<>(
                             agg.getGroupByExpressions(), agg.getOutputExpressions(), newFilter);
-                    return new LogicalApply<>(apply.left(), newAgg, apply.getCorrelationSlot(),
-                            apply.getSubqueryExpr(), apply.getCorrelationFilter());
+                    return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+                            apply.getCorrelationFilter(), apply.left(), newAgg);
                 }).toRule(RuleType.APPLY_PULL_FILTER_ON_PROJECT_UNDER_AGG);
     }
 }
