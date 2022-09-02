@@ -20,7 +20,7 @@
 #include "common/config.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
-#include "util/telemetry/open_telemetry_scop_wrapper.hpp"
+#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"

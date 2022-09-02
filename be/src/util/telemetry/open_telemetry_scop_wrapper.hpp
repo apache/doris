@@ -34,7 +34,7 @@ public:
         }
     }
 
-    OpenTelemetryScopeWrapper(bool enable, OpentelemetryTracer tracer, OpentelemetrySpan& span,
+    OpenTelemetryScopeWrapper(bool enable, OpentelemetryTracer tracer, OpentelemetrySpan span,
                               const std::string& name) {
         if (enable) {
             if (UNLIKELY(!span)) {
