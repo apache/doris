@@ -48,9 +48,9 @@ sudo apt install gcc-10 g++-10
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-4. install : libssl-dev
+4. install : openssl libssl-dev
 ```
-sudo apt install -y libssl-dev
+sudo apt install -y openssl libssl-dev
 ```
 
 ## Compile
