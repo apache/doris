@@ -22,7 +22,7 @@ suite("test_array_string_insert", "load") {
     def create_test_table = {testTablex, enable_vectorized_flag ->
         // multi-line sql
         sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
+
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
         } else {
@@ -50,67 +50,43 @@ suite("test_array_string_insert", "load") {
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
 
-    // case1: enable_vectorized_flag = false
-    try {
+    def test_insert_array_string = { enable_vectorized_flag ->
         sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(testTable, false)
-        result = sql "INSERT INTO ${testTable} VALUES (1, ['12345','123456'], [], NULL)"
-        assertTrue(result[0][0] == 0, "failed because of too long chars")
+        create_test_table.call(testTable, enable_vectorized_flag)
 
-        result = sql "INSERT INTO ${testTable} VALUES (2, ['12345','123'], NULL, NULL)"
-        assertTrue(result[0][0] == 0, "null value for NOT NULL column")
+        sql "set enable_insert_strict = true"
 
-        result = sql "INSERT INTO ${testTable} VALUES (3, ['12345','123'], ['4'], NULL)"
-        assertTrue(result[0][0] == 1, "success case")
+        // ARRAY<char> too long
+        test {
+            sql "INSERT INTO ${testTable} VALUES (1, ['12345','123456'], [], NULL)"
+            exception "Insert has filtered data in strict mode"
+        }
 
-        result = sql "INSERT INTO ${testTable} VALUES (4, NULL, [NULL, '4'], NULL)"
-        assertTrue(result[0][0] == 1, "success case with NULL")
+        // NULL for NOT NULL column
+        test {
+            sql "INSERT INTO ${testTable} VALUES (2, ['12345','123'], NULL, NULL)"
+            exception "Insert has filtered data in strict mode"
+        }
 
-        result = sql "INSERT INTO ${testTable} VALUES (5, NULL, ['4'], [['111'],['222']])"
-        assertTrue(result[0][0] == 1, "success case for nested array")
+        // ARRAY<ARRAY<char>> too long
+        test {
+            sql "INSERT INTO ${testTable} VALUES (3, NULL, ['4'], [['123456'],['222']])"
+            exception "Insert has filtered data in strict mode"
+        }
 
-        result = sql "INSERT INTO ${testTable} VALUES (6, NULL, ['4'], [['111111'],['222']])"
-        assertTrue(result[0][0] == 0, "failed because of too long chars for nested array")
-
-        result = sql "INSERT INTO ${testTable} VALUES (7, NULL, ['4'], [['11111',NULL],['222']])"
-        assertTrue(result[0][0] == 1, "success case for nested array")
+        // normal insert
+        sql "INSERT INTO ${testTable} VALUES (4, ['12345','123'], ['4'], NULL)"
+        sql "INSERT INTO ${testTable} VALUES (5, NULL, [NULL, '4'], NULL)"
+        sql "INSERT INTO ${testTable} VALUES (6, NULL, ['4'], [['123'],['222']])"
+        sql "INSERT INTO ${testTable} VALUES (7, NULL, ['4'], [['12345',NULL],['222']])"
 
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
     
+    // case1: enable_vectorized_flag = false
+    test_insert_array_string(false);
+
     // case2: enable_vectorized_flag = true
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-
-        create_test_table.call(testTable, true)
-        result = sql "INSERT INTO ${testTable} VALUES (1, ['12345','123456'], [], NULL)"
-        assertTrue(result[0][0] == 0, "vfailed because of too long chars.")
-
-        result = sql "INSERT INTO ${testTable} VALUES (2, ['12345','123'], NULL, NULL)"
-        assertTrue(result[0][0] == 0, "vnull value for NOT NULL column")
-
-        result = sql "INSERT INTO ${testTable} VALUES (3, ['12345','123'], ['4'], NULL)"
-        assertTrue(result[0][0] == 1, "vsuccess case")
-
-        result = sql "INSERT INTO ${testTable} VALUES (4, NULL, [NULL, '4'], NULL)"
-        assertTrue(result[0][0] == 1, "vsuccess case with NULL")
-
-        result = sql "INSERT INTO ${testTable} VALUES (5, NULL, ['4'], [['111'],['222']])"
-        assertTrue(result[0][0] == 1, "vsuccess case for nested array")
-
-        result = sql "INSERT INTO ${testTable} VALUES (6, NULL, ['4'], [['111111'],['222']])"
-        assertTrue(result[0][0] == 0, "vfailed because of too long chars for nested array")
-
-        result = sql "INSERT INTO ${testTable} VALUES (7, NULL, ['4'], [['11111',NULL],['222']])"
-        assertTrue(result[0][0] == 1, "vsuccess case for nested array")
-
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
+    test_insert_array_string(true);
 }
