@@ -1156,9 +1156,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     // AggregateType.NONE cause the table to change to the AGGREGATE KEY when analyze is used,
                     // cause CURRENT_TIMESTAMP to report an error.
-                    columnDef = new ColumnDef(name, typeDef, column.isKey(),
-                            AggregateType.NONE.equals(column.getAggregationType())
-                                    ? null : column.getAggregationType(),
+                    columnDef = new ColumnDef(name, typeDef, false, null,
                             column.isAllowNull(), defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
