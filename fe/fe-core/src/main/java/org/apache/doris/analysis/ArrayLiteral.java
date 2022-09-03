@@ -34,13 +34,13 @@ import java.util.List;
 public class ArrayLiteral extends LiteralExpr {
 
     public ArrayLiteral() {
-        type = new ArrayType(Type.NULL, false);
+        type = new ArrayType(Type.NULL);
         children = new ArrayList<>();
     }
 
     public ArrayLiteral(LiteralExpr... exprs) throws AnalysisException {
         Type itemType = Type.NULL;
-        boolean containsNull = false;
+        boolean containsNull = true;
         for (LiteralExpr expr : exprs) {
             if (itemType == Type.NULL) {
                 itemType = expr.getType();
