@@ -1222,7 +1222,8 @@ public class FunctionCallExpr extends Expr {
 
         if (this.type instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) type;
-            boolean containsNull = false;
+            // Now Array type do not support ARRAY<NOT_NULL>, set it too true temporarily
+            boolean containsNull = true;
             for (Expr child : children) {
                 Type childType = child.getType();
                 if (childType instanceof ArrayType) {
