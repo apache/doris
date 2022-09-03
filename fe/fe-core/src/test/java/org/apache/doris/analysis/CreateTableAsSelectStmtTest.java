@@ -113,13 +113,6 @@ public class CreateTableAsSelectStmtTest {
     }
     
     @Test
-    public void testErrorType() {
-        String selectFromDecimal = "create table `test`.`select_decimal_table` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`decimal_table`";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unsupported type",
-                () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromDecimal, connectContext));
-    }
-    
-    @Test
     public void testErrorColumn() {
         String selectFromColumn = "create table `test`.`select_column_table`(test_error) PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Number of columns don't equal number of SELECT statement's select list",
@@ -132,8 +125,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromDecimal);
         ShowResultSet showResultSet = showCreateTable("select_varchar");
         Assert.assertEquals("CREATE TABLE `select_varchar` (\n" +
-                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
-                "  `username` varchar(255) NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -142,7 +135,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet.getResultRows().get(0).get(1));
+                ");", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -160,7 +153,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet1.getResultRows().get(0).get(1));
+                ");", showResultSet1.getResultRows().get(0).get(1));
         
         String selectFromFunction2 = "create table `test`.`select_function_2` PROPERTIES(\"replication_num\" = \"1\") as select sum(status), sum(status), sum(status), count(status), count(status) from `test`.`join_table`";
         createTableAsSelect(selectFromFunction2);
@@ -179,7 +172,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet2.getResultRows().get(0).get(1));
+                ");", showResultSet2.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -197,13 +190,13 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet1.getResultRows().get(0).get(1));
+                ");", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") as select userId as alias_name, username from `test`.`varchar_table`";
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTable("select_alias_2");
         Assert.assertEquals("CREATE TABLE `select_alias_2` (\n" +
-                "  `alias_name` varchar(255) NULL COMMENT \"\",\n" +
-                "  `username` varchar(255) NULL COMMENT \"\"\n" +
+                "  `alias_name` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`alias_name`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -212,7 +205,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet2.getResultRows().get(0).get(1));
+                ");", showResultSet2.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -222,9 +215,9 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTable("select_join");
         Assert.assertEquals("CREATE TABLE `select_join` (\n" +
-                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
-                "  `username` varchar(255) NULL COMMENT \"\",\n" +
-                "  `status` int(11) NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `status` int(11) NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -233,7 +226,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet.getResultRows().get(0).get(1));
+                ");", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -243,9 +236,9 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_name");
         Assert.assertEquals("CREATE TABLE `select_name` (\n" +
-                "  `user` varchar(255) NULL COMMENT \"\",\n" +
-                "  `testname` varchar(255) NULL COMMENT \"\",\n" +
-                "  `userstatus` int(11) NULL COMMENT \"\"\n" +
+                "  `user` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `testname` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `userstatus` int(11) NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`user`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -254,7 +247,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet.getResultRows().get(0).get(1));
+                ");", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -273,7 +266,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet.getResultRows().get(0).get(1));
+                ");", showResultSet.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -283,7 +276,7 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_cte");
         Assert.assertEquals("CREATE TABLE `select_cte` (\n" +
-                "  `userId` varchar(255) NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -292,6 +285,6 @@ public class CreateTableAsSelectStmtTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
-                ")", showResultSet.getResultRows().get(0).get(1));
+                ");", showResultSet.getResultRows().get(0).get(1));
     }
 }
