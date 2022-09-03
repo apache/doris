@@ -101,7 +101,7 @@ jobs:
           cp -R docs/zh-CN/community/* website/i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
           cp -R docs/sidebars.json website/
           cp -R docs/images website/static/
-          sed '2,3d' website/versions.json
+          sed '2,3d' website/versions.json > website/versions.json1
           rm -rf website/versions.json
           mv website/versions.json1 website/versions.json
           sed '123,128d' website/docusaurus.config.js > website/docusaurus.config.js1
