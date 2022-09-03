@@ -48,6 +48,7 @@ template BooleanVal IsNullPredicate::is_null(FunctionContext*, const DoubleVal&)
 template BooleanVal IsNullPredicate::is_null(FunctionContext*, const StringVal&);
 template BooleanVal IsNullPredicate::is_null(FunctionContext*, const DateTimeVal&);
 template BooleanVal IsNullPredicate::is_null(FunctionContext*, const DecimalV2Val&);
+template BooleanVal IsNullPredicate::is_null(FunctionContext*, const CollectionVal&);
 
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const AnyVal&);
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const BooleanVal&);
@@ -61,5 +62,6 @@ template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const DoubleV
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const StringVal&);
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const DateTimeVal&);
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const DecimalV2Val&);
+template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const CollectionVal&);
 
 } // namespace doris
