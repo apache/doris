@@ -23,7 +23,6 @@
 #include <ext/pb_ds/priority_queue.hpp>
 #endif
 
-#include "olap/olap_define.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
 #include "vec/core/block.h"
@@ -34,16 +33,10 @@ class TabletSchema;
 
 namespace vectorized {
 
-struct IteratorRowRef {
-    std::shared_ptr<Block> block;
-    int16_t row_pos;
-    bool is_same;
-};
-
 class VCollectIterator {
 public:
     // Hold reader point to get reader params
-    ~VCollectIterator();
+    ~VCollectIterator() = default;
 
     void init(TabletReader* reader, bool force_merge, bool is_reverse);
 
@@ -83,7 +76,7 @@ private:
                 : _schema(reader->tablet_schema()),
                   _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
 
-        virtual Status init() = 0;
+        virtual Status init(bool get_data_by_ref = false) = 0;
 
         virtual int64_t version() const = 0;
 
@@ -95,7 +88,7 @@ private:
 
         void set_same(bool same) { _ref.is_same = same; }
 
-        bool is_same() { return _ref.is_same; }
+        bool is_same() const { return _ref.is_same; }
 
         virtual ~LevelIterator() = default;
 
@@ -140,9 +133,9 @@ private:
     class Level0Iterator : public LevelIterator {
     public:
         Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
-        ~Level0Iterator() {}
+        ~Level0Iterator() override = default;
 
-        Status init() override;
+        Status init(bool get_data_by_ref = false) override;
 
         int64_t version() const override;
 
@@ -156,11 +149,17 @@ private:
 
     private:
         Status _refresh_current_row();
+        Status _next_by_ref(IteratorRowRef* ref);
+        Status _refresh_current_row_by_ref();
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
         std::shared_ptr<Block> _block;
+
+        int _current;
+        BlockView _block_view;
         std::vector<RowLocation> _block_row_locations;
+        bool _get_data_by_ref;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
@@ -169,7 +168,7 @@ private:
         Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
                        bool is_reverse, bool skip_same);
 
-        Status init() override;
+        Status init(bool get_data_by_ref = false) override;
 
         int64_t version() const override;
 
@@ -181,7 +180,7 @@ private:
 
         Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
 
-        ~Level1Iterator();
+        ~Level1Iterator() override;
 
     private:
         Status _merge_next(IteratorRowRef* ref);

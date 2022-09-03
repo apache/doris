@@ -94,8 +94,8 @@ public:
 // Used to read data in RowBlockV2 one by one
 class RowwiseIterator {
 public:
-    RowwiseIterator() {}
-    virtual ~RowwiseIterator() {}
+    RowwiseIterator() = default;
+    virtual ~RowwiseIterator() = default;
 
     // Initialize this iterator and make it ready to read with
     // input options.
@@ -115,6 +115,12 @@ public:
     virtual Status next_batch(vectorized::Block* block) {
         return Status::NotSupported("to be implemented");
     }
+
+    virtual Status next_block_view(vectorized::BlockView* block_view) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual bool support_return_data_by_ref() { return false; }
 
     virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
         return Status::NotSupported("to be implemented");
