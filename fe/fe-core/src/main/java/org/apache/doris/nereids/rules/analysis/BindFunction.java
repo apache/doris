@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Max;
 import org.apache.doris.nereids.trees.expressions.functions.Min;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.Year;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -138,6 +139,12 @@ public class BindFunction implements AnalysisRuleFactory {
                     return unboundFunction;
                 }
                 return new Year(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("WeekOfYear")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new WeekOfYear(unboundFunction.getArguments().get(0));
             }
             return unboundFunction;
         }
