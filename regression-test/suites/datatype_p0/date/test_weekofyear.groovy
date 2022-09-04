@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,32 +16,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ctl") {
-    try {
-        sql """
-    CREATE TABLE IF NOT EXISTS `test_ctl` (
-      `test_varchar` varchar(150) NULL,
-      `test_datetime` datetime NULL,
-      `test_default_timestamp` datetime DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=OLAP
-    UNIQUE KEY(`test_varchar`)
-    DISTRIBUTED BY HASH(`test_varchar`) BUCKETS 3
-      PROPERTIES (
-      "replication_allocation" = "tag.location.default: 1",
-      "in_memory" = "false",
-      "storage_format" = "V2"
-    )
-    """
+suite("test_weekofyear") {
+    sql "DROP TABLE IF EXISTS woy"
+    
+    sql """
+        CREATE TABLE IF NOT EXISTS woy (
+            c0 int,
+            c1 varchar(10)       
+            )
+        DUPLICATE KEY(c0)
+        DISTRIBUTED BY HASH(c0) BUCKETS 1 properties("replication_num" = "1")
+        """
+    sql "insert into woy values(20000101, '2000-01-01')"
+    sql "insert into woy values(20000110, '2000-01-10')"
 
-        sql """ 
-    CREATE TABLE IF NOT EXISTS `test_ctl1` LIKE `test_ctl`
-    """
 
-        qt_select """SHOW CREATE TABLE `test_ctl1`"""
-    } finally {
-        sql """ DROP TABLE IF EXISTS test_ctl """
-
-        sql """ DROP TABLE IF EXISTS test_ctl1 """
-    }
-
+    sql "set enable_nereids_planner=true"
+    sql "set enable_vectorized_engine=true"
+    qt_weekOfYear "select * from woy where weekofyear(c0)=52 and weekofyear(c1)=52"
 }

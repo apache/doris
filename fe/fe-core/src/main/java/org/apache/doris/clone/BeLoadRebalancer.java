@@ -205,7 +205,8 @@ public class BeLoadRebalancer extends Rebalancer {
             Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
+            throw new SchedException(Status.UNRECOVERABLE,
+                    String.format("cluster %s for tag %s does not exist", tabletCtx.getCluster(), tabletCtx.getTag()));
         }
 
         // get classification of backends
