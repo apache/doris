@@ -41,6 +41,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Context of physical plan.
@@ -84,8 +85,8 @@ public class PlanTranslatorContext {
         return descTable.createTupleDescriptor();
     }
 
-    public RuntimeFilterGenerator getRuntimeFilterGenerator() {
-        return runtimeFilterGenerator;
+    public Optional<RuntimeFilterGenerator> getRuntimeFilterGenerator() {
+        return Optional.ofNullable(runtimeFilterGenerator);
     }
 
     public PlanFragmentId nextFragmentId() {

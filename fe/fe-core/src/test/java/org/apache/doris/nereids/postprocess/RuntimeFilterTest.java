@@ -198,7 +198,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         PlanTranslatorContext context = new PlanTranslatorContext(planner.getCascadesContext());
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, context);
         System.out.println(root.getFragmentId());
-        return context.getRuntimeFilterGenerator().getNereridsRuntimeFilter();
+        return context.getRuntimeFilterGenerator().get().getNereridsRuntimeFilter();
     }
 
     private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {
