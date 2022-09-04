@@ -41,7 +41,7 @@ public class ArrayType extends Type {
 
     public ArrayType() {
         itemType = NULL;
-        containsNull = false;
+        containsNull = true;
     }
 
     public ArrayType(Type itemType) {

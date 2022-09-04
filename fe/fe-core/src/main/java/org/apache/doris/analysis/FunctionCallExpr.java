@@ -1222,7 +1222,8 @@ public class FunctionCallExpr extends Expr {
 
         if (this.type instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) type;
-            boolean containsNull = false;
+            // Now Array type do not support ARRAY<NOT_NULL>, set it too true temporarily
+            boolean containsNull = true;
             for (Expr child : children) {
                 Type childType = child.getType();
                 if (childType instanceof ArrayType) {
@@ -1445,7 +1446,8 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("year")
                 || fnName.getFunction().equalsIgnoreCase("max")
                 || fnName.getFunction().equalsIgnoreCase("min")
-                || fnName.getFunction().equalsIgnoreCase("avg")) {
+                || fnName.getFunction().equalsIgnoreCase("avg")
+                || fnName.getFunction().equalsIgnoreCase("weekOfYear")) {
             Type childType = getChild(0).type;
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

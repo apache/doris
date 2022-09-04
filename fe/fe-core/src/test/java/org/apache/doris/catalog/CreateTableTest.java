@@ -569,10 +569,5 @@ public class CreateTableTest {
             createTable("create table test.table2(k1 INT, k2 Array<Array<int>>) duplicate key (k1) "
                     + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
         });
-
-        ExceptionChecker.expectThrowsNoException(() -> {
-            createTable("create table test.table3(k1 INT, k2 Array<not_null(int)>) duplicate key (k1) "
-                    + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
-        });
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
+import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
@@ -58,6 +59,7 @@ public class RuleSet {
             .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
+            .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .build();
 
     public List<Rule> getExplorationRules() {
