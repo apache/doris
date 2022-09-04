@@ -202,7 +202,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
-    public long maxExecMemByte = 2147483648L;
+    public long maxExecMemByte = 4294967296L;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;

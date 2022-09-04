@@ -245,7 +245,7 @@ under the License.
         可以指定如下参数：
         timeout：         指定导入操作的超时时间。默认超时为4小时。单位秒。
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
-        exec_mem_limit：  导入内存限制。默认为 2GB。单位为字节。
+        exec_mem_limit：  导入内存限制。默认为 4GB。单位为字节。
         strict mode：     是否对数据进行严格限制。默认为 false。
         timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
         send_batch_parallelism: 用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。

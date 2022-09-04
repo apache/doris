@@ -236,6 +236,11 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id),
             _new_query_mem_tracker);
 
+    if (_query_options.is_report_success) {
+        _new_query_mem_tracker->enable_print_log_usage();
+        _new_instance_mem_tracker->enable_print_log_usage();
+    }
+
     /*
     // TODO: this is a stopgap until we implement ExprContext
     _udf_mem_tracker.reset(

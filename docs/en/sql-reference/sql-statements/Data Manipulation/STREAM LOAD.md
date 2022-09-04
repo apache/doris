@@ -117,7 +117,7 @@ Specifies the time zone used for this load. The default is East Eight District. 
 
 `exec_mem_limit`
 
-Memory limit. Default is 2GB. Unit is Bytes.
+Memory limit. Default is 4GB. Unit is Bytes.
 
 `format`
 Specifies the format of the imported data. Support csv and json, the default is csv.
