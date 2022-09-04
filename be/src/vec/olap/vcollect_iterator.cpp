@@ -310,7 +310,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
 }
 
 RowLocation VCollectIterator::Level0Iterator::current_row_location() {
-    RowLocation& segment_row_id = _block_row_locations[_ref.row_pos];
+    RowLocation& segment_row_id = _block_row_locations[_get_data_by_ref ? _current : _ref.row_pos];
     return RowLocation(_rs_reader->rowset()->rowset_id(), segment_row_id.segment_id,
                        segment_row_id.row_id);
 }
