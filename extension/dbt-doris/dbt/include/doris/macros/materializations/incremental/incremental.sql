@@ -17,7 +17,7 @@
 
 {% materialization incremental, adapter='doris' %}
   {% set unique_key = config.get('unique_key', validator=validation.any[list]) %}
-  {% if unique_key is not none %}
+  {% if unique_key is none %}
     {% do exceptions.raise_compiler_error("dbt-doris incremental 'unique_key' cannot be empty" ) %}
   {% endif %}
 
