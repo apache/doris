@@ -402,7 +402,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 break;
         }
         jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, 4 * 1024 * 1024 * 1024L);
         jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
         jobProperties.put(LoadStmt.STRICT_MODE, false);
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);

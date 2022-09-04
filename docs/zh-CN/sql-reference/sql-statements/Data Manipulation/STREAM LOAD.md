@@ -76,7 +76,7 @@ under the License.
 
         timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
 
-        exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
+        exec_mem_limit: 导入内存限制。默认为 4GB。单位为字节。
 
         format: 指定导入数据格式，默认是csv，支持json格式。
 

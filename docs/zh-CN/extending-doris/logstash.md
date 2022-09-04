@@ -97,7 +97,7 @@ copy logstash-output-doris-{version}.gem 到 logstash 安装目录下
 `timeout` | 超时时间，默认为600s。
 `strict_mode` | 严格模式，默认为false。
 `timezone` | 指定本次导入所使用的时区，默认为东八区。
-`exec_mem_limit` | 导入内存限制，默认为 2GB，单位为字节。
+`exec_mem_limit` | 导入内存限制，默认为 4GB，单位为字节。
 
 其他配置
 

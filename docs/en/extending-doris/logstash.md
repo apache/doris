@@ -97,7 +97,7 @@ Configuration | Explanation
 `timeout` | timeout, the default is 600s
 `strict_mode` | Strict mode, the default is false
 `timezone` | Specify the time zone used for this import, the default is the East Eight District
-`exec_mem_limit` | Import memory limit, default is 2GB, unit is byte
+`exec_mem_limit` | Import memory limit, default is 4GB, unit is byte
 
 Other configuration:
 

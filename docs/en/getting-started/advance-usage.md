@@ -145,13 +145,13 @@ For more help, see `HELP ALTER TABLE`.
 
 ### 2.1 Memory Limitation
 
-To prevent a user's query from consuming too much memory. Queries are controlled in memory. A query task uses no more than 2GB of memory by default on a single BE node.
+To prevent a user's query from consuming too much memory. Queries are controlled in memory. A query task uses no more than 4GB of memory by default on a single BE node.
 
 When users use it, if they find a `Memory limit exceeded` error, they usually exceed the memory limit.
 
 Users should try to optimize their SQL statements when they encounter memory overrun.
 
-If it is found that 2GB memory cannot be satisfied, the memory parameters can be set manually.
+If it is found that 4GB memory cannot be satisfied, the memory parameters can be set manually.
 
 Display query memory limits:
 
@@ -160,7 +160,7 @@ mysql> SHOW VARIABLES LIKE "%mem_limit%";
 +---------------+------------+
 | Variable_name | Value      |
 +---------------+------------+
-| exec_mem_limit| 2147483648 |
+| exec_mem_limit| 4294967296 |
 +---------------+------------+
 1 row in set (0.00 sec)
 ```

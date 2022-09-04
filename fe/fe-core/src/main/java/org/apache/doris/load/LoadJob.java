@@ -73,7 +73,7 @@ public class LoadJob implements Writable {
     }
 
     private static final int DEFAULT_TIMEOUT_S = 0;
-    private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
+    private static final long DEFAULT_EXEC_MEM_LIMIT = 4294967296L; // 4GB
 
     private long id;
     private long dbId;

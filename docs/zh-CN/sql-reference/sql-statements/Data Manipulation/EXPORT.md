@@ -61,7 +61,7 @@ under the License.
             column_separator: 指定导出的列分隔符，默认为\t。支持不可见字符，比如 '\x07'。
             column: 指定待导出的列，使用英文逗号隔开，如果不填这个参数默认是导出表的所有列。
             line_delimiter: 指定导出的行分隔符，默认为\n。支持不可见字符，比如 '\x07'。
-            exec_mem_limit: 导出在单个 BE 节点的内存使用上限，默认为 2GB，单位为字节。
+            exec_mem_limit: 导出在单个 BE 节点的内存使用上限，默认为 4GB，单位为字节。
             timeout：导入作业的超时时间，默认为1天，单位是秒。
             tablet_num_per_task：每个子任务能分配的最大 Tablet 数量。
 

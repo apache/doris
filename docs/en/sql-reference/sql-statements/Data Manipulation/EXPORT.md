@@ -61,7 +61,7 @@ under the License.
           column_separator: Specifies the exported column separator, defaulting to t. Supports invisible characters, such as'\x07'.
           column: Specify the columns to be exported, separated by commas. If you do not fill in this parameter, the default is to export all the columns of the table.
           line_delimiter: Specifies the exported line separator, defaulting to\n. Supports invisible characters, such as'\x07'.
-          exec_mem_limit: Exports the upper limit of memory usage for a single BE node, defaulting to 2GB in bytes.
+          exec_mem_limit: Exports the upper limit of memory usage for a single BE node, defaulting to 4GB in bytes.
           timeout: The time-out for importing jobs is 1 day by default, in seconds.
           tablet_num_per_task: The maximum number of tablets that each subtask can allocate.
 
