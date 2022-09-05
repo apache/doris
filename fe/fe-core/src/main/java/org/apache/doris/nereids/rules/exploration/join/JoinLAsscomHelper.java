@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -86,6 +87,7 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
             }
         });
 
+        newLeftProjectExpr.addAll(cOutput);
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                 newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c,
                 bottomJoin.getJoinReorderContext());
@@ -101,8 +103,7 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
                 topJoin.getJoinReorderContext());
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-        return newTopJoin;
-        // return JoinReorderCommon.project(new ArrayList<>(topJoin.getOutput()), newTopJoin).get();
+        return JoinReorderCommon.project(new ArrayList<>(topJoin.getOutput()), newTopJoin).get();
     }
 
     public static boolean check(Type type, LogicalJoin<? extends Plan, GroupPlan> topJoin,
