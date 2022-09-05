@@ -37,15 +37,15 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
-import org.junit.Ignore;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
 
+@Disabled
 public class JoinLAsscomProjectTest {
 
     private static final List<LogicalOlapScan> scans = Lists.newArrayList();
@@ -108,7 +108,6 @@ public class JoinLAsscomProjectTest {
     }
 
     @Test
-    @Ignore
     public void testStarJoinProjectLAsscom() {
         List<SlotReference> t1 = outputs.get(0);
         List<SlotReference> t2 = outputs.get(1);

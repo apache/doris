@@ -34,15 +34,15 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
-
-import org.junit.Ignore;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
 
+@Disabled
 public class JoinLAsscomTest {
 
     private static List<LogicalOlapScan> scans = Lists.newArrayList();
@@ -96,7 +96,6 @@ public class JoinLAsscomTest {
     }
 
     @Test
-    @Ignore
     public void testStarJoinLAsscom() {
         /*
          * Star-Join
@@ -141,7 +140,6 @@ public class JoinLAsscomTest {
     }
 
     @Test
-    @Ignore
     public void testChainJoinLAsscom() {
         /*
          * Chain-Join
