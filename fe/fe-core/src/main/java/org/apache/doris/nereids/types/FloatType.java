@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 public class FloatType extends FractionalType {
     public static FloatType INSTANCE = new FloatType();
 
+    private static final int WIDTH = 4;
+
     private FloatType() {
     }
 
@@ -52,5 +54,10 @@ public class FloatType extends FractionalType {
     @Override
     public String simpleString() {
         return "float";
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

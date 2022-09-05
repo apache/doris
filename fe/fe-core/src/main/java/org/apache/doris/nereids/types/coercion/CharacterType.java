@@ -28,6 +28,8 @@ public class CharacterType extends PrimitiveType {
 
     public static final CharacterType INSTANCE = new CharacterType(-1);
 
+    private static final int WIDTH = 16;
+
     protected final int len;
 
     public CharacterType(int len) {
@@ -51,5 +53,10 @@ public class CharacterType extends PrimitiveType {
     @Override
     public DataType defaultConcreteType() {
         return StringType.INSTANCE;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

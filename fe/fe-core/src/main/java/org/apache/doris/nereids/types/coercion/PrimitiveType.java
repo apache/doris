@@ -29,4 +29,9 @@ public abstract class PrimitiveType extends DataType {
     public String toSql() {
         return simpleString().toUpperCase(Locale.ROOT);
     }
+
+    @Override
+    public int width() {
+        throw new RuntimeException("Unimplemented exception");
+    }
 }
