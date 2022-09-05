@@ -356,7 +356,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         TupleDescriptor leftChildOutputTupleDesc = leftPlanRoot.getOutputTupleDesc();
         TupleDescriptor leftTuple =
-                leftChildOutputTupleDesc != null ? leftChildOutputTupleDesc :  context.getTupleDesc(leftPlanRoot);
+                leftChildOutputTupleDesc != null ? leftChildOutputTupleDesc : context.getTupleDesc(leftPlanRoot);
         TupleDescriptor rightChildOutputTupleDesc = rightPlanRoot.getOutputTupleDesc();
         TupleDescriptor rightTuple =
                 rightChildOutputTupleDesc != null ? rightChildOutputTupleDesc : context.getTupleDesc(rightPlanRoot);

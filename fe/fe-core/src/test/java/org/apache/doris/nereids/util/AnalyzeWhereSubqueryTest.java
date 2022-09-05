@@ -362,7 +362,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                                         ImmutableList.of("default_cluster:test", "t7")), "aa")
                                         )))
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(0), "aa",  BigIntType.INSTANCE, true,
+                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(0), "aa", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("t2"))), "max(aa)")
                                 )))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of()))
@@ -414,7 +414,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 logicalAggregate(
                                         logicalProject()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(0), "aa",  BigIntType.INSTANCE, true,
+                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(0), "aa", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("t2"))), "max(aa)"),
                                         new SlotReference(new ExprId(7), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")))))

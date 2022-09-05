@@ -32,7 +32,7 @@ public class LogicalLeafPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return  "<" + opType.name + ">";
+        return "<" + opType.name + ">";
     }
 
     @Override
