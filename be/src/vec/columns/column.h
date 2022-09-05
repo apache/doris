@@ -340,12 +340,18 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const = 0;
 
+    // 32bit offsets for string
+    using Offset = UInt32;
+    using Offsets = PaddedPODArray<Offset>;
+
+    // 64bit offsets for array
+    using Offset64 = UInt64;
+    using Offsets64 = PaddedPODArray<Offset64>;
+
     /** Copies each element according offsets parameter.
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
       * It is necessary in ARRAY JOIN operation.
       */
-    using Offset = UInt64;
-    using Offsets = PaddedPODArray<Offset>;
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
     virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {

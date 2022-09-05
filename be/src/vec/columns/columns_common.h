@@ -39,15 +39,16 @@ bool memory_is_zero(const void* data, size_t size);
 bool memory_is_byte(const void* data, size_t size, uint8_t byte);
 
 /// The general implementation of `filter` function for ColumnArray and ColumnString.
-template <typename T>
-void filter_arrays_impl(const PaddedPODArray<T>& src_elems, const IColumn::Offsets& src_offsets,
-                        PaddedPODArray<T>& res_elems, IColumn::Offsets& res_offsets,
+template <typename T, typename OT>
+void filter_arrays_impl(const PaddedPODArray<T>& src_elems, const PaddedPODArray<OT>& src_offsets,
+                        PaddedPODArray<T>& res_elems, PaddedPODArray<OT>& res_offsets,
                         const IColumn::Filter& filt, ssize_t result_size_hint);
 
 /// Same as above, but not fills res_offsets.
-template <typename T>
+template <typename T, typename OT>
 void filter_arrays_impl_only_data(const PaddedPODArray<T>& src_elems,
-                                  const IColumn::Offsets& src_offsets, PaddedPODArray<T>& res_elems,
-                                  const IColumn::Filter& filt, ssize_t result_size_hint);
+                                  const PaddedPODArray<OT>& src_offsets,
+                                  PaddedPODArray<T>& res_elems, const IColumn::Filter& filt,
+                                  ssize_t result_size_hint);
 
 } // namespace doris::vectorized

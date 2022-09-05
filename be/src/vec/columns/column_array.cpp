@@ -55,7 +55,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     }
 
     if (!offsets_concrete->empty() && nested_column) {
-        Offset last_offset = offsets_concrete->get_data().back();
+        auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
         if (nested_column->size() != last_offset) {
@@ -93,7 +93,7 @@ MutableColumnPtr ColumnArray::clone_resized(size_t to_size) const {
         res->get_data().insert_range_from(get_data(), 0, get_offsets()[to_size - 1]);
     } else {
         /// Copy column and append empty arrays for extra elements.
-        Offset offset = 0;
+        Offset64 offset = 0;
         if (from_size > 0) {
             res->get_offsets().assign(get_offsets().begin(), get_offsets().end());
             res->get_data().insert_range_from(get_data(), 0, get_data().size());
@@ -304,8 +304,8 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
 
     get_data().insert_range_from(src_concrete.get_data(), nested_offset, nested_length);
 
-    Offsets& cur_offsets = get_offsets();
-    const Offsets& src_offsets = src_concrete.get_offsets();
+    auto& cur_offsets = get_offsets();
+    const auto& src_offsets = src_concrete.get_offsets();
 
     if (start == 0 && cur_offsets.empty()) {
         cur_offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
@@ -355,10 +355,10 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
     auto res = ColumnArray::create(data->clone_empty());
 
     auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
-    Offsets& res_offsets = res->get_offsets();
+    auto& res_offsets = res->get_offsets();
 
-    filter_arrays_impl<T>(assert_cast<const ColumnVector<T>&>(*data).get_data(), get_offsets(),
-                          res_elems, res_offsets, filt, result_size_hint);
+    filter_arrays_impl<T, Offset64>(assert_cast<const ColumnVector<T>&>(*data).get_data(),
+                                    get_offsets(), res_elems, res_offsets, filt, result_size_hint);
     return res;
 }
 
@@ -372,12 +372,12 @@ ColumnPtr ColumnArray::filter_string(const Filter& filt, ssize_t result_size_hin
 
     const ColumnString& src_string = typeid_cast<const ColumnString&>(*data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
-    const Offsets& src_string_offsets = src_string.get_offsets();
-    const Offsets& src_offsets = get_offsets();
+    const auto& src_string_offsets = src_string.get_offsets();
+    const auto& src_offsets = get_offsets();
 
     ColumnString::Chars& res_chars = typeid_cast<ColumnString&>(res->get_data()).get_chars();
-    Offsets& res_string_offsets = typeid_cast<ColumnString&>(res->get_data()).get_offsets();
-    Offsets& res_offsets = res->get_offsets();
+    auto& res_string_offsets = typeid_cast<ColumnString&>(res->get_data()).get_offsets();
+    auto& res_offsets = res->get_offsets();
 
     if (result_size_hint < 0) {
         res_chars.reserve(src_chars.size());
@@ -385,10 +385,10 @@ ColumnPtr ColumnArray::filter_string(const Filter& filt, ssize_t result_size_hin
         res_offsets.reserve(col_size);
     }
 
-    Offset prev_src_offset = 0;
+    Offset64 prev_src_offset = 0;
     Offset prev_src_string_offset = 0;
 
-    Offset prev_res_offset = 0;
+    Offset64 prev_res_offset = 0;
     Offset prev_res_string_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
@@ -450,7 +450,7 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
 
     res->data = data->filter(nested_filt, nested_result_size_hint);
 
-    Offsets& res_offsets = res->get_offsets();
+    auto& res_offsets = res->get_offsets();
     if (result_size_hint) res_offsets.reserve(result_size_hint > 0 ? result_size_hint : size);
 
     size_t current_offset = 0;
@@ -566,18 +566,18 @@ ColumnPtr ColumnArray::replicate_number(const Offsets& replicate_offsets) const 
 
     const typename ColumnVector<T>::Container& src_data =
             typeid_cast<const ColumnVector<T>&>(*data).get_data();
-    const Offsets& src_offsets = get_offsets();
+    const auto& src_offsets = get_offsets();
 
     typename ColumnVector<T>::Container& res_data =
             typeid_cast<ColumnVector<T>&>(res_arr.get_data()).get_data();
-    Offsets& res_offsets = res_arr.get_offsets();
+    auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
     Offset prev_replicate_offset = 0;
-    Offset prev_data_offset = 0;
-    Offset current_new_offset = 0;
+    Offset64 prev_data_offset = 0;
+    Offset64 current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
@@ -614,12 +614,12 @@ ColumnPtr ColumnArray::replicate_string(const Offsets& replicate_offsets) const 
 
     const ColumnString& src_string = typeid_cast<const ColumnString&>(*data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
-    const Offsets& src_string_offsets = src_string.get_offsets();
-    const Offsets& src_offsets = get_offsets();
+    const auto& src_string_offsets = src_string.get_offsets();
+    const auto& src_offsets = get_offsets();
 
     ColumnString::Chars& res_chars = typeid_cast<ColumnString&>(res_arr.get_data()).get_chars();
-    Offsets& res_string_offsets = typeid_cast<ColumnString&>(res_arr.get_data()).get_offsets();
-    Offsets& res_offsets = res_arr.get_offsets();
+    auto& res_string_offsets = typeid_cast<ColumnString&>(res_arr.get_data()).get_offsets();
+    auto& res_offsets = res_arr.get_offsets();
 
     res_chars.reserve(src_chars.size() / col_size * replicate_offsets.back());
     res_string_offsets.reserve(src_string_offsets.size() / col_size * replicate_offsets.back());
@@ -627,10 +627,10 @@ ColumnPtr ColumnArray::replicate_string(const Offsets& replicate_offsets) const 
 
     Offset prev_replicate_offset = 0;
 
-    Offset prev_src_offset = 0;
+    Offset64 prev_src_offset = 0;
     Offset prev_src_string_offset = 0;
 
-    Offset current_res_offset = 0;
+    Offset64 current_res_offset = 0;
     Offset current_res_string_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
@@ -682,15 +682,15 @@ ColumnPtr ColumnArray::replicate_const(const Offsets& replicate_offsets) const {
 
     if (0 == col_size) return clone_empty();
 
-    const Offsets& src_offsets = get_offsets();
+    const auto& src_offsets = get_offsets();
 
     auto res_column_offsets = ColumnOffsets::create();
-    Offsets& res_offsets = res_column_offsets->get_data();
+    auto& res_offsets = res_column_offsets->get_data();
     res_offsets.reserve(replicate_offsets.back());
 
     Offset prev_replicate_offset = 0;
-    Offset prev_data_offset = 0;
-    Offset current_new_offset = 0;
+    Offset64 prev_data_offset = 0;
+    Offset64 current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
@@ -719,7 +719,7 @@ ColumnPtr ColumnArray::replicate_generic(const Offsets& replicate_offsets) const
 
     if (0 == col_size) return res;
 
-    IColumn::Offset prev_offset = 0;
+    Offset64 prev_offset = 0;
     for (size_t i = 0; i < col_size; ++i) {
         size_t size_to_replicate = replicate_offsets[i] - prev_offset;
         prev_offset = replicate_offsets[i];
