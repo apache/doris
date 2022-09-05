@@ -71,6 +71,7 @@ public class PartitionInfo implements Writable {
     protected Map<Long, TTabletType> idToTabletType;
 
     public PartitionInfo() {
+        this.type = PartitionType.UNPARTITIONED;
         this.idToDataProperty = new HashMap<>();
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();

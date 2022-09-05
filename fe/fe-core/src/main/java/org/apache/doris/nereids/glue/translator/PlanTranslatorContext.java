@@ -139,7 +139,9 @@ public class PlanTranslatorContext {
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
-        this.addExprIdSlotRefPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
+        SlotRef slotRef = new SlotRef(slotDescriptor);
+        slotRef.setLabel(slotReference.getName());
+        this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
     }

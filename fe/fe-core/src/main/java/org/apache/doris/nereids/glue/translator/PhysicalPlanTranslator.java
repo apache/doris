@@ -216,13 +216,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
-        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
+        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
         // TODO: Do we really need tableName here?
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
-        olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionId());
+        olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         try {
             olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), false, "");
         } catch (Exception e) {
