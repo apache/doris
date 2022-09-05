@@ -389,55 +389,7 @@ public:
         return Status::OK();
     }
 
-    Status seek_to_ordinal(ordinal_t ord) override {
-        RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(ord));
-        if (_array_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
-        }
-        if (_length_iterator->get_current_page()->next_array_item_ordinal > 0) {
-            // using offsets info
-            ColumnBlock ordinal_block(_length_batch.get(), nullptr);
-            ColumnBlockView ordinal_view(&ordinal_block);
-
-            // peek offset
-            size_t this_read = 1;
-            bool has_null = false;
-            RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-            RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(ord));
-
-            auto* ordinals = reinterpret_cast<uint64_t*>(_length_batch->data());
-            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(ordinals[0]));
-        } else {
-            // for compability
-            RETURN_IF_ERROR(_length_iterator->seek_to_page_start());
-            if (_length_iterator->get_current_ordinal() == ord) {
-                RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(
-                        _length_iterator->get_current_page()->first_array_item_ordinal));
-            } else {
-                ordinal_t start_offset_in_this_page =
-                        _length_iterator->get_current_page()->first_array_item_ordinal;
-                ColumnBlock ordinal_block(_length_batch.get(), nullptr);
-                ordinal_t size_to_read = ord - _length_iterator->get_current_ordinal();
-                bool has_null = false;
-                ordinal_t item_ordinal = start_offset_in_this_page;
-                while (size_to_read > 0) {
-                    size_t this_read = _length_batch->capacity() < size_to_read
-                                               ? _length_batch->capacity()
-                                               : size_to_read;
-                    ColumnBlockView ordinal_view(&ordinal_block);
-                    RETURN_IF_ERROR(
-                            _length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-                    auto* ordinals = reinterpret_cast<uint64_t*>(_length_batch->data());
-                    for (int i = 0; i < this_read; ++i) {
-                        item_ordinal += ordinals[i];
-                    }
-                    size_to_read -= this_read;
-                }
-                RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(item_ordinal));
-            }
-        }
-        return Status::OK();
-    }
+    Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
         return _length_iterator->get_current_ordinal();
@@ -449,6 +401,12 @@ private:
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
     std::unique_ptr<ColumnVectorBatch> _length_batch;
+
+    Status _seek_by_offsets(ordinal_t ord);
+    Status _seek_by_length(ordinal_t ord);
+
+    Status _caculate_offsets(ssize_t start, vectorized::MutableColumnPtr& offsets,
+                             size_t* num_items);
 };
 
 // This iterator is used to read default value column
