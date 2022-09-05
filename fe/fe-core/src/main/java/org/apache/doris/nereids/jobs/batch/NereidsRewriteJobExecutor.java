@@ -37,14 +37,14 @@ import com.google.common.collect.ImmutableList;
 /**
  * Apply rules to normalize expressions.
  */
-public class NereidsRulesJobRewriter extends BatchRulesJob {
+public class NereidsRewriteJobExecutor extends BatchRulesJob {
 
     /**
      * Constructor.
      *
      * @param cascadesContext context for applying rules.
      */
-    public NereidsRulesJobRewriter(CascadesContext cascadesContext) {
+    public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
                 /*

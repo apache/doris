@@ -54,15 +54,6 @@ public class RuntimeFilter {
         this.exprOrder = exprOrder;
     }
 
-    /**
-     * s
-     *
-     * @param conjunction s
-     * @param type s
-     * @param exprOrder s
-     * @param node s
-     * @return s
-     */
     public static RuntimeFilter createRuntimeFilter(RuntimeFilterId id, EqualTo conjunction,
             TRuntimeFilterType type, int exprOrder, PhysicalHashJoin<Plan, Plan> node) {
         Pair<Expression, Expression> srcs = checkAndMaybeSwapChild(conjunction, node);
