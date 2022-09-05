@@ -21,6 +21,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
@@ -39,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -51,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -107,6 +111,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
+        return computeOneRowRelation(oneRowRelation);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return computeAggregate(aggregate);
     }
@@ -152,6 +161,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, Void context) {
         return computeAggregate(agg);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, Void context) {
+        return computeOneRowRelation(oneRowRelation);
     }
 
     @Override
@@ -319,5 +333,19 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         statsDeriveResult.setSlotToColumnStats(columnsStats);
         return statsDeriveResult;
+    }
+
+    private StatsDeriveResult computeOneRowRelation(OneRowRelation oneRowRelation) {
+        Map<Slot, ColumnStats> columnStatsMap = oneRowRelation.getProjects()
+                .stream()
+                .map(project -> {
+                    ColumnStats columnStats = new ColumnStats();
+                    columnStats.setNdv(1);
+                    // TODO: compute the literal size
+                    return Pair.of(project.toSlot(), columnStats);
+                })
+                .collect(Collectors.toMap(Pair::key, Pair::value));
+        int rowCount = 1;
+        return new StatsDeriveResult(rowCount, columnStatsMap);
     }
 }

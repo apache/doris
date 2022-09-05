@@ -445,4 +445,18 @@ public abstract class SetOperationNode extends PlanNode {
         numInstances = Math.max(1, numInstances);
         return numInstances;
     }
+
+    public void finalizeForNereids(TupleDescriptor tupleDescriptor, List<SlotDescriptor> constExprSlots) {
+        materializedConstExprLists.clear();
+        for (List<Expr> exprList : constExprLists) {
+            Preconditions.checkState(exprList.size() == constExprSlots.size());
+            List<Expr> newExprList = Lists.newArrayList();
+            for (int i = 0; i < exprList.size(); ++i) {
+                if (constExprSlots.get(i).isMaterialized()) {
+                    newExprList.add(exprList.get(i));
+                }
+            }
+            materializedConstExprLists.add(newExprList);
+        }
+    }
 }

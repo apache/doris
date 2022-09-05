@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Year;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
@@ -52,6 +53,22 @@ public class BindFunction implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
+            RuleType.BINDING_ONE_ROW_RELATION_FUNCTION.build(
+                logicalOneRowRelation().then(project -> {
+                    List<NamedExpression> projects = project.getProjects();
+                    List<NamedExpression> boundProjects = bind(projects);
+                    // TODO:
+                    // trick logic: currently XxxRelation in GroupExpression always difference to each other,
+                    // so this rule must check the expression whether is changed to prevent dead loop because
+                    // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
+                    // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
+                    // GroupExpression by id
+                    if (!isChanged(projects, boundProjects)) {
+                        return project;
+                    }
+                    return new LogicalOneRowRelation(boundProjects);
+                })
+            ),
             RuleType.BINDING_PROJECT_FUNCTION.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundExpr = bind(project.getProjects());
@@ -78,6 +95,15 @@ public class BindFunction implements AnalysisRuleFactory {
                 })
             )
         );
+    }
+
+    private boolean isChanged(List originList, List newList) {
+        for (int i = 0; i < originList.size(); i++) {
+            if (originList.get(i) != newList.get(i)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private <E extends Expression> List<E> bind(List<E> exprList) {

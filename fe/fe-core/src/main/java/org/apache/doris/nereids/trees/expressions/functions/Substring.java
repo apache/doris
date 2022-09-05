@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.TypeCollection;
 
@@ -54,7 +54,7 @@ public class Substring extends BoundFunction implements TernaryExpression, Impli
 
     @Override
     public DataType getDataType() {
-        return StringType.INSTANCE;
+        return VarcharType.SYSTEM_DEFAULT;
     }
 
     @Override

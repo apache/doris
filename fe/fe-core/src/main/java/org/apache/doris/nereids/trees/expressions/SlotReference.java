@@ -26,6 +26,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Reference to slot in expression.
@@ -36,6 +38,8 @@ public class SlotReference extends Slot {
     private final List<String> qualifier;
     private final DataType dataType;
     private final boolean nullable;
+
+    private final Column column;
 
     public SlotReference(String name, DataType dataType) {
         this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of());
@@ -49,6 +53,11 @@ public class SlotReference extends Slot {
         this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);
     }
 
+    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
+        this(exprId, name, dataType, nullable, qualifier, null);
+    }
+
+
     /**
      * Constructor for SlotReference.
      *
@@ -57,13 +66,16 @@ public class SlotReference extends Slot {
      * @param dataType slot reference logical data type
      * @param nullable true if nullable
      * @param qualifier slot reference qualifier
+     * @param column the column which this slot come from
      */
-    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
+    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
+            List<String> qualifier, @Nullable Column column) {
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
         this.qualifier = qualifier;
         this.nullable = nullable;
+        this.column = column;
     }
 
     public static SlotReference fromColumn(Column column, List<String> qualifier) {
@@ -134,8 +146,8 @@ public class SlotReference extends Slot {
         return Objects.hash(exprId);
     }
 
-    public Column getColumn() {
-        return new Column(name, dataType.toCatalogDataType());
+    public Optional<Column> getColumn() {
+        return Optional.ofNullable(column);
     }
 
     @Override
@@ -158,7 +170,7 @@ public class SlotReference extends Slot {
 
     @Override
     public Slot withQualifier(List<String> qualifiers) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifiers);
+        return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
     }
 
 }

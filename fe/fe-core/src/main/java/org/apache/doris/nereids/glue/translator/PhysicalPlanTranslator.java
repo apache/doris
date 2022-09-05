@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -76,6 +77,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.planner.UnionNode;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -225,6 +227,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         currentFragment.setPlanRoot(aggregationNode);
         return currentFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation,
+            PlanTranslatorContext context) {
+        List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
+        TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
+
+        List<Expr> legacyExprs = oneRowRelation.getProjects()
+                .stream()
+                .map(expr -> ExpressionTranslator.translate(expr, context))
+                .collect(Collectors.toList());
+
+        for (int i = 0; i < legacyExprs.size(); i++) {
+            SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
+            Expr expr = legacyExprs.get(i);
+            slotDescriptor.setSourceExpr(expr);
+            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
+        }
+
+        UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
+        unionNode.addConstExprList(legacyExprs);
+        unionNode.finalizeForNereids(oneRowTuple, oneRowTuple.getSlots());
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), unionNode, DataPartition.UNPARTITIONED);
+        context.addPlanFragment(planFragment);
+        return planFragment;
     }
 
     @Override

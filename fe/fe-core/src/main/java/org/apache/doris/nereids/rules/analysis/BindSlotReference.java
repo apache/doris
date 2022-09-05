@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -57,7 +56,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -153,6 +151,19 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return new LogicalHaving<>(boundPredicates, having.child());
                 })
             ),
+            RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
+                    // we should bind UnboundAlias in the UnboundOneRowRelation
+                    unboundOneRowRelation().thenApply(ctx -> {
+                        UnboundOneRowRelation oneRowRelation = ctx.root;
+                        List<NamedExpression> projects = oneRowRelation.getProjects()
+                                .stream()
+                                .map(project -> bind(project, ImmutableList.of(), oneRowRelation, ctx.cascadesContext))
+                                .collect(Collectors.toList());
+                        return new LogicalOneRowRelation(projects);
+                    })
+            ),
+
+
             RuleType.BINDING_NON_LEAF_LOGICAL_PLAN.build(
                 logicalPlan()
                         .when(plan -> plan.canBind() && !(plan instanceof LeafPlan))
