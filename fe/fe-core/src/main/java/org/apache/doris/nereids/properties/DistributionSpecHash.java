@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -199,20 +200,14 @@ public class DistributionSpecHash extends DistributionSpec {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
         if (!super.equals(o)) {
             return false;
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
         return tableId == that.tableId && orderedShuffledColumns.equals(that.orderedShuffledColumns)
                 && shuffleType == that.shuffleType && partitionIds.equals(that.partitionIds)
-                && equivalenceExprIds.equals(
-                that.equivalenceExprIds) && exprIdToEquivalenceSet.equals(that.exprIdToEquivalenceSet);
+                && equivalenceExprIds.equals(that.equivalenceExprIds)
+                && exprIdToEquivalenceSet.equals(that.exprIdToEquivalenceSet);
     }
 
     @Override
@@ -223,14 +218,13 @@ public class DistributionSpecHash extends DistributionSpec {
 
     @Override
     public String toString() {
-        return "DistributionSpecHash{"
-                + "orderedShuffledColumns=" + orderedShuffledColumns
-                + ", shuffleType=" + shuffleType
-                + ", tableId=" + tableId
-                + ", partitionIds=" + partitionIds
-                + ", equivalenceExprIds=" + equivalenceExprIds
-                + ", exprIdToEquivalenceSet=" + exprIdToEquivalenceSet
-                + '}';
+        return Utils.toSqlString("DistributionSpecHash",
+                "orderedShuffledColumns", orderedShuffledColumns,
+                "shuffleType", shuffleType,
+                "tableId", tableId,
+                "partitionIds", partitionIds,
+                "equivalenceExprIds", equivalenceExprIds,
+                "exprIdToEquivalenceSet", exprIdToEquivalenceSet);
     }
 
     /**

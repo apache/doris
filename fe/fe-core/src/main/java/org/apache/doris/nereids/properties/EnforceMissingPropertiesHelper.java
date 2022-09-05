@@ -84,7 +84,7 @@ public class EnforceMissingPropertiesHelper {
         // keep consistent in DistributionSpec with the oldOutputProperty
         PhysicalProperties newOutputProperty = new PhysicalProperties(context.getRequiredProperties().getOrderSpec());
         GroupExpression enforcer =
-                context.getRequiredProperties().getOrderSpec().addGlobalEnforcer(groupExpression.getOwnerGroup());
+                context.getRequiredProperties().getOrderSpec().addGlobalQuickSortEnforcer(groupExpression.getOwnerGroup());
 
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
 

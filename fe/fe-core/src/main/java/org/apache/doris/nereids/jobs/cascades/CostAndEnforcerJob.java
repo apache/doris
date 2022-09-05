@@ -205,8 +205,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         PhysicalProperties requestedProperties = context.getRequiredProperties();
         if (!outputProperty.satisfy(requestedProperties)) {
-            // TODO: some times we cannot add enforce to satisfied requestedProperties
-            //  In this case, we need to return directly.
             PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper.enforceProperty(outputProperty,
                     requestedProperties);
             curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();

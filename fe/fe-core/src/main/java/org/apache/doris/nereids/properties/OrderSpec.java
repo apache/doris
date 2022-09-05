@@ -71,9 +71,9 @@ public class OrderSpec {
     }
 
     /**
-     * add a global order enforcer on child group.
+     * add a global quick sort as order enforcer on child group.
      */
-    public GroupExpression addGlobalEnforcer(Group child) {
+    public GroupExpression addGlobalQuickSortEnforcer(Group child) {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)
