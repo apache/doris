@@ -74,6 +74,7 @@ public enum PrimitiveType {
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
+    VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
 
 
     private static final int DATE_INDEX_LEN = 3;
@@ -557,6 +558,7 @@ public enum PrimitiveType {
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
         supportedTypes.add(QUANTILE_STATE);
+        supportedTypes.add(VARIANT);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -1004,6 +1006,8 @@ public enum PrimitiveType {
                 return STRUCT;
             case ALL:
                 return ALL;
+            case VARIANT:
+                return VARIANT;
             default:
                 return INVALID_TYPE;
         }
@@ -1110,6 +1114,10 @@ public enum PrimitiveType {
 
     public boolean isComplexType() {
         return this == HLL || this == BITMAP;
+    }
+
+    public boolean isVariantType(){
+        return this == VARIANT;
     }
 
     public boolean isStringType() {

@@ -84,6 +84,7 @@ enum class TypeIndex {
     Decimal128I,
     Map,
     Struct,
+    VARIANT,
 };
 
 struct Consted {
@@ -587,6 +588,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "AggregateFunction";
     case TypeIndex::LowCardinality:
         return "LowCardinality";
+    case TypeIndex::VARIANT:
+        return "Variant";
     case TypeIndex::BitMap:
         return TypeName<BitmapValue>::get();
     case TypeIndex::HLL:

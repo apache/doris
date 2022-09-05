@@ -57,6 +57,10 @@ set(VEC_FILES
   columns/column_vector.cpp
   columns/column_map.cpp
   columns/columns_common.cpp
+  columns/column_object.cpp
+  json/parse2column.cpp
+  json/path_in_data.cpp
+  common/object_util.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
@@ -98,6 +102,7 @@ set(VEC_FILES
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
   data_types/data_type_time.cpp
+  data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp

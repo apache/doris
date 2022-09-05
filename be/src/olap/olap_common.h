@@ -141,6 +141,7 @@ enum FieldType {
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
+    OLAP_FIELD_TYPE_VARIANT = 35 
 };
 
 // Define all aggregation methods supported by Field
