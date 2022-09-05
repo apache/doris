@@ -262,7 +262,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
             return Status::Cancelled("Cancelled");
         }
         // Queue size Must be smaller than _max_buffered_batches
-        _block_queue.push_back(block);
+        _block_queue.push_back(std::move(block));
 
         // Notify reader to process
         _queue_reader_cond.notify_one();
