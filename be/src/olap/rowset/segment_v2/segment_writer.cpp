@@ -34,6 +34,7 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "vec/common/object_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -88,22 +89,28 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
 }
 
-Status SegmentWriter::init() {
+Status SegmentWriter::init(const vectorized::Block* block) {
     std::vector<uint32_t> column_ids;
-    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+    int column_cnt = _tablet_schema->num_columns();
+    if (block) {
+        column_cnt = block->columns();
+    }
+    for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
-    return init(column_ids, true);
+    return init(column_ids, true, block);
 }
 
-Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
+Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
+                            const vectorized::Block* block) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
-    for (auto& cid : col_ids) {
-        const auto& column = _tablet_schema->column(cid);
+    _olap_data_convertor =
+            std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
@@ -182,6 +189,15 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
+
+        _olap_data_convertor.add_column_data_convertor(column);
+        return Status::OK();
+    };
+
+    if (block) {
+        RETURN_IF_ERROR(_create_writers_with_block(block, create_column_writer));
+    } else {
+        RETURN_IF_ERROR(_create_writers(create_column_writer));
     }
 
     // we don't need the short key index for unique key merge on write table.
@@ -200,9 +216,51 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
         }
     }
-    // init olap data converter
-    _olap_data_convertor =
-            std::make_unique<vectorized::OlapBlockDataConvertor>(_tablet_schema.get(), _column_ids);
+    return Status::OK();
+}
+
+Status SegmentWriter::_create_writers(
+        std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
+    _olap_data_convertor->reserve(_column_ids.size());
+    for (auto& cid : _column_ids) {
+        RETURN_IF_ERROR(create_column_writer(cid, _tablet_schema->column(cid)));
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_create_writers_with_block(
+        const vectorized::Block* block,
+        std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
+    // generate writers from schema and extended schema info
+    _olap_data_convertor->reserve(block->columns());
+    // new columns added, query column info from Master
+    vectorized::object_util::FullBaseSchemaView schema_view;
+    if (block->columns() > _tablet_schema->num_columns()) {
+        schema_view.table_id = _tablet_schema->table_id();
+        RETURN_IF_ERROR(
+                vectorized::object_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    }
+    for (size_t i = 0; i < block->columns(); ++i) {
+        const auto& column_type_name = block->get_by_position(i);
+        auto idx = _tablet_schema->field_index(column_type_name.name);
+        if (idx >= 0) {
+            RETURN_IF_ERROR(create_column_writer(i, _tablet_schema->column(idx)));
+        } else {
+            if (schema_view.column_name_to_column.count(column_type_name.name) == 0) {
+                // expr columns, maybe happend in query like `insert into table1 select function(column1), column2 from table2`
+                // the first column name may become `function(column1)`, so we use column offset to get columns info
+                // TODO here we could optimize to col_unique_id in the future
+                RETURN_IF_ERROR(create_column_writer(i, _tablet_schema->column(i)));
+                continue;
+            }
+            // extended columns
+            const auto& tcolumn = schema_view.column_name_to_column[column_type_name.name];
+            TabletColumn new_column(tcolumn);
+            RETURN_IF_ERROR(create_column_writer(i, new_column));
+            _opts.rowset_ctx->schema_change_recorder->add_extended_columns(
+                    new_column, schema_view.schema_version);
+        }
+    }
     return Status::OK();
 }
 

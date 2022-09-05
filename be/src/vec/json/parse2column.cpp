@@ -1,12 +1,13 @@
 #include <parallel_hashmap/phmap.h>
-#include <vec/json/parse2column.h>
-#include <vec/json/json_parser.h>
-#include <vec/common/hash_table/hash_set.h>
-#include <vec/common/object_util.h>
 #include <vec/columns/column_object.h>
 #include <vec/common/field_visitors.h>
-#include <vec/json/simd_json_parser.h>
+#include <vec/common/hash_table/hash_set.h>
+#include <vec/common/object_util.h>
 #include <vec/common/string_ref.h>
+#include <vec/json/json_parser.h>
+#include <vec/json/parse2column.h>
+#include <vec/json/simd_json_parser.h>
+
 #include <stack>
 
 namespace doris::vectorized {
@@ -21,44 +22,39 @@ namespace doris::vectorized {
   *   and creation/destruction of objects is expensive).
   */
 template <typename T>
-class SimpleObjectPool
-{
+class SimpleObjectPool {
 protected:
     /// Hold all available objects in stack.
     std::mutex mutex;
     std::stack<std::unique_ptr<T>> stack;
     /// Specialized deleter for std::unique_ptr.
     /// Returns underlying pointer back to stack thus reclaiming its ownership.
-    struct Deleter
-    {
-        SimpleObjectPool<T> * parent;
-        Deleter(SimpleObjectPool<T> * parent_ = nullptr) : parent{parent_} {} /// NOLINT
-        void operator()(T * owning_ptr) const
-        {
-            std::lock_guard lock{parent->mutex};
+    struct Deleter {
+        SimpleObjectPool<T>* parent;
+        Deleter(SimpleObjectPool<T>* parent_ = nullptr) : parent {parent_} {} /// NOLINT
+        void operator()(T* owning_ptr) const {
+            std::lock_guard lock {parent->mutex};
             parent->stack.emplace(owning_ptr);
         }
     };
+
 public:
     using Pointer = std::unique_ptr<T, Deleter>;
     /// Extracts and returns a pointer from the stack if it's not empty,
     ///  creates a new one by calling provided f() otherwise.
     template <typename Factory>
-    Pointer get(Factory && f)
-    {
+    Pointer get(Factory&& f) {
         std::unique_lock lock(mutex);
-        if (stack.empty())
-        {
+        if (stack.empty()) {
             lock.unlock();
-            return { f(), this };
+            return {f(), this};
         }
         auto object = stack.top().release();
         stack.pop();
         return std::unique_ptr<T, Deleter>(object, Deleter(this));
     }
     /// Like get(), but creates object using default constructor.
-    Pointer getDefault()
-    {
+    Pointer getDefault() {
         return get([] { return new T; });
     }
 };
@@ -145,9 +141,9 @@ bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
     return true;
 }
 
-template<typename ParserImpl>
+template <typename ParserImpl>
 Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
-                        JSONDataParser<ParserImpl>* parser) {
+                             JSONDataParser<ParserImpl>* parser) {
     auto& column_object = assert_cast<ColumnObject&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
@@ -158,9 +154,9 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         result = ParseResult {};
     }
     if (!result) {
-        LOG(INFO) << "failed to parse" << std::string_view(src, length)
-                << ", length= " << length;
-        return Status::InvalidArgument(fmt::format("Cannot parse object {}", std::string_view(src, length)));
+        LOG(INFO) << "failed to parse" << std::string_view(src, length) << ", length= " << length;
+        return Status::InvalidArgument(
+                fmt::format("Cannot parse object {}", std::string_view(src, length)));
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
@@ -172,7 +168,7 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         // TODO support multi dimensions array
         if (!config::enable_parse_multi_dimession_array && field_info.num_dimensions >= 2) {
             return Status::InvalidArgument(
-                "Sorry multi dimensions array is not supported now, we are working on it");
+                    "Sorry multi dimensions array is not supported now, we are working on it");
         }
         if (is_nothing(field_info.scalar_type)) continue;
         if (!paths_set.insert(paths[i].get_path()).second) {
@@ -202,27 +198,27 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
     return Status::OK();
 }
 
-bool extract_key(MutableColumns& columns, StringRef json,
-                const std::vector<StringRef>& keys, const std::vector<ExtractType>& types,
-                JSONDataParser<SimdJSONParser>* parser) {
+bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
+                 const std::vector<ExtractType>& types, JSONDataParser<SimdJSONParser>* parser) {
     return parser->extract_key(columns, json, keys, types);
 }
 
 // exposed interfaces
-Status parse_json_to_variant(IColumn& column, const StringRef& json, JSONDataParser<SimdJSONParser>* parser) {
+Status parse_json_to_variant(IColumn& column, const StringRef& json,
+                             JSONDataParser<SimdJSONParser>* parser) {
     return parse_json_to_variant(column, json.data, json.size, parser);
 }
 
 Status parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons) {
     auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
-    for (StringRef str: jsons) {
+    for (StringRef str : jsons) {
         RETURN_IF_ERROR(parse_json_to_variant(column, str.data, str.size, parser.get()));
     }
     return Status::OK();
 }
 
 bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
-                const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
+                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
     auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
     for (StringRef json : jsons) {
         if (!extract_key(columns, json, keys, types, parser.get())) {
@@ -233,7 +229,7 @@ bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
 }
 
 bool extract_key(MutableColumns& columns, const ColumnString& json_column,
-                const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
+                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
     auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
     for (size_t x = 0; x < json_column.size(); ++x) {
         if (!extract_key(columns, json_column.get_data_at(x), keys, types, parser.get())) {

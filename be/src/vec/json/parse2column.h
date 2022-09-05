@@ -11,13 +11,14 @@ namespace doris::vectorized {
 Status parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
 
 // parse a single json
-Status parse_json_to_variant(IColumn& column, const StringRef& jsons, JSONDataParser<SimdJSONParser>* parser);
+Status parse_json_to_variant(IColumn& column, const StringRef& jsons,
+                             JSONDataParser<SimdJSONParser>* parser);
 
 // extract keys columns from json strings into columns
 bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
-                const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
+                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
 
 // extract keys columns from colunnstring(json format) into columns
 bool extract_key(MutableColumns& columns, const ColumnString& json_column,
-                const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
-}
+                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
+} // namespace doris::vectorized

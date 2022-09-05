@@ -29,7 +29,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
-class RowsetLocalSchemaChangeHistory;
+class LocalSchemaChangeRecorder;
 }
 
 namespace doris::vectorized::object_util {
@@ -86,7 +86,7 @@ void convert_to_tablet_column(const DataTypePtr& data_type, TabletColumn* column
 // 2. Schema change which is add columns will be performed if the infered schema is
 // different from the original tablet schema, new columns added to schema change history
 Status parse_and_expand_dynamic_column(Block& block, const TabletSchema& schema_hints,
-                                       RowsetLocalSchemaChangeHistory* history);
+                                       LocalSchemaChangeRecorder* history);
 
 Status parse_object_column(Block& block, size_t position);
 
@@ -117,7 +117,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 // 3. col3 in schema which missing in block will be ignored
 // After schema changed, schame change history will add new columns
 Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*for schema change*/,
-                               Block& block, RowsetLocalSchemaChangeHistory* history);
+                               Block& block, LocalSchemaChangeRecorder* history);
 // record base schema column infos
 // maybe use col_unique_id as key in the future
 // but for dynamic table, column name if ok
@@ -142,5 +142,20 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, cons
                                   const int* row_end);
 void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size_t row_begin,
                                   size_t length);
+
+// For tracking local schema change during load procedure
+class LocalSchemaChangeRecorder {
+public:
+    void add_extended_columns(const TabletColumn& new_column, int32_t schema_version);
+    bool has_extended_columns();
+    std::map<std::string, TabletColumn> copy_extended_columns();
+    const TabletColumn& column(const std::string& col_name);
+    int32_t schema_version();
+
+private:
+    std::mutex _lock;
+    int32_t _schema_version = -1;
+    std::map<std::string, TabletColumn> _extended_columns;
+};
 
 } // namespace  doris::vectorized::object_util

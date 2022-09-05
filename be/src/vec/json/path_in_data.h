@@ -22,6 +22,7 @@
 
 #include <bitset>
 #include <vector>
+
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 namespace doris::vectorized {
