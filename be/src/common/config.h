@@ -891,6 +891,8 @@ CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
+// semi-structure configs
+CONF_Bool(enable_parse_multi_dimession_array, "true");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
