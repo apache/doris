@@ -137,6 +137,11 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported";
     }
 
+    void update_hashes_with_value(std::vector<SipHash>& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        LOG(FATAL) << "update_hashes_with_value not supported";
+    }
+
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported";

@@ -410,7 +410,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     std::string title = fmt::format("VDataStreamSender (dst_id={}, dst_fragments=[{}])",
                                     _dest_node_id, instances);
     _profile = _pool->add(new RuntimeProfile(std::move(title)));
-    SCOPED_TIMER(_profile->total_time_counter());
+    //    SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>(
             "VDataStreamSender:" + print_id(state->fragment_instance_id()), _profile);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -466,7 +466,6 @@ Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
-    SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
@@ -519,10 +518,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         std::vector<SipHash> siphashs(rows);
         // result[j] means column index, i means rows index
         for (int j = 0; j < result_size; ++j) {
-            auto column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                column->update_hash_with_value(i, siphashs[i]);
-            }
+            block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
         }
 
         // channel2rows' subscript means channel id

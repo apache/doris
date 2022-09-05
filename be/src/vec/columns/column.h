@@ -30,6 +30,19 @@
 
 class SipHash;
 
+#define HASEES_FUNCTION_COLUMN_IMPL()                                    \
+    auto s = hashes.size();                                              \
+    DCHECK(s == size());                                                 \
+    if (null_data == nullptr) {                                          \
+        for (size_t i = 0; i < s; i++) {                                 \
+            update_hash_with_value(i, hashes[i]);                        \
+        }                                                                \
+    } else {                                                             \
+        for (size_t i = 0; i < s; i++) {                                 \
+            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
+        }                                                                \
+    }
+
 namespace doris::vectorized {
 
 class Arena;
@@ -285,6 +298,9 @@ public:
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.
     virtual void update_hash_with_value(size_t n, SipHash& hash) const = 0;
+
+    virtual void update_hashes_with_value(std::vector<SipHash>& hash,
+                                          const uint8_t* __restrict null_data = nullptr) const = 0;
 
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.

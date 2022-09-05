@@ -246,8 +246,14 @@ public:
         size_t string_size = size_at(n);
         size_t offset = offset_at(n);
 
+        // TODO: Rethink we really need to update the string_size?
         hash.update(reinterpret_cast<const char*>(&string_size), sizeof(string_size));
         hash.update(reinterpret_cast<const char*>(&chars[offset]), string_size);
+    }
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override {
+        HASEES_FUNCTION_COLUMN_IMPL();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -315,19 +321,31 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
+    bool can_be_inside_nullable() const override {
+        return true;
+    }
 
-    bool is_column_string() const override { return true; }
+    bool is_column_string() const override {
+        return true;
+    }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnString);
     }
 
-    Chars& get_chars() { return chars; }
-    const Chars& get_chars() const { return chars; }
+    Chars& get_chars() {
+        return chars;
+    }
+    const Chars& get_chars() const {
+        return chars;
+    }
 
-    Offsets& get_offsets() { return offsets; }
-    const Offsets& get_offsets() const { return offsets; }
+    Offsets& get_offsets() {
+        return offsets;
+    }
+    const Offsets& get_offsets() const {
+        return offsets;
+    }
 
     void clear() override {
         chars.clear();
