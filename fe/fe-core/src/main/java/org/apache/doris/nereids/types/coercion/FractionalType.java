@@ -40,4 +40,9 @@ public class FractionalType extends NumericType {
     public String simpleString() {
         return "fractional";
     }
+
+    @Override
+    public int width() {
+        throw new RuntimeException("Unimplemented exception");
+    }
 }

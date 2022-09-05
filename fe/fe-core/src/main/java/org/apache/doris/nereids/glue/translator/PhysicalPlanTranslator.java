@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
@@ -31,7 +32,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -356,8 +356,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
-        TupleDescriptor leftTuple = context.getTupleDesc(leftPlanRoot);
-        TupleDescriptor rightTuple = context.getTupleDesc(rightPlanRoot);
+        TupleDescriptor leftChildOutputTupleDesc = leftPlanRoot.getOutputTupleDesc();
+        TupleDescriptor leftTuple =
+                leftChildOutputTupleDesc != null ? leftChildOutputTupleDesc :  context.getTupleDesc(leftPlanRoot);
+        TupleDescriptor rightChildOutputTupleDesc = rightPlanRoot.getOutputTupleDesc();
+        TupleDescriptor rightTuple =
+                rightChildOutputTupleDesc != null ? rightChildOutputTupleDesc : context.getTupleDesc(rightPlanRoot);
 
         // Nereids does not care about output order of join,
         // but BE need left child's output must be before right child's output.
@@ -419,12 +423,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
 
-        // TODO: handle p.child(0) is not NamedExpression.
-        project.getProjects().stream().filter(Alias.class::isInstance).forEach(p -> {
-            SlotRef ref = context.findSlotRef(((NamedExpression) p.child(0)).getExprId());
-            context.addExprIdSlotRefPair(p.getExprId(), ref);
-        });
-
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
@@ -469,11 +467,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Set<Integer> slotIdSet = slotRefSet.stream()
                 .map(SlotRef::getSlotId).map(SlotId::asInt).collect(Collectors.toSet());
         slotIdSet.addAll(requiredSlotIdList);
-        execPlan.getTupleIds().stream()
+        boolean noneMaterialized = execPlan.getTupleIds().stream()
                 .map(context::getTupleDesc)
                 .map(TupleDescriptor::getSlots)
                 .flatMap(List::stream)
-                .forEach(s -> s.setIsMaterialized(slotIdSet.contains(s.getId().asInt())));
+                .peek(s -> s.setIsMaterialized(slotIdSet.contains(s.getId().asInt())))
+                .filter(SlotDescriptor::isMaterialized)
+                .count() == 0;
+        if (noneMaterialized) {
+            context.getDescTable()
+                    .getTupleDesc(execPlan.getTupleIds().get(0)).getSlots().get(0).setIsMaterialized(true);
+        }
     }
 
     @Override

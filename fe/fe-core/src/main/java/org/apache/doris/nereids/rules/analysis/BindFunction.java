@@ -101,7 +101,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 if (arguments.size() > 1 || (arguments.size() == 0 && !unboundFunction.isStar())) {
                     return unboundFunction;
                 }
-                if (unboundFunction.isStar()) {
+                if (unboundFunction.isStar() || arguments.stream().allMatch(Expression::isConstant)) {
                     return new Count();
                 }
                 return new Count(unboundFunction.getArguments().get(0));

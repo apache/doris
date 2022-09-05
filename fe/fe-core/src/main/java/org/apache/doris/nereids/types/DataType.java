@@ -227,4 +227,6 @@ public abstract class DataType implements AbstractDataType {
             return this;
         }
     }
+
+    public abstract int width();
 }

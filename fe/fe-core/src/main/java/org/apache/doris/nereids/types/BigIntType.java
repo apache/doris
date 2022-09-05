@@ -24,7 +24,10 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
  * BigInt data type in Nereids.
  */
 public class BigIntType extends IntegralType {
+
     public static BigIntType INSTANCE = new BigIntType();
+
+    private static final int WIDTH = 8;
 
     private BigIntType() {
     }
@@ -47,5 +50,10 @@ public class BigIntType extends IntegralType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }
