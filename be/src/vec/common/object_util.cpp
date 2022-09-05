@@ -79,35 +79,36 @@ Array create_empty_array_field(size_t num_dimensions) {
     return array;
 }
 
-Status convert_objects_to_tuples(Block& block) {
-    for (auto& column : block) {
-        if (!column.type->is_object()) continue;
-        auto& column_object = assert_cast<ColumnObject&>(*column.column->assume_mutable());
-        column_object.finalize();
-        const auto& subcolumns = column_object.get_subcolumns();
-        if (!column_object.is_finalized())
-            return Status::InvalidArgument("Can't convert object to tuple");
-        PathsInData tuple_paths;
-        DataTypes tuple_types;
-        Columns tuple_columns;
-        for (const auto& entry : subcolumns) {
-            tuple_paths.emplace_back(entry->path);
-            tuple_types.emplace_back(entry->data.getLeastCommonType());
-            tuple_columns.emplace_back(entry->data.get_finalized_column_ptr());
-        }
-        std::tie(column.column, column.type) =
-                unflatten_tuple(tuple_paths, tuple_types, tuple_columns);
-    }
-    return Status::OK();
-}
+// Status convert_objects_to_tuples(Block& block) {
+//     for (auto& column : block) {
+//         if (!column.type->is_object()) continue;
+//         auto& column_object = assert_cast<ColumnObject&>(*column.column->assume_mutable());
+//         column_object.finalize();
+//         const auto& subcolumns = column_object.get_subcolumns();
+//         if (!column_object.is_finalized())
+//             return Status::InvalidArgument("Can't convert object to tuple");
+//         PathsInData tuple_paths;
+//         DataTypes tuple_types;
+//         Columns tuple_columns;
+//         for (const auto& entry : subcolumns) {
+//             tuple_paths.emplace_back(entry->path);
+//             tuple_types.emplace_back(entry->data.getLeastCommonType());
+//             tuple_columns.emplace_back(entry->data.get_finalized_column_ptr());
+//         }
+//         std::tie(column.column, column.type) =
+//                 unflatten_tuple(tuple_paths, tuple_types, tuple_columns);
+//     }
+//     return Status::OK();
+// }
+// 
+// DataTypePtr unflatten_tuple(const PathsInData& paths, const DataTypes& tuple_types) {
+//     assert(paths.size() == tuple_types.size());
+//     Columns tuple_columns;
+//     tuple_columns.reserve(tuple_types.size());
+//     for (const auto& type : tuple_types) tuple_columns.emplace_back(type->create_column());
+//     return unflatten_tuple(paths, tuple_types, tuple_columns).second;
+// }
 
-DataTypePtr unflatten_tuple(const PathsInData& paths, const DataTypes& tuple_types) {
-    assert(paths.size() == tuple_types.size());
-    Columns tuple_columns;
-    tuple_columns.reserve(tuple_types.size());
-    for (const auto& type : tuple_types) tuple_columns.emplace_back(type->create_column());
-    return unflatten_tuple(paths, tuple_types, tuple_columns).second;
-}
 ColumnPtr reduce_number_of_dimensions(ColumnPtr column, size_t dimensions_to_reduce) {
     while (dimensions_to_reduce--) {
         const auto* column_array = typeid_cast<const ColumnArray*>(column.get());
@@ -725,6 +726,38 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size
                                  [row_begin, length](const IColumn& src, MutableColumnPtr& dst) {
                                      dst->insert_range_from(src, row_begin, length);
                                  });
+}
+
+void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,
+                                                          int32_t schema_version) {
+    std::lock_guard<std::mutex> lock(_lock);
+    _schema_version = std::max(_schema_version, schema_version);
+    auto it = _extended_columns.find(new_column.name());
+    if (it != _extended_columns.end()) {
+        return;
+    }
+    _extended_columns.emplace_hint(it, new_column.name(), new_column);
+}
+
+bool LocalSchemaChangeRecorder::has_extended_columns() {
+    std::lock_guard<std::mutex> lock(_lock);
+    return !_extended_columns.empty();
+}
+
+std::map<std::string, TabletColumn> LocalSchemaChangeRecorder::copy_extended_columns() {
+    std::lock_guard<std::mutex> lock(_lock);
+    return _extended_columns;
+}
+
+const TabletColumn& LocalSchemaChangeRecorder::column(const std::string& col_name) {
+    std::lock_guard<std::mutex> lock(_lock);
+    assert(_extended_columns.find(col_name) != _extended_columns.end());
+    return _extended_columns[col_name];
+}
+
+int32_t LocalSchemaChangeRecorder::schema_version() {
+    std::lock_guard<std::mutex> lock(_lock);
+    return _schema_version;
 }
 
 } // namespace doris::vectorized::object_util

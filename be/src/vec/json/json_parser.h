@@ -58,17 +58,16 @@ template <typename ParserImpl>
 class JSONDataParser {
 public:
     std::optional<ParseResult> parse(const char* begin, size_t length);
-    
+
     // extract keys's element into columns
-    bool extract_key(MutableColumns& columns, StringRef json,
-                const std::vector<StringRef>& keys, const std::vector<ExtractType>& types);
-    
+    bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
+                     const std::vector<ExtractType>& types);
+
 private:
     using Element = typename ParserImpl::Element;
     using JSONObject = typename ParserImpl::Object;
     using JSONArray = typename ParserImpl::Array;
-    struct ParseContext
-    {
+    struct ParseContext {
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
@@ -76,23 +75,22 @@ private:
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;
     using KeyToSizes = phmap::flat_hash_map<StringRef, std::vector<size_t>, StringRefHash>;
-    struct ParseArrayContext
-    {
+    struct ParseArrayContext {
         size_t current_size = 0;
         size_t total_size = 0;
         PathToArray arrays_by_path;
         KeyToSizes nested_sizes_by_key;
         // Arena strings_pool;
     };
-    void traverse(const Element & element, ParseContext & ctx);
-    void traverseObject(const JSONObject & object, ParseContext & ctx);
-    void traverseArray(const JSONArray & array, ParseContext & ctx);
-    void traverseArrayElement(const Element & element, ParseArrayContext & ctx);
-    static void fillMissedValuesInArrays(ParseArrayContext & ctx);
-    static bool tryInsertDefaultFromNested(
-        ParseArrayContext & ctx, const PathInData::Parts & path, Array & array);
-    static StringRef getNameOfNested(const PathInData::Parts & path, const Field & value);
-    
+    void traverse(const Element& element, ParseContext& ctx);
+    void traverseObject(const JSONObject& object, ParseContext& ctx);
+    void traverseArray(const JSONArray& array, ParseContext& ctx);
+    void traverseArrayElement(const Element& element, ParseArrayContext& ctx);
+    static void fillMissedValuesInArrays(ParseArrayContext& ctx);
+    static bool tryInsertDefaultFromNested(ParseArrayContext& ctx, const PathInData::Parts& path,
+                                           Array& array);
+    static StringRef getNameOfNested(const PathInData::Parts& path, const Field& value);
+
     ParserImpl parser;
 };
 

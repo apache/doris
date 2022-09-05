@@ -26,6 +26,9 @@ namespace doris {
 class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 class DataDir;
+namespace vectorized::object_util {
+class LocalSchemaChangeRecorder;
+}
 
 struct RowsetWriterContext {
     RowsetWriterContext()
@@ -77,6 +80,9 @@ struct RowsetWriterContext {
     int64_t newest_write_timestamp;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
+
+    // for tracing local schema change record
+    std::shared_ptr<vectorized::object_util::LocalSchemaChangeRecorder> schema_change_recorder = nullptr;
 };
 
 } // namespace doris

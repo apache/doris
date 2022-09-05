@@ -19,10 +19,10 @@
 // and modified by Doris
 
 #include <vec/common/sip_hash.h>
-#include <boost/algorithm/string/split.hpp>
-#include <boost/algorithm/string.hpp>
-
 #include <vec/json/path_in_data.h>
+
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/split.hpp>
 namespace doris::vectorized {
 PathInData::PathInData(std::string_view path_) : path(path_) {
     const char* begin = path.data();

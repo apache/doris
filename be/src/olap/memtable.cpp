@@ -148,7 +148,11 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 
 void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
-    auto target_block = input_block->copy_block(_column_offset);
+    vectorized::Block target_block = *input_block;
+    // maybe rollup tablet, dynamic table's tablet need full columns
+    if (!_tablet_schema->is_dynamic_schema()) {
+        target_block = input_block->copy_block(_column_offset);
+    }
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto cloneBlock = target_block.clone_without_columns();
@@ -162,7 +166,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
+    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows, _tablet_schema->is_dynamic_schema());
     size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);

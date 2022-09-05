@@ -70,10 +70,11 @@ public:
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
-    Status init();
+    Status init(const vectorized::Block* block = nullptr);
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
+                    const vectorized::Block* block = nullptr);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -107,6 +108,11 @@ public:
     Status append_row_column_writer();
 
 private:
+    Status _create_writers_with_block(
+            const vectorized::Block* block,
+            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
+    Status _create_writers(
+            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();

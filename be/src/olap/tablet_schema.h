@@ -224,7 +224,10 @@ public:
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    void set_schema_version(int32_t version) { _schema_version = version; }
 
+    void set_table_id(int32_t table_id) { _table_id = table_id; }
+    int32_t table_id() const { return _table_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
@@ -273,6 +276,7 @@ private:
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _schema_version = -1;
+    int32_t _table_id = -1;
     bool _disable_auto_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
