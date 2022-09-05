@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -58,9 +59,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExchangeNode;
@@ -96,24 +97,6 @@ import java.util.stream.Stream;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
-    /**
-     * The left and right child of origin predicates need to be swap sometimes.
-     * Case A:
-     * select * from t1 join t2 on t2.id=t1.id
-     * The left plan node is t1 and the right plan node is t2.
-     * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
-     * In this situation, the children of predicate need to be swap => t1.id=t2.id.
-     */
-    private static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
-        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toSet());
-        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
-            return equalTo;
-        } else {
-            return new EqualTo(equalTo.right(), equalTo.left());
-        }
-    }
-
     /**
      * Translate Nereids Physical Plan tree to Stale Planner PlanFragment tree.
      *
@@ -367,7 +350,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Expr> execEqConjuncts = hashJoin.getHashJoinConjuncts().stream()
                 .map(EqualTo.class::cast)
-                .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
@@ -541,6 +524,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribution(PhysicalDistribution<Plan> distribution,
             PlanTranslatorContext context) {
         return distribution.child().accept(this, context);
+    }
+
+    @Override
+    public PlanFragment visitPhysicalAssertNumRows(PhysicalAssertNumRows<Plan> assertNumRows,
+            PlanTranslatorContext context) {
+        PlanFragment inputFragment = assertNumRows.child(0).accept(this, context);
+        //create assertNode
+        PlanNode child = inputFragment.getPlanRoot();
+        AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
+                child, ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
+        PlanFragment mergeFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
+        mergeFragment.addPlanRoot(assertNumRowsNode);
+        return mergeFragment;
     }
 
     private void extractExecSlot(Expr root, Set<Integer> slotRefList) {

@@ -912,7 +912,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     } else {
                         outExpression = new InSubquery(
                                 valueExpression,
-                                new ListQuery(typedVisit(ctx.query()))
+                                new ListQuery(typedVisit(ctx.query())),
+                                ctx.NOT() != null
                         );
                     }
                     break;
@@ -943,7 +944,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitExist(ExistContext context) {
-        return ParserUtils.withOrigin(context, () -> new Exists(typedVisit(context.query())));
+        return ParserUtils.withOrigin(context, () -> new Exists(typedVisit(context.query()), false));
     }
 
     public List<Expression> withInList(PredicateContext ctx) {

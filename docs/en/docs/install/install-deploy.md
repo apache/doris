@@ -56,8 +56,8 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 ````
 vi /etc/security/limits.conf
-*soft nofile 65536
-*hard nofile 65536
+* soft nofile 65536
+* hard nofile 65536
 ````
 
 ##### Clock synchronization
@@ -191,7 +191,8 @@ See the section on `lower_case_table_names` variables in [Variables](../advanced
 
 * Modify all BE configurations
 
-  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).
+  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).   
+  If the user does not use a mix of SSD and HDD disks, they do not need to configure the configuration methods in Example 1 and Example 2 below, but only need to specify the storage directory; they also do not need to modify the default storage media configuration of FE.  
 
     eg.1: 
 

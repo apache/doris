@@ -182,7 +182,7 @@ public class SingleNodePlanner {
     private PlanNode createEmptyNode(PlanNode inputPlan, QueryStmt stmt, Analyzer analyzer) throws UserException {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         if (inputPlan != null) {
-            tupleIds = inputPlan.tupleIds;
+            tupleIds.addAll(inputPlan.getOutputTupleIds());
         }
         if (tupleIds.isEmpty()) {
             // Constant selects do not have materialized tuples at this stage.
@@ -1726,6 +1726,7 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
+            case MATERIALIZED_VIEW:
                 OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());

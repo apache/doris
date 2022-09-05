@@ -852,7 +852,7 @@ CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
 // If set to true, the new scan node framework will be used.
 // This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "false");
+CONF_Bool(enable_new_scan_node, "true");
 
 #ifdef BE_TEST
 // test s3

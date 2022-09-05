@@ -41,10 +41,6 @@ ParquetReader::~ParquetReader() {
 
 void ParquetReader::close() {
     for (auto& conjuncts : _slot_conjuncts) {
-        for (auto expr : conjuncts.second) {
-            delete expr;
-            expr = nullptr;
-        }
         conjuncts.second.clear();
     }
     _row_group_readers.clear();

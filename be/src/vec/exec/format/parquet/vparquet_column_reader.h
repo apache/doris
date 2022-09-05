@@ -72,7 +72,7 @@ protected:
     const ParquetReadColumn& _column;
     BufferedFileStreamReader* _stream_reader;
     std::unique_ptr<ParquetColumnMetadata> _metadata;
-    std::vector<RowRange>* _row_ranges;
+    std::vector<RowRange> _row_ranges;
     cctz::time_zone* _ctz;
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::unique_ptr<level_t[]> _def_levels_buf = nullptr;
