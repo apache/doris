@@ -694,6 +694,14 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
 Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
                         segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
+    std::string compression_scratch;
+    return serialize(pblock, &compression_scratch, uncompressed_bytes, compressed_bytes,
+                     compression_type, allow_transfer_large_data);
+}
+
+Status Block::serialize(PBlock* pblock, std::string* compressed_buffer, size_t* uncompressed_bytes,
+                        size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
+                        bool allow_transfer_large_data) const {
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
@@ -726,7 +734,7 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
     // compress
     if (config::compress_rowbatches && content_uncompressed_size > 0) {
-        SCOPED_RAW_TIMER(const_cast<int64_t*>(&_compress_time_ns));
+        SCOPED_RAW_TIMER(&_compress_time_ns);
         pblock->set_compression_type(compression_type);
         pblock->set_uncompressed_size(content_uncompressed_size);
 
@@ -734,12 +742,11 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, codec));
 
         size_t max_compressed_size = codec->max_compressed_len(content_uncompressed_size);
-        std::string compression_scratch;
         try {
-            // Try compressing the content to compression_scratch,
+            // Try compressing the content to compressed_buffer,
             // swap if compressed data is smaller
             // Allocation of extra-long contiguous memory may fail, and data compression cannot be used if it fails
-            compression_scratch.resize(max_compressed_size);
+            compressed_buffer->resize(max_compressed_size);
         } catch (...) {
             std::exception_ptr p = std::current_exception();
             std::string msg =
@@ -749,13 +756,13 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
             return Status::BufferAllocFailed(msg);
         }
 
-        Slice compressed_slice(compression_scratch);
+        Slice compressed_slice(*compressed_buffer);
         codec->compress(Slice(column_values->data(), content_uncompressed_size), &compressed_slice);
         size_t compressed_size = compressed_slice.size;
 
         if (LIKELY(compressed_size < content_uncompressed_size)) {
-            compression_scratch.resize(compressed_size);
-            column_values->swap(compression_scratch);
+            compressed_buffer->resize(compressed_size);
+            column_values->swap(*compressed_buffer);
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
