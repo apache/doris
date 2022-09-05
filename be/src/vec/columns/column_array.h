@@ -106,7 +106,7 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    //template <typename Type> ColumnPtr index_impl(const PaddedPODArray<Type> & indexes, size_t limit) const;
+    template <typename Type> ColumnPtr index_impl(const PaddedPODArray<Type> & indexes, size_t limit) const;
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
@@ -185,6 +185,11 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
+    void get_indices_of_non_default_rows(Offsets & indices, size_t from, size_t limit) const {
+        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 private:
     WrappedPtr data;
     WrappedPtr offsets;

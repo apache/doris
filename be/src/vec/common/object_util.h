@@ -73,11 +73,6 @@ std::pair<ColumnPtr, DataTypePtr> unflatten_tuple(const PathsInData& paths,
 
 // None nested type
 FieldType get_field_type(const IDataType* data_type);
-// NOTICE: output column only used for generating none key anounymous column writer
-// eg. We use this to generate variant type column which we converted to tuple for
-// convenience
-
-void convert_to_tablet_column(const DataTypePtr& data_type, TabletColumn* column);
 
 // NOTICE: the last column must be dynamic column
 // 1. The dynamic column will be parsed to ColumnObject and the parsed column will

@@ -324,6 +324,11 @@ public:
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
     }
+    void get_indices_of_non_default_rows(Offsets & indices, size_t from, size_t limit) const override {
+        get_indices_of_non_default_rows_impl<ColumnNullable>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
 private:
     // the two functions will not update `_need_update_has_null`

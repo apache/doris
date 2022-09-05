@@ -186,6 +186,14 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
     }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets & indices, size_t from, size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in PredicateColumnType";
+    }
+
+    [[noreturn]] ColumnPtr index(const IColumn & indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported in PredicateColumnType";
+    }
+
     void insert_string_value(const char* data_ptr, size_t length) {
         StringRef sv((char*)data_ptr, length);
         data.push_back_without_reserve(sv);
