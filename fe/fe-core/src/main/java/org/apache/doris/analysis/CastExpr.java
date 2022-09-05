@@ -142,11 +142,6 @@ public class CastExpr extends Expr {
                 || toType.isDateType())) {
             return true;
         }
-
-        // Disable casting operation of hll/bitmap/quantile_state
-        if (fromType.isObjectStored() || toType.isObjectStored()) {
-            return true;
-        }
         // Disable no-op casting
         return fromType.equals(toType);
     }
