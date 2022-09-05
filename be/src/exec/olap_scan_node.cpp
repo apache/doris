@@ -1529,7 +1529,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    SCOPED_ATTACH_TASK(_runtime_state);
+    // SCOPED_ATTACH_TASK(_runtime_state);
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
