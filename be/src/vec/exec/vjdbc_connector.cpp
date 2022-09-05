@@ -119,11 +119,12 @@ Status JdbcConnector::query_exec() {
     jint colunm_count = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_query_id, query_sql);
     env->DeleteLocalRef(query_sql);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
     if (colunm_count != materialize_num) {
-        return Status::InternalError("input and output not equal of jdbc query.");
+        return Status::InternalError("input and output column num not equal of jdbc query.");
     }
-    return JniUtil::GetJniExceptionMsg(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns, int batch_size) {

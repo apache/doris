@@ -155,11 +155,11 @@ public class JdbcExecutor {
             conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
             stmt = conn.createStatement();
         } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("MalformedURLException to load class", e);
+            throw new UdfRuntimeException("MalformedURLException to load class about " + driverPath, e);
         } catch (ClassNotFoundException e) {
-            throw new UdfRuntimeException("Loading JDBC class error ClassNotFoundException ", e);
+            throw new UdfRuntimeException("Loading JDBC class error ClassNotFoundException about " + driverClass, e);
         } catch (SQLException e) {
-            throw new UdfRuntimeException("Connection JDBC class error ", e);
+            throw new UdfRuntimeException("Connection JDBC class error about " + jdbcUrl, e);
         } catch (Exception e) {
             throw new UdfRuntimeException("unable to init jdbc executor Exception ", e);
         }

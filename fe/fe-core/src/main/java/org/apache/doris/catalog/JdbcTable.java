@@ -57,6 +57,8 @@ public class JdbcTable extends Table {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
+        tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
+        tempMap.put("oracle", TOdbcTableType.ORACLE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 

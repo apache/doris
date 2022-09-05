@@ -31,15 +31,7 @@ JDBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 1. 支持各种数据源接入Doris
 2. 支持Doris与各种数据源中的表联合查询，进行更加复杂的分析操作
 
-本文档主要介绍该功能的实现原理、使用方式等。
-
-## 名词解释
-
-### Doris相关
-* FE：Frontend，Doris 的前端节点,负责元数据管理和请求接入
-* BE：Backend，Doris 的后端节点,负责查询执行和数据存储
-
-## 使用方法
+本文档主要介绍该功能的使用方式等。
 
 ### Doris中创建JDBC的外表
 
@@ -83,7 +75,7 @@ PROPERTIES (
 | **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar                                               |
 | **resource**     | 在Doris中建立外表时依赖的资源名，对应上步创建资源时的名字。                                                                        |
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。                                                                                    |
-| **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql                                                                      |
+| **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle                                                     |
 
 ### 查询用法
 
@@ -91,17 +83,26 @@ PROPERTIES (
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
 
-#### 1.Mysql
+#### 1.Mysql测试
 
 | Mysql版本 | Mysql JDBC驱动版本              |
 | --------- | ------------------------------- |
 | 8.0.30    | mysql-connector-java-5.1.47.jar |
 
-#### 2.PostgreSQL
+#### 2.PostgreSQL测试
 | PostgreSQL版本 | PostgreSQL JDBC驱动版本 |
 | -------------- | ----------------------- |
 | 14.5           | postgresql-42.5.0.jar   |
 
+#### 2 SQLServer测试
+| SQLserver版本 | SQLserver JDBC驱动版本     |
+| ------------- | -------------------------- |
+| 2022          | mssql-jdbc-11.2.0.jre8.jar |
+
+#### 2.oracle测试
+| Oracle版本 | Oracle JDBC驱动版本 |
+| ---------- | ------------------- |
+| 11         | ojdbc6.jar          |
 
 目前只测试了这一个版本其他版本测试后补充
 
@@ -144,11 +145,39 @@ select * from mysql_table where k1 > 1000 and k3 ='term';
 |    TIMESTAMP     | DATETIME |
 |     DECIMAL      | DECIMAL  |
 
+### Oracle
+
+|  Oracle  |  Doris   |
+| :------: | :------: |
+|   CHAR   |   CHAR   |
+| VARCHAR  | VARCHAR  |
+|   DATE   | DATETIME |
+| SMALLINT | SMALLINT |
+|   INT    |   INT    |
+|  NUMBER  | DECIMAL  |
+
+
+### SQL server
+
+| SQLServer |  Doris   |
+| :-------: | :------: |
+|    BIT    | BOOLEAN  |
+|   CHAR    |   CHAR   |
+|  VARCHAR  | VARCHAR  |
+|   DATE    |   DATE   |
+|   REAL    |  FLOAT   |
+|  TINYINT  | TINYINT  |
+| SMALLINT  | SMALLINT |
+|    INT    |   INT    |
+|  BIGINT   |  BIGINT  |
+| DATETIME  | DATETIME |
+|  DECIMAL  | DECIMAL  |
+
 ## Q&A
 
 1. 除了MySQL,Oracle,PostgreSQL,SQLServer是否能够支持更多的数据库
 
-   目前Doris只适配了MySQL，PostgreSQL关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+   目前Doris只适配了MySQL，PostgreSQL,SQLServer,Oracle.关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写mysql外表的emoji表情出现乱码
 

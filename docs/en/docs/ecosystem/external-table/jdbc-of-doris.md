@@ -78,7 +78,7 @@ Parameter Description：
 | **driver_url**   | The package driver URL used to download and access external databases。http://IP:port/mysql-connector-java-5.1.47.jar .|
 | **resource**     | The resource name that depends on when creating the external table in Doris corresponds to the name when creating the resource in the previous step.|
 | **table**        | The table name mapped to the external database when creating the external table in Doris.|
-| **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql.|
+| **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql,sqlserver,oracle.|
 
 ### 查询用法
 
@@ -97,6 +97,15 @@ select * from mysql_table where k1 > 1000 and k3 ='term';
 | ------------------ | ------------------------------ |
 | 14.5               | postgresql-42.5.0.jar          |
 
+#### 2 SQLServer
+| SQLserver Version | SQLserver JDBC Driver Version     |
+| ------------- | -------------------------- |
+| 2022          | mssql-jdbc-11.2.0.jre8.jar |
+
+#### 2.oracle
+| Oracle Version | Oracle JDBC Driver Version |
+| ---------- | ------------------- |
+| 11         | ojdbc6.jar          |
 
 At present, only this version has been tested, and other versions will be added after testing
 
@@ -139,11 +148,40 @@ There are different data types among different databases. Here is a list of the 
 |    TIMESTAMP     | DATETIME |
 |     DECIMAL      | DECIMAL  |
 
+### Oracle
+
+|  Oracle  |  Doris   |
+| :------: | :------: |
+|   CHAR   |   CHAR   |
+| VARCHAR  | VARCHAR  |
+|   DATE   | DATETIME |
+| SMALLINT | SMALLINT |
+|   INT    |   INT    |
+|  NUMBER  | DECIMAL  |
+
+
+### SQL server
+
+| SQLServer |  Doris   |
+| :-------: | :------: |
+|    BIT    | BOOLEAN  |
+|   CHAR    |   CHAR   |
+|  VARCHAR  | VARCHAR  |
+|   DATE    |   DATE   |
+|   REAL    |  FLOAT   |
+|  TINYINT  | TINYINT  |
+| SMALLINT  | SMALLINT |
+|    INT    |   INT    |
+|  BIGINT   |  BIGINT  |
+| DATETIME  | DATETIME |
+|  DECIMAL  | DECIMAL  |
+
+
 ## Q&A
 
 1. Besides mysql, Oracle, PostgreSQL, and SQL Server support more databases
 
-At present, Doris only adapts to MySQL, and PostgreSQL.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
+At present, Doris only adapts to MySQL, Oracle, SQL Server, and PostgreSQL.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
 
 1. Read the Emoji expression on the surface of MySQL, and there is garbled code
 
