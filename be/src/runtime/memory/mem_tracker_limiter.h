@@ -266,7 +266,7 @@ inline void MemTrackerLimiter::cache_consume_local(int64_t bytes) {
     if (consume_bytes != 0) {
         for (auto& tracker : _all_ancestors) {
             if (tracker->label() == "Process") return;
-            tracker->_consumption->add(bytes);
+            tracker->_consumption->add(consume_bytes);
         }
     }
 }
