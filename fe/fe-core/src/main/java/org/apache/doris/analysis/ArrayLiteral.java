@@ -53,7 +53,7 @@ public class ArrayLiteral extends LiteralExpr {
             }
         }
 
-        if (itemType == Type.NULL || itemType == Type.INVALID) {
+        if (itemType == Type.INVALID) {
             throw new AnalysisException("Invalid element type in ARRAY");
         }
 
