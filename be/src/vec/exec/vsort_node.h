@@ -57,7 +57,7 @@ private:
     // Fetch input rows and feed them to the sorter until the input is exhausted.
     Status sort_input(RuntimeState* state);
 
-    Status pretreat_block(Block& block);
+    Status partial_sort(Block& block);
 
     void build_merge_tree();
 
@@ -84,6 +84,11 @@ private:
     // only valid in TOP-N node
     uint64_t _num_rows_in_block = 0;
     std::priority_queue<SortBlockCursor> _block_priority_queue;
+
+    std::unique_ptr<MutableBlock> _unsorted_block;
+
+    static constexpr size_t BufferedBlockSize = 1024 * 1024;
+    static constexpr size_t BufferedBlockBytes = 16 << 20;
 };
 
 } // namespace doris::vectorized
