@@ -17,35 +17,31 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
 
-import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.mapred.InputSplit;
-
-import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 /**
- * An interface for file scan node to get the need information.
+ * A file scan provider for hudi.
+ * HudiProvier is extended with hive since they both use input format interface to get the split.
  */
-public interface ExternalFileScanProvider {
-    TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException;
+public class HudiScanProvider extends HiveScanProvider {
 
-    TFileType getTableFileType() throws DdlException, MetaNotFoundException;
+    public HudiScanProvider(HMSExternalTable hmsTable) {
+        super(hmsTable);
+    }
 
-    String getMetaStoreUrl();
+    @Override
+    public TFileFormatType getFileFormatType() throws DdlException {
+        return TFileFormatType.FORMAT_PARQUET;
+    }
 
-    List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException;
-
-    Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
-
-    Map<String, String> getTableProperties() throws MetaNotFoundException;
-
-    List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException;
+    @Override
+    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
+        return Collections.emptyList();
+    }
 }

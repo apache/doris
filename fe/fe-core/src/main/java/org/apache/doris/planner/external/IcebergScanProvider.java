@@ -45,14 +45,14 @@ import java.util.Map;
 /**
  * A file scan provider for iceberg.
  */
-public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
+public class IcebergScanProvider extends HiveScanProvider {
 
-    public ExternalIcebergScanProvider(HMSExternalTable hmsTable) {
+    public IcebergScanProvider(HMSExternalTable hmsTable) {
         super(hmsTable);
     }
 
     @Override
-    public TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException {
+    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type;
 
         String icebergFormat = getRemoteHiveTable().getParameters()
@@ -68,7 +68,7 @@ public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
     }
 
     @Override
-    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
+    public List<InputSplit> getSplits(List<Expr> exprs, int groupIdx) throws IOException, UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);

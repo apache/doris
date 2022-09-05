@@ -216,8 +216,8 @@ struct TEsScanRange {
 }
 
 struct TFileTextScanRangeParams {
-    1: optional string column_separator_str;
-    2: optional string line_delimiter_str;
+    1: optional string column_separator;
+    2: optional string line_delimiter;
 }
 
 struct TFileScanSlotInfo {
@@ -226,19 +226,33 @@ struct TFileScanSlotInfo {
 }
 
 struct TFileScanRangeParams {
-  1: optional Types.TFileType file_type;
-  2: optional TFileFormatType format_type;
-  // use src_tuple_id to get all slots from src table include both file slot and partition slot.
-  3: optional Types.TTupleId src_tuple_id;
-  // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
-  4: optional i32 num_of_columns_from_file;
-  // all selected slots which may compose from file and partiton value.
-  5: optional list<TFileScanSlotInfo> required_slots;
+    1: optional Types.TFileType file_type;
+    2: optional TFileFormatType format_type;
+    // If this is for load job, src point to the source table and dest point to the doris table.
+    // If this is for query, only dest_tuple_id is set, including both file slot and partition slot.
+    3: optional Types.TTupleId src_tuple_id;
+    4: optional Types.TTupleId dest_tuple_id
+    // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
+    5: optional i32 num_of_columns_from_file;
+    // all selected slots which may compose from file and partition value.
+    6: optional list<TFileScanSlotInfo> required_slots;
 
-  6: optional THdfsParams hdfs_params;
-  7: optional TFileTextScanRangeParams text_params;
-  // properties for file such as s3 information
-  8: optional map<string, string> properties;
+    7: optional THdfsParams hdfs_params;
+    // properties for file such as s3 information
+    8: optional map<string, string> properties;
+
+    // The convert exprt map for load job
+    // desc slot id -> expr
+    9: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
+    // This is the mapping of dest slot id and src slot id in load expr
+    // It excludes the slot id which has the transform expr
+    10: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+
+    // strictMode is a boolean
+    // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
+    11: optional bool strict_mode
+
+    12: list<Types.TNetworkAddress> broker_addresses
 }
 
 struct TFileRangeDesc {
@@ -250,6 +264,19 @@ struct TFileRangeDesc {
     3: optional i64 size;
     // columns parsed from file path should be after the columns read from file
     4: optional list<string> columns_from_path;
+    5: optional TFileTextScanRangeParams text_params;
+
+    //  it's usefull when format_type == FORMAT_JSON
+    6: optional bool strip_outer_array;
+    7: optional string jsonpaths;
+    8: optional string json_root;
+    9: optional bool num_as_string;
+    10: optional bool fuzzy_parse;
+    11: optional bool read_json_by_line;
+    // Whether read line by column defination, only for Hive
+    12: optional bool read_by_column_def;
+    // csv with header type
+    13: optional string header_type;
 }
 
 // HDFS file scan range
