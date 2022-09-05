@@ -143,35 +143,37 @@ Status VSortNode::sort_input(RuntimeState* state) {
         Block block = _unsorted_block->to_block(0);
         RETURN_IF_ERROR(partial_sort(block));
 
-        // dispose TOP-N logic
-        if (_limit != -1) {
-            // Here is a little opt to reduce the mem uasge, we build a max heap
-            // to order the block in _block_priority_queue.
-            // if one block totally greater the heap top of _block_priority_queue
-            // we can throw the block data directly.
-            if (_num_rows_in_block < _limit) {
-                _sorted_blocks.emplace_back(std::move(block));
-                _num_rows_in_block += block.rows();
-                _block_priority_queue.emplace(
-                        _pool->add(new SortCursorImpl(_sorted_blocks.back(), _sort_description)));
-            } else {
-                SortBlockCursor block_cursor(
-                        _pool->add(new SortCursorImpl(block, _sort_description)));
-                if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+        if (block.rows() > 0) {
+            // dispose TOP-N logic
+            if (_limit != -1) {
+                // Here is a little opt to reduce the mem uasge, we build a max heap
+                // to order the block in _block_priority_queue.
+                // if one block totally greater the heap top of _block_priority_queue
+                // we can throw the block data directly.
+                if (_num_rows_in_block < _limit) {
                     _sorted_blocks.emplace_back(std::move(block));
-                    _block_priority_queue.push(block_cursor);
+                    _num_rows_in_block += block.rows();
+                    _block_priority_queue.emplace(_pool->add(
+                            new SortCursorImpl(_sorted_blocks.back(), _sort_description)));
                 } else {
-                    continue;
+                    SortBlockCursor block_cursor(
+                            _pool->add(new SortCursorImpl(block, _sort_description)));
+                    if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+                        _sorted_blocks.emplace_back(std::move(block));
+                        _block_priority_queue.push(block_cursor);
+                    } else {
+                        continue;
+                    }
                 }
+            } else {
+                // dispose normal sort logic
+                _sorted_blocks.emplace_back(std::move(block));
             }
-        } else {
-            // dispose normal sort logic
-            _sorted_blocks.emplace_back(std::move(block));
+            RETURN_IF_CANCELLED(state);
+            RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
+            _unsorted_block.reset(new MutableBlock(
+                    VectorizedUtils::create_empty_columnswithtypename(child(0)->row_desc())));
         }
-        RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
-        _unsorted_block.reset(new MutableBlock(
-                VectorizedUtils::create_empty_columnswithtypename(child(0)->row_desc())));
     } while (!eos);
 
     build_merge_tree();
