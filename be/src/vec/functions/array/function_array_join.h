@@ -117,7 +117,8 @@ private:
     }
 
     template <typename ColumnType>
-    static bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    static bool _execute_number(const IColumn& src_column,
+                                const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
@@ -160,7 +161,8 @@ private:
         return true;
     }
 
-    static bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    static bool _execute_string(const IColumn& src_column,
+                                const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str,
                                 ColumnString* dest_column_ptr) {
@@ -193,7 +195,8 @@ private:
         return true;
     }
 
-    static bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    static bool _execute_by_type(const IColumn& src_column,
+                                 const ColumnArray::Offsets64& src_offsets,
                                  const UInt8* src_null_map, const std::string& sep_str,
                                  const std::string& null_replace_str, DataTypePtr& nested_type,
                                  ColumnString* dest_column_ptr) {
