@@ -151,8 +151,8 @@ bool MemTrackerLimiter::gc_memory(int64_t max_consumption) {
 Status MemTrackerLimiter::try_gc_memory(int64_t bytes) {
     if (UNLIKELY(gc_memory(_limit - bytes))) {
         return Status::MemoryLimitExceeded(fmt::format(
-                "failed_alloc_size={}B, exceeded_tracker={}, limit={}B, peak_used={}B, "
-                "current_used={}B",
+                "failed_alloc_size={} B, exceeded_tracker={}, limit={} B, peak_used={} B, "
+                "current_used={} B",
                 bytes, label(), _limit, _consumption->value(), _consumption->current_value()));
     }
     VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
@@ -281,8 +281,8 @@ Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
     MemTrackerLimiter* print_log_usage_tracker = nullptr;
     if (exceeded_tracker != nullptr) {
         detail += fmt::format(
-                "failed_alloc_size={}B, exceeded_tracker={}, limit={}B, peak_used={}B, "
-                "current_used={}B>, executing_msg:<{}>",
+                "failed_alloc_size={} B, exceeded_tracker={}, limit={} B, peak_used={} B, "
+                "current_used={} B>, executing_msg:<{}>",
                 PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
                 exceeded_tracker->label(), exceeded_tracker->limit(),
                 exceeded_tracker->peak_consumption(), exceeded_tracker->consumption(), msg);
@@ -292,8 +292,8 @@ Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
     } else if (max_consumption_tracker != nullptr) {
         // must after check_sys_mem_info false
         detail += fmt::format(
-                "failed_alloc_size={}B, max_consumption_tracker={}, limit={}B, peak_used={}B, "
-                "current_used={}B>, executing_msg:<{}>",
+                "failed_alloc_size={} B, max_consumption_tracker={}, limit={} B, peak_used={} B, "
+                "current_used={} B>, executing_msg:<{}>",
                 PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
                 max_consumption_tracker->label(), max_consumption_tracker->limit(),
                 max_consumption_tracker->peak_consumption(), max_consumption_tracker->consumption(),
