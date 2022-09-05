@@ -80,7 +80,7 @@ Parameter Description：
 | **table**        | The table name mapped to the external database when creating the external table in Doris.|
 | **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql,sqlserver,oracle.|
 
-### 查询用法
+### Query usage
 
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
