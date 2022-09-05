@@ -49,14 +49,14 @@ FileTextScanner::FileTextScanner(RuntimeState* state, RuntimeProfile* profile,
 
 {
     _init_profiles(profile);
-    if (params.__isset.text_params) {
-        auto text_params = params.text_params;
-        if (text_params.__isset.column_separator_str) {
-            _value_separator = text_params.column_separator_str;
+    if (params.file_attributes.__isset.text_params) {
+        auto text_params = params.file_attributes.text_params;
+        if (text_params.__isset.column_separator) {
+            _value_separator = text_params.column_separator;
             _value_separator_length = _value_separator.length();
         }
-        if (text_params.__isset.line_delimiter_str) {
-            _line_delimiter = text_params.line_delimiter_str;
+        if (text_params.__isset.line_delimiter) {
+            _line_delimiter = text_params.line_delimiter;
             _line_delimiter_length = _line_delimiter.length();
         }
     }

@@ -17,35 +17,43 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.InputSplit;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-/**
- * An interface for file scan node to get the need information.
- */
-public interface ExternalFileScanProvider {
-    TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException;
+public interface FileScanProviderIf {
+    // Return parquet/orc/text, etc.
+    TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException;
 
-    TFileType getTableFileType() throws DdlException, MetaNotFoundException;
+    // Return S3/HDSF, etc.
+    TFileType getLocationType() throws DdlException, MetaNotFoundException;
 
-    String getMetaStoreUrl();
-
+    // Return file list
     List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException;
 
-    Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
-
-    Map<String, String> getTableProperties() throws MetaNotFoundException;
+    // return properties for S3/HDFS, etc.
+    Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException;
 
     List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException;
+
+    ParamCreateContext createContext(Analyzer analyzer) throws UserException;
+
+    void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
+            List<TScanRangeLocations> scanRangeLocations) throws UserException;
+
+    int getInputSplitNum();
+
+    long getInputFileSize();
 }
