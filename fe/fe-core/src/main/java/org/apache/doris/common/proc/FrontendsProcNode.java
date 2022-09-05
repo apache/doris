@@ -156,7 +156,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     private static List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
         List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
         for (InetSocketAddress addr : addrs) {
-            hostPortPair.add(Pair.create(addr.getAddress().getHostAddress(), addr.getPort()));
+            hostPortPair.add(Pair.of(addr.getAddress().getHostAddress(), addr.getPort()));
         }
         return hostPortPair;
     }

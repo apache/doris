@@ -18,35 +18,30 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * cast function.
  */
-public class Cast extends Expression implements BinaryExpression {
+public class Cast extends Expression implements UnaryExpression {
 
-    public Cast(Expression child, String type) {
-        super(child, new StringLiteral(type));
-    }
+    private final DataType targetType;
 
-    public Cast(Expression child, StringLiteral type) {
-        super(child, type);
-    }
-
-    @Override
-    public StringLiteral right() {
-        return (StringLiteral) BinaryExpression.super.right();
+    public Cast(Expression child, DataType targetType) {
+        super(child);
+        this.targetType = targetType;
     }
 
     @Override
     public DataType getDataType() {
-        StringLiteral type = right();
-        return DataType.convertFromString(type.getValue());
+        return targetType;
     }
 
     @Override
@@ -56,23 +51,36 @@ public class Cast extends Expression implements BinaryExpression {
 
     @Override
     public boolean nullable() {
-        return left().nullable();
+        return child().nullable();
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        Preconditions.checkArgument(children.get(1) instanceof StringLiteral);
-        return new Cast(children.get(0), ((StringLiteral) children.get(1)).getValue());
+    public Cast withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Cast(children.get(0), getDataType());
     }
 
     @Override
     public String toSql() throws UnboundException {
-        return "CAST(" + left().toSql() + " AS " + right().getValue() + ")";
+        return "CAST(" + child().toSql() + " AS " + targetType + ")";
     }
 
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!super.equals(o)) {
+            return false;
+        }
+        Cast cast = (Cast) o;
+        return Objects.equals(targetType, cast.targetType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), targetType);
     }
 }

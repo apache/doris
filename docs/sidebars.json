@@ -37,7 +37,6 @@
                 "data-table/data-model",
                 "data-table/data-partition",
                 "data-table/basic-usage",
-                "data-table/advance-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
                 {
@@ -115,17 +114,6 @@
             "type": "category",
             "label": "Advanced Usage",
             "items": [    
-                "advanced/materialized-view",
-                "advanced/vectorized-execution-engine",
-                "advanced/broker",
-                "advanced/resource",
-                "advanced/orthogonal-bitmap-manual",
-                "advanced/orthogonal-hll-manual",
-                "advanced/using-hll",
-                "advanced/variables",
-                "advanced/time-zone",
-                "advanced/small-file-mgr",
-                "advanced/sql-mode",
                 {
                     "type": "category",
                     "label": "Alter Table",
@@ -133,43 +121,49 @@
                         "advanced/alter-table/schema-change",
                         "advanced/alter-table/replace-table"
                     ]
-                },
+                }, 
                 {
                     "type": "category",
                     "label": "Doris Partition",
                     "items": [
-                        "advanced/partition/table-temp-partition",
-                        "advanced/partition/dynamic-partition"
+                        "advanced/partition/dynamic-partition",
+                        "advanced/partition/table-temp-partition"
+                    ]
+                }, 
+                {
+                    "type": "category",
+                    "label": "Date Cache",
+                    "items": [
+                        "advanced/cache/partition-cache"
                     ]
                 },
                 {
                     "type": "category",
                     "label": "Join Optimization",
                     "items": [
-                        "advanced/join-optimization/runtime-filter",
-                        "advanced/join-optimization/doris-join-optimization",
+                        "advanced/join-optimization/bucket-shuffle-join",
                         "advanced/join-optimization/colocation-join",
-                        "advanced/join-optimization/bucket-shuffle-join"
+                        "advanced/join-optimization/runtime-filter",
+                        "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
-                {
-                    "type": "category",
-                    "label": "Date Cache",
-                    "items": [
-                        "advanced/cache/partition-cache",
-                        "advanced/cache/query-cache"
-                    ]
-                },
+                "advanced/materialized-view",
+                "advanced/broker",
                 {
                     "type": "category",
                     "label": "Best Practice",
                     "items": [
                         "advanced/best-practice/query-analysis",
-                        "advanced/best-practice/debug-log",
-                        "advanced/best-practice/import-analysis"
-
+                        "advanced/best-practice/import-analysis",
+                        "advanced/best-practice/debug-log"
                     ]
-                }
+                },  
+                "advanced/resource",
+                "advanced/orthogonal-bitmap-manual",
+                "advanced/using-hll",
+                "advanced/variables",
+                "advanced/time-zone",
+                "advanced/small-file-mgr"
             ]
         },
         {
@@ -529,7 +523,8 @@
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-FIRST-VALUE",
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-LEAD",
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-ROW-NUMBER",
-                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-NTILE"
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-NTILE",
+                                "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-WINDOW-FUNNEL"
                             ]
                         },
                         "sql-manual/sql-functions/cast",
@@ -705,7 +700,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/SET-VARIABLE",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET"
                             ]
                         },
                         {
@@ -938,7 +934,8 @@
                                 "admin-manual/http-actions/fe/show-proc-action",
                                 "admin-manual/http-actions/fe/check-decommission-action",
                                 "admin-manual/http-actions/fe/health-action",
-                                "admin-manual/http-actions/fe/check-storage-type-action"
+                                "admin-manual/http-actions/fe/check-storage-type-action",
+                                "admin-manual/http-actions/fe/query-schema-action"
                             ]
                         },
                         "admin-manual/http-actions/restore-tablet",

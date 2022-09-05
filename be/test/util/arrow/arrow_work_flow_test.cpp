@@ -28,7 +28,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/row.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
@@ -40,7 +39,6 @@
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -68,7 +66,6 @@ protected:
         if (_exec_env) {
             delete _exec_env->_result_queue_mgr;
             delete _exec_env->_thread_mgr;
-            delete _exec_env->_buffer_reservation;
             delete _exec_env->_task_pool_mem_tracker_registry;
         }
     }
@@ -95,7 +92,6 @@ void ArrowWorkFlowTest::init() {
 void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
-    _exec_env->_buffer_reservation = new ReservationTracker();
     _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _exec_env->_is_init = true;
     TQueryOptions query_options;

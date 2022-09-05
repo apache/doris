@@ -116,6 +116,7 @@ Notice:
   - DATE is converted to DATETIME (hours, minutes and seconds are automatically filled with zeros, for example: `2019-12-09` <--> `2019-12-09 00:00:00`)
   - Convert FLOAT to DOUBLE
   - INT is converted to DATE (if the INT type data is illegal, the conversion fails, and the original data remains unchanged)
+  - All can be converted to STRING except DATE and DATETIME, but STRING cannot be converted to any other type
 
 5. Reorder the column at the specified index
 

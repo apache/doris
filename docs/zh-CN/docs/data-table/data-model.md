@@ -335,7 +335,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `op_id` BIGINT COMMENT "负责人id",
     `op_time` DATETIME COMMENT "处理时间"
 )
-DUPLICATE KEY(`timestamp`, `type`)
+DUPLICATE KEY(`timestamp`, `type`, `error_code`)
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"

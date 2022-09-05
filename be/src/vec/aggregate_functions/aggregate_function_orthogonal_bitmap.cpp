@@ -45,7 +45,8 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
         if (res) {
             return res;
         } else if (which.is_string_or_fixed_string()) {
-            return std::make_shared<AggFunctionOrthBitmapFunc<Impl<StringValue>>>(argument_types);
+            return std::make_shared<AggFunctionOrthBitmapFunc<Impl<std::string_view>>>(
+                    argument_types);
         }
         LOG(WARNING) << "Incorrect Type " << argument_type.get_name()
                      << " of arguments for aggregate function " << name;

@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
@@ -61,22 +61,25 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
-            List<Plan> newPlans = rule.transform(plan, context.getPlannerContext());
+            context.onInvokeRule(rule.getRuleType());
+            List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
-                Pair<Boolean, GroupExpression> pair = context.getPlannerContext().getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
-                if (!pair.first) {
+                CopyInResult result = context.getCascadesContext()
+                        .getMemo()
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
+                if (!result.generateNewExpression) {
                     continue;
                 }
-                GroupExpression newGroupExpression = pair.second;
 
+                GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
-                    pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {
                         pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
+                        pushTask(new DeriveStatsJob(newGroupExpression, context));
                         continue;
                     }
                     pushTask(new OptimizeGroupExpressionJob(newGroupExpression, context));
+                    pushTask(new DeriveStatsJob(newGroupExpression, context));
                 } else {
                     pushTask(new CostAndEnforcerJob(newGroupExpression, context));
                 }

@@ -616,7 +616,7 @@ public class RestoreJob extends AbstractJob {
                                         if (restorePart == null) {
                                             return;
                                         }
-                                        restoredPartitions.add(Pair.create(localOlapTbl.getName(), restorePart));
+                                        restoredPartitions.add(Pair.of(localOlapTbl.getName(), restorePart));
                                     }
                                 } else {
                                     // It is impossible that a single partitioned table exist
@@ -970,7 +970,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
                             localTbl.getCompressionType(),
-                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy());
+                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
+                            localTbl.disableAutoCompaction());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1812,7 +1813,7 @@ public class RestoreJob extends AbstractJob {
         for (int i = 0; i < size; i++) {
             String tblName = Text.readString(in);
             Partition part = Partition.read(in);
-            restoredPartitions.add(Pair.create(tblName, part));
+            restoredPartitions.add(Pair.of(tblName, part));
         }
 
         size = in.readInt();

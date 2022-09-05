@@ -23,10 +23,11 @@ package org.apache.doris.common;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Comparator;
+import java.util.Objects;
 
 /**
  * The equivalent of C++'s std::pair<>.
- *
+ * <p>
  * Notice: When using Pair for persistence, users need to guarantee that F and S can be serialized through Gson
  */
 public class Pair<F, S> {
@@ -37,41 +38,31 @@ public class Pair<F, S> {
     @SerializedName(value = "second")
     public S second;
 
-    public Pair(F first, S second) {
+    private Pair(F first, S second) {
         this.first = first;
         this.second = second;
     }
 
-    public static <F, S> Pair<F, S> create(F first, S second) {
-        return new Pair<F, S>(first, second);
+    public static <F, S> Pair<F, S> of(F first, S second) {
+        return new Pair<>(first, second);
     }
 
-    public F getFirst() {
-        return first;
-    }
-
-    public S getSecond() {
-        return second;
-    }
-
-    @Override
     /**
      * A pair is equal if both parts are equal().
      */
+    @Override
     public boolean equals(Object o) {
         if (o instanceof Pair) {
             Pair<F, S> other = (Pair<F, S>) o;
-            return this.first.equals(other.first) && this.second.equals(other.second);
+            return first.equals(other.first)
+                    && second.equals(other.second);
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        int hashFirst = first != null ? first.hashCode() : 0;
-        int hashSecond = second != null ? second.hashCode() : 0;
-
-        return (hashFirst + hashSecond) * hashSecond + hashFirst;
+        return Objects.hash(first, second);
     }
 
     @Override

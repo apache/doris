@@ -29,8 +29,8 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
-#include "olap/olap_cond.h"
-#include "olap/reader.h"
+#include "olap/predicate_creator.h"
+#include "olap/tablet.h"
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;
@@ -154,7 +154,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case OLAP_FIELD_TYPE_DATETIME:
     case OLAP_FIELD_TYPE_DATEV2:
     case OLAP_FIELD_TYPE_DATETIMEV2:
-        return valid_datetime(value_str);
+        return valid_datetime(value_str, column.frac());
     case OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
     default:
@@ -237,52 +237,42 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-Status DeleteHandler::init(TabletSchemaSPtr schema,
-                           const std::vector<DeletePredicatePB>& delete_conditions, int64_t version,
-                           const TabletReader* reader) {
+Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
+                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
+    _predicate_mem_pool.reset(new MemPool());
 
-    for (const auto& delete_condition : delete_conditions) {
+    for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
-        if (delete_condition.version() > version) {
+        if (delete_pred->version().first > version) {
             continue;
         }
-
+        // Need the tablet schema at the delete condition to parse the accurate column unique id
+        TabletSchemaSPtr delete_pred_related_schema = delete_pred->tablet_schema();
+        auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
-        temp.filter_version = delete_condition.version();
-        temp.del_cond = new (std::nothrow) Conditions();
-
-        if (temp.del_cond == nullptr) {
-            LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
-            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
-        }
-
-        temp.del_cond->set_tablet_schema(schema);
+        temp.filter_version = delete_pred->version().first;
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
                 LOG(WARNING) << "fail to parse condition. [condition=" << sub_predicate << "]";
                 return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
             }
-
-            Status res = temp.del_cond->append_condition(condition);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to append condition.res = " << res;
-                return res;
-            }
-
-            if (reader != nullptr) {
-                auto predicate = reader->_parse_to_predicate(condition, true);
-                if (predicate != nullptr) {
-                    temp.column_predicate_vec.push_back(predicate);
-                }
+            condition.__set_column_unique_id(
+                    delete_pred_related_schema->column(condition.column_name).unique_id());
+            auto predicate =
+                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
+            if (predicate != nullptr) {
+                temp.column_predicate_vec.push_back(predicate);
             }
         }
 
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
+            condition.__set_column_unique_id(
+                    delete_pred_related_schema->column(condition.column_name).unique_id());
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
             } else {
@@ -291,15 +281,8 @@ Status DeleteHandler::init(TabletSchemaSPtr schema,
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
-            Status res = temp.del_cond->append_condition(condition);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to append condition.res = " << res;
-                return res;
-            }
-
-            if (reader != nullptr) {
-                temp.column_predicate_vec.push_back(reader->_parse_to_predicate(condition, true));
-            }
+            temp.column_predicate_vec.push_back(
+                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));
@@ -310,24 +293,12 @@ Status DeleteHandler::init(TabletSchemaSPtr schema,
     return Status::OK();
 }
 
-std::vector<int64_t> DeleteHandler::get_conds_version() {
-    std::vector<int64_t> conds_version;
-    for (const auto& cond : _del_conds) {
-        conds_version.push_back(cond.filter_version);
-    }
-
-    return conds_version;
-}
-
 void DeleteHandler::finalize() {
     if (!_is_inited) {
         return;
     }
 
     for (auto& cond : _del_conds) {
-        cond.del_cond->finalize();
-        delete cond.del_cond;
-
         for (auto pred : cond.column_predicate_vec) {
             delete pred;
         }
@@ -338,12 +309,11 @@ void DeleteHandler::finalize() {
 }
 
 void DeleteHandler::get_delete_conditions_after_version(
-        int64_t version, std::vector<const Conditions*>* delete_conditions,
-        AndBlockColumnPredicate* and_block_column_predicate_ptr) const {
+        int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
+        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>* col_id_to_del_predicates)
+        const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
-            delete_conditions->emplace_back(del_cond.del_cond);
-
             // now, only query support delete column predicate operator
             if (!del_cond.column_predicate_vec.empty()) {
                 if (del_cond.column_predicate_vec.size() == 1) {
@@ -351,16 +321,33 @@ void DeleteHandler::get_delete_conditions_after_version(
                             new SingleColumnBlockPredicate(del_cond.column_predicate_vec[0]);
                     and_block_column_predicate_ptr->add_column_predicate(
                             single_column_block_predicate);
+                    if (col_id_to_del_predicates->count(
+                                del_cond.column_predicate_vec[0]->column_id()) < 1) {
+                        col_id_to_del_predicates->insert(
+                                {del_cond.column_predicate_vec[0]->column_id(),
+                                 std::vector<const ColumnPredicate*> {}});
+                    }
+                    (*col_id_to_del_predicates)[del_cond.column_predicate_vec[0]->column_id()]
+                            .push_back(del_cond.column_predicate_vec[0]);
                 } else {
                     auto or_column_predicate = new OrBlockColumnPredicate();
 
                     // build or_column_predicate
-                    std::for_each(del_cond.column_predicate_vec.cbegin(),
-                                  del_cond.column_predicate_vec.cend(),
-                                  [&or_column_predicate](const ColumnPredicate* predicate) {
-                                      or_column_predicate->add_column_predicate(
-                                              new SingleColumnBlockPredicate(predicate));
-                                  });
+                    std::for_each(
+                            del_cond.column_predicate_vec.cbegin(),
+                            del_cond.column_predicate_vec.cend(),
+                            [&or_column_predicate,
+                             col_id_to_del_predicates](const ColumnPredicate* predicate) {
+                                if (col_id_to_del_predicates->count(predicate->column_id()) < 1) {
+                                    col_id_to_del_predicates->insert(
+                                            {predicate->column_id(),
+                                             std::vector<const ColumnPredicate*> {}});
+                                }
+                                (*col_id_to_del_predicates)[predicate->column_id()].push_back(
+                                        predicate);
+                                or_column_predicate->add_column_predicate(
+                                        new SingleColumnBlockPredicate(predicate));
+                            });
                     and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
                 }
             }

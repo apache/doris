@@ -184,6 +184,7 @@ struct ArrayIteratorFunctionsForString : public GenericArrayIteratorFunctions<ty
         string->ptr = (convert_ptrs ? convert_to<char*>(offset) : copied_string);
     }
     static void deserialize(void* item, const char* tuple_data, const TypeDescriptor& type_desc) {
+        DCHECK((item != nullptr) && (tuple_data != nullptr)) << "item or tuple_data is nullptr";
         auto* string_value = static_cast<CppType*>(item);
         if (string_value->len) {
             int64_t offset = convert_to<int64_t>(string_value->ptr);

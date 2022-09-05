@@ -33,15 +33,19 @@ public:
 
     static FileCacheManager* instance();
 
-    void add_file_cache(const Path& cache_path, FileCachePtr file_cache);
+    void add_file_cache(const std::string& cache_path, FileCachePtr file_cache);
 
-    void remove_file_cache(const Path& cache_path);
+    void remove_file_cache(const std::string& cache_path);
 
     void clean_timeout_caches();
 
-    FileCachePtr new_file_cache(const Path& cache_dir, int64_t alive_time_sec,
+    void clean_timeout_file_not_in_mem(const std::string& cache_path);
+
+    FileCachePtr new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
                                 const std::string& file_cache_type);
+
+    bool exist(const std::string& cache_path);
 
 private:
     std::shared_mutex _cache_map_lock;

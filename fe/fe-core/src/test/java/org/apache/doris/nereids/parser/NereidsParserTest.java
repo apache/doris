@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class NereidsParserTest {
+public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testParseMultiple() {
@@ -60,22 +60,17 @@ public class NereidsParserTest {
 
     @Test
     public void testErrorListener() {
-        Exception exception = Assertions.assertThrows(ParseException.class, () -> {
-            String sql = "select * from t1 where a = 1 illegal_symbol";
-            NereidsParser nereidsParser = new NereidsParser();
-            nereidsParser.parseSingle(sql);
-        });
-        Assertions.assertEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n",
-                exception.getMessage());
+        parsePlan("select * from t1 where a = 1 illegal_symbol")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n");
     }
 
     @Test
     public void testPostProcessor() {
-        String sql = "select `AD``D` from t1 where a = 1";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
-        Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
+        parsePlan("select `AD``D` from t1 where a = 1")
+                .matchesFromRoot(
+                        logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
+                );
     }
 
     @Test

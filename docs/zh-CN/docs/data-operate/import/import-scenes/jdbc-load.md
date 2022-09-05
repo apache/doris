@@ -1,6 +1,6 @@
 ---
 {
-    "title": "使用JDBC同步数据",
+    "title": "使用 Insert 方式同步数据",
     "language": "zh-CN"
 }
 
@@ -24,9 +24,9 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# 使用JDBC同步数据
+# 使用 Insert 方式同步数据
 
-用户可以通过 JDBC 协议，使用 INSERT 语句进行数据导入。
+用户可以通过 MySQL 协议，使用 INSERT 语句进行数据导入。
 
 INSERT 语句的使用方式和 MySQL 等数据库中 INSERT 语句的使用方式类似。 INSERT 语句支持以下两种语法：
 
@@ -79,7 +79,7 @@ public class DorisJDBCDemo {
     private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mysql://%s:%d/%s?rewriteBatchedStatements=true";
     private static final String HOST = "127.0.0.1"; // Leader Node host
-    private static final int PORT = 8030;   // http port of Leader Node
+    private static final int PORT = 9030;   // query_port of Leader Node
     private static final String DB = "demo";
     private static final String TBL = "test_1";
     private static final String USER = "admin";

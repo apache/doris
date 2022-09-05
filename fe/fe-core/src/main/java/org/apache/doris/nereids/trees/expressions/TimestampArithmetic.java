@@ -18,8 +18,13 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.trees.expressions.IntervalLiteral.TimeUnit;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral.TimeUnit;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -31,13 +36,14 @@ import java.util.List;
  * Describes the addition and subtraction of time units from timestamps.
  * Arithmetic expressions on timestamps are syntactic sugar.
  * They are executed as function call exprs in the BE.
+ * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
 public class TimestampArithmetic extends Expression implements BinaryExpression {
     private static final Logger LOG = LogManager.getLogger(TimestampArithmetic.class);
     private final String funcName;
     private final boolean intervalFirst;
-    private Operator op;
-    private TimeUnit timeUnit;
+    private final Operator op;
+    private final TimeUnit timeUnit;
 
     public TimestampArithmetic(String funcName, Expression e1, Expression e2, TimeUnit timeUnit) {
         this(funcName, null, e1, e2, timeUnit, false);
@@ -45,7 +51,6 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
 
     public TimestampArithmetic(Operator op, Expression e1, Expression e2, TimeUnit timeUnit, boolean intervalFirst) {
         this(null, op, e1, e2, timeUnit, intervalFirst);
-
     }
 
     /**
@@ -67,7 +72,7 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public TimestampArithmetic withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new TimestampArithmetic(this.funcName, this.op, children.get(0), children.get(1),
                 this.timeUnit, this.intervalFirst);
@@ -76,6 +81,19 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
     public Expression withFuncName(String funcName) {
         return new TimestampArithmetic(funcName, this.op, children.get(0), children.get(1), this.timeUnit,
                 this.intervalFirst);
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        int dateChildIndex = 0;
+        if (intervalFirst) {
+            dateChildIndex = 1;
+        }
+        if (child(dateChildIndex).getDataType() instanceof DateTimeType || timeUnit.isDateTimeUnit()) {
+            return DateTimeType.INSTANCE;
+        } else {
+            return DateType.INSTANCE;
+        }
     }
 
     public String getFuncName() {
@@ -115,16 +133,16 @@ public class TimestampArithmetic extends Expression implements BinaryExpression 
         if (intervalFirst) {
             // Non-function-call like version with interval as first operand.
             strBuilder.append("INTERVAL ");
-            strBuilder.append(child(1).toSql() + " ");
+            strBuilder.append(child(1).toSql()).append(" ");
             strBuilder.append(timeUnit);
             strBuilder.append(" ").append(op.toString()).append(" ");
             strBuilder.append(child(0).toSql());
         } else {
             // Non-function-call like version with interval as second operand.
             strBuilder.append(child(0).toSql());
-            strBuilder.append(" " + op.toString() + " ");
+            strBuilder.append(" ").append(op.toString()).append(" ");
             strBuilder.append("INTERVAL ");
-            strBuilder.append(child(1).toSql() + " ");
+            strBuilder.append(child(1).toSql()).append(" ");
             strBuilder.append(timeUnit);
         }
         return strBuilder.toString();

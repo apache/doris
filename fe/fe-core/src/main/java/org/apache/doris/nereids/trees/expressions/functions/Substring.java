@@ -18,19 +18,31 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.TernaryExpression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.TypeCollection;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * substring function.
  */
-public class Substring extends BoundFunction implements TernaryExpression {
+public class Substring extends BoundFunction implements TernaryExpression, ImplicitCastInputTypes {
+
+    // used in interface expectedInputTypes to avoid new list in each time it be called
+    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
+            TypeCollection.CHARACTER_TYPE_COLLECTION,
+            IntegerType.INSTANCE,
+            IntegerType.INSTANCE
+    );
 
     public Substring(Expression str, Expression pos, Expression len) {
         super("substring", str, pos, len);
@@ -51,11 +63,16 @@ public class Substring extends BoundFunction implements TernaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Substring withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
         if (children.size() == 2) {
             return new Substring(children.get(0), children.get(1));
         }
         return new Substring(children.get(0), children.get(1), children.get(2));
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTED_INPUT_TYPES;
     }
 }

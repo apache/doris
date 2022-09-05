@@ -165,7 +165,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
         }
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
         std::vector<VExpr*> vexprs;
-        runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
+        runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
         if (vexprs.empty()) {
             continue;
         }
@@ -181,7 +181,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
             last_expr = new_node;
         }
         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
+        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, _row_descriptor);
         if (UNLIKELY(!expr_status.OK())) {
             LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
             vexprs.clear();
@@ -403,11 +403,7 @@ Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCount
                // stop pushing more batch if
                // 1. too many batches in queue, or
                // 2. at least one batch in queue and memory exceed limit.
-               (_block_queue.size() >= _max_buffered_batches ||
-                (thread_context()
-                         ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                         ->any_limit_exceeded() &&
-                 !_block_queue.empty()))) {
+               (_block_queue.size() >= _max_buffered_batches || !_block_queue.empty())) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
         // Process already set failed, so we just return OK
@@ -470,10 +466,13 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
     FileScanner* scan = nullptr;
     switch (scan_range.params.format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                       scan_range.ranges, _pre_filter_texprs, counter);
-        //        scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
-        //                                       scan_range.ranges, _pre_filter_texprs, counter);
+        if (config::parquet_reader_using_internal) {
+            scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                              scan_range.ranges, _pre_filter_texprs, counter);
+        } else {
+            scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                           scan_range.ranges, _pre_filter_texprs, counter);
+        }
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,

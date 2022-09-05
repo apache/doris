@@ -28,7 +28,7 @@ under the License.
 
 # Flink Doris Connector
 
-> 本文档适用于flink-doris-connector 1.1.0之后的版本，1.1.0之前的版本参考[这里](https://doris.apache.org/zh-CN/docs/1.0/extending-doris/flink-doris-connector)
+> 本文档适用于flink-doris-connector 1.1.0之后的版本，1.1.0之前的版本参考[这里](https://doris.apache.org/zh-CN/docs/0.15/extending-doris/flink-doris-connector)
 
 
 
@@ -45,10 +45,11 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 ## 版本兼容
 
-| Connector | Flink | Doris  | Java | Scala |
+| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.14_2.11-1.1.0 | 1.14.x | 1.0+ | 8 | 2.11 |
-| 1.14_2.12-1.1.0 | 1.14.x | 1.0+ | 8 | 2.12 |
+| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.0     | 1.14+ | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.0     | 1.15+ | 1.0+   | 8    | -         |
 
 ## 编译与安装
 
@@ -423,7 +424,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ## Java示例
 
-`samples/doris-demo/fink-demo/` 下提供了 Java 版本的示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/flink-demo)
+`samples/doris-demo/` 下提供了 Java 版本的示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/)
 
 ## 最佳实践
 

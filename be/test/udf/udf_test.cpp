@@ -21,7 +21,6 @@
 
 #include "common/logging.h"
 #include "udf/udf_test_harness.hpp"
-#include "util/logging.h"
 
 namespace doris_udf {
 

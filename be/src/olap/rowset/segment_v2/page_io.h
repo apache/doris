@@ -67,6 +67,9 @@ struct PageReadOptions {
 
     const EncodingInfo* encoding_info = nullptr;
 
+    // index_page should not be pre-decoded
+    bool pre_decode = true;
+
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);

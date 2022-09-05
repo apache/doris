@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <unordered_map>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
@@ -24,7 +27,8 @@
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-}
+class ScannerScheduler;
+} // namespace vectorized
 class BfdParser;
 class BrokerMgr;
 
@@ -47,7 +51,6 @@ class StorageEngine;
 class MemTrackerTaskPool;
 class PriorityThreadPool;
 class PriorityWorkStealingThreadPool;
-class ReservationTracker;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
@@ -114,8 +117,10 @@ public:
     }
 
     std::shared_ptr<MemTrackerLimiter> process_mem_tracker() { return _process_mem_tracker; }
+    MemTrackerLimiter* process_mem_tracker_raw() { return _process_mem_tracker_raw; }
     void set_process_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _process_mem_tracker = tracker;
+        _process_mem_tracker_raw = tracker.get();
     }
     std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
@@ -125,6 +130,26 @@ public:
     PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
+    ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
+    void set_serial_download_cache_thread_token() {
+        _serial_download_cache_thread_token =
+                download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
+    }
+    ThreadPoolToken* get_serial_download_cache_thread_token() {
+        return _serial_download_cache_thread_token.get();
+    }
+    void init_download_cache_buf() {
+        std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
+        memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
+        _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
+                std::move(download_cache_buf);
+    }
+    char* get_download_cache_buf(ThreadPoolToken* token) {
+        if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
+            return nullptr;
+        }
+        return _download_cache_buf_map[token].get();
+    }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -140,7 +165,6 @@ public:
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
     }
-    ReservationTracker* buffer_reservation() { return _buffer_reservation; }
     BufferPool* buffer_pool() { return _buffer_pool; }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
@@ -155,13 +179,14 @@ public:
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
+    doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
     Status _init_mem_tracker();
-    /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
+    /// Initialise 'buffer_pool_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
     void _register_metrics();
@@ -186,6 +211,7 @@ private:
     // The ancestor for all trackers. Every tracker is visible from the process down.
     // Not limit total memory by process tracker, and it's just used to track virtual memory of process.
     std::shared_ptr<MemTrackerLimiter> _process_mem_tracker;
+    MemTrackerLimiter* _process_mem_tracker_raw;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;
     // The ancestor for all load tracker.
@@ -207,6 +233,13 @@ private:
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
+
+    // Threadpool used to download cache from remote storage
+    std::unique_ptr<ThreadPool> _download_cache_thread_pool;
+    // A token used to submit download cache task serially
+    std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
+    // ThreadPoolToken -> buffer
+    std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;
@@ -222,7 +255,6 @@ private:
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
-    ReservationTracker* _buffer_reservation = nullptr;
     BufferPool* _buffer_pool = nullptr;
 
     StorageEngine* _storage_engine = nullptr;
@@ -232,6 +264,7 @@ private:
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
     StoragePolicyMgr* _storage_policy_mgr = nullptr;
+    doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 };
 
 template <>

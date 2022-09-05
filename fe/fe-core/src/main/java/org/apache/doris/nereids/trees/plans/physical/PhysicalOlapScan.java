@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -26,8 +25,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,12 +34,11 @@ import java.util.Optional;
  * Physical olap scan plan.
  */
 public class PhysicalOlapScan extends PhysicalRelation {
-    private final long selectedIndexId;
-    private final List<Long> selectedTabletId;
-    private final List<Long> selectedPartitionId;
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
-
+    private final long selectedIndexId;
+    private final List<Long> selectedTabletIds;
+    private final List<Long> selectedPartitionIds;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -50,29 +46,27 @@ public class PhysicalOlapScan extends PhysicalRelation {
      * @param olapTable OlapTable in Doris
      * @param qualifier qualifier of table name
      */
-    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, DistributionSpec distributionSpec,
+    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, long selectedIndexId,
+            List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
         this.olapTable = olapTable;
-        this.selectedIndexId = olapTable.getBaseIndexId();
-        this.selectedTabletId = Lists.newArrayList();
-        this.selectedPartitionId = olapTable.getPartitionIds();
+        this.selectedIndexId = selectedIndexId;
+        this.selectedTabletIds = selectedTabletIds;
+        this.selectedPartitionIds = selectedPartitionIds;
         this.distributionSpec = distributionSpec;
-        for (Partition partition : olapTable.getAllPartitions()) {
-            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
-        }
     }
 
     public long getSelectedIndexId() {
         return selectedIndexId;
     }
 
-    public List<Long> getSelectedTabletId() {
-        return selectedTabletId;
+    public List<Long> getSelectedTabletIds() {
+        return selectedTabletIds;
     }
 
-    public List<Long> getSelectedPartitionId() {
-        return selectedPartitionId;
+    public List<Long> getSelectedPartitionIds() {
+        return selectedPartitionIds;
     }
 
     public OlapTable getTable() {
@@ -85,9 +79,10 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public String toString() {
-        return "PhysicalOlapScan (["
-                + Utils.qualifiedName(qualifier, olapTable.getName())
-                + "], [index id=" + selectedIndexId + "] )";
+        return Utils.toSqlString("PhysicalOlapScan",
+                "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
+                "output", getOutput()
+        );
     }
 
     @Override
@@ -100,14 +95,14 @@ public class PhysicalOlapScan extends PhysicalRelation {
         }
         PhysicalOlapScan that = (PhysicalOlapScan) o;
         return selectedIndexId == that.selectedIndexId
-                && Objects.equals(selectedTabletId, that.selectedTabletId)
-                && Objects.equals(selectedPartitionId, that.selectedPartitionId)
+                && Objects.equals(selectedTabletIds, that.selectedTabletIds)
+                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
                 && Objects.equals(olapTable, that.olapTable);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(selectedIndexId, selectedPartitionId, selectedTabletId, olapTable);
+        return Objects.hash(selectedIndexId, selectedPartitionIds, selectedTabletIds, olapTable);
     }
 
     @Override
@@ -117,11 +112,13 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(olapTable, qualifier, distributionSpec, groupExpression, logicalProperties);
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds,
+                selectedPartitionIds, distributionSpec, groupExpression, logicalProperties);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(olapTable, qualifier, distributionSpec, Optional.empty(), logicalProperties.get());
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds,
+                selectedPartitionIds, distributionSpec, Optional.empty(), logicalProperties.get());
     }
 }

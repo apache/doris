@@ -88,10 +88,12 @@ public class JoinLAsscomProjectTest {
 
         LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
                 projects,
-                new LogicalJoin<>(JoinType.INNER_JOIN, Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1)));
+                new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(bottomJoinOnCondition),
+                        Optional.empty(), scans.get(0), scans.get(1)));
 
         LogicalJoin<LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>>, LogicalOlapScan> topJoin
-                = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), project, scans.get(2));
+                = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(topJoinOnCondition),
+                Optional.empty(), project, scans.get(2));
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
         Rule rule = new JoinLAsscomProject().build();
@@ -99,7 +101,7 @@ public class JoinLAsscomProjectTest {
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
         LogicalJoin newTopJoin = (LogicalJoin) transform.get(0);
-        return new Pair<>(topJoin, newTopJoin);
+        return Pair.of(topJoin, newTopJoin);
     }
 
     @Test

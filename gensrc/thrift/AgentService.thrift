@@ -38,6 +38,7 @@ struct TTabletSchema {
     10: optional i32 sequence_col_idx = -1
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
+    13: optional bool disable_auto_compaction
 }
 
 // this enum stands for different storage format in src_backends
@@ -269,6 +270,7 @@ struct TSnapshotRequest {
     // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
+    10: optional bool is_copy_tablet_task
 }
 
 struct TReleaseSnapshotRequest {

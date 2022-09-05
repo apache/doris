@@ -68,10 +68,18 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     // generate the filter clause
     rapidjson::Document scratch_document;
     rapidjson::Value query_node(rapidjson::kObjectType);
-    query_node.SetObject();
-    BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
-    // note: add `query` for this value....
-    es_query_dsl.AddMember("query", query_node, allocator);
+    // use fe generate dsl, it must be placed outside the if, otherwise it will cause problems in AddMember
+    rapidjson::Document fe_query_dsl;
+    if (properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end()) {
+        auto query_dsl = properties.at(ESScanReader::KEY_QUERY_DSL);
+        es_query_dsl.AddMember("query", fe_query_dsl.Parse(query_dsl.c_str(), query_dsl.length()),
+                               allocator);
+    } else {
+        query_node.SetObject();
+        BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
+        // note: add `query` for this value....
+        es_query_dsl.AddMember("query", query_node, allocator);
+    }
     bool pure_docvalue = true;
 
     // Doris FE already has checked docvalue-scan optimization

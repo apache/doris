@@ -188,7 +188,7 @@ public class InsertStmt extends DdlStmt {
     public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
         // get dbs of statement
-        queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+        queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
@@ -447,7 +447,7 @@ public class InsertStmt extends DdlStmt {
                 for (int i = 0; i < targetColumns.size(); i++) {
                     if (targetColumns.get(i).nameEquals(origName, false)) {
                         // Rule A
-                        origColIdxsForExtendCols.add(new Pair<>(i, null));
+                        origColIdxsForExtendCols.add(Pair.of(i, null));
                         targetColumns.add(column);
                         break;
                     }
@@ -462,7 +462,7 @@ public class InsertStmt extends DdlStmt {
                 String origName = refColumn.getColumnName();
                 for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
                     if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                        origColIdxsForExtendCols.add(new Pair<>(originColumnIdx, column));
+                        origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
                         targetColumns.add(column);
                         break;
                     }

@@ -556,6 +556,7 @@ public:
 
     // Update counter when object is destroyed
     ~ScopedTimer() {
+        if (_counter == nullptr) return;
         _sw.stop();
         UpdateCounter();
     }

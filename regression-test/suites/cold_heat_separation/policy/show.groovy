@@ -21,7 +21,7 @@
 
 import groovy.json.JsonSlurper
 
-suite("show_policy", "policy") {
+suite("show_policy") {
     def storage_exist = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;

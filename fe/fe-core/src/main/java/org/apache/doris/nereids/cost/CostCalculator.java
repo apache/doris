@@ -45,12 +45,10 @@ public class CostCalculator {
      * Constructor.
      */
     public static double calculateCost(GroupExpression groupExpression) {
-        // TODO: Enable following code after enable stats derive.
-        // PlanContext planContext = new PlanContext(groupExpression);
-        // CostEstimator costCalculator = new CostEstimator();
-        // CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-        // return costFormula(costEstimate);
-        return 0;
+        PlanContext planContext = new PlanContext(groupExpression);
+        CostEstimator costCalculator = new CostEstimator();
+        CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
+        return costFormula(costEstimate);
     }
 
     private static double costFormula(CostEstimate costEstimate) {
@@ -74,13 +72,12 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalProject(PhysicalProject physicalProject, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            return CostEstimate.ofCpu(statistics.computeSize());
+        public CostEstimate visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
+            return CostEstimate.ofCpu(1);
         }
 
         @Override
-        public CostEstimate visitPhysicalQuickSort(PhysicalQuickSort physicalQuickSort, PlanContext context) {
+        public CostEstimate visitPhysicalQuickSort(PhysicalQuickSort<Plan> physicalQuickSort, PlanContext context) {
             // TODO: consider two-phase sort and enforcer.
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
@@ -104,7 +101,8 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalDistribution(PhysicalDistribution physicalDistribution, PlanContext context) {
+        public CostEstimate visitPhysicalDistribution(PhysicalDistribution<Plan> physicalDistribution,
+                PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 

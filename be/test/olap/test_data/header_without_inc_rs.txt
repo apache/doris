@@ -55,7 +55,8 @@
         "sort_type": "LEXICAL",
         "sort_col_num": 0,
         "compression_type": "LZ4F",
-        "schema_version": 0
+        "schema_version": 0,
+        "disable_auto_compaction": false
     },
     "rs_metas": [
         {
@@ -146,6 +147,5 @@
     "tablet_type": "TABLET_TYPE_DISK",
     "replica_id": 0,
     "storage_policy": "",
-    "delete_bitmap": {},
     "enable_unique_key_merge_on_write": false
 }

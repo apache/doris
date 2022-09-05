@@ -265,7 +265,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     null,
                                     tbl.getCompressionType(),
-                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
+                                    tbl.disableAutoCompaction());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -442,7 +443,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
-                    List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId);
+                    List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId, true);
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);

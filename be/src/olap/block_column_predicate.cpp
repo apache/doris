@@ -18,6 +18,7 @@
 #include "block_column_predicate.h"
 
 #include "olap/row_block2.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
 
@@ -53,6 +54,15 @@ void SingleColumnBlockPredicate::evaluate_and(vectorized::MutableColumns& block,
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
     _predicate->evaluate_and(*column, sel, selected_size, flags);
+}
+
+bool SingleColumnBlockPredicate::evaluate_and(
+        const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    return _predicate->evaluate_and(statistic);
+}
+
+bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
+    return _predicate->evaluate_and(bf);
 }
 
 void SingleColumnBlockPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
@@ -196,6 +206,25 @@ void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, ui
     for (auto block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_and(block, sel, selected_size, flags);
     }
+}
+
+bool AndBlockColumnPredicate::evaluate_and(
+        const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    for (auto block_column_predicate : _block_column_predicate_vec) {
+        if (!block_column_predicate->evaluate_and(statistic)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
+    for (auto block_column_predicate : _block_column_predicate_vec) {
+        if (!block_column_predicate->evaluate_and(bf)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void AndBlockColumnPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,

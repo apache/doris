@@ -27,6 +27,7 @@ import org.apache.commons.lang.NotImplementedException;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 public abstract class DistributionInfo implements Writable {
 
@@ -36,8 +37,6 @@ public abstract class DistributionInfo implements Writable {
     }
 
     // for Gson runtime type adaptor
-    @SerializedName(value = "typeStr")
-    protected String typeStr;
     @SerializedName(value = "type")
     protected DistributionInfoType type;
 
@@ -47,7 +46,6 @@ public abstract class DistributionInfo implements Writable {
 
     public DistributionInfo(DistributionInfoType type) {
         this.type = type;
-        this.typeStr = this.type.name();
     }
 
     public DistributionInfoType getType() {
@@ -81,7 +79,20 @@ public abstract class DistributionInfo implements Writable {
         return "";
     }
 
-    public boolean equals(DistributionInfo info) {
-        return false;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        DistributionInfo that = (DistributionInfo) o;
+        return type == that.type;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type);
     }
 }

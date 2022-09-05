@@ -40,7 +40,7 @@ CREATE TABLE [IF NOT EXISTS] [database.]table
 [keys_type]
 [table_comment]
 [partition_info]
-distribution_info
+distribution_desc
 [rollup_list]
 [properties]
 [extra_properties]
@@ -317,6 +317,14 @@ distribution_info
         Doris would not use light schema change optimization by default. It is supported to turn on the optimization by set the property as true.
     
         `"light_schema_change"="true"`
+    
+    * `disable_auto_compaction`
+
+        Whether to disable automatic compaction for this table.
+
+        If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
+
+        `"disable_auto_compaction" = "false"`
     
     * Dynamic partition related
     

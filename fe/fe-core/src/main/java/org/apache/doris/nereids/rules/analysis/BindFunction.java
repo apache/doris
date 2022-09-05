@@ -26,14 +26,17 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
+import org.apache.doris.nereids.trees.expressions.functions.Max;
 import org.apache.doris.nereids.trees.expressions.functions.Min;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.Year;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
@@ -98,10 +101,16 @@ public class BindFunction implements AnalysisRuleFactory {
                 if (arguments.size() > 1 || (arguments.size() == 0 && !unboundFunction.isStar())) {
                     return unboundFunction;
                 }
-                if (unboundFunction.isStar()) {
+                if (unboundFunction.isStar() || arguments.stream().allMatch(Expression::isConstant)) {
                     return new Count();
                 }
                 return new Count(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("max")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Max(unboundFunction.getArguments().get(0));
             } else if (name.equalsIgnoreCase("min")) {
                 List<Expression> arguments = unboundFunction.getArguments();
                 if (arguments.size() != 1) {
@@ -130,13 +139,19 @@ public class BindFunction implements AnalysisRuleFactory {
                     return unboundFunction;
                 }
                 return new Year(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("WeekOfYear")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new WeekOfYear(unboundFunction.getArguments().get(0));
             }
             return unboundFunction;
         }
 
         @Override
         public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Void context) {
-            String funcOpName = null;
+            String funcOpName;
             if (arithmetic.getFuncName() == null) {
                 funcOpName = String.format("%sS_%s", arithmetic.getTimeUnit(),
                         (arithmetic.getOp() == Operator.ADD) ? "ADD" : "SUB");
@@ -147,11 +162,18 @@ public class BindFunction implements AnalysisRuleFactory {
             Expression left = arithmetic.left();
             Expression right = arithmetic.right();
 
-            if (!arithmetic.left().getDataType().isDateType()) {
-                left = arithmetic.left().castTo(DateTimeType.INSTANCE);
+            if (!left.getDataType().isDateType()) {
+                try {
+                    left = left.castTo(DateTimeType.INSTANCE);
+                } catch (Exception e) {
+                    // ignore
+                }
+                if (!left.getDataType().isDateType() && arithmetic.getTimeUnit().isDateTimeUnit()) {
+                    left = arithmetic.left().castTo(DateType.INSTANCE);
+                }
             }
-            if (!arithmetic.right().getDataType().isIntType()) {
-                right = arithmetic.right().castTo(IntegerType.INSTANCE);
+            if (!right.getDataType().isIntType()) {
+                right = right.castTo(IntegerType.INSTANCE);
             }
             return arithmetic.withFuncName(funcOpName).withChildren(ImmutableList.of(left, right));
         }

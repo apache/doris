@@ -46,7 +46,7 @@ LoadChannel::~LoadChannel() {
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
               << ", is_vec=" << _is_vec;
     // Load channel tracker cannot be completely accurate, offsetting the impact on the load channel mgr tracker.
-    _mem_tracker->parent()->consumption_revise(-_mem_tracker->consumption());
+    _mem_tracker->parent()->cache_consume_local(-_mem_tracker->consumption());
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {

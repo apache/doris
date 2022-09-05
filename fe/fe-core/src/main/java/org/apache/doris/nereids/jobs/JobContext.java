@@ -19,14 +19,21 @@ package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+
+import com.google.common.collect.Maps;
+
+import java.util.Map;
 
 /**
  * Context for one job in Nereids' cascades framework.
  */
 public class JobContext {
-    private final CascadesContext cascadesContext;
-    private final PhysicalProperties requiredProperties;
-    private double costUpperBound;
+    protected final CascadesContext cascadesContext;
+    protected final PhysicalProperties requiredProperties;
+    protected double costUpperBound;
+
+    protected Map<RuleType, Integer> ruleInvokeTimes = Maps.newLinkedHashMap();
 
     public JobContext(CascadesContext cascadesContext, PhysicalProperties requiredProperties, double costUpperBound) {
         this.cascadesContext = cascadesContext;
@@ -34,7 +41,7 @@ public class JobContext {
         this.costUpperBound = costUpperBound;
     }
 
-    public CascadesContext getPlannerContext() {
+    public CascadesContext getCascadesContext() {
         return cascadesContext;
     }
 
@@ -48,5 +55,17 @@ public class JobContext {
 
     public void setCostUpperBound(double costUpperBound) {
         this.costUpperBound = costUpperBound;
+    }
+
+    public void onInvokeRule(RuleType ruleType) {
+        addRuleInvokeTimes(ruleType);
+    }
+
+    private void addRuleInvokeTimes(RuleType ruleType) {
+        Integer times = ruleInvokeTimes.get(ruleType);
+        if (times == null) {
+            times = 0;
+        }
+        ruleInvokeTimes.put(ruleType, times + 1);
     }
 }

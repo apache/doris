@@ -205,12 +205,22 @@ struct LocalTimestampFunctionName {
     static constexpr auto name = "localtimestamp";
 };
 
-using FunctionNow = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName>>;
+using FunctionNow = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, false>>;
 using FunctionCurrentTimestamp =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName>>;
-using FunctionLocalTime = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimeFunctionName>>;
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, false>>;
+using FunctionLocalTime =
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimeFunctionName, false>>;
 using FunctionLocalTimestamp =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName>>;
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, false>>;
+
+using FunctionNowWithPrecision =
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>>;
+using FunctionCurrentTimestampWithPrecision =
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, true>>;
+using FunctionLocalTimeWithPrecision =
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimeFunctionName, true>>;
+using FunctionLocalTimestampWithPrecision =
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, true>>;
 
 struct CurDateFunctionName {
     static constexpr auto name = "curdate";
@@ -337,6 +347,10 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCurrentTimestamp>();
     factory.register_function<FunctionLocalTime>();
     factory.register_function<FunctionLocalTimestamp>();
+    factory.register_function<FunctionNowWithPrecision>();
+    factory.register_function<FunctionCurrentTimestampWithPrecision>();
+    factory.register_function<FunctionLocalTimeWithPrecision>();
+    factory.register_function<FunctionLocalTimestampWithPrecision>();
     factory.register_function(CurrentDateFunctionName::name,
                               &createCurrentDateFunctionBuilderFunction);
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);

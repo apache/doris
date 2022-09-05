@@ -148,7 +148,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
+    DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
     _mem_pool.reset(new MemPool(mem_tracker()));
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     SCOPED_TIMER(_evaluation_timer);
@@ -467,8 +467,9 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     Block block;
     RETURN_IF_CANCELLED(state);
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next(state, &block, &_input_eos),
-                                       _children[0]->get_next_span(), _input_eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                _children[0]->get_next_after_projects(state, &block, &_input_eos),
+                _children[0]->get_next_span(), _input_eos);
     } while (!_input_eos && block.rows() == 0);
 
     if (_input_eos && block.rows() == 0) {

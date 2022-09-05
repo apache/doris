@@ -53,6 +53,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Ignore;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -1922,7 +1923,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
-        Assert.assertTrue(explainStr.contains("tuple ids: 0 1 4"));
+        Assert.assertTrue(explainStr.contains("tuple ids: 5"));
     }
 
     @Ignore
@@ -2146,5 +2147,24 @@ public class QueryPlanTest extends TestWithFeService {
         System.out.println(explainString);
         // errCode = 2, detailMessage = Unknown column 'col2' in 't_2'
         Assert.assertFalse(explainString.contains("errCode"));
+    }
+
+    @Test
+    public void testKeyOrderError() throws Exception {
+        Assertions.assertTrue(getSQLPlanOrErrorMsg("CREATE TABLE `test`.`test_key_order` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `v1` double MAX NULL COMMENT \"\",\n"
+                + "  `v2` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k3`, `k2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");").contains("Key columns should be a ordered prefix of the schema. "
+                + "KeyColumns[1] (starts from zero) is k3, "
+                + "but corresponding column is k2 in the previous columns declaration."));
     }
 }

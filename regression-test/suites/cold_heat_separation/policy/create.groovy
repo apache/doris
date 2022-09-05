@@ -18,7 +18,7 @@
 // The cases is copied from https://github.com/trinodb/trino/tree/master
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
-suite("create_policy", "policy") {
+suite("create_policy") {
     def has_created_1 = sql """
         SHOW RESOURCES WHERE NAME = "crete_policy_1";
     """

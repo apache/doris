@@ -113,9 +113,9 @@ protected:
     }
 
     inline void reset_peak() {
-        if (UNLIKELY(c_end - c_end_peak > 1024)) {
+        if (UNLIKELY(c_end - c_end_peak > 65536)) {
             THREAD_MEM_TRACKER_TRANSFER_FROM(c_end - c_end_peak,
-                                             ExecEnv::GetInstance()->process_mem_tracker().get());
+                                             ExecEnv::GetInstance()->process_mem_tracker_raw());
             c_end_peak = c_end;
         }
     }
@@ -127,7 +127,7 @@ protected:
     template <typename... TAllocatorParams>
     void alloc(size_t bytes, TAllocatorParams&&... allocator_params) {
         THREAD_MEM_TRACKER_TRANSFER_TO(bytes - pad_right - pad_left,
-                                       ExecEnv::GetInstance()->process_mem_tracker().get());
+                                       ExecEnv::GetInstance()->process_mem_tracker_raw());
         c_start = c_end = c_end_peak =
                 reinterpret_cast<char*>(TAllocator::alloc(
                         bytes, std::forward<TAllocatorParams>(allocator_params)...)) +
@@ -144,7 +144,7 @@ protected:
 
         TAllocator::free(c_start - pad_left, allocated_bytes());
         THREAD_MEM_TRACKER_TRANSFER_FROM(c_end_of_storage - c_end_peak,
-                                         ExecEnv::GetInstance()->process_mem_tracker().get());
+                                         ExecEnv::GetInstance()->process_mem_tracker_raw());
     }
 
     template <typename... TAllocatorParams>
@@ -157,7 +157,7 @@ protected:
         unprotect();
 
         THREAD_MEM_TRACKER_TRANSFER_TO(bytes - allocated_bytes(),
-                                       ExecEnv::GetInstance()->process_mem_tracker().get());
+                                       ExecEnv::GetInstance()->process_mem_tracker_raw());
 
         ptrdiff_t end_diff = c_end - c_start;
 
@@ -450,7 +450,20 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
+// `place` in IAggregateFunctionHelper::streaming_agg_serialize is initialized by placement new, in IAggregateFunctionHelper::create.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wuninitialized"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic pop
+#endif
         insert_assume_reserved(from_begin, from_end);
     }
 

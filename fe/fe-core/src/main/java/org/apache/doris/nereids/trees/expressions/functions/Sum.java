@@ -18,19 +18,28 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FractionalType;
-import org.apache.doris.nereids.types.IntegralType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /** sum agg function. */
-public class Sum extends AggregateFunction implements UnaryExpression {
+public class Sum extends AggregateFunction implements UnaryExpression, ImplicitCastInputTypes {
+
+    // used in interface expectedInputTypes to avoid new list in each time it be called
+    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(NumericType.INSTANCE);
 
     public Sum(Expression child) {
         super("sum", child);
@@ -39,7 +48,12 @@ public class Sum extends AggregateFunction implements UnaryExpression {
     @Override
     public DataType getDataType() {
         DataType dataType = child().getDataType();
-        if (dataType instanceof IntegralType) {
+        if (dataType instanceof LargeIntType) {
+            return dataType;
+        } else if (dataType instanceof DecimalType) {
+            // TODO: precision + 10
+            return dataType;
+        } else if (dataType instanceof IntegralType) {
             return BigIntType.INSTANCE;
         } else if (dataType instanceof FractionalType) {
             // TODO: precision + 10
@@ -52,6 +66,11 @@ public class Sum extends AggregateFunction implements UnaryExpression {
     @Override
     public boolean nullable() {
         return child().nullable();
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTED_INPUT_TYPES;
     }
 
     @Override

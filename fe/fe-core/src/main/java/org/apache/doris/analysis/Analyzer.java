@@ -81,6 +81,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -288,6 +289,11 @@ public class Analyzer {
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
+
+        // set of left side and right side of tuple id to mark null side in vec
+        // exec engine
+        private final Set<TupleId> outerLeftSideJoinTupleIds = Sets.newHashSet();
+        private final Set<TupleId> outerRightSideJoinTupleIds = Sets.newHashSet();
 
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
@@ -545,6 +551,7 @@ public class Analyzer {
         Calendar currentDate = Calendar.getInstance();
         String nowStr = formatter.format(currentDate.getTime());
         queryGlobals.setNowString(nowStr);
+        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;
     }
 
@@ -1001,6 +1008,16 @@ public class Analyzer {
         }
     }
 
+    public void registerOuterJoinedRightSideTids(List<TupleId> tids) {
+        globalState.outerRightSideJoinTupleIds.addAll(tids);
+    }
+
+    public void registerOuterJoinedLeftSideTids(List<TupleId> tids) {
+        globalState.outerLeftSideJoinTupleIds.addAll(tids);
+    }
+
+
+
     /**
      * Register the given tuple id as being the invisible side of a semi-join.
      */
@@ -1297,22 +1314,6 @@ public class Analyzer {
                     && !globalState.ojClauseByConjunct.containsKey(e.getId())
                     && !globalState.sjClauseByConjunct.containsKey(e.getId())
                     && canEvalPredicate(tupleIds, e)) {
-                result.add(e);
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Return all unassigned registered conjuncts that are fully bound by given
-     * list of tuple ids
-     */
-    public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
-        List<Expr> result = Lists.newArrayList();
-        for (Expr e : globalState.conjuncts.values()) {
-            if (!e.isAuxExpr() && e.isBoundByTupleIds(tupleIds)
-                    && !globalState.assignedConjuncts.contains(e.getId())
-                    && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
                 result.add(e);
             }
         }
@@ -2231,6 +2232,14 @@ public class Analyzer {
 
     public boolean isOuterJoined(TupleId tid) {
         return globalState.outerJoinedTupleIds.containsKey(tid);
+    }
+
+    public boolean isOuterJoinedLeftSide(TupleId tid) {
+        return globalState.outerLeftSideJoinTupleIds.contains(tid);
+    }
+
+    public boolean isOuterJoinedRightSide(TupleId tid) {
+        return globalState.outerRightSideJoinTupleIds.contains(tid);
     }
 
     public boolean isInlineView(TupleId tid) {

@@ -114,6 +114,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
 
+    public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -469,6 +471,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeDisableAutoCompaction(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_DISABLE_AUTO_COMPACTION);
+        // set light schema change false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_DISABLE_AUTO_COMPACTION);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_DISABLE_AUTO_COMPACTION
                 + " must be `true` or `false`");
     }
 

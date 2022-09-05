@@ -24,8 +24,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCorrelatedJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEnforceSingleRow;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -132,12 +132,8 @@ public abstract class PlanVisitor<R, C> {
         return visit(apply, context);
     }
 
-    public R visitLogicalCorrelated(LogicalCorrelatedJoin<Plan, Plan> correlatedJoin, C context) {
-        return visit(correlatedJoin, context);
-    }
-
-    public R visitLogicalEnforceSingleRow(LogicalEnforceSingleRow<Plan> enforceSingleRow, C context) {
-        return visit(enforceSingleRow, context);
+    public R visitLogicalAssertNumRows(LogicalAssertNumRows<Plan> assertNumRows, C context) {
+        return visit(assertNumRows, context);
     }
 
     // *******************************
@@ -180,7 +176,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(nestedLoopJoin, context);
     }
 
-    public R visitPhysicalProject(PhysicalProject<Plan> project, C context) {
+    public R visitPhysicalProject(PhysicalProject<? extends Plan> project, C context) {
         return visit(project, context);
     }
 
@@ -190,5 +186,9 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalDistribution(PhysicalDistribution<Plan> distribution, C context) {
         return visit(distribution, context);
+    }
+
+    public R visitPhysicalAssertNumRows(PhysicalAssertNumRows<Plan> assertNumRows, C context) {
+        return visit(assertNumRows, context);
     }
 }

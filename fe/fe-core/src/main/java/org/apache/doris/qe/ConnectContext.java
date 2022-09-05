@@ -31,7 +31,6 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -39,6 +38,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
@@ -63,6 +63,7 @@ public class ConnectContext {
     protected volatile long forwardedStmtId;
 
     protected volatile TUniqueId queryId;
+    protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
     // mysql net
@@ -88,8 +89,6 @@ public class ConnectContext {
     // LDAP authenticated but the Doris account does not exist,
     // set the flag, and the user login Doris as Temporary user.
     protected volatile boolean isTempUser = false;
-    // Save the privs from the ldap groups.
-    protected volatile PaloRole ldapGroupsPrivs = null;
     // username@host combination for the Doris account
     // that the server used to authenticate the current client.
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
@@ -321,14 +320,6 @@ public class ConnectContext {
         this.isTempUser = isTempUser;
     }
 
-    public PaloRole getLdapGroupsPrivs() {
-        return ldapGroupsPrivs;
-    }
-
-    public void setLdapGroupsPrivs(PaloRole ldapGroupsPrivs) {
-        this.ldapGroupsPrivs = ldapGroupsPrivs;
-    }
-
     // for USER() function
     public UserIdentity getUserIdentity() {
         return new UserIdentity(qualifiedUser, remoteIP);
@@ -480,6 +471,17 @@ public class ConnectContext {
 
     public void setQueryId(TUniqueId queryId) {
         this.queryId = queryId;
+        if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
+            connectScheduler.putTraceId2QueryId(traceId, queryId);
+        }
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String traceId() {
+        return traceId;
     }
 
     public TUniqueId queryId() {

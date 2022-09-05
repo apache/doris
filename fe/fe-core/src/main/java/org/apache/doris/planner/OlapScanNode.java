@@ -171,7 +171,8 @@ public class OlapScanNode extends ScanNode {
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
         this.isPreAggregation = isPreAggregation;
-        this.reasonOfPreAggregation = reason;
+        this.reasonOfPreAggregation = this.reasonOfPreAggregation == null ? reason :
+                                      this.reasonOfPreAggregation + " " + reason;
     }
 
     public boolean isPreAggregation() {
@@ -231,7 +232,7 @@ public class OlapScanNode extends ScanNode {
         this.tupleIds = tupleIds;
     }
 
-    // only used for UT
+    // only used for UT and Nereids
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
     }
@@ -318,7 +319,6 @@ public class OlapScanNode extends ScanNode {
             }
             situation = "The key type of table is aggregated.";
             update = false;
-            break CHECK;
         } // CHECKSTYLE IGNORE THIS LINE
 
         if (update) {
@@ -816,7 +816,8 @@ public class OlapScanNode extends ScanNode {
         StringBuilder output = new StringBuilder();
 
         String indexName = olapTable.getIndexNameById(selectedIndexId);
-        output.append(prefix).append("TABLE: ").append(olapTable.getName()).append("(").append(indexName).append(")");
+        output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
+                .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
@@ -1044,6 +1045,9 @@ public class OlapScanNode extends ScanNode {
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                closePreAggregation(Column.DELETE_SIGN + " is used as conjuncts.");
+            }
         }
     }
 

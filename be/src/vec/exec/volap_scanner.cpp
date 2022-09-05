@@ -192,10 +192,15 @@ Status VOlapScanner::_init_tablet_reader_params(
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
-
-    std::copy(_tablet->delete_predicates().cbegin(), _tablet->delete_predicates().cend(),
+    auto& delete_preds = _tablet->delete_predicates();
+    std::copy(delete_preds.cbegin(), delete_preds.cend(),
               std::inserter(_tablet_reader_params.delete_predicates,
                             _tablet_reader_params.delete_predicates.begin()));
+
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_rs : _tablet_reader_params.delete_predicates) {
+        _tablet_schema->merge_dropped_columns(_tablet->tablet_schema(del_pred_rs->version()));
+    }
 
     // Range
     for (auto key_range : key_ranges) {
@@ -384,7 +389,6 @@ Status VOlapScanner::close(RuntimeState* state) {
     _tablet_reader_params.rs_readers.clear();
     update_counter();
     _tablet_reader.reset();
-    Expr::close(_conjunct_ctxs, state);
     _is_closed = true;
     return Status::OK();
 }

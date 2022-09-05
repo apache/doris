@@ -458,14 +458,18 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
             agg_name, argument_types, {}, argument_types.back()->is_nullable());
 }
 
-void TabletSchema::append_column(TabletColumn column) {
+void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     if (column.is_key()) {
         _num_key_columns++;
     }
     if (column.is_nullable()) {
         _num_null_columns++;
     }
-    _field_name_to_index[column.name()] = _num_columns;
+    // The dropped column may have same name with exsiting column, so that
+    // not add to name to index map, only for uid to index map
+    if (!is_dropped_column) {
+        _field_name_to_index[column.name()] = _num_columns;
+    }
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
     _num_columns++;
@@ -514,6 +518,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
     _is_in_memory = schema.is_in_memory();
+    _disable_auto_compaction = schema.disable_auto_compaction();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _sort_type = schema.sort_type();
@@ -546,6 +551,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     // todo(yixiu): unique_id
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
+    _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
     _delete_sign_idx = ori_tablet_schema.delete_sign_idx();
     _sequence_col_idx = ori_tablet_schema.sequence_col_idx();
     _sort_type = ori_tablet_schema.sort_type();
@@ -588,6 +594,34 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     }
 }
 
+void TabletSchema::merge_dropped_columns(TabletSchemaSPtr src_schema) {
+    // If they are the same tablet schema object, then just return
+    if (this == src_schema.get()) {
+        return;
+    }
+    for (const auto& src_col : src_schema->columns()) {
+        if (_field_id_to_index.find(src_col.unique_id()) == _field_id_to_index.end()) {
+            CHECK(!src_col.is_key()) << src_col.name() << " is key column, should not be dropped.";
+            ColumnPB src_col_pb;
+            // There are some pointer in tablet column, not sure the reference relation, so
+            // that deep copy it.
+            src_col.to_schema_pb(&src_col_pb);
+            TabletColumn new_col(src_col_pb);
+            append_column(new_col, /* is_dropped_column */ true);
+        }
+    }
+}
+
+// Dropped column is in _field_id_to_index but not in _field_name_to_index
+// Could refer to append_column method
+bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
+    CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
+            << "could not find col with unique id = " << col.unique_id()
+            << " and name = " << col.name();
+    return _field_name_to_index.find(col.name()) == _field_name_to_index.end() ||
+           column(col.name()).unique_id() != col.unique_id();
+}
+
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_keys_type(_keys_type);
     for (auto& col : _cols) {
@@ -602,6 +636,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     }
     tablet_schema_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
+    tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
@@ -652,11 +687,13 @@ const TabletColumn& TabletSchema::column(size_t ordinal) const {
     return _cols[ordinal];
 }
 
-void TabletSchema::init_field_index_for_test() {
-    _field_name_to_index.clear();
-    for (int i = 0; i < _cols.size(); ++i) {
-        _field_name_to_index[_cols[i].name()] = i;
-    }
+const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
+    return _cols.at(_field_id_to_index.at(col_unique_id));
+}
+
+const TabletColumn& TabletSchema::column(const std::string& field_name) const {
+    const auto& found = _field_name_to_index.find(field_name);
+    return _cols[found->second];
 }
 
 vectorized::Block TabletSchema::create_block(
@@ -675,9 +712,12 @@ vectorized::Block TabletSchema::create_block(
     return block;
 }
 
-vectorized::Block TabletSchema::create_block() const {
+vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
     vectorized::Block block;
     for (const auto& col : _cols) {
+        if (ignore_dropped_col && is_dropped_column(col)) {
+            continue;
+        }
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
         block.insert({data_type->create_column(), data_type, col.name()});
     }
@@ -730,6 +770,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     }
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
+    if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
     return true;
 }
 

@@ -57,6 +57,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -81,6 +82,10 @@ public class FunctionCallExpr extends Expr {
                     .addAll(DECIMAL_SAME_TYPE_SET)
                     .addAll(DECIMAL_WIDER_TYPE_SET)
                     .addAll(STDDEV_FUNCTION_SET).build();
+
+    private static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("now").add("current_timestamp").add("localtime").add("localtimestamp").build();
     private static final int STDDEV_DECIMAL_SCALE = 9;
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
@@ -212,17 +217,13 @@ public class FunctionCallExpr extends Expr {
         fnName = other.fnName;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
-        //   aggOp = other.aggOp;
+        // aggOp = other.aggOp;
         // fnParams = other.fnParams;
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
-        if (other.fnParams.isStar()) {
-            Preconditions.checkState(children.isEmpty());
-            fnParams = FunctionParams.createStarParam();
-        } else {
-            fnParams = new FunctionParams(other.fnParams.isDistinct(), children);
-        }
+        fnParams = other.fnParams.clone(children);
         aggFnParams = other.aggFnParams;
+
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
@@ -255,6 +256,25 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isMergeAggFn() {
         return isMergeAggFn;
+    }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, Analyzer analyzer)
+            throws AnalysisException {
+        if (aggFnParams != null && aggFnParams.exprs() != null) {
+            ArrayList<Expr> newParams = new ArrayList<Expr>();
+            for (Expr expr : aggFnParams.exprs()) {
+                Expr substExpr = smap.get(expr);
+                if (substExpr != null) {
+                    newParams.add(substExpr.clone());
+                } else {
+                    newParams.add(expr);
+                }
+            }
+            aggFnParams = aggFnParams
+                    .clone(newParams);
+        }
+        return super.substituteImpl(smap, analyzer);
     }
 
     @Override
@@ -827,9 +847,10 @@ public class FunctionCallExpr extends Expr {
      * to generate a builtinFunction.
      * @throws AnalysisException
      */
-    public void analyzeImplForDefaultValue() throws AnalysisException {
+    public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
         fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        type = ScalarType.getDefaultDateType(fn.getReturnType());
+        fn.setReturnType(type);
+        this.type = type;
         for (int i = 0; i < children.size(); ++i) {
             if (getChild(i).getType().isNull()) {
                 uncheckedCastChild(Type.BOOLEAN, i);
@@ -929,6 +950,18 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDatetimeV2()) {
+                fn.setArgType(childTypes[2], 2);
+            } else if (fn != null && fn.getArgs()[2].isDatetime() && childTypes[2].isDateV2()) {
+                fn.setArgType(ScalarType.DATETIMEV2, 2);
+            }
+            if (fn != null && childTypes[2].isDate()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIME, 2);
+            } else if (fn != null && childTypes[2].isDateV2()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIMEV2, 2);
+            }
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
@@ -936,6 +969,9 @@ public class FunctionCallExpr extends Expr {
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (assignmentCompatibleType.isDatetimeV2()) {
+                fn.setReturnType(assignmentCompatibleType);
+            }
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
@@ -993,6 +1029,24 @@ public class FunctionCallExpr extends Expr {
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+        }
+
+        if (fn.getArgs().length == children.size() && fn.getArgs().length == 1) {
+            if (fn.getArgs()[0].isDatetimeV2() && children.get(0).getType().isDatetimeV2()) {
+                fn.setArgType(children.get(0).getType(), 0);
+                if (fn.getReturnType().isDatetimeV2()) {
+                    fn.setReturnType(children.get(0).getType());
+                }
+            }
+        }
+
+        if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
+                && fn != null && fn.getReturnType().isDatetimeV2()) {
+            if (children.size() == 1 && children.get(0) instanceof IntLiteral) {
+                fn.setReturnType(ScalarType.createDatetimeV2Type((int) ((IntLiteral) children.get(0)).getLongValue()));
+            } else if (children.size() == 1) {
+                fn.setReturnType(ScalarType.createDatetimeV2Type(6));
+            }
         }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
@@ -1168,7 +1222,8 @@ public class FunctionCallExpr extends Expr {
 
         if (this.type instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) type;
-            boolean containsNull = false;
+            // Now Array type do not support ARRAY<NOT_NULL>, set it too true temporarily
+            boolean containsNull = true;
             for (Expr child : children) {
                 Type childType = child.getType();
                 if (childType instanceof ArrayType) {
@@ -1389,8 +1444,10 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("year")
+                || fnName.getFunction().equalsIgnoreCase("max")
                 || fnName.getFunction().equalsIgnoreCase("min")
-                || fnName.getFunction().equalsIgnoreCase("avg")) {
+                || fnName.getFunction().equalsIgnoreCase("avg")
+                || fnName.getFunction().equalsIgnoreCase("weekOfYear")) {
             Type childType = getChild(0).type;
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

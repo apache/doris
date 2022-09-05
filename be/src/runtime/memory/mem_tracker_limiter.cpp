@@ -22,6 +22,7 @@
 #include <boost/stacktrace.hpp>
 
 #include "gutil/once.h"
+#include "gutil/walltime.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -32,9 +33,14 @@ namespace doris {
 
 MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& label,
                                      const std::shared_ptr<MemTrackerLimiter>& parent,
-                                     RuntimeProfile* profile)
-        : MemTracker(label, profile, true) {
+                                     RuntimeProfile* profile) {
     DCHECK_GE(byte_limit, -1);
+    if (profile == nullptr) {
+        _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
+    } else {
+        _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
+    }
+    _label = label;
     _limit = byte_limit;
     _group_num = GetCurrentTimeMicros() % 1000;
     _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
@@ -44,7 +50,8 @@ MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& labe
     MemTrackerLimiter* tracker = this;
     while (tracker != nullptr) {
         _all_ancestors.push_back(tracker);
-        if (tracker->has_limit()) _limited_ancestors.push_back(tracker);
+        if (tracker->has_limit() && tracker->label() != "Process")
+            _limited_ancestors.push_back(tracker);
         tracker = tracker->_parent.get();
     }
     DCHECK_GT(_all_ancestors.size(), 0);
@@ -143,9 +150,10 @@ bool MemTrackerLimiter::gc_memory(int64_t max_consumption) {
 
 Status MemTrackerLimiter::try_gc_memory(int64_t bytes) {
     if (UNLIKELY(gc_memory(_limit - bytes))) {
-        return Status::MemoryLimitExceeded(
-                fmt::format("label={}, limit={}, used={}, failed consume size={}", label(), _limit,
-                            _consumption->current_value(), bytes));
+        return Status::MemoryLimitExceeded(fmt::format(
+                "failed_alloc_size={} B, exceeded_tracker={}, limit={} B, peak_used={} B, "
+                "current_used={} B",
+                bytes, label(), _limit, _consumption->value(), _consumption->current_value()));
     }
     VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
                 << " consumption=" << _consumption->current_value() << " limit=" << _limit;
@@ -218,23 +226,26 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth,
     return join(usage_strings, "\n");
 }
 
-Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size) {
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
+Status MemTrackerLimiter::mem_limit_exceeded_construct(const std::string& msg) {
     std::string detail = fmt::format(
-            "{}, failed mem consume:<consume_size={}, mem_limit={}, mem_used={}, tracker_label={}, "
-            "in backend={} free memory left={}. details mem usage see be.INFO.",
-            msg, PrettyPrinter::print(failed_consume_size, TUnit::BYTES), _limit,
-            _consumption->current_value(), _label, BackendOptions::get_localhost(),
-            PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity(),
-                                 TUnit::BYTES));
-    Status status = Status::MemoryLimitExceeded(detail);
+            "{}, backend {} process memory used {}, process limit {}. If is query, can "
+            "change the limit "
+            "by `set exec_mem_limit=xxx`, details mem usage see be.INFO.",
+            msg, BackendOptions::get_localhost(),
+            PrettyPrinter::print(PerfCounters::get_vm_rss(), TUnit::BYTES),
+            PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES));
+    return Status::MemoryLimitExceeded(detail);
+}
 
+void MemTrackerLimiter::print_log_usage(const std::string& msg) {
+    DCHECK(_limit != -1);
     // only print the tracker log_usage in be log.
+    std::string detail = msg;
     if (_print_log_usage) {
-        if (ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity() < failed_consume_size) {
+        if (_label == "Process") {
             // Dumping the process MemTracker is expensive. Limiting the recursive depth to two
             // levels limits the level of detail to a one-line summary for each query MemTracker.
-            detail += "\n" + ExecEnv::GetInstance()->process_mem_tracker()->log_usage(2);
+            detail += "\n" + log_usage(2);
         } else {
             detail += "\n" + log_usage();
         }
@@ -242,7 +253,74 @@ Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg, int64_t fai
         LOG(WARNING) << detail;
         _print_log_usage = false;
     }
-    return status;
+}
+
+Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
+                                             int64_t failed_allocation_size) {
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
+    std::string detail = fmt::format("Memory limit exceeded:<consuming_tracker={}, ", _label);
+    MemTrackerLimiter* exceeded_tracker = nullptr;
+    MemTrackerLimiter* max_consumption_tracker = nullptr;
+    int64_t free_size = INT64_MAX;
+    // Find the tracker that exceed limit and has the least free.
+    for (const auto& tracker : _limited_ancestors) {
+        int64_t max_consumption = tracker->peak_consumption() > tracker->consumption()
+                                          ? tracker->peak_consumption()
+                                          : tracker->consumption();
+        if (tracker->limit() < max_consumption + failed_allocation_size) {
+            exceeded_tracker = tracker;
+            break;
+        }
+        if (tracker->limit() - max_consumption < free_size) {
+            free_size = tracker->limit() - max_consumption;
+            max_consumption_tracker = tracker;
+        }
+    }
+
+    auto sys_exceed_st = check_sys_mem_info(failed_allocation_size);
+    MemTrackerLimiter* print_log_usage_tracker = nullptr;
+    if (exceeded_tracker != nullptr) {
+        detail += fmt::format(
+                "failed_alloc_size={} B, exceeded_tracker={}, limit={} B, peak_used={} B, "
+                "current_used={} B>, executing_msg:<{}>",
+                PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
+                exceeded_tracker->label(), exceeded_tracker->limit(),
+                exceeded_tracker->peak_consumption(), exceeded_tracker->consumption(), msg);
+        print_log_usage_tracker = exceeded_tracker;
+    } else if (!sys_exceed_st) {
+        detail += fmt::format("{}>, executing_msg:<{}>", sys_exceed_st.get_error_msg(), msg);
+    } else if (max_consumption_tracker != nullptr) {
+        // must after check_sys_mem_info false
+        detail += fmt::format(
+                "failed_alloc_size={} B, max_consumption_tracker={}, limit={} B, peak_used={} B, "
+                "current_used={} B>, executing_msg:<{}>",
+                PrettyPrinter::print(failed_allocation_size, TUnit::BYTES),
+                max_consumption_tracker->label(), max_consumption_tracker->limit(),
+                max_consumption_tracker->peak_consumption(), max_consumption_tracker->consumption(),
+                msg);
+        print_log_usage_tracker = max_consumption_tracker;
+    } else {
+        // The limit of the current tracker and parents is less than 0, the consume will not fail,
+        // and the current process memory has no excess limit.
+        detail += fmt::format("unknown exceed reason, executing_msg:<{}>", msg);
+        print_log_usage_tracker = ExecEnv::GetInstance()->process_mem_tracker_raw();
+    }
+    auto st = MemTrackerLimiter::mem_limit_exceeded_construct(detail);
+    if (print_log_usage_tracker != nullptr)
+        print_log_usage_tracker->print_log_usage(st.get_error_msg());
+    return st;
+}
+
+Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
+                                             MemTrackerLimiter* failed_tracker,
+                                             Status failed_try_consume_st) {
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
+    std::string detail =
+            fmt::format("Memory limit exceeded:<consuming_tracker={}, {}>, executing_msg:<{}>",
+                        _label, failed_try_consume_st.get_error_msg(), msg);
+    auto st = MemTrackerLimiter::mem_limit_exceeded_construct(detail);
+    failed_tracker->print_log_usage(st.get_error_msg());
+    return st;
 }
 
 Status MemTrackerLimiter::mem_limit_exceeded(RuntimeState* state, const std::string& msg,

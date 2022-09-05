@@ -43,11 +43,11 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 SSBUtils.Q4_1,
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
-                        "((lo_custkey = c_custkey) AND (c_region = 'AMERICA'))",
-                        "((lo_suppkey = s_suppkey) AND (s_region = 'AMERICA'))",
+                        "(lo_custkey = c_custkey)",
+                        "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2'))")
+                ImmutableList.of("(((c_region = 'AMERICA') AND (s_region = 'AMERICA')) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
         );
     }
 
@@ -57,12 +57,12 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 SSBUtils.Q4_2,
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
-                        "((lo_custkey = c_custkey) AND (c_region = 'AMERICA'))",
-                        "((lo_suppkey = s_suppkey) AND (s_region = 'AMERICA'))",
+                        "(lo_custkey = c_custkey)",
+                        "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "(((d_year = 1997) OR (d_year = 1998)) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
+                        "((((c_region = 'AMERICA') AND (s_region = 'AMERICA')) AND ((d_year = 1997) OR (d_year = 1998))) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
         );
     }
 
@@ -73,16 +73,17 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
                         "(lo_custkey = c_custkey)",
-                        "((lo_suppkey = s_suppkey) AND (s_nation = 'UNITED STATES'))",
-                        "((lo_partkey = p_partkey) AND (p_category = 'MFGR#14'))"
+                        "(lo_suppkey = s_suppkey)",
+                        "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("((d_year = 1997) OR (d_year = 1998))")
+                ImmutableList.of("(((s_nation = 'UNITED STATES') AND ((d_year = 1997) OR (d_year = 1998))) AND (p_category = 'MFGR#14'))")
         );
     }
 
     private void test(String sql, List<String> expectJoinConditions, List<String> expectFilterPredicates) {
         LogicalPlan analyzed = analyze(sql);
         LogicalPlan plan = testJoinReorder(analyzed);
+        System.out.println(plan.treeString());
         new PlanChecker(expectJoinConditions, expectFilterPredicates).check(plan);
     }
 
@@ -113,9 +114,10 @@ public class SSBJoinReorderTest extends SSBTestBase {
 
             // check join conditions
             List<String> actualJoinConditions = joins.stream().map(j -> {
-                Optional<Expression> condition = j.getCondition();
+                Optional<Expression> condition = j.getOnClauseCondition();
                 return condition.map(Expression::toSql).orElse("");
             }).collect(Collectors.toList());
+
             Assertions.assertEquals(expectJoinConditions, actualJoinConditions);
 
             // check filter predicates

@@ -499,7 +499,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         + modColumn.getName());
             }
             if (!modColumn.isKey()) {
-                modColumn.setAggregationType(AggregateType.REPLACE, true);
+                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                    modColumn.setAggregationType(AggregateType.NONE, false);
+                } else {
+                    modColumn.setAggregationType(AggregateType.REPLACE, true);
+                }
             }
         } else {
             if (null != modColumn.getAggregationType()) {
@@ -860,7 +864,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         "Can not assign aggregation method" + " on column in Unique data model table: " + newColName);
             }
             if (!newColumn.isKey()) {
-                newColumn.setAggregationType(AggregateType.REPLACE, true);
+                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                    newColumn.setAggregationType(AggregateType.NONE, false);
+                } else {
+                    newColumn.setAggregationType(AggregateType.REPLACE, true);
+                }
             }
         } else {
             if (newColumn.getAggregationType() != null) {
@@ -1918,7 +1926,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Replica replica : tablet.getReplicas()) {
                         Set<Pair<Long, Integer>> tabletIdWithHash = beIdToTabletIdWithHash.computeIfAbsent(
                                 replica.getBackendId(), k -> Sets.newHashSet());
-                        tabletIdWithHash.add(new Pair<>(tablet.getId(), schemaHash));
+                        tabletIdWithHash.add(Pair.of(tablet.getId(), schemaHash));
                     }
                 }
             }

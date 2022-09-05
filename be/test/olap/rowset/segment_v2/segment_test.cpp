@@ -104,19 +104,13 @@ protected:
     TabletSchemaSPtr create_schema(const std::vector<TabletColumn>& columns,
                                    KeysType keys_type = DUP_KEYS, int num_custom_key_columns = -1) {
         TabletSchemaSPtr res = std::make_shared<TabletSchema>();
-        int num_key_columns = 0;
+
         for (auto& col : columns) {
-            if (col.is_key()) {
-                num_key_columns++;
-            }
-            res->_cols.push_back(col);
+            res->append_column(col);
         }
-        res->_num_columns = columns.size();
-        res->_num_key_columns = num_key_columns;
         res->_num_short_key_columns =
-                num_custom_key_columns != -1 ? num_custom_key_columns : num_key_columns;
+                num_custom_key_columns != -1 ? num_custom_key_columns : res->num_key_columns();
         res->_keys_type = keys_type;
-        res->init_field_index_for_test();
         return res;
     }
 
@@ -558,170 +552,6 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                 }
             },
             &segment);
-
-    // reader with condition
-    {
-        Schema schema(tablet_schema);
-        OlapReaderStatistics stats;
-        // test empty segment iterator
-        {
-            // the first two page will be read by this condition
-            TCondition condition;
-            condition.__set_column_name("3");
-            condition.__set_condition_op("<");
-            std::vector<std::string> vals = {"2"};
-            condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.tablet_schema = tablet_schema;
-            read_opts.conditions = conditions.get();
-
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 1);
-
-            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-        // scan all rows
-        {
-            TCondition condition;
-            condition.__set_column_name("2");
-            condition.__set_condition_op("<");
-            std::vector<std::string> vals = {"100"};
-            condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.tablet_schema = tablet_schema;
-            read_opts.conditions = conditions.get();
-
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 1024);
-
-            // only first page will be read because of zone map
-            int left = 16 * 1024;
-
-            int rowid = 0;
-            while (left > 0) {
-                int rows_read = left > 1024 ? 1024 : left;
-                block.clear();
-                EXPECT_TRUE(iter->next_batch(&block).ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                EXPECT_EQ(rows_read, block.num_rows());
-                left -= rows_read;
-
-                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
-                    auto cid = block.schema()->column_ids()[j];
-                    auto column_block = block.column_block(j);
-                    for (int i = 0; i < rows_read; ++i) {
-                        int rid = rowid + i;
-                        EXPECT_FALSE(column_block.is_null(i));
-                        EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i))
-                                << "rid:" << rid << ", i:" << i;
-                    }
-                }
-                rowid += rows_read;
-            }
-            EXPECT_EQ(16 * 1024, rowid);
-            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-        // test zone map with query predicate an delete predicate
-        {
-            // the first two page will be read by this condition
-            TCondition condition;
-            condition.__set_column_name("2");
-            condition.__set_condition_op("<");
-            std::vector<std::string> vals = {"165000"};
-            condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
-
-            // the second page read will be pruned by the following delete predicate
-            TCondition delete_condition;
-            delete_condition.__set_column_name("2");
-            delete_condition.__set_condition_op("=");
-            std::vector<std::string> vals2 = {"164001"};
-            delete_condition.__set_condition_values(vals2);
-            std::shared_ptr<Conditions> delete_conditions(new Conditions());
-            delete_conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), delete_conditions->append_condition(delete_condition));
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.tablet_schema = tablet_schema;
-            read_opts.conditions = conditions.get();
-            read_opts.delete_conditions.push_back(delete_conditions.get());
-
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 1024);
-
-            // so the first page will be read because of zone map
-            int left = 16 * 1024;
-
-            int rowid = 0;
-            while (left > 0) {
-                int rows_read = left > 1024 ? 1024 : left;
-                block.clear();
-                auto s = iter->next_batch(&block);
-                EXPECT_TRUE(s.ok()) << s.to_string();
-                EXPECT_EQ(rows_read, block.num_rows());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                left -= rows_read;
-
-                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
-                    auto cid = block.schema()->column_ids()[j];
-                    auto column_block = block.column_block(j);
-                    for (int i = 0; i < rows_read; ++i) {
-                        int rid = rowid + i;
-                        EXPECT_FALSE(column_block.is_null(i));
-                        EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i))
-                                << "rid:" << rid << ", i:" << i;
-                    }
-                }
-                rowid += rows_read;
-            }
-            EXPECT_EQ(16 * 1024, rowid);
-            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-        // test bloom filter
-        {
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.tablet_schema = tablet_schema;
-            TCondition condition;
-            condition.__set_column_name("2");
-            condition.__set_condition_op("=");
-            // 102 is not in page 1
-            std::vector<std::string> vals = {"102"};
-            condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
-            read_opts.conditions = conditions.get();
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 1024);
-            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-    }
 }
 
 TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
@@ -895,15 +725,12 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     MemPool pool;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
-    tablet_schema->_num_columns = 4;
-    tablet_schema->_num_key_columns = 3;
     tablet_schema->_num_short_key_columns = 2;
     tablet_schema->_num_rows_per_row_block = num_rows_per_block;
-    tablet_schema->_cols.push_back(create_char_key(1));
-    tablet_schema->_cols.push_back(create_char_key(2));
-    tablet_schema->_cols.push_back(create_varchar_key(3));
-    tablet_schema->_cols.push_back(create_varchar_key(4));
-    tablet_schema->init_field_index_for_test();
+    tablet_schema->append_column(create_char_key(1));
+    tablet_schema->append_column(create_char_key(2));
+    tablet_schema->append_column(create_varchar_key(3));
+    tablet_schema->append_column(create_varchar_key(4));
 
     SegmentWriterOptions opts;
     opts.num_rows_per_block = num_rows_per_block;
@@ -1049,90 +876,6 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 100);
-            st = iter->next_batch(&block);
-            EXPECT_TRUE(st.is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-
-        // test char zone_map query hit;should read whole page
-        {
-            TCondition condition;
-            condition.__set_column_name("1");
-            condition.__set_condition_op(">");
-            std::vector<std::string> vals = {"100"};
-            condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.tablet_schema = tablet_schema;
-            read_opts.conditions = conditions.get();
-
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 1024);
-            int left = 4 * 1024;
-            int rowid = 0;
-
-            while (left > 0) {
-                int rows_read = left > 1024 ? 1024 : left;
-                block.clear();
-                st = iter->next_batch(&block);
-                EXPECT_TRUE(st.ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                EXPECT_EQ(rows_read, block.num_rows());
-                left -= rows_read;
-
-                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
-                    auto cid = block.schema()->column_ids()[j];
-                    auto column_block = block.column_block(j);
-                    for (int i = 0; i < rows_read; ++i) {
-                        int rid = rowid + i;
-                        EXPECT_FALSE(column_block.is_null(i));
-
-                        const Slice* actual =
-                                reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
-                        Slice expect;
-                        set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid,
-                                                 reinterpret_cast<char*>(&expect), &pool,
-                                                 tablet_schema->_cols[j]._length);
-                        EXPECT_EQ(expect.to_string(), actual->to_string())
-                                << "rid:" << rid << ", i:" << i;
-                        ;
-                    }
-                }
-                rowid += rows_read;
-            }
-            EXPECT_EQ(4 * 1024, rowid);
-            st = iter->next_batch(&block);
-            EXPECT_TRUE(st.is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-
-        // test char zone_map query miss;col < -1
-        {
-            TCondition condition;
-            condition.__set_column_name("1");
-            condition.__set_condition_op("<");
-            std::vector<std::string> vals = {"-2"};
-            condition.__set_condition_values(vals);
-            std::shared_ptr<Conditions> conditions(new Conditions());
-            conditions->set_tablet_schema(tablet_schema);
-            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.tablet_schema = tablet_schema;
-            read_opts.conditions = conditions.get();
-
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 1024);
-
             st = iter->next_batch(&block);
             EXPECT_TRUE(st.is_end_of_file());
             EXPECT_EQ(0, block.num_rows());
@@ -1300,5 +1043,147 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     build_segment(opts2, schema, schema, 100, DefaultIntGenerator, &seg2);
     EXPECT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
 }
+
+TEST_F(SegmentReaderWriterTest, TestLookupRowKey) {
+    TabletSchemaSPtr tablet_schema = create_schema(
+            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)},
+            UNIQUE_KEYS);
+    SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = true;
+    opts.num_rows_per_block = 10;
+
+    shared_ptr<Segment> segment;
+    build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
+
+    // key exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 0; rid < 4096; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(row_location.row_id, rid);
+            EXPECT_EQ(st, Status::OK());
+        }
+    }
+
+    // key not exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 4096; rid < 4100; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(st.is_not_found(), true);
+        }
+    }
+}
+
+TEST_F(SegmentReaderWriterTest, TestLookupRowKeyWithSequenceCol) {
+    TabletSchemaSPtr tablet_schema = create_schema(
+            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)},
+            UNIQUE_KEYS);
+    tablet_schema->_sequence_col_idx = 3;
+    SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = true;
+    opts.num_rows_per_block = 10;
+
+    shared_ptr<Segment> segment;
+    build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
+
+    // key exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 0; rid < 4096; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+            encoded_key.push_back(KEY_NORMAL_MARKER);
+            auto cid = tablet_schema->sequence_col_idx();
+            auto cell = row.cell(cid);
+            row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(row_location.row_id, rid);
+            EXPECT_EQ(st, Status::OK());
+        }
+    }
+
+    // key not exist
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (size_t rid = 4096; rid < 4100; ++rid) {
+            for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+                int row_block_id = rid / opts.num_rows_per_block;
+                RowCursorCell cell = row.cell(cid);
+                DefaultIntGenerator(rid, cid, row_block_id, cell);
+            }
+            std::string encoded_key;
+            encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+
+            encoded_key.push_back(KEY_NORMAL_MARKER);
+            auto cid = tablet_schema->sequence_col_idx();
+            auto cell = row.cell(cid);
+            row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+
+            RowLocation row_location;
+            Status st = segment->lookup_row_key(encoded_key, &row_location);
+            EXPECT_EQ(st.is_not_found(), true);
+        }
+    }
+
+    // key exist, sequence id is smaller
+    {
+        RowCursor row;
+        auto olap_st = row.init(tablet_schema);
+        EXPECT_EQ(Status::OK(), olap_st);
+        for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            cell.set_not_null();
+            if (cid == tablet_schema->sequence_col_idx()) {
+                *(int*)cell.mutable_cell_ptr() = 100 + cid - 3;
+            } else {
+                *(int*)cell.mutable_cell_ptr() = 100 + cid;
+            }
+        }
+        std::string encoded_key;
+        encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
+
+        encoded_key.push_back(KEY_NORMAL_MARKER);
+        auto cid = tablet_schema->sequence_col_idx();
+        auto cell = row.cell(cid);
+        row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &encoded_key);
+
+        RowLocation row_location;
+        Status st = segment->lookup_row_key(encoded_key, &row_location);
+        EXPECT_EQ(st.is_already_exist(), true);
+    }
+}
+
 } // namespace segment_v2
 } // namespace doris

@@ -361,6 +361,8 @@ public:
     virtual std::vector<MutablePtr> scatter(ColumnIndex num_columns,
                                             const Selector& selector) const = 0;
 
+    virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
+
     /// Insert data from several other columns according to source mask (used in vertical merge).
     /// For now it is a helper to de-virtualize calls to insert*() functions inside gather loop
     /// (descendants should call gatherer_stream.gather(*this) to implement this function.)
@@ -530,6 +532,9 @@ protected:
     /// In derived classes (that use final keyword), implement scatter method as call to scatter_impl.
     template <typename Derived>
     std::vector<MutablePtr> scatter_impl(ColumnIndex num_columns, const Selector& selector) const;
+
+    template <typename Derived>
+    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
 };
 
 using ColumnPtr = IColumn::Ptr;

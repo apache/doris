@@ -188,5 +188,3 @@ member: uid=jack,ou=aidp,dc=domain,dc=com
 ## LDAP验证的局限
 
 - 目前Doris的LDAP功能只支持明文密码验证，即用户登录时，密码在client与fe之间、fe与LDAP服务之间以明文的形式传输。
-- 当前的LDAP验证只支持在mysql协议下进行密码验证，如果使用Http接口则无法使用LDAP用户进行验证。
-- 临时用户不具有用户属性。

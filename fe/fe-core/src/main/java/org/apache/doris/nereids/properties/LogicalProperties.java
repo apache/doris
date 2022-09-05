@@ -50,4 +50,21 @@ public class LogicalProperties {
     public LogicalProperties withOutput(List<Slot> output) {
         return new LogicalProperties(Suppliers.ofInstance(output));
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalProperties that = (LogicalProperties) o;
+        return Objects.equals(outputSupplier.get(), that.outputSupplier.get());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(outputSupplier.get());
+    }
 }

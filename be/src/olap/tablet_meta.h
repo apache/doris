@@ -100,6 +100,7 @@ public:
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
     Status save(const std::string& file_path);
+    Status save_as_json(const string& file_path, DataDir* dir);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static Status reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
@@ -146,7 +147,9 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    const TabletSchema& tablet_schema() const;
+    TabletSchemaSPtr tablet_schema() const;
+
+    const TabletSchemaSPtr tablet_schema(Version version) const;
 
     TabletSchema* mutable_tablet_schema();
 
@@ -167,10 +170,7 @@ public:
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
-
-    void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
-    void remove_delete_predicate_by_version(const Version& version);
-    const std::vector<DeletePredicatePB>& delete_predicates() const;
+    const std::vector<RowsetMetaSharedPtr> delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;
@@ -232,15 +232,13 @@ private:
     TabletState _tablet_state = TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
-    std::shared_ptr<TabletSchema> _schema;
+    TabletSchemaSPtr _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
-
-    std::vector<DeletePredicatePB> _del_predicates;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
@@ -404,7 +402,7 @@ public:
             static std::once_flag once;
             std::call_once(once, [size_in_bytes] {
                 auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
-                                               LRUCacheType::SIZE, 2048);
+                                               LRUCacheType::SIZE, 256);
                 AggCache::s_repr.store(tmp, std::memory_order_release);
             });
 
@@ -527,8 +525,8 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return *_schema;
+inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+    return _schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {

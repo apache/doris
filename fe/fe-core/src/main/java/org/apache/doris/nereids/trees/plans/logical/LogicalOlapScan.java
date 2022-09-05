@@ -18,32 +18,43 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalRelation  {
+public class LogicalOlapScan extends LogicalRelation {
 
-    public LogicalOlapScan(Table table) {
+    private final long selectedIndexId;
+    private final List<Long> selectedTabletId;
+    private final boolean partitionPruned;
+
+    public LogicalOlapScan(OlapTable table) {
         this(table, ImmutableList.of());
     }
 
+    public LogicalOlapScan(OlapTable table, List<String> qualifier) {
+        this(table, qualifier, Optional.empty(), Optional.empty(),
+                table.getPartitionIds(), false);
+    }
+
     public LogicalOlapScan(Table table, List<String> qualifier) {
-        this(table, qualifier, Optional.empty(), Optional.empty());
+        this(table, qualifier, Optional.empty(), Optional.empty(),
+                ((OlapTable) table).getPartitionIds(), false);
     }
 
     /**
@@ -52,9 +63,17 @@ public class LogicalOlapScan extends LogicalRelation  {
      * @param table Doris table
      * @param qualifier table name qualifier
      */
-    public LogicalOlapScan(Table table, List<String> qualifier,
-                           Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier, groupExpression, logicalProperties);
+    public LogicalOlapScan(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Long> selectedPartitionIdList,
+            boolean partitionPruned) {
+        super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
+                groupExpression, logicalProperties, selectedPartitionIdList);
+        this.selectedIndexId = getTable().getBaseIndexId();
+        this.selectedTabletId = Lists.newArrayList();
+        for (Partition partition : getTable().getAllPartitions()) {
+            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
+        }
+        this.partitionPruned = partitionPruned;
     }
 
     @Override
@@ -65,11 +84,10 @@ public class LogicalOlapScan extends LogicalRelation  {
 
     @Override
     public String toString() {
-        return "ScanOlapTable ("
-                + qualifiedName()
-                + ", output: "
-                + computeOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[",  "]"))
-                + ")";
+        return Utils.toSqlString("LogicalOlapScan",
+                "qualified", qualifiedName(),
+                "output", getOutput()
+        );
     }
 
     @Override
@@ -85,16 +103,35 @@ public class LogicalOlapScan extends LogicalRelation  {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(logicalProperties));
+        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(logicalProperties),
+                selectedPartitionIds, partitionPruned);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties);
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
+                partitionPruned);
+    }
+
+    public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(logicalProperties),
+                selectedPartitionId, true);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapScan(this, context);
+    }
+
+    public boolean isPartitionPruned() {
+        return partitionPruned;
+    }
+
+    public List<Long> getSelectedTabletId() {
+        return selectedTabletId;
+    }
+
+    public long getSelectedIndexId() {
+        return selectedIndexId;
     }
 }

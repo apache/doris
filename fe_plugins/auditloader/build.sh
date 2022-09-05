@@ -16,25 +16,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -e
+set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME=${ROOT}/../..
+export DORIS_HOME="${ROOT}/../.."
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}/env.sh"
 
-export AUDITLOADER_HOME=$ROOT
+export AUDITLOADER_HOME="${ROOT}"
 
-
-$MVN_CMD clean package -DskipTests
+"${MVN_CMD}" clean package -DskipTests
 
 echo "Install auditloader..."
 
-AUDITLOADER_OUTPUT=${AUDITLOADER_HOME}/output/
-rm -rf ${AUDITLOADER_OUTPUT}
-mkdir ${AUDITLOADER_OUTPUT}
-cp ${AUDITLOADER_HOME}/target/auditloader.zip ${AUDITLOADER_HOME}/output/
+AUDITLOADER_OUTPUT="${AUDITLOADER_HOME}/output"
+rm -rf "${AUDITLOADER_OUTPUT}"
+mkdir "${AUDITLOADER_OUTPUT}"
+cp "${AUDITLOADER_HOME}/target/auditloader.zip" "${AUDITLOADER_HOME}/output"/
 
 echo "Build Auditloader Finished"

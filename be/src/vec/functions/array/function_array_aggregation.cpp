@@ -106,7 +106,7 @@ struct AggregateFunctionImpl<AggregateOperation::PRODUCT> {
     template <typename Element>
     struct TypeTraits {
         using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT>;
-        using AggregateDataType = AggregateFunctionProductData<Element>;
+        using AggregateDataType = AggregateFunctionProductData<ResultType>;
         using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
     };
 };

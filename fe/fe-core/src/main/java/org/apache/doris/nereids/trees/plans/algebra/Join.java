@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.algebra;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -28,5 +29,9 @@ import java.util.Optional;
 public interface Join {
     JoinType getJoinType();
 
-    Optional<Expression> getCondition();
+    List<Expression> getHashJoinConjuncts();
+
+    Optional<Expression> getOtherJoinCondition();
+
+    Optional<Expression> getOnClauseCondition();
 }

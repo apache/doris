@@ -31,10 +31,7 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "runtime/buffered_block_mgr2.h"
-#include "runtime/bufferpool/reservation_tracker.h"
-#include "runtime/bufferpool/reservation_util.h"
 #include "runtime/exec_env.h"
-#include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_task_pool.h"
@@ -68,8 +65,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
-          _error_log_file(nullptr),
-          _instance_buffer_reservation(new ReservationTracker) {
+          _error_log_file(nullptr) {
     Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
@@ -94,8 +90,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
-          _error_log_file(nullptr),
-          _instance_buffer_reservation(new ReservationTracker) {
+          _error_log_file(nullptr) {
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
     }
@@ -112,9 +107,14 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
           _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
-    if (query_globals.__isset.time_zone) {
+    if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = query_globals.nano_seconds;
+    } else if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+        _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
@@ -122,10 +122,12 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
+        _nano_seconds = 0;
     } else {
         //Unit test may set into here
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
+        _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 }
@@ -140,6 +142,7 @@ RuntimeState::RuntimeState()
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
+    _nano_seconds = 0;
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     _exec_env = ExecEnv::GetInstance();
 }
@@ -157,19 +160,6 @@ RuntimeState::~RuntimeState() {
         _error_hub->close();
     }
 
-    // Release the reservation, which should be unused at the point.
-    if (_instance_buffer_reservation != nullptr) {
-        _instance_buffer_reservation->Close();
-    }
-
-    if (_initial_reservations != nullptr) {
-        _initial_reservations->ReleaseResources();
-    }
-
-    if (_buffer_reservation != nullptr) {
-        _buffer_reservation->Close();
-    }
-
     // Manually release the child mem tracker before _instance_mem_tracker is destructed.
     _obj_pool->clear();
     _runtime_filter_mgr.reset();
@@ -179,9 +169,14 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
                           const TQueryGlobals& query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
-    if (query_globals.__isset.time_zone) {
+    if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = query_globals.nano_seconds;
+    } else if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+        _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
@@ -189,10 +184,12 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
+        _nano_seconds = 0;
     } else {
         //Unit test may set into here
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
+        _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 
@@ -221,13 +218,14 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     bool has_query_mem_tracker = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
-    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker()->limit()) {
+    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker_raw()->limit()) {
         VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
-                    << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->limit(),
-                                            TUnit::BYTES)
+                    << PrettyPrinter::print(
+                               ExecEnv::GetInstance()->process_mem_tracker_raw()->limit(),
+                               TUnit::BYTES)
                     << ". Using process memory limit instead";
-        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker()->limit();
+        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker_raw()->limit();
     }
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
@@ -245,49 +243,20 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     }
 
     _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            bytes_limit, "RuntimeState:instance:" + print_id(_fragment_instance_id),
-            _query_mem_tracker, &_profile);
+            -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
+            &_profile);
 
-    RETURN_IF_ERROR(init_buffer_poolstate());
-
-    _initial_reservations = _obj_pool->add(new InitialReservations(
-            _obj_pool.get(), _buffer_reservation, _query_options.initial_reservation_total_claims));
-    RETURN_IF_ERROR(_initial_reservations->Init(_query_id, min_reservation()));
-    DCHECK_EQ(0, _initial_reservation_refcnt.load());
-
-    if (_instance_buffer_reservation != nullptr) {
-        _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
-                                                       std::numeric_limits<int64_t>::max());
+    if (_query_options.is_report_success) {
+        _query_mem_tracker->enable_print_log_usage();
+        _instance_mem_tracker->enable_print_log_usage();
     }
+
     return Status::OK();
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
     _query_mem_tracker = nullptr;
     _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "RuntimeState:instance");
-    return Status::OK();
-}
-
-Status RuntimeState::init_buffer_poolstate() {
-    ExecEnv* exec_env = ExecEnv::GetInstance();
-    int64_t mem_limit = _query_mem_tracker->get_lowest_limit();
-    int64_t max_reservation;
-    if (query_options().__isset.buffer_pool_limit && query_options().buffer_pool_limit > 0) {
-        max_reservation = query_options().buffer_pool_limit;
-    } else if (mem_limit == -1) {
-        // No query mem limit. The process-wide reservation limit is the only limit on
-        // reservations.
-        max_reservation = std::numeric_limits<int64_t>::max();
-    } else {
-        DCHECK_GE(mem_limit, 0);
-        max_reservation = ReservationUtil::GetReservationLimitFromMemLimit(mem_limit);
-    }
-
-    VLOG_QUERY << "Buffer pool limit for " << print_id(_query_id) << ": " << max_reservation;
-
-    _buffer_reservation = _obj_pool->add(new ReservationTracker);
-    _buffer_reservation->InitChildTracker(nullptr, exec_env->buffer_reservation(), max_reservation);
-
     return Status::OK();
 }
 
@@ -351,7 +320,9 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->any_limit_exceeded()) {
+    if (thread_context()
+                ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()
+                ->any_limit_exceeded()) {
         RETURN_LIMIT_EXCEEDED(this, msg);
     }
     return query_status();

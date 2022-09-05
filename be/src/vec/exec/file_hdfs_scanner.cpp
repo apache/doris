@@ -28,6 +28,10 @@ ParquetFileHdfsScanner::ParquetFileHdfsScanner(RuntimeState* state, RuntimeProfi
                                                ScannerCounter* counter)
         : HdfsFileScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
 
+ParquetFileHdfsScanner::~ParquetFileHdfsScanner() {
+    ParquetFileHdfsScanner::close();
+}
+
 Status ParquetFileHdfsScanner::open() {
     RETURN_IF_ERROR(FileScanner::open());
     if (_ranges.empty()) {
@@ -48,20 +52,24 @@ Status ParquetFileHdfsScanner::get_next(vectorized::Block* block, bool* eof) {
     bool range_eof = false;
     RETURN_IF_ERROR(_reader->read_next_batch(block, &range_eof));
     if (range_eof) {
-        RETURN_IF_ERROR(_get_next_reader(_next_range++));
+        _next_range++;
+        RETURN_IF_ERROR(_get_next_reader(_next_range));
     }
     return Status::OK();
 }
 
 Status ParquetFileHdfsScanner::_get_next_reader(int _next_range) {
+    if (_next_range >= _ranges.size()) {
+        _scanner_eof = true;
+        return Status::OK();
+    }
     const TFileRangeDesc& range = _ranges[_next_range];
-    _current_range_offset = range.start_offset;
     std::unique_ptr<FileReader> file_reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
                                                     file_reader));
-    _reader.reset(new ParquetReader(file_reader.release(), _file_slot_descs.size(),
-                                    _state->query_options().batch_size, range.start_offset,
-                                    range.size));
+    _reader.reset(new ParquetReader(
+            file_reader.release(), _file_slot_descs.size(), _state->query_options().batch_size,
+            range.start_offset, range.size, const_cast<cctz::time_zone*>(&_state->timezone_obj())));
     auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
     Status status =
             _reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());

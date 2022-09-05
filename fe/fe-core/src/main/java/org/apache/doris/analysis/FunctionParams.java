@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TTypeDesc;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.io.DataInput;
@@ -63,6 +64,14 @@ public class FunctionParams implements Writable {
 
     public static FunctionParams createStarParam() {
         return new FunctionParams();
+    }
+
+    public FunctionParams clone(List<Expr> children) {
+        if (isStar()) {
+            Preconditions.checkState(children.isEmpty());
+            return FunctionParams.createStarParam();
+        }
+        return new FunctionParams(isDistinct(), children);
     }
 
     public TAggregateExpr createTAggregateExpr(boolean isMergeAggFn) {

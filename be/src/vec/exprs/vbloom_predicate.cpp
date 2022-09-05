@@ -19,6 +19,7 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -28,16 +29,11 @@ VBloomPredicate::VBloomPredicate(const TExprNode& node)
 
 Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
-    if (_prepared) {
-        return Status::OK();
-    }
     if (_children.size() != 1) {
         return Status::InternalError("Invalid argument for VBloomPredicate.");
     }
-
-    _prepared = true;
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
@@ -63,7 +59,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
     }
     // call function

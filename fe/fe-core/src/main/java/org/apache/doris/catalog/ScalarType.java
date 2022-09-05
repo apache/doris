@@ -87,8 +87,6 @@ public class ScalarType extends Type {
     // Only used for type CHAR.
     @SerializedName(value = "len")
     private int len = -1;
-    @SerializedName(value = "isAssignedStrLenInColDefinition")
-    private boolean isAssignedStrLenInColDefinition = false;
 
     // Only used if type is DECIMAL. -1 (for both) is used to represent a
     // decimal with any precision and scale.
@@ -660,12 +658,8 @@ public class ScalarType extends Type {
         this.len = len;
     }
 
-    public boolean isAssignedStrLenInColDefinition() {
-        return isAssignedStrLenInColDefinition;
-    }
-
-    public void setAssignedStrLenInColDefinition() {
-        this.isAssignedStrLenInColDefinition = true;
+    public boolean isLengthSet() {
+        return getPrimitiveType() == PrimitiveType.HLL || len > 0 || !Strings.isNullOrEmpty(lenStr);
     }
 
     // add scalar infix to override with getPrecision
@@ -986,6 +980,12 @@ public class ScalarType extends Type {
         PrimitiveType largerType =
                 (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType result = null;
+        if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
+            return t1.scale > t2.scale ? t1 : t2;
+        }
+        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t1.isDatetimeV2() || t1.isDateV2())) {
+            return t1.isDatetimeV2() ? t1 : t2;
+        }
         if (strict) {
             result = strictCompatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }

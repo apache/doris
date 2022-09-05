@@ -213,11 +213,11 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
-        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, expandView, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getTables(analyzer, tableMap, parentViewNameSet);
+            op.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
@@ -234,7 +234,7 @@ public class SetOperationStmt extends QueryStmt {
      * set operands are set compatible, adding implicit casts if necessary.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) {
             return;
         }
@@ -292,13 +292,8 @@ public class SetOperationStmt extends QueryStmt {
         if (!distinctOperands.isEmpty()) {
             // Aggregate produces exactly the same tuple as the original setOp stmt.
             ArrayList<Expr> groupingExprs = Expr.cloneList(resultExprs);
-            try {
-                distinctAggInfo = AggregateInfo.create(
-                        groupingExprs, null, analyzer.getDescTbl().getTupleDesc(tupleId), analyzer);
-            } catch (AnalysisException e) {
-                // Should never happen.
-                throw new IllegalStateException("Error creating agg info in SetOperationStmt.analyze()", e);
-            }
+            distinctAggInfo = AggregateInfo.create(
+                    groupingExprs, null, analyzer.getDescTbl().getTupleDesc(tupleId), analyzer);
         }
 
         setOpsResultExprs = Expr.cloneList(resultExprs);

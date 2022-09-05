@@ -27,15 +27,19 @@ under the License.
 
 # 通过外部表同步数据
 
-Doris 可以创建通过 ODBC 协议访问的外部表。创建完成后，可以通过 SELECT 语句直接查询外部表的数据，也可以通过 `INSERT INTO SELECT` 的方式导入外部表的数据。
+Doris 可以创建外部表。创建完成后，可以通过 SELECT 语句直接查询外部表的数据，也可以通过 `INSERT INTO SELECT` 的方式导入外部表的数据。
 
-本文档主要介绍如何创建通过 ODBC 协议访问的外部表，以及如何导入这些外部表的数据。目前支持的数据源包括：
+Doris 外部表目前支持的数据源包括：
 
 - MySQL
 - Oracle
 - PostgreSQL
 - SQLServer
-- Hive(1.0版本支持)
+- Hive 
+- Iceberg
+- ElasticSearch
+
+本文档主要介绍如何创建通过 ODBC 协议访问的外部表，以及如何导入这些外部表的数据。
 
 ## 创建外部表
 
@@ -124,5 +128,3 @@ PROPERTIES (
 ## 更多帮助
 
 关于 CREATE EXTERNAL TABLE 的更多详细语法和最佳实践，请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.md) 命令手册。
-
-Doris ODBC 更多使用示例请参考 [文章列表](https://doris.apache.org/zh-CN/article/article-list.html) 。

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -170,7 +169,7 @@ public class UpdateStmt extends DdlStmt {
                 throw new AnalysisException("The left side of the set expr must be the column name");
             }
             lhs.analyze(analyzer);
-            if (((SlotRef) lhs).getColumn().getAggregationType() != AggregateType.REPLACE) {
+            if (((SlotRef) lhs).getColumn().isKey()) {
                 throw new AnalysisException("Only value columns of unique table could be updated.");
             }
             // check set expr of target column

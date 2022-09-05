@@ -45,10 +45,10 @@ sudo apt install gcc-10 g++-10
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-4. 安装 openssl-devel
+4. 安装 openssl libssl-dev
 
 ```
-sudo apt install -y openssl-devel
+sudo apt install -y openssl libssl-dev
 ```
 
 ## 编译
@@ -90,7 +90,7 @@ cd /home/workspace/doris
 
 如果不出意外，应该会编译成功，最终的部署文件将产出到 /home/workspace/doris/output/ 目录下。如果还遇到其他问题，可以参照 doris 的安装文档 http://doris.apache.org。
 
-## 部署调试
+## 部署调试(GDB)
 
 1. 给 be 编译结果文件授权
 
@@ -278,3 +278,17 @@ ps -ef | grep palo*
     下面就可以开始你的 Doris DEBUG 之旅了
 
 ![](/images/image-20210618091006146.png)
+
+## 调试(LLDB)
+
+lldb的attach比gdb更快，使用方式和gdb类似。vscode需要安装的插件改为`CodeLLDB`，然后在launch中加入如下配置:
+```json
+{
+    "name": "CodeLLDB attach",
+    "type": "lldb",
+    "request": "attach",
+    "program": "${workspaceFolder}/output/be/lib/doris_be",
+    "pid":"${command:pickMyProcess}"
+}
+```
+需要注意的是，此方式要求系统`glibc`版本为`2.18+`。如果没有则可以参考 [如何使CodeLLDB在CentOS7下工作](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) 安装高版本glibc并将其链接到插件。

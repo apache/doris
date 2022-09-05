@@ -180,7 +180,7 @@ public class LoadManager implements Writable {
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId()).add("msg", "replay create load job").build());
     }
 
-    // add load job and also add to to callback factory
+    // add load job and also add to callback factory
     private void createLoadJob(LoadJob loadJob) {
         if (loadJob.isExpired(System.currentTimeMillis())) {
             // This can happen in replay logic.

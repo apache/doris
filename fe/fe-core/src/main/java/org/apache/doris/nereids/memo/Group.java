@@ -24,22 +24,29 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Representation for group in cascades optimizer.
  */
 public class Group {
     private final GroupId groupId;
+    private final IdentityHashMap<GroupExpression, Void> parentExpressions = new IdentityHashMap();
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
@@ -47,7 +54,7 @@ public class Group {
 
     // Map of cost lower bounds
     // Map required plan props to cost lower bound of corresponding plan
-    private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans = Maps.newHashMap();
+    private final Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans = Maps.newHashMap();
     private double costLowerBound = -1;
     private boolean isExplored = false;
     private boolean hasCost = false;
@@ -120,6 +127,16 @@ public class Group {
         return groupExpression;
     }
 
+    public void addLogicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        logicalExpressions.add(groupExpression);
+    }
+
+    public void addPhysicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        physicalExpressions.add(groupExpression);
+    }
+
     /**
      * Rewrite the logical group expression to the new logical group expression.
      *
@@ -136,6 +153,22 @@ public class Group {
         return oldExpression;
     }
 
+    public List<GroupExpression> clearLogicalExpressions() {
+        List<GroupExpression> move = logicalExpressions.stream()
+                .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .collect(Collectors.toList());
+        logicalExpressions.clear();
+        return move;
+    }
+
+    public List<GroupExpression> clearPhysicalExpressions() {
+        List<GroupExpression> move = physicalExpressions.stream()
+                .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .collect(Collectors.toList());
+        physicalExpressions.clear();
+        return move;
+    }
+
     public double getCostLowerBound() {
         return costLowerBound;
     }
@@ -145,23 +178,31 @@ public class Group {
     }
 
     /**
-     * Set or update lowestCostPlans: properties --> new Pair<>(cost, expression)
+     * Set or update lowestCostPlans: properties --> Pair.of(cost, expression)
      */
     public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
         if (lowestCostPlans.containsKey(properties)) {
             if (lowestCostPlans.get(properties).first > cost) {
-                lowestCostPlans.put(properties, new Pair<>(cost, expression));
+                lowestCostPlans.put(properties, Pair.of(cost, expression));
             }
         } else {
-            lowestCostPlans.put(properties, new Pair<>(cost, expression));
+            lowestCostPlans.put(properties, Pair.of(cost, expression));
         }
     }
 
-    public GroupExpression getBestExpression(PhysicalProperties properties) {
+    public GroupExpression getBestPlan(PhysicalProperties properties) {
         if (lowestCostPlans.containsKey(properties)) {
             return lowestCostPlans.get(properties).second;
         }
         return null;
+    }
+
+    public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
+        Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
+        GroupExpression lowestGroupExpr = pair.second;
+        lowestGroupExpr.updateLowestCostTable(newProperty, lowestGroupExpr.getInputPropertiesList(oldProperty), cost);
+        lowestCostPlans.remove(oldProperty);
+        lowestCostPlans.put(newProperty, pair);
     }
 
     public StatsDeriveResult getStatistics() {
@@ -251,6 +292,28 @@ public class Group {
         return physicalPlan;
     }
 
+    public List<GroupExpression> getParentGroupExpressions() {
+        return ImmutableList.copyOf(parentExpressions.keySet());
+    }
+
+    public void addParentExpression(GroupExpression parent) {
+        parentExpressions.put(parent, null);
+    }
+
+    /**
+     * remove the reference to parent groupExpression
+     * @param parent group expression
+     * @return parentExpressions's num
+     */
+    public int removeParentExpression(GroupExpression parent) {
+        parentExpressions.remove(parent);
+        return parentExpressions.size();
+    }
+
+    public int parentExpressionNum() {
+        return parentExpressions.size();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -271,6 +334,50 @@ public class Group {
     @Override
     public String toString() {
         return "Group[" + groupId + "]";
+    }
+
+    /**
+     * Get tree like string describing group.
+     *
+     * @return tree like string describing group
+     */
+    public String treeString() {
+        Function<Object, String> toString = obj -> {
+            if (obj instanceof Group) {
+                return obj.toString();
+            } else if (obj instanceof GroupExpression) {
+                return ((GroupExpression) obj).getPlan().toString();
+            } else if (obj instanceof Pair) {
+                // print logicalExpressions or physicalExpressions
+                // first is name, second is group expressions
+                return ((Pair<?, ?>) obj).first.toString();
+            } else {
+                return obj.toString();
+            }
+        };
+
+        Function<Object, List<Object>> getChildren = obj -> {
+            if (obj instanceof Group) {
+                Group group = (Group) obj;
+                List children = new ArrayList<>();
+
+                // to <name, children> pair
+                if (!group.getLogicalExpressions().isEmpty()) {
+                    children.add(Pair.of("logicalExpressions", group.getLogicalExpressions()));
+                }
+                if (!group.getPhysicalExpressions().isEmpty()) {
+                    children.add(Pair.of("physicalExpressions", group.getLogicalExpressions()));
+                }
+                return children;
+            } else if (obj instanceof GroupExpression) {
+                return (List) ((GroupExpression) obj).children();
+            } else if (obj instanceof Pair) {
+                return (List) ((Pair<String, List<GroupExpression>>) obj).second;
+            } else {
+                return ImmutableList.of();
+            }
+        };
+        return TreeStringUtils.treeString(this, toString, getChildren);
     }
 
     /**

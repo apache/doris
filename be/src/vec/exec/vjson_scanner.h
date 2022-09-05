@@ -161,8 +161,7 @@ private:
 
     Status _generate_json_paths(const std::string& jsonpath, std::vector<std::string>* vect);
 
-    Status _append_error_msg(simdjson::ondemand::value object_value, std::string error_msg,
-                             std::string col_name, bool* valid);
+    Status _append_error_msg(std::string error_msg, std::string col_name, bool* valid);
 
     std::unique_ptr<simdjson::ondemand::parser> _json_parser = nullptr;
     simdjson::ondemand::document _original_json_doc;

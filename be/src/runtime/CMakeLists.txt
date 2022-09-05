@@ -54,7 +54,6 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     tuple_row.cpp
-    dpp_writer.cpp
     qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
@@ -76,11 +75,8 @@ set(RUNTIME_FILES
     tablets_channel.cpp
     bufferpool/buffer_allocator.cc
     bufferpool/buffer_pool.cc
-    bufferpool/reservation_tracker.cc
-    bufferpool/reservation_util.cc
     bufferpool/suballocator.cc
     bufferpool/system_allocator.cc
-    initial_reservations.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp

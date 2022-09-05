@@ -40,13 +40,14 @@
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
-#include "util/logging.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -61,7 +62,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _done(false),
           _prepared(false),
           _closed(false),
-          _is_report_success(true),
+          _is_report_success(false),
           _is_report_on_cancel(true),
           _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
@@ -84,12 +85,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
-    TAG(LOG(INFO))
-            .log("PlanFragmentExecutor::prepare")
-            .query_id(_query_id)
-            .instance_id(params.fragment_instance_id)
-            .tag("backend_num", std::to_string(request.backend_num))
-            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
+    LOG_INFO("PlanFragmentExecutor::prepare")
+            .tag("query_id", _query_id)
+            .tag("instance_id", params.fragment_instance_id)
+            .tag("backend_num", request.backend_num)
+            .tag("pthread_id", (uintptr_t)pthread_self());
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
@@ -165,11 +165,21 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _plan->try_do_aggregate_serde_improve();
 
     for (int i = 0; i < scan_nodes.size(); ++i) {
-        ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
-        const std::vector<TScanRangeParams>& scan_ranges =
-                find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-        scan_node->set_scan_ranges(scan_ranges);
-        VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+        // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
+        ExecNode* node = scan_nodes[i];
+        if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
+            typeid(*node) == typeid(vectorized::NewFileScanNode)) {
+            vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
+            const std::vector<TScanRangeParams>& scan_ranges =
+                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            scan_node->set_scan_ranges(scan_ranges);
+        } else {
+            ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
+            const std::vector<TScanRangeParams>& scan_ranges =
+                    find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+            scan_node->set_scan_ranges(scan_ranges);
+            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+        }
     }
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
@@ -216,12 +226,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->instance_mem_tracker()->limit();
-    TAG(LOG(INFO))
-            .log("PlanFragmentExecutor::open, using query memory limit: " +
-                 PrettyPrinter::print(mem_limit, TUnit::BYTES))
-            .query_id(_query_id)
-            .instance_id(_runtime_state->fragment_instance_id())
-            .tag("mem_limit", std::to_string(mem_limit));
+    LOG_INFO("PlanFragmentExecutor::open")
+            .tag("query_id", _query_id)
+            .tag("instance_id", _runtime_state->fragment_instance_id())
+            .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -333,8 +341,9 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
     while (!_done) {
         _block->clear_column_data(_plan->row_desc().num_materialized_slots());
         SCOPED_TIMER(profile()->total_time_counter());
-        RETURN_IF_ERROR_AND_CHECK_SPAN(_plan->get_next(_runtime_state.get(), _block.get(), &_done),
-                                       _plan->get_next_span(), _done);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                _plan->get_next_after_projects(_runtime_state.get(), _block.get(), &_done),
+                _plan->get_next_span(), _done);
 
         if (_block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, _block->rows());
@@ -552,10 +561,9 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
     update_status(status);
 
     if (_done) {
-        TAG(LOG(INFO))
-                .log("PlanFragmentExecutor::get_next finished")
-                .query_id(_query_id)
-                .instance_id(_runtime_state->fragment_instance_id());
+        LOG_INFO("PlanFragmentExecutor::get_next finished")
+                .tag("query_id", _query_id)
+                .tag("instance_id", _runtime_state->fragment_instance_id());
         // Query is done, return the thread token
         stop_report_thread();
         send_report(true);
@@ -613,10 +621,9 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
 }
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    TAG(LOG(INFO))
-            .log("PlanFragmentExecutor::cancel")
-            .query_id(_query_id)
-            .instance_id(_runtime_state->fragment_instance_id());
+    LOG_INFO("PlanFragmentExecutor::cancel")
+            .tag("query_id", _query_id)
+            .tag("instance_id", _runtime_state->fragment_instance_id());
     DCHECK(_prepared);
     _cancel_reason = reason;
     _cancel_msg = msg;

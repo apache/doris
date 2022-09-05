@@ -24,7 +24,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
  * Type of rules, each rule has its unique type.
  */
 public enum RuleType {
+    // just for UT
+    TEST_REWRITE(RuleTypeClass.REWRITE),
     // binding rules
+
+    // **** make sure BINDING_UNBOUND_LOGICAL_PLAN is the lowest priority in the rewrite rules. ****
+    BINDING_NON_LEAF_LOGICAL_PLAN(RuleTypeClass.REWRITE),
     BINDING_RELATION(RuleTypeClass.REWRITE),
     BINDING_PROJECT_SLOT(RuleTypeClass.REWRITE),
     BINDING_FILTER_SLOT(RuleTypeClass.REWRITE),
@@ -40,7 +45,12 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
+
+    // check analysis rule
+    CHECK_ANALYSIS(RuleTypeClass.CHECK),
+
     // rewrite rules
+    NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
     ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
@@ -51,6 +61,17 @@ public enum RuleType {
     JOIN_LEFT_CHILD_ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
     JOIN_RIGHT_CHILD_ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
     AGGREGATE_ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
+
+    //subquery analyze
+    ANALYZE_FILTER_SUBQUERY(RuleTypeClass.REWRITE),
+    //subquery rewrite rule
+    PUSH_APPLY_UNDER_PROJECT(RuleTypeClass.REWRITE),
+    PUSH_APPLY_UNDER_FILTER(RuleTypeClass.REWRITE),
+    APPLY_PULL_FILTER_ON_AGG(RuleTypeClass.REWRITE),
+    APPLY_PULL_FILTER_ON_PROJECT_UNDER_AGG(RuleTypeClass.REWRITE),
+    SCALAR_APPLY_TO_JOIN(RuleTypeClass.REWRITE),
+    IN_APPLY_TO_JOIN(RuleTypeClass.REWRITE),
+    EXISTS_APPLY_TO_JOIN(RuleTypeClass.REWRITE),
     // predicate push down rules
     PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_DOWN_PREDICATE_THROUGH_AGGREGATION(RuleTypeClass.REWRITE),
@@ -68,9 +89,14 @@ public enum RuleType {
     REORDER_JOIN(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_FILTERS(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_PROJECTS(RuleTypeClass.REWRITE),
+    MERGE_CONSECUTIVE_LIMITS(RuleTypeClass.REWRITE),
+    FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
+    OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
+    SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
 
     // exploration rules
+    TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
     LOGICAL_JOIN_COMMUTATIVE(RuleTypeClass.EXPLORATION),
     LOGICAL_LEFT_JOIN_ASSOCIATIVE(RuleTypeClass.EXPLORATION),
     LOGICAL_JOIN_L_ASSCOM(RuleTypeClass.EXPLORATION),
@@ -86,6 +112,7 @@ public enum RuleType {
     LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE(RuleTypeClass.IMPLEMENTATION),
     LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE(RuleTypeClass.IMPLEMENTATION),
     LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE(RuleTypeClass.IMPLEMENTATION),
+    LOGICAL_ASSERT_NUM_ROWS_TO_PHYSICAL_ASSERT_NUM_ROWS(RuleTypeClass.IMPLEMENTATION),
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
 
     // sentinel, use to count rules
@@ -114,6 +141,7 @@ public enum RuleType {
     enum RuleTypeClass {
         REWRITE,
         EXPLORATION,
+        CHECK,
         IMPLEMENTATION,
         SENTINEL,
         ;

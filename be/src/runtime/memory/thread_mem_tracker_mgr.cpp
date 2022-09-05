@@ -32,6 +32,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
     _limiter_tracker = mem_tracker;
+    _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
@@ -39,6 +40,7 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     _task_id = "";
     _fragment_instance_id = TUniqueId();
     _limiter_tracker = ExecEnv::GetInstance()->process_mem_tracker();
+    _limiter_tracker_raw = ExecEnv::GetInstance()->process_mem_tracker_raw();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
@@ -49,21 +51,15 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
     }
 }
 
-void ThreadMemTrackerMgr::exceeded(int64_t failed_consume_size) {
+void ThreadMemTrackerMgr::exceeded(Status failed_try_consume_st) {
     if (_cb_func != nullptr) {
         _cb_func();
     }
     if (is_attach_query()) {
-        std::string cancel_msg;
-        if (!_consumer_tracker_stack.empty()) {
-            cancel_msg = fmt::format(
-                    "exec node:<name={}>, can change the limit by `set exec_mem_limit=xxx`",
-                    _consumer_tracker_stack[-1]->label());
-        } else {
-            cancel_msg = "exec node:unknown, can change the limit by `set exec_mem_limit=xxx`";
-        }
-        auto st = _limiter_tracker->mem_limit_exceeded(cancel_msg, failed_consume_size);
-        exceeded_cancel_task(st.to_string());
+        auto st = _limiter_tracker_raw->mem_limit_exceeded(
+                fmt::format("exec node:<{}>", last_consumer_tracker()),
+                _limiter_tracker_raw->parent().get(), failed_try_consume_st);
+        exceeded_cancel_task(st.get_error_msg());
         _check_limit = false; // Make sure it will only be canceled once
     }
 }

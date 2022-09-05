@@ -26,7 +26,6 @@
 #include "gutil/strings/util.h"
 #include "testutil/test_util.h"
 #include "util/file_utils.h"
-#include "util/logging.h"
 
 namespace doris {
 

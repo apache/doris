@@ -246,7 +246,7 @@ LOAD LABEL demo.label_20220402
         ) 
         with HDFS (
             "fs.defaultFS"="hdfs://10.220.147.151:8020",
-            "hdfs_user"="root"
+            "hadoop.username"="root"
         )
         PROPERTIES
         (
