@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -40,7 +41,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -73,12 +73,11 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getJoinType() == JoinType.INNER_JOIN
-                        && join.getCondition().isPresent())
+                .when(join -> join.getJoinType() == JoinType.INNER_JOIN)
                 .then(join -> {
-                    join.getCondition().get().accept(
+                    join.getHashJoinConjuncts().forEach(conjuncts -> conjuncts.accept(
                             new TreeCollectVisitor(),
-                            SlotReferenceToExpressionMap);
+                            SlotReferenceToExpressionMap));
 
                     List<Plan> children = join.children().stream()
                             .map(GroupPlan.class::cast)
@@ -98,23 +97,22 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
                     LogicalJoin<Plan, Plan> joinAddProjects = (LogicalJoin<Plan, Plan>) join.withChildren(children);
 
                     return joinAddProjects
-                            .withCondition(Optional.of(join.getCondition().get().accept(
+                            .withHashJoinConjuncts(join.getHashJoinConjuncts().stream().map(conjuncts -> conjuncts.accept(
                                     new TreeReplaceVisitor(),
                                     SlotReferenceToExpressionMap.values().stream()
                                             .reduce(new HashMap<>(), (map1, map2) -> {
                                                 map1.putAll(map2);
                                                 return map1;
                                             })
-                            ))
-                    );
+                            )).collect(Collectors.toList()));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
 
-    private static class TreeCollectVisitor extends ExpressionVisitor<Expression,
-            Map<SlotReference, Map<Expression, Expression>>> {
+    private static class TreeCollectVisitor extends DefaultExpressionRewriter<
+                    Map<SlotReference, Map<Expression, Expression>>> {
 
         @Override
-        public Expression visit(Expression expr,
+        public Expression visitComparisonPredicate(ComparisonPredicate expr,
                 Map<SlotReference, Map<Expression, Expression>> context) {
             Set<SlotReference> set = new HashSet<>(expr.collect(SlotReference.class::isInstance));
             if (set.size() == 1) {
@@ -123,58 +121,13 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
             }
             return expr;
         }
-
-        public Expression visitChildren(Expression expr,
-                Map<SlotReference, Map<Expression, Expression>> ctx) {
-            expr.children().forEach(node -> node.accept(this, ctx));
-            return expr;
-        }
-
-        @Override
-        public Expression visitComparisonPredicate(ComparisonPredicate predicate,
-                Map<SlotReference, Map<Expression, Expression>> ctx) {
-            return visitChildren(predicate, ctx);
-        }
-
-        @Override
-        public Expression visitCompoundPredicate(CompoundPredicate predicate,
-                Map<SlotReference, Map<Expression, Expression>> ctx) {
-            return visitChildren(predicate, ctx);
-        }
     }
 
-    private static class TreeReplaceVisitor extends ExpressionVisitor<Expression, Map<Expression, Expression>> {
+    private static class TreeReplaceVisitor extends DefaultExpressionRewriter<Map<Expression, Expression>> {
 
         @Override
-        public Expression visit(Expression expr, Map<Expression, Expression> context) {
-            expr.children().forEach(node -> node.accept(this, context));
-            return expr;
-        }
-
-        @Override
-        public Expression visitLiteral(Literal literal, Map<Expression, Expression> context) {
-            return literal;
-        }
-
-        @Override
-        public Expression visitArithmetic(Arithmetic arithmetic, Map<Expression, Expression> ctx) {
+        public Expression visitArithmetic( arithmetic, Map<Expression, Expression> ctx) {
             return ((Alias) ctx.get(arithmetic)).toSlot();
-        }
-
-        @Override
-        public Expression visitComparisonPredicate(ComparisonPredicate predicate, Map<Expression, Expression> ctx) {
-            return predicate.withChildren(predicate.children()
-                    .stream()
-                    .map(node -> node.accept(this, ctx))
-                    .collect(Collectors.toList()));
-        }
-
-        @Override
-        public Expression visitCompoundPredicate(CompoundPredicate predicate, Map<Expression, Expression> ctx) {
-            return predicate.withChildren(predicate.children()
-                    .stream()
-                    .map(node -> node.accept(this, ctx))
-                    .collect(Collectors.toList()));
         }
     }
 }
