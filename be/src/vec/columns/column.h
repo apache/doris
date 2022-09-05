@@ -134,6 +134,7 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
+    virtual TypeIndex get_data_type() const = 0;
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -507,6 +508,14 @@ public:
 
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
+        res->for_each_subcolumn(
+                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        return res;
+    }
+
+    static MutablePtr mutate(Ptr ptr) {
+        MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
+        ptr.reset();                            /// Reset use_count to 1.
         res->for_each_subcolumn(
                 [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
         return res;

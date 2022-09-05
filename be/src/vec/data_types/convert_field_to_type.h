@@ -15,34 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/ColumnNothing.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/convert_field_to_type.h
 // and modified by Doris
 
 #pragma once
-
-#include "vec/columns/column_dummy.h"
-
+#include <vec/core/field.h>
 namespace doris::vectorized {
 
-class ColumnNothing final : public COWHelper<IColumnDummy, ColumnNothing> {
-private:
-    friend class COWHelper<IColumnDummy, ColumnNothing>;
+class IDataType;
+/** Used to interpret expressions in a set in IN,
+  *  and also in the query of the form INSERT ... VALUES ...
+  *
+  * To work correctly with expressions of the form `1.0 IN (1)` or, for example, `1 IN (1, 2.0, 2.5, -1)` work the same way as `1 IN (1, 2)`.
+  * Checks for the compatibility of types, checks values fall in the range of valid values of the type, makes type conversion.
+  * If the value does not fall into the range - returns Null.
+  */
 
-    ColumnNothing(size_t s_) { s = s_; }
-
-    ColumnNothing(const ColumnNothing&) = default;
-
-public:
-    const char* get_family_name() const override { return "Nothing"; }
-    MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
-
-    bool can_be_inside_nullable() const override { return true; }
-
-    bool structure_equals(const IColumn& rhs) const override {
-        return typeid(rhs) == typeid(ColumnNothing);
-    }
-
-    TypeIndex get_data_type() const override { return TypeIndex::Nothing; }
-};
+Status convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* field,
+                             const IDataType* from_type_hint = nullptr);
 
 } // namespace doris::vectorized

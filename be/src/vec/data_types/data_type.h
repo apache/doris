@@ -177,6 +177,10 @@ public:
       */
     virtual bool is_value_represented_by_integer() const { return false; }
 
+    virtual bool is_object() const { return false; }
+
+    bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
+
     /** Unsigned Integers, Date, DateTime. Not nullable.
       */
     virtual bool is_value_represented_by_unsigned_integer() const { return false; }

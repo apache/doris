@@ -96,6 +96,7 @@ set(VEC_FILES
   data_types/data_type_decimal.cpp
   data_types/data_type_map.cpp
   data_types/get_least_supertype.cpp
+  data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp

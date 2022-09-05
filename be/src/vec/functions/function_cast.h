@@ -1765,9 +1765,14 @@ protected:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         const auto type_col =
                 check_and_get_column_const<ColumnString>(arguments.back().column.get());
+        DataTypePtr type;
         if (!type_col) {
-            LOG(FATAL) << fmt::format(
-                    "Second argument to {} must be a constant string describing type", get_name());
+            // only used in object_util::cast_column
+            // use second arg as type arg
+            // since not all types are in the DatatypeFactory
+            type = arguments[1].type;
+        } else {
+            type = DataTypeFactory::instance().get(type_col->get_value<String>());
         }
         // TODO(xy): support return struct type for factory
         auto type = DataTypeFactory::instance().get(type_col->get_value<String>());

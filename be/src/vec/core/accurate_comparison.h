@@ -456,22 +456,36 @@ inline bool_if_safe_conversion<A, B> greaterOrEqualsOp(A a, B b) {
 }
 
 /// Converts numeric to an equal numeric of other type.
-template <typename From, typename To>
+/// When `strict` is `true` check that result exactly same as input, otherwise just check overflow
+template <typename From, typename To, bool strict = true>
 inline bool convertNumeric(From value, To& result) {
     /// If the type is actually the same it's not necessary to do any checks.
     if constexpr (std::is_same_v<From, To>) {
         result = value;
         return true;
     }
-
-    /// Note that NaNs doesn't compare equal to anything, but they are still in range of any Float type.
-    if (is_nan(value) && std::is_floating_point_v<To>) {
-        result = value;
-        return true;
+    if constexpr (std::is_floating_point_v<From> && std::is_floating_point_v<To>) {
+        /// Note that NaNs doesn't compare equal to anything, but they are still in range of any Float type.
+        if (is_nan(value)) {
+            result = value;
+            return true;
+        }
+        if (value == std::numeric_limits<From>::infinity()) {
+            result = std::numeric_limits<To>::infinity();
+            return true;
+        }
+        if (value == -std::numeric_limits<From>::infinity()) {
+            result = -std::numeric_limits<To>::infinity();
+            return true;
+        }
     }
-
+    if (greaterOp(value, std::numeric_limits<To>::max()) ||
+        lessOp(value, std::numeric_limits<To>::lowest())) {
+        return false;
+    }
     result = static_cast<To>(value);
-    return equalsOp(value, result);
+    if constexpr (strict) return equalsOp(value, result);
+    return true;
 }
 
 } // namespace accurate
