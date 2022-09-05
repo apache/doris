@@ -244,6 +244,10 @@ template <>
 struct TypeId<Float64> {
     static constexpr const TypeIndex value = TypeIndex::Float64;
 };
+template <>
+struct TypeId<String> {
+    static constexpr const TypeIndex value = TypeIndex::String;
+};
 
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;

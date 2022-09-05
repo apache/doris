@@ -122,6 +122,10 @@ public:
         LOG(FATAL) << "get_permutation not implemented";
     }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
+    }
+
     void reserve(size_t n) override { data.reserve(n); }
 
     void resize(size_t n) override { data.resize(n); }

@@ -471,6 +471,17 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
+    MutableColumnPtr get_shinked_column() const {
+        auto shrinked_column = ColumnString::create();
+        for (int i = 0; i < size(); i++) {
+            StringRef str = get_data_at(i);
+            reinterpret_cast<ColumnString*>(shrinked_column.get())
+                    ->insert_data(str.data, strnlen(str.data, str.size));
+        }
+        return shrinked_column;
+    }
+
+    TypeIndex get_data_type() const override { return TypeIndex::String; }
 };
 
 } // namespace doris::vectorized
