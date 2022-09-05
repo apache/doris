@@ -25,7 +25,6 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.PlanFragment;
@@ -37,11 +36,6 @@ import java.util.List;
 import java.util.Optional;
 
 public class RuntimeFilterTest extends SSBTestBase {
-
-    @Override
-    public void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
-    }
 
     @Override
     public void runBeforeAll() throws Exception {
@@ -189,7 +183,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, context);
         System.out.println(root.getFragmentId());
         if (context.getRuntimeFilterGenerator().isPresent()) {
-            return Optional.of(context.getRuntimeFilterGenerator().get().getNereridsRuntimeFilter());
+            return Optional.of(context.getRuntimeFilterGenerator().get().getNereidsRuntimeFilter());
         }
         return Optional.empty();
     }

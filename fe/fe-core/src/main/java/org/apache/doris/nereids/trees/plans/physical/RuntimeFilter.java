@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -127,24 +126,23 @@ public class RuntimeFilter {
      * runtime filter target
      */
     public static class RuntimeFilterTarget {
-        OlapScanNode node;
         SlotReference expr;
 
-        public RuntimeFilterTarget(OlapScanNode node, SlotReference expr) {
-            this.node = node;
+        public RuntimeFilterTarget(SlotReference expr) {
             this.expr = expr;
         }
 
         /**
          * s
-         * @param node s
+         * @param scanNode s
          * @param targetSlotRef s
+         * @param isLocal s
          * @return s
          */
-        public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toOriginRuntimeFilterTarget(
-                HashJoinNode node, SlotRef targetSlotRef) {
-            return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(
-                    this.node, targetSlotRef, true, node.getFragmentId().equals(this.node.getFragmentId()));
+        public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toLegacyRuntimeFilterTarget(
+                OlapScanNode scanNode, SlotRef targetSlotRef, boolean isLocal) {
+            return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(scanNode,
+                    targetSlotRef, true, isLocal);
         }
 
         public SlotReference getExpr() {

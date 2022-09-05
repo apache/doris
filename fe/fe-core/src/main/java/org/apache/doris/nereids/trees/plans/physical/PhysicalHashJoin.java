@@ -42,7 +42,7 @@ public class PhysicalHashJoin<
 
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition, LogicalProperties logicalProperties,
-                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
@@ -88,7 +88,7 @@ public class PhysicalHashJoin<
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, Optional.empty(),
-            logicalProperties.get(), left(), right());
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
+                Optional.empty(), logicalProperties.get(), left(), right());
     }
 }

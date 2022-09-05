@@ -73,6 +73,7 @@ public class CascadesContext {
         this.jobScheduler = new SimpleJobScheduler();
         this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
+        this.runtimeFilterGenerator = new RuntimeFilterGenerator(getConnectContext().getSessionVariable());
     }
 
     public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
@@ -148,12 +149,7 @@ public class CascadesContext {
         return subqueryExprIsAnalyzed.get(subqueryExpr);
     }
 
-    public RuntimeFilterGenerator getRuntimeGenerator() {
-        return runtimeFilterGenerator;
-    }
-
-    public RuntimeFilterGenerator createRuntimeFilterGenerator() {
-        this.runtimeFilterGenerator = new RuntimeFilterGenerator(this.getConnectContext().getSessionVariable());
+    public RuntimeFilterGenerator getRuntimeFilterGenerator() {
         return runtimeFilterGenerator;
     }
 

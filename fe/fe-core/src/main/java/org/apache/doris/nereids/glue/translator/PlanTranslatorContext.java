@@ -51,7 +51,7 @@ public class PlanTranslatorContext {
 
     private final DescriptorTable descTable = new DescriptorTable();
 
-    private RuntimeFilterGenerator runtimeFilterGenerator = null;
+    private final RuntimeFilterGenerator runtimeFilterGenerator;
 
     /**
      * index from Nereids' slot to legacy slot.
@@ -70,11 +70,12 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
     public PlanTranslatorContext(CascadesContext ctx) {
-        runtimeFilterGenerator = ctx.getRuntimeGenerator();
+        runtimeFilterGenerator = ctx.getRuntimeFilterGenerator();
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
+        runtimeFilterGenerator = null;
     }
 
     public List<PlanFragment> getPlanFragments() {
