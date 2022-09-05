@@ -22,6 +22,7 @@
 #include <algorithm>
 
 #include "vec/columns/column.h"
+#include "vec/common/pod_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
@@ -158,6 +159,10 @@ public:
 
     bool is_fixed_and_contiguous() const override { return true; }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets & indices, size_t from, size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+    }
+
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {
@@ -189,6 +194,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
+    }
+
+    [[noreturn]] ColumnPtr index(const IColumn & indexes, size_t limit) const override {
+        LOG(FATAL) << "index not implemented";
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {

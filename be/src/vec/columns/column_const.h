@@ -104,6 +104,10 @@ public:
     void insert_default() override { ++s; }
 
     void pop_back(size_t n) override { s -= n; }
+   
+    void get_indices_of_non_default_rows(Offsets & indices, size_t from, size_t limit) const override;
+
+    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     StringRef serialize_value_into_arena(size_t, Arena& arena, char const*& begin) const override {
         return data->serialize_value_into_arena(0, arena, begin);

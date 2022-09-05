@@ -374,45 +374,8 @@ FieldType get_field_type(const IDataType* data_type) {
     }
 }
 
-void convert_to_tablet_column(const DataTypePtr& data_type, TabletColumn* column) {
-    if (data_type->is_nullable()) {
-        const auto& real_type = static_cast<const DataTypeNullable&>(*data_type);
-        column->set_is_nullable(true);
-        convert_to_tablet_column(real_type.get_nested_type(), column);
-        return;
-    }
-    column->set_index_length(-1);
-    column->set_is_key(false);
-    column->set_type(get_field_type(data_type.get()));
-    if (data_type->get_type_id() == TypeIndex::Array) {
-        TabletColumn children;
-        convert_to_tablet_column(
-                assert_cast<const DataTypeArray*>(data_type.get())->get_nested_type(), &children);
-        column->add_sub_column(children);
-        return;
-    }
-    if (data_type->get_type_id() == TypeIndex::Tuple) {
-        auto tuple_type = assert_cast<const DataTypeTuple*>(data_type.get());
-        DCHECK_EQ(tuple_type->get_elements().size(), tuple_type->get_element_names().size());
-        for (size_t i = 0; i < tuple_type->get_elements().size(); ++i) {
-            TabletColumn children;
-            convert_to_tablet_column(tuple_type->get_element(i), &children);
-            children.set_name(tuple_type->get_name_by_position(i));
-            column->add_sub_column(children);
-        }
-        return;
-    }
-    if (data_type->get_type_id() == TypeIndex::String) {
-        return;
-    }
-    if (WhichDataType(*data_type).is_simple()) {
-        column->set_length(data_type->get_size_of_value_in_memory());
-        return;
-    }
-}
-
-Status parse_object_column(ColumnObject& dest, const IColumn& src, bool need_finalize,
-                           const int* row_begin, const int* row_end) {
+Status parse_object_column(ColumnObject& dest, const IColumn& src,
+            bool need_finalize, const int* row_begin, const int* row_end) {
     assert(src.is_column_string());
     const ColumnString* parsing_column {nullptr};
     if (!src.is_nullable()) {

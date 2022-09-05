@@ -36,6 +36,8 @@
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/columns/column_impl.h"
+#include "vec/columns/columns_common.h"
 
 namespace doris::vectorized {
 
@@ -545,6 +547,11 @@ void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min);
     max = NearestFieldType<T>(cur_max);
+}
+
+template <typename T>
+ColumnPtr ColumnVector<T>::index(const IColumn & indexes, size_t limit) const {
+    return select_index_impl(*this, indexes, limit);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

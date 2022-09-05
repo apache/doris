@@ -26,6 +26,7 @@
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/columns/column_impl.h"
 
 namespace doris::vectorized {
 
@@ -518,6 +519,10 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }
+}
+
+ColumnPtr ColumnString::index(const IColumn & indexes, size_t limit) const {
+    return select_index_impl(*this, indexes, limit);
 }
 
 } // namespace doris::vectorized
