@@ -46,6 +46,8 @@ public class DecimalType extends FractionalType {
     private static final DecimalType FLOAT_DECIMAL = new DecimalType(14, 7);
     private static final DecimalType DOUBLE_DECIMAL = new DecimalType(30, 15);
 
+    private static final int WIDTH = 16;
+
     private static final Map<DataType, DecimalType> FOR_TYPE_MAP = ImmutableMap.<DataType, DecimalType>builder()
             .put(TinyIntType.INSTANCE, TINYINT_DECIMAL)
             .put(SmallIntType.INSTANCE, SMALLINT_DECIMAL)
@@ -160,5 +162,11 @@ public class DecimalType extends FractionalType {
     public int hashCode() {
         return Objects.hash(super.hashCode(), precision, scale);
     }
+
+    @Override
+    public int width() {
+        return WIDTH;
+    }
+
 }
 

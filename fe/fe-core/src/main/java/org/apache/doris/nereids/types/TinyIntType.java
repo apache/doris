@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class TinyIntType extends IntegralType {
     public static TinyIntType INSTANCE = new TinyIntType();
 
+    private static final int WIDTH = 1;
+
     private TinyIntType() {
     }
 
@@ -52,5 +54,10 @@ public class TinyIntType extends IntegralType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }
