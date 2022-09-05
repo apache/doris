@@ -66,7 +66,7 @@ public class ApplyRuleJob extends Job {
             for (Plan newPlan : newPlans) {
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
                 if (!result.generateNewExpression) {
                     continue;
                 }
