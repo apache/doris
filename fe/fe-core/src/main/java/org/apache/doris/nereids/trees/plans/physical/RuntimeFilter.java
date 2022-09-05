@@ -132,13 +132,6 @@ public class RuntimeFilter {
             this.expr = expr;
         }
 
-        /**
-         * s
-         * @param scanNode s
-         * @param targetSlotRef s
-         * @param isLocal s
-         * @return s
-         */
         public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toLegacyRuntimeFilterTarget(
                 OlapScanNode scanNode, SlotRef targetSlotRef, boolean isLocal) {
             return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(scanNode,

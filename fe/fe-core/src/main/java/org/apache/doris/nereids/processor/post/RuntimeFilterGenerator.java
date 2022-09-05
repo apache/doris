@@ -139,6 +139,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         project.getProjects().stream().filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
+                .filter(expr -> expr.child() instanceof SlotReference)
                 .forEach(expr -> aliasChildToSelf.put(((SlotReference) expr.child()).getExprId(), expr.getExprId()));
         project.child().accept(this, ctx);
         return project;
