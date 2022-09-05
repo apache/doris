@@ -63,6 +63,13 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         children.push_back(TypeDescriptor(types, idx));
         break;
     }
+    case TTypeNodeType::VARIANT: {
+        DCHECK(!node.__isset.scalar_type);
+        // variant column must be the last column
+        DCHECK_EQ(*idx, types.size() - 1);
+        type = TYPE_VARIANT;
+        break;
+    }
     // case TTypeNodeType::STRUCT:
     //     type = TYPE_STRUCT;
     //     for (int i = 0; i < node.struct_fields.size(); ++i) {
@@ -100,6 +107,8 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             node.type = TTypeNodeType::ARRAY;
         } else if (type == TYPE_MAP) {
             node.type = TTypeNodeType::MAP;
+        } else if (type == TYPE_VARIANT) {
+            node.type = TTypeNodeType::VARIANT;
         } else {
             DCHECK_EQ(type, TYPE_STRUCT);
             node.type = TTypeNodeType::STRUCT;
@@ -131,8 +140,6 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
 }
 
 void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
-    DCHECK(!is_complex_type() || type == TYPE_ARRAY)
-            << "Don't support complex type now, type=" << type;
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
     auto scalar_type = node->mutable_scalar_type();
@@ -150,6 +157,8 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
+    } else if (type == TYPE_VARIANT) {
+        node->set_type(TTypeNodeType::VARIANT);
     }
 }
 
@@ -191,6 +200,10 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         break;
     }
+    case TTypeNodeType::VARIANT: {
+        type = TYPE_VARIANT;
+        break;
+    }
     default:
         DCHECK(false) << node.type();
     }
@@ -218,6 +231,9 @@ std::string TypeDescriptor::debug_string() const {
         ss << "ARRAY<" << children[0].debug_string() << ">";
         return ss.str();
     }
+    case TYPE_VARIANT:
+        ss << "VARIANT";
+        return ss.str();
     default:
         return type_to_string(type);
     }

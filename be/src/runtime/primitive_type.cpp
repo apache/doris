@@ -537,6 +537,8 @@ int get_slot_size(PrimitiveType type) {
         return sizeof(StringRef);
     case TYPE_JSONB:
         return sizeof(JsonBinaryValue);
+    case TYPE_VARIANT:
+        return sizeof(StringRef);
     case TYPE_ARRAY:
         return sizeof(CollectionValue);
 
