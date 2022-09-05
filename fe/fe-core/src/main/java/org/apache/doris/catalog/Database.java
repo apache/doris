@@ -193,6 +193,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         writeLock();
         try {
             this.fullQualifiedName = newName;
+            for (Table table : idToTable.values()) {
+                table.setQualifiedDbName(fullQualifiedName);
+            }
         } finally {
             writeUnlock();
         }
@@ -361,6 +364,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public boolean createTable(Table table) {
         boolean result = true;
+        table.setQualifiedDbName(fullQualifiedName);
         String tableName = table.getName();
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
@@ -564,6 +568,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
+            table.setQualifiedDbName(fullQualifiedName);
             String tableName = table.getName();
             nameToTable.put(tableName, table);
             idToTable.put(table.getId(), table);
@@ -651,6 +656,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void setName(String name) {
         this.fullQualifiedName = name;
+        for (Table table : nameToTable.values()) {
+            table.setQualifiedDbName(name);
+        }
     }
 
     public synchronized void addFunction(Function function) throws UserException {

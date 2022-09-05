@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.Collections;
 import java.util.List;
@@ -43,8 +42,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
     protected final List<String> qualifier;
-
-    protected List<Long> selectedPartitionIds = Lists.newArrayList();
+    protected final List<Long> selectedPartitionIds;
 
     public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
         this(type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
@@ -57,13 +55,13 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(PlanType type, Table table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
-            List<Long> selectedPartitionIdList) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            List<Long> selectedPartitionIds) {
         super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-        this.selectedPartitionIds = selectedPartitionIdList;
+        this.selectedPartitionIds = ImmutableList.copyOf(
+                Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
     }
 
     public Table getTable() {

@@ -227,9 +227,9 @@ public class PlanEqualsTest {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
 
-        PhysicalOlapScan actual = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"), olapTable.getBaseIndexId(),
-                selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash, Optional.empty(),
-                logicalProperties);
+        PhysicalOlapScan actual = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"),
+                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                Optional.empty(), logicalProperties);
 
         PhysicalOlapScan expected = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,

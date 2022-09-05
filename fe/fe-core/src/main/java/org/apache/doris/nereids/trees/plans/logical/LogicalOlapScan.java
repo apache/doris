@@ -85,7 +85,7 @@ public class LogicalOlapScan extends LogicalRelation {
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
-                "qualifier", qualifiedName(),
+                "qualified", qualifiedName(),
                 "output", getOutput()
         );
     }
