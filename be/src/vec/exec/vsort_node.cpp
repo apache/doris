@@ -48,6 +48,7 @@ Status VSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
     _unsorted_block.reset(new MutableBlock(
             VectorizedUtils::create_empty_columnswithtypename(child(0)->row_desc())));
+    _partial_sort_timer = ADD_TIMER(_runtime_profile, "PartialSortTime");
     return Status::OK();
 }
 
@@ -141,7 +142,10 @@ Status VSortNode::sort_input(RuntimeState* state) {
         if (_unsorted_block->rows() > 0) {
             _total_mem_usage += _unsorted_block->allocated_bytes();
             Block block = _unsorted_block->to_block(0);
-            RETURN_IF_ERROR(partial_sort(block));
+            {
+                SCOPED_TIMER(_partial_sort_timer);
+                RETURN_IF_ERROR(partial_sort(block));
+            }
             // dispose TOP-N logic
             if (_limit != -1) {
                 // Here is a little opt to reduce the mem uasge, we build a max heap

@@ -27,6 +27,7 @@
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -506,6 +507,13 @@ void ColumnNullable::check_consistency() const {
         LOG(FATAL) << "Logical error: Sizes of nested column and null map of Nullable column are "
                       "not equal";
     }
+}
+
+void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                 IColumn::Permutation& perms, EqualRange& range,
+                                 bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnNullable&>(*this), flags, perms, range,
+                        last_column);
 }
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {

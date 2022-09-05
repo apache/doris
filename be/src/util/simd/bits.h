@@ -18,6 +18,8 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
+#include <vector>
 
 #ifdef __AVX2__
 #include <immintrin.h>
@@ -95,6 +97,27 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
         num += ((*data == 0) | *null_map);
     }
     return num;
+}
+
+// TODO: compare with different SIMD implements
+template <class T>
+inline static size_t find_byte(const std::vector<T>& list, size_t start, T byte) {
+    if (start >= list.size()) {
+        return start;
+    }
+    const void* p = std::memchr((const void*)(list.data() + start), byte, list.size() - start);
+    if (p == nullptr) {
+        return list.size();
+    }
+    return (T*)p - list.data();
+}
+
+inline size_t find_nonzero(const std::vector<uint8_t>& list, size_t start) {
+    return find_byte<uint8_t>(list, start, 1);
+}
+
+inline size_t find_zero(const std::vector<uint8_t>& list, size_t start) {
+    return find_byte<uint8_t>(list, start, 0);
 }
 
 } // namespace simd

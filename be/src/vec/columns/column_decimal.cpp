@@ -27,6 +27,7 @@
 #include "vec/common/exception.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -328,6 +329,13 @@ void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min, scale);
     max = NearestFieldType<T>(cur_max, scale);
+}
+
+template <typename T>
+void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                   IColumn::Permutation& perms, EqualRange& range,
+                                   bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <>
