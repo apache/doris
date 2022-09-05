@@ -70,7 +70,7 @@ public class PushDownPredicateThroughAggregationTest {
     */
     @Test
     public void pushDownPredicateOneFilterTest() {
-        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
         Slot age = scan.getOutput().get(3);
 
@@ -130,7 +130,7 @@ public class PushDownPredicateThroughAggregationTest {
      */
     @Test
     public void pushDownPredicateTwoFilterTest() {
-        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
         Slot name = scan.getOutput().get(2);
         Slot age = scan.getOutput().get(3);

@@ -43,8 +43,8 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
      * @param type node type
      * @param qualifier table's name
      */
-    public PhysicalRelation(PlanType type, List<String> qualifier, Optional<GroupExpression> groupExpression,
-                            LogicalProperties logicalProperties) {
+    public PhysicalRelation(PlanType type, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(type, groupExpression, logicalProperties);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
