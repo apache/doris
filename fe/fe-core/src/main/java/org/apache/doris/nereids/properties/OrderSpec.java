@@ -61,9 +61,9 @@ public class OrderSpec {
     }
 
     /**
-     * add a local order enforcer on child group.
+     * add a local quick sort as order enforcer on child group.
      */
-    public GroupExpression addLocalEnforcer(Group child) {
+    public GroupExpression addLocalQuickSortEnforcer(Group child) {
         return new GroupExpression(
                 new PhysicalLocalQuickSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)
