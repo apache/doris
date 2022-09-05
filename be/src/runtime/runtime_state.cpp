@@ -231,6 +231,11 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
             &_profile);
 
+    if (_query_options.is_report_success) {
+        _query_mem_tracker->enable_print_log_usage();
+        _instance_mem_tracker->enable_print_log_usage();
+    }
+
     return Status::OK();
 }
 
