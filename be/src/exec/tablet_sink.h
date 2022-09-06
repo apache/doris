@@ -446,6 +446,8 @@ private:
     // set stop_processing is we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+    bool _validate_cell(const TypeDescriptor& type, const std::string& col_name, void* slot,
+                        size_t slot_index, fmt::memory_buffer& error_msg, RowBatch* batch);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
