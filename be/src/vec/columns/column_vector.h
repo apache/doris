@@ -27,6 +27,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
 
