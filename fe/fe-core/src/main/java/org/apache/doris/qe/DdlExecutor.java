@@ -148,6 +148,8 @@ public class DdlExecutor {
             EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropEncryptKeyStmt) {
             EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateMultiTableMaterializedViewStmt) {
+            env.createMultiTableMaterializedView((CreateMultiTableMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableLikeStmt) {
@@ -158,8 +160,6 @@ public class DdlExecutor {
             env.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateMultiTableMaterializedViewStmt) {
-            env.createMultiTableMaterializedView((CreateMultiTableMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStatsStmt) {
@@ -319,13 +319,13 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterPolicyStmt) {
             env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
-            env.getDataSourceMgr().createCatalog((CreateCatalogStmt) ddlStmt);
+            env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
-            env.getDataSourceMgr().dropCatalog((DropCatalogStmt) ddlStmt);
+            env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogNameStmt) {
-            env.getDataSourceMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
+            env.getCatalogMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
-            env.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
+            env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
             env.getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterMaterializedViewStmt) {
@@ -335,7 +335,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof RefreshMaterializedViewStmt) {
             env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            env.getDataSourceMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+            env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

@@ -253,7 +253,7 @@ CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "false");
+CONF_Bool(enable_vectorized_alter_table, "true");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
@@ -431,6 +431,8 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 CONF_Int32(max_free_io_buffers, "128");
 
+// Whether to disable the memory cache pool,
+// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // Whether to allocate chunk using mmap. If you enable this, you'd better to
@@ -446,9 +448,15 @@ CONF_Bool(use_mmap_allocate_chunk, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "20%");
+CONF_mString(chunk_reserved_bytes_limit, "10%");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
+// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
+// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
+// of gperftools tcmalloc central lock.
+// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
+// gperftools tcmalloc.
+CONF_mBool(disable_chunk_allocator_in_vec, "false");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -695,6 +703,12 @@ CONF_Validator(max_send_batch_parallelism_per_job,
 CONF_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 CONF_Int32(send_batch_thread_pool_queue_size, "102400");
+// number of download cache thread pool size
+CONF_Int32(download_cache_thread_pool_thread_num, "48");
+// number of download cache thread pool queue size
+CONF_Int32(download_cache_thread_pool_queue_size, "102400");
+// download cache buffer size
+CONF_Int64(download_cache_buffer_size, "10485760");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -793,6 +807,7 @@ CONF_Int32(object_pool_buffer_size, "100");
 CONF_Int32(parquet_reader_max_buffer_size, "50");
 CONF_Bool(parquet_predicate_push_down, "true");
 CONF_Int32(parquet_header_max_size, "8388608");
+CONF_Bool(parquet_reader_using_internal, "false");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -812,10 +827,11 @@ CONF_Int32(quick_compaction_min_rowsets, "10");
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
-CONF_mInt64(cooldown_lag_time_sec, "10800");        // 3h
-CONF_mInt64(max_sub_cache_file_size, "1073741824"); // 1GB
-CONF_mInt64(file_cache_alive_time_sec, "604800");   // 1 week
+CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
+CONF_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
+CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
@@ -827,11 +843,16 @@ CONF_Validator(file_cache_type, [](const std::string config) -> bool {
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
+CONF_Bool(enable_simdjson_reader, "false");
 
 // number of s3 scanner thread pool size
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+
+// If set to true, the new scan node framework will be used.
+// This config should be removed when the new scan node is ready.
+CONF_Bool(enable_new_scan_node, "true");
 
 #ifdef BE_TEST
 // test s3

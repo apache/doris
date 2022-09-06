@@ -21,16 +21,14 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-
-import java.util.Objects;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 /**
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
-
-    protected final String symbol;
+public abstract class ComparisonPredicate extends BinaryOperator {
 
     /**
      * Constructor of ComparisonPredicate.
@@ -39,8 +37,7 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
      * @param right    right child of comparison predicate
      */
     public ComparisonPredicate(Expression left, Expression right, String symbol) {
-        super(left, right);
-        this.symbol = symbol;
+        super(left, right, symbol);
     }
 
     @Override
@@ -48,36 +45,13 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
         return BooleanType.INSTANCE;
     }
 
-    @Override
-    public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
-    }
-
-    @Override
-    public String toSql() {
-        return "(" + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ")";
-    }
-
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitComparisonPredicate(this, context);
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(symbol, left(), right());
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        ComparisonPredicate other = (ComparisonPredicate) o;
-        return Objects.equals(left(), other.left())
-                && Objects.equals(right(), other.right());
+    public AbstractDataType inputType() {
+        return AnyDataType.INSTANCE;
     }
 
     /**

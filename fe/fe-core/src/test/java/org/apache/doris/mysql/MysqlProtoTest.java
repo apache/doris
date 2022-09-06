@@ -23,9 +23,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapAuthenticate;
-import org.apache.doris.ldap.LdapClient;
+import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -54,11 +54,11 @@ public class MysqlProtoTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private PaloAuth auth;
     @Mocked
-    private LdapClient ldapClient;
+    private LdapManager ldapManager;
     @Mocked
     private LdapAuthenticate ldapAuthenticate;
     @Mocked
@@ -85,11 +85,11 @@ public class MysqlProtoTest {
                     }
                 };
 
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = new Database();
 
@@ -219,7 +219,11 @@ public class MysqlProtoTest {
                     }
                 };
 
-                LdapClient.doesUserExist(anyString);
+                ldapManager.checkUserPasswd(anyString, anyString);
+                minTimes = 0;
+                result = userExist;
+
+                ldapManager.doesUserExist(anyString);
                 minTimes = 0;
                 result = userExist;
             }
@@ -276,6 +280,7 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
+        LdapConfig.ldap_authentication_enabled = false;
     }
 
     @Test
@@ -289,6 +294,7 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertFalse(MysqlProto.negotiate(context));
+        LdapConfig.ldap_authentication_enabled = false;
     }
 
     @Test
@@ -302,6 +308,7 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
+        LdapConfig.ldap_authentication_enabled = false;
     }
 
     @Test

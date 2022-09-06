@@ -24,7 +24,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -55,7 +55,7 @@ public class AlterCatalogNameStmt extends DdlStmt {
         super.analyze(analyzer);
         Util.checkCatalogAllRules(catalogName);
 
-        if (catalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException("Internal catalog can't be alter.");
         }
 
@@ -68,7 +68,7 @@ public class AlterCatalogNameStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(newCatalogName)) {
             throw new AnalysisException("New catalog name is not set");
         }
-        if (newCatalogName.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (newCatalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException("Cannot alter a catalog into a build-in name.");
         }
         FeNameFormat.checkCommonName("catalog", newCatalogName);

@@ -40,17 +40,6 @@
 
 namespace doris {
 
-SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                               const TNetworkAddress& broker_addr,
-                               const std::map<std::string, std::string>& broker_prop)
-        : _env(env),
-          _job_id(job_id),
-          _task_id(task_id),
-          _broker_addr(broker_addr),
-          _prop(broker_prop) {
-    _storage_backend.reset(new BrokerStorageBackend(_env, _broker_addr, _prop));
-}
-
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
         : _env(env),
           _job_id(job_id),
@@ -60,17 +49,16 @@ SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
           _storage_backend(nullptr) {}
 
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                               const TNetworkAddress& broker_addr,
                                const std::map<std::string, std::string>& prop,
                                TStorageBackendType::type type)
-        : _env(env),
-          _job_id(job_id),
-          _task_id(task_id),
-          _broker_addr(TNetworkAddress()),
-          _prop(prop) {
+        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {
     if (TStorageBackendType::type::S3 == type) {
         _storage_backend.reset(new S3StorageBackend(_prop));
     } else if (TStorageBackendType::type::HDFS == type) {
         _storage_backend.reset(new HDFSStorageBackend(_prop));
+    } else if (TStorageBackendType::type::BROKER == type) {
+        _storage_backend.reset(new BrokerStorageBackend(_env, _broker_addr, _prop));
     } else {
         _storage_backend = nullptr;
     }

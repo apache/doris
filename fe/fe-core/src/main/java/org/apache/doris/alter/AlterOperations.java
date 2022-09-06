@@ -23,22 +23,21 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Sets;
 
+import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
 /*
  * AlterOperations contains a set alter operations generated from a AlterStmt's alter clause.
  * This class is mainly used to integrate these operation types and check whether they have conflicts.
  */
 public class AlterOperations {
-    private Set<AlterOpType> currentOps = Sets.newHashSet();
+    private EnumSet<AlterOpType> currentOps = EnumSet.noneOf(AlterOpType.class);
 
     public AlterOperations() {
     }
 
-    public Set<AlterOpType> getCurrentOps() {
+    public EnumSet<AlterOpType> getCurrentOps() {
         return currentOps;
     }
 

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import java.util.Optional;
 
-
 /** java's type. */
 public class TypeParameter implements JavaAstNode {
     public final String identifier;

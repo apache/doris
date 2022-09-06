@@ -42,8 +42,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.DataSourceMgr;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
@@ -218,49 +218,49 @@ public abstract class DorisHttpTestCase {
             EsTable esTable = newEsTable("es_table");
             db.createTable(esTable);
 
-            InternalDataSource internalDataSource = Deencapsulation.newInstance(InternalDataSource.class);
-            new Expectations(internalDataSource) {
+            InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
+            new Expectations(internalCatalog) {
                 {
-                    internalDataSource.getDbNullable(db.getId());
+                    internalCatalog.getDbNullable(db.getId());
                     minTimes = 0;
                     result = db;
 
-                    internalDataSource.getDbNullable("default_cluster:" + DB_NAME);
+                    internalCatalog.getDbNullable("default_cluster:" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    internalDataSource.getDbNullable("default_cluster:emptyDb");
+                    internalCatalog.getDbNullable("default_cluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    internalDataSource.getDbNullable(anyString);
+                    internalCatalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    internalDataSource.getDbNames();
+                    internalCatalog.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
 
-                    internalDataSource.getClusterDbNames("default_cluster");
+                    internalCatalog.getClusterDbNames("default_cluster");
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
                 }
             };
 
-            DataSourceMgr dsMgr = new DataSourceMgr();
+            CatalogMgr dsMgr = new CatalogMgr();
             new Expectations(dsMgr) {
                 {
                     dsMgr.getCatalog((String) any);
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
                     dsMgr.getCatalogOrException((String) any, (Function) any);
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
                     dsMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
                 }
             };
 
@@ -282,13 +282,13 @@ public abstract class DorisHttpTestCase {
                     minTimes = 0;
                     result = editLog;
 
-                    env.getInternalDataSource();
+                    env.getInternalCatalog();
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
-                    env.getCurrentDataSource();
+                    env.getCurrentCatalog();
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
                     env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
@@ -299,7 +299,7 @@ public abstract class DorisHttpTestCase {
                     env.initDefaultCluster();
                     minTimes = 0;
 
-                    env.getDataSourceMgr();
+                    env.getCatalogMgr();
                     minTimes = 0;
                     result = dsMgr;
                 }

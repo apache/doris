@@ -65,7 +65,10 @@ public class GroupMatching implements Iterable<Plan> {
             this.iterator = Lists.newArrayList();
 
             if (pattern.isGroup() || pattern.isMultiGroup()) {
-                this.iterator.add(Iterators.singletonIterator(new GroupPlan(group)));
+                GroupPlan groupPlan = new GroupPlan(group);
+                if (((Pattern<Plan>) pattern).matchPredicates(groupPlan)) {
+                    this.iterator.add(Iterators.singletonIterator(groupPlan));
+                }
             } else {
                 for (GroupExpression groupExpression : group.getLogicalExpressions()) {
                     GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =

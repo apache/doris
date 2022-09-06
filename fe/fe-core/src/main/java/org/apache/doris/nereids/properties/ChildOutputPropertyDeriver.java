@@ -39,28 +39,23 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      *         │
      * childOutputProperty
      */
-    PhysicalProperties requestProperty;
-    List<PhysicalProperties> childrenOutputProperties;
+    private PhysicalProperties requestProperty;
+    private List<PhysicalProperties> childrenOutputProperties;
+    private double curTotalCost;
 
     public ChildOutputPropertyDeriver(PhysicalProperties requestProperty,
-            List<PhysicalProperties> childrenOutputProperties) {
+            List<PhysicalProperties> childrenOutputProperties, double curTotalCost) {
         this.childrenOutputProperties = childrenOutputProperties;
         this.requestProperty = requestProperty;
+        this.curTotalCost = curTotalCost;
     }
 
-    public static PhysicalProperties getProperties(
-            PhysicalProperties requirements,
-            List<PhysicalProperties> childrenOutputProperties,
-            GroupExpression groupExpression) {
-
-        ChildOutputPropertyDeriver childOutputPropertyDeriver = new ChildOutputPropertyDeriver(requirements,
-                childrenOutputProperties);
-
-        return groupExpression.getPlan().accept(childOutputPropertyDeriver, new PlanContext(groupExpression));
+    public PhysicalProperties getOutputProperties(GroupExpression groupExpression) {
+        return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
     }
 
-    public PhysicalProperties getRequestProperty() {
-        return requestProperty;
+    public double getCurTotalCost() {
+        return curTotalCost;
     }
 
     @Override

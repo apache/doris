@@ -43,7 +43,7 @@ If you are PPMC, you can subscribe the mailing list through [Subscription Helper
 
 We use Github for managing issues and user contributions (pull requests).
 As such, you need to link your Github.com account with your ASF account using [Gitbox](https://gitbox.apache.org/setup/).
-This way you will get write access to [Doris](https://github.com/apache/incubator-doris) repository
+This way you will get write access to [Doris](https://github.com/apache/doris) repository
 and you will be able to manage issues and pull request directly through our Github repository.
 
 ## Code Review Guidelines

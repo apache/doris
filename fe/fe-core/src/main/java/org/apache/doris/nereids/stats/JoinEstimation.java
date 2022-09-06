@@ -18,21 +18,23 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.CheckedMath;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Estimate hash join stats.
@@ -44,17 +46,20 @@ public class JoinEstimation {
      * Do estimate.
      */
     public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
-        Optional<Expression> eqCondition = join.getCondition();
         JoinType joinType = join.getJoinType();
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
-        List<Expression> eqConjunctList = Lists.newArrayList();
-        eqCondition.ifPresent(e -> eqConjunctList.addAll(ExpressionUtils.extractConjunction(e)));
+        // TODO: normalize join hashConjuncts.
+        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+        List<Slot> leftSlot = new ArrayList<>(leftStats.getSlotToColumnStats().keySet());
+        List<Expression> normalizedConjuncts = hashJoinConjuncts.stream().map(EqualTo.class::cast)
+                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftSlot))
+                        .collect(Collectors.toList());
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
-            rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
+            rowCount = getSemiJoinRowCount(leftStats, rightStats, normalizedConjuncts, joinType);
         } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
-            rowCount = getJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
+            rowCount = getJoinRowCount(leftStats, rightStats, normalizedConjuncts, joinType);
         } else if (joinType.isCrossJoin()) {
             rowCount = CheckedMath.checkedMultiply(leftStats.getRowCount(),
                     rightStats.getRowCount());
@@ -63,6 +68,13 @@ public class JoinEstimation {
         }
         statsDeriveResult.setRowCount(rowCount);
         return statsDeriveResult;
+    }
+
+    private static Expression removeCast(Expression parent) {
+        if (parent instanceof Cast) {
+            return removeCast(((Cast) parent).child());
+        }
+        return parent;
     }
 
     // TODO: If the condition of Join Plan could any expression in addition to EqualTo type,
@@ -85,9 +97,9 @@ public class JoinEstimation {
         Map<Slot, ColumnStats> rightSlotToColStats = rightStats.getSlotToColumnStats();
         double minSelectivity = 1.0;
         for (Expression eqJoinPredicate : eqConjunctList) {
-            long lhsNdv = leftSlotToColStats.get(eqJoinPredicate.child(0)).getNdv();
+            long lhsNdv = leftSlotToColStats.get(removeCast(eqJoinPredicate.child(0))).getNdv();
             lhsNdv = Math.min(lhsNdv, leftStats.getRowCount());
-            long rhsNdv = rightSlotToColStats.get(eqJoinPredicate.child(1)).getNdv();
+            long rhsNdv = rightSlotToColStats.get(removeCast(eqJoinPredicate.child(1))).getNdv();
             rhsNdv = Math.min(rhsNdv, rightStats.getRowCount());
             // Skip conjuncts with unknown NDV on either side.
             if (lhsNdv == -1 || rhsNdv == -1) {
@@ -129,6 +141,7 @@ public class JoinEstimation {
         if (lhsCard == -1 || rhsCard == -1) {
             return lhsCard;
         }
+
         long result = -1;
         for (Expression eqJoinConjunct : eqConjunctList) {
             Expression left = eqJoinConjunct.child(0);
@@ -160,6 +173,7 @@ public class JoinEstimation {
                 result = Math.min(result, joinCard);
             }
         }
+
         return result;
     }
 }

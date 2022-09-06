@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -34,6 +35,7 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Representation for group expression in cascades optimizer.
@@ -61,19 +63,20 @@ public class GroupExpression {
      * @param children children groups in memo
      */
     public GroupExpression(Plan plan, List<Group> children) {
-        this.plan = Objects.requireNonNull(plan, "plan can not be null");
-        this.children = Objects.requireNonNull(children);
+        this.plan = Objects.requireNonNull(plan, "plan can not be null")
+                .withGroupExpression(Optional.of(this));
+        this.children = Lists.newArrayList(Objects.requireNonNull(children, "children can not be null"));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
         this.requestPropertiesMap = Maps.newHashMap();
+        this.children.forEach(childGroup -> childGroup.addParentExpression(this));
     }
 
-    // TODO: rename
-    public PhysicalProperties getPropertyFromMap(PhysicalProperties requiredPropertySet) {
-        PhysicalProperties outputProperty = requestPropertiesMap.get(requiredPropertySet);
-        Preconditions.checkState(outputProperty != null);
-        return outputProperty;
+    public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
+        PhysicalProperties outputProperties = requestPropertiesMap.get(requestProperties);
+        Preconditions.checkNotNull(outputProperties);
+        return outputProperties;
     }
 
     public int arity() {
@@ -108,6 +111,25 @@ public class GroupExpression {
         this.children = children;
     }
 
+    /**
+     * replaceChild.
+     * @param originChild origin child group
+     * @param newChild new child group
+     */
+    public void replaceChild(Group originChild, Group newChild) {
+        originChild.removeParentExpression(this);
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i) == originChild) {
+                children.set(i, newChild);
+                newChild.addParentExpression(this);
+            }
+        }
+    }
+
+    public void setChild(int index, Group group) {
+        this.children.set(index, group);
+    }
+
     public boolean hasApplied(Rule rule) {
         return ruleMasks.get(rule.getRuleType().ordinal());
     }
@@ -118,6 +140,10 @@ public class GroupExpression {
 
     public void setApplied(Rule rule) {
         ruleMasks.set(rule.getRuleType().ordinal());
+    }
+
+    public void propagateApplied(GroupExpression toGroupExpression) {
+        toGroupExpression.ruleMasks.or(ruleMasks);
     }
 
     public boolean isStatDerived() {
@@ -146,14 +172,26 @@ public class GroupExpression {
             double cost) {
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first > cost) {
-                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+                lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
+            } else {
+                return false;
             }
         } else {
-            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
             return true;
         }
-        return false;
+    }
+
+    /**
+     * get the lowest cost when satisfy property
+     *
+     * @param property property that needs to be satisfied
+     * @return Lowest cost to satisfy that property
+     */
+    public double getCost(PhysicalProperties property) {
+        Preconditions.checkState(lowestCostTable.containsKey(property));
+        return lowestCostTable.get(property).first;
     }
 
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
@@ -170,13 +208,14 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        // if the plan is LogicalRelation or PhysicalRelation, this == that should be true,
+        // if the plan is UnboundRelation or LogicalRelation or PhysicalRelation, this == that should be true,
         // when if one relation appear in plan more than once,
         // we cannot distinguish them throw equals function, since equals function cannot use output info.
-        if (plan instanceof LogicalRelation || plan instanceof PhysicalRelation) {
+        if (plan instanceof UnboundRelation || plan instanceof LogicalRelation || plan instanceof PhysicalRelation) {
             return false;
         }
-        return children.equals(that.children) && plan.equals(that.plan);
+        return children.equals(that.children) && plan.equals(that.plan)
+                && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
     }
 
     @Override
@@ -186,5 +225,10 @@ public class GroupExpression {
 
     public StatsDeriveResult getCopyOfChildStats(int idx) {
         return child(idx).getStatistics().copy();
+    }
+
+    @Override
+    public String toString() {
+        return "GroupExpression(plan=" + plan.toString() + ")";
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_aggregate_table", "data_model") {
+suite("test_aggregate_table") {
     def dbName = "test_aggregate_db"
     List<List<Object>> db = sql """show databases like '${dbName}'"""
     if (db.size() == 0) {
@@ -71,14 +71,30 @@ suite("test_aggregate_table", "data_model") {
                 date_value_max date max,
                 date_value_min date min,
                 date_value_replace date replace,
-                date_value_replace_if_not_null date replace_if_not_null
+                date_value_replace_if_not_null date replace_if_not_null,
+                datev2_value_max datev2 max,
+                datev2_value_min datev2 min,
+                datev2_value_replace datev2 replace,
+                datev2_value_replace_if_not_null datev2 replace_if_not_null,
+                datetimev2_value_max datetimev2 max,
+                datetimev2_value_min datetimev2 min,
+                datetimev2_value_replace datetimev2 replace,
+                datetimev2_value_replace_if_not_null datetimev2 replace_if_not_null,
+                datetimev2_value_max_1 datetimev2(3) max,
+                datetimev2_value_min_1 datetimev2(3) min,
+                datetimev2_value_replace_1 datetimev2(3) replace,
+                datetimev2_value_replace_if_not_null_1 datetimev2(3) replace_if_not_null,
+                datetimev2_value_max_2 datetimev2(6) max,
+                datetimev2_value_min_2 datetimev2(6) min,
+                datetimev2_value_replace_2 datetimev2(6) replace,
+                datetimev2_value_replace_if_not_null_2 datetimev2(6) replace_if_not_null
             )
             AGGREGATE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql """insert into date_agg values(0, '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01')"""
-    sql """insert into date_agg values(0, '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31')"""
-    sql """insert into date_agg values(0, null, null, null, null)"""
+    sql """insert into date_agg values(0, '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111', '2000-01-01 11:11:11.111111') """
+    sql """insert into date_agg values(0, '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111', '2000-12-31 11:11:11.111111') """
+    sql """insert into date_agg values(0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) """
     qt_date_agg_table """select * from date_agg"""
     qt_desc_date_table """desc date_agg"""
     sql """DROP TABLE date_agg"""

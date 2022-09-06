@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -36,11 +37,13 @@ import java.util.Optional;
 public class PhysicalNestedLoopJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
-        extends PhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalNestedLoopJoin(JoinType joinType, Optional<Expression> condition,
+    public PhysicalNestedLoopJoin(JoinType joinType,
+            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
+        this(joinType, hashJoinConjuncts, condition,
+                Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /**
@@ -49,10 +52,11 @@ public class PhysicalNestedLoopJoin<
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public PhysicalNestedLoopJoin(JoinType joinType, Optional<Expression> condition,
+    public PhysicalNestedLoopJoin(JoinType joinType,
+            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, condition,
+        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, condition,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -64,29 +68,29 @@ public class PhysicalNestedLoopJoin<
     @Override
     public String toString() {
         // TODO: Maybe we could pull up this to the abstract class in the future.
-        StringBuilder sb = new StringBuilder();
-        sb.append("PhysicalNestedLoopJoin ([").append(joinType).append("]");
-        condition.ifPresent(
-                expression -> sb.append(", [").append(expression).append("]")
+        return Utils.toSqlString("PhysicalNestedLoopJoin",
+                "type", joinType,
+                "otherJoinCondition", otherJoinCondition
         );
-        sb.append(")");
-        return sb.toString();
     }
 
     @Override
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalNestedLoopJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
+        return new PhysicalNestedLoopJoin<>(joinType,
+                hashJoinConjuncts, otherJoinCondition, logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalNestedLoopJoin<>(joinType, condition, groupExpression, logicalProperties, left(), right());
+        return new PhysicalNestedLoopJoin<>(joinType,
+                hashJoinConjuncts, otherJoinCondition, groupExpression, logicalProperties, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalNestedLoopJoin<>(joinType, condition, Optional.empty(),
+        return new PhysicalNestedLoopJoin<>(joinType,
+                hashJoinConjuncts, otherJoinCondition, Optional.empty(),
                 logicalProperties.get(), left(), right());
     }
 }

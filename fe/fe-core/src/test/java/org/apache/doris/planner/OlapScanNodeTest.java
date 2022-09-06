@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -55,7 +55,8 @@ public class OlapScanNodeTest {
         List<Expr> inList = Lists.newArrayList();
         inList.add(new IntLiteral(1));
 
-        Expr compareExpr = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "tableName"), "columnA");
+        Expr compareExpr = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tableName"),
+                "columnA");
         InPredicate inPredicate = new InPredicate(compareExpr, inList, false);
 
         PartitionColumnFilter  columnFilter = new PartitionColumnFilter();
@@ -97,7 +98,8 @@ public class OlapScanNodeTest {
         inList.add(new IntLiteral(5));
         inList.add(new IntLiteral(6));
 
-        Expr compareExpr = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "tableName"), "columnA");
+        Expr compareExpr = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tableName"),
+                "columnA");
         InPredicate inPredicate = new InPredicate(compareExpr, inList, false);
 
         PartitionColumnFilter  columnFilter = new PartitionColumnFilter();

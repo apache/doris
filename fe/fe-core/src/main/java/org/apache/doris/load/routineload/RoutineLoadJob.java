@@ -581,6 +581,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     @Override
+    public List<String> getHiddenColumns() {
+        return null;
+    }
+
+    @Override
     public ImportColumnDescs getColumnExprDescs() {
         if (columnDescs == null) {
             return new ImportColumnDescs();

@@ -41,6 +41,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
+import java.util.Arrays;
+import java.util.List;
 
 public class StreamLoadTask implements LoadTaskInfo {
 
@@ -76,6 +78,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private double maxFilterRatio = 0.0;
     private boolean loadToSingleTablet = false;
     private String headerType = "";
+    private List<String> hiddenColumns;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -228,6 +231,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return sequenceCol;
     }
 
+    @Override
+    public List<String> getHiddenColumns() {
+        return hiddenColumns;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
@@ -319,6 +327,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetLoadToSingleTablet()) {
             loadToSingleTablet = request.isLoadToSingleTablet();
+        }
+        if (request.isSetHiddenColumns()) {
+            hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
         }
     }
 

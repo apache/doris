@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,9 +42,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
     protected final List<String> qualifier;
+    protected final List<Long> selectedPartitionIds;
 
     public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
-        this(type, table, qualifier, Optional.empty(), Optional.empty());
+        this(type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -53,10 +55,13 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(PlanType type, Table table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            List<Long> selectedPartitionIds) {
         super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.selectedPartitionIds = ImmutableList.copyOf(
+                Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
     }
 
     public Table getTable() {
@@ -115,4 +120,9 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     public String qualifiedName() {
         return Utils.qualifiedName(qualifier, table.getName());
     }
+
+    public List<Long> getSelectedPartitionIds() {
+        return selectedPartitionIds;
+    }
+
 }

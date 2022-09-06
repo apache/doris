@@ -155,6 +155,7 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     std::vector<MemTracker::Snapshot> snapshots;
     ExecEnv::GetInstance()->process_mem_tracker()->make_snapshot(&snapshots, cur_level,
                                                                  upper_level);
+    MemTracker::make_global_mem_tracker_snapshot(&snapshots);
     for (const auto& item : snapshots) {
         string limit_str = item.limit == -1 ? "none" : AccurateItoaKMGT(item.limit);
         string current_consumption_normalize = AccurateItoaKMGT(item.cur_consumption);

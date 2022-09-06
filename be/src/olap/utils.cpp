@@ -741,7 +741,7 @@ bool valid_decimal(const string& value_str, const uint32_t precision, const uint
     }
 }
 
-bool valid_datetime(const string& value_str) {
+bool valid_datetime(const string& value_str, const uint32_t scale) {
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
             "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?";
@@ -787,7 +787,14 @@ bool valid_datetime(const string& value_str) {
             }
             if (what[8].length()) {
                 if (what[9].str().size() > 6) {
-                    LOG(WARNING) << "invalid microsecond. [second=" << second << "]";
+                    LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str() << "]";
+                    return false;
+                }
+
+                long ms = strtol(what[9].str().c_str(), nullptr, 10);
+                if (ms % ((long)std::pow(10, 6 - scale)) != 0) {
+                    LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str()
+                                 << ", scale = " << scale << "]";
                     return false;
                 }
             }

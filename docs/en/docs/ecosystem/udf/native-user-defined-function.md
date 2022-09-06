@@ -160,17 +160,17 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
 
     ```
     # Include udf
-    include_directories(thirdparty/include)
+    include_directories(../thirdparty/include)
 
     # Set all libraries
     add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION thirdparty/lib/libDorisUdf.a)
+    set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
 
     # where to put generated libraries
-    set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+    set(LIBRARY_OUTPUT_PATH "src/udf_samples")
 
     # where to put generated binaries
-    set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+    set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
 
     add_library(udfsample SHARED udf_sample.cpp)
         target_link_libraries(udfsample

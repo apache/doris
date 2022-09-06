@@ -204,6 +204,8 @@ private:
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
 
+    RuntimeProfile::Counter* _join_filter_timer;
+
     int64_t _hash_table_rows;
     int64_t _mem_used;
 

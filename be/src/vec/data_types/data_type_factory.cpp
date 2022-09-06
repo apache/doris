@@ -280,6 +280,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         DCHECK(pcolumn.children_size() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children(0)));
         break;
+    case PGenericType::FIXEDLENGTHOBJECT:
+        nested = std::make_shared<DataTypeFixedLengthObject>();
+        break;
     default: {
         LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
         return nullptr;

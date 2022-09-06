@@ -43,9 +43,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -352,8 +352,8 @@ public abstract class ScanNode extends PlanNode {
         return partitionColumnFilter;
     }
 
-    private static class ColumnRanges {
-        enum Type {
+    public static class ColumnRanges {
+        public enum Type {
             // Expression is `is null` predicate.
             IS_NULL,
             // Succeed to convert expression to ranges.
@@ -362,8 +362,8 @@ public abstract class ScanNode extends PlanNode {
             CONVERT_FAILURE
         }
 
-        final Type type;
-        final List<Range<ColumnBound>> ranges;
+        public final Type type;
+        public final List<Range<ColumnBound>> ranges;
 
         private ColumnRanges(Type type, List<Range<ColumnBound>> ranges) {
             this.type = type;

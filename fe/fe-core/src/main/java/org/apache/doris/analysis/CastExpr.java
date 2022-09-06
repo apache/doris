@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -74,11 +75,11 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 if (fromType.isStringType() && !toType.isStringType()) {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else if (!fromType.isDateType() && toType.isDateType()) {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
                 }
             }
         }
@@ -178,7 +179,7 @@ public class CastExpr extends Expr {
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
-                        toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
+                        toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
                         Lists.newArrayList(fromType), false,
                         beSymbol, null, null, true));
             }
@@ -269,15 +270,28 @@ public class CastExpr extends Expr {
 
         // this cast may result in loss of precision, but the user requested it
         if (childType.matchesType(type)) {
-            // For types which has precision and scale, we also need to check quality between precisions and scales
-            if (!PrimitiveType.typeWithPrecision.contains(
-                    type.getPrimitiveType()) || ((((ScalarType) type).decimalPrecision()
-                    == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
-                    == ((ScalarType) childType).decimalScale()))) {
+            if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+                // For types which has precision and scale, we also need to check quality between precisions and scales
+                if ((((ScalarType) type).decimalPrecision()
+                        == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
+                        == ((ScalarType) childType).decimalScale())) {
+                    noOp = true;
+                }
+            } else if (type.isArrayType()) {
+                // For types array, we also need to check contains null for case like
+                // cast(array<not_null(int)> as array<int>)
+                if (((ArrayType) type).getContainsNull() == ((ArrayType) childType).getContainsNull()) {
+                    noOp = true;
+                }
+            } else {
                 noOp = true;
-                return;
             }
         }
+
+        if (noOp) {
+            return;
+        }
+
         // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
         // it is necessary to check if it is castable before creating fn.
         // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
@@ -328,8 +342,7 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType()
-                    && !targetType.isAssignedStrLenInColDefinition())) {
+            if (!(targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet())) {
                 targetTypeDef.analyze(analyzer);
             }
         } else {
@@ -406,7 +419,6 @@ public class CastExpr extends Expr {
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
-
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());

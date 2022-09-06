@@ -34,7 +34,7 @@ public:
 
     bool has_next_page() const { return _offset < _end_offset; }
 
-    Status next_page();
+    Status next_page_header();
 
     Status skip_page();
 

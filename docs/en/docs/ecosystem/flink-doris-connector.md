@@ -26,7 +26,7 @@ under the License.
 
 # Flink Doris Connector
 
-> This document applies to flink-doris-connector versions after 1.1.0, for versions before 1.1.0 refer to [here](https://doris.apache.org/docs/1.0/extending-doris/flink-doris-connector)
+> This document applies to flink-doris-connector versions after 1.1.0, for versions before 1.1.0 refer to [here](https://doris.apache.org/docs/0.15/extending-doris/flink-doris-connector)
 
 
 
@@ -43,10 +43,11 @@ Github: https://github.com/apache/incubator-doris-flink-connector
 
 ## Version Compatibility
 
-| Connector       | Flink  | Doris | Java | Scala |
-| --------------- | ------ | ----- | ---- | ----- |
-| 1.14_2.11-1.1.0 | 1.14.x | 1.0+  | 8    | 2.11  |
-| 1.14_2.12-1.1.0 | 1.14.x | 1.0+  | 8    | 2.12  |
+| Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
+| --------- | ----- | ------ | ---- | ----- |
+| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.0     | 1.14+ | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.0     | 1.15+ | 1.0+   | 8    | -         |
 
 ## Build and Install
 
@@ -113,7 +114,10 @@ After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SN
 
 **Remarks:** 
 
-1. Doris FE should enable http v2 in the configuration fe.conf, which is enabled by default after version 0.15
+1. Doris FE should be configured to enable http v2 in the configuration
+
+   conf/fe.conf
+
 ```
 enable_http_server_v2 = true
 ```
@@ -146,18 +150,6 @@ Add flink-doris-connector and necessary Flink Maven dependencies
     <artifactId>flink-table-planner_${scala.version}</artifactId>
     <version>${flink.version}</version>
     <scope>provided</scope>
-</dependency>
-
-<!-- Add log dependencies when debugging locally -->
-<dependency>
-   <groupId>org.slf4j</groupId>
-   <artifactId>slf4j-api</artifactId>
-   <version>${slf4j.version}</version>
-</dependency>
-<dependency>
-   <groupId>org.slf4j</groupId>
-   <artifactId>slf4j-log4j12</artifactId>
-   <version>${slf4j.version}</version>
 </dependency>
 
 <!-- flink-doris-connector -->
@@ -365,12 +357,12 @@ source.sinkTo(builder.build());
 | doris.read.field            | --            | N           | List of column names in the Doris table, separated by commas                  |
 | doris.filter.query          | --            | N           | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
 | sink.label-prefix | -- | Y | The label prefix used by stream load imports. In the 2pc scenario, global uniqueness is required to ensure the EOS semantics of Flink. |
-| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> `sink.properties.column_separator' = ','`<br /> <br />  Setting `'sink.properties.escape_delimiters' = 'true'` if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both `'sink.properties.format' ='json'` and `'sink.properties.read_json_by_line' = 'true'` |
+| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true' |
 | sink.enable-delete     | true               | N              | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 | sink.enable-2pc                  | true              | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
 | sink.max-retries                 | 1                  | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |
 | sink.buffer-size                 | 1048576(1MB)       | N        | Write data cache buffer size, in bytes. It is not recommended to modify, the default configuration is sufficient.                                                                                                                                                                                                                                 |
-| sink.buffer-count                | 3                  | N        | The number of write data cache buffers, it is not recommended to modify, the default configuration is sufficient.                                                                                                                                                                                                                                     |
+| sink.buffer-count                | 3                  | N        | The number of write data cache buffers, it is not recommended to modify, the default configuration is sufficient.                                                                                                                               
 
 
 
@@ -435,7 +427,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ## Java example
 
-`samples/doris-demo/fink-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/flink-demo)
+`samples/doris-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/)
 
 ## Best Practices
 
@@ -450,7 +442,7 @@ The most suitable scenario for using Flink Doris Connector is to synchronize sou
 
 ### common problem
 
-**1. Bitmap type write**
+1. **Bitmap type write**
 
 ```sql
 CREATE TABLE bitmap_sink (
@@ -468,8 +460,7 @@ WITH (
    'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
 )
 ````
+2. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
 
-**2. errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
-
-In the Exactly-Once scenario, the Flink Job must be restarted from the latest Checkpoint/Savepoint, otherwise the above error will be reported. </br>
-When Exactly-Once is not required, it can also be solved by turning off 2PC commits (`sink.enable-2pc=false`) or changing to a different `sink.label-prefix`.
+In the Exactly-Once scenario, the Flink Job must be restarted from the latest Checkpoint/Savepoint, otherwise the above error will be reported.
+When Exactly-Once is not required, it can also be solved by turning off 2PC commits (sink.enable-2pc=false) or changing to a different sink.label-prefix.

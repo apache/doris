@@ -28,6 +28,8 @@ import function_service_pb2_grpc
 import types_pb2
 import  sys
 import time;
+import json
+
 
 
 class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
@@ -36,7 +38,6 @@ class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
         status = types_pb2.PStatus()
         status.status_code = 0
         response.status.CopyFrom(status)
-
         if request.function_name == "rpc_sum_update":
             result = types_pb2.PValues()
             result.has_null = False
@@ -107,8 +108,8 @@ class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
             for i in range(args_len):
                 total += request.args[i].double_value[0]
                 size += request.args[i].int32_value[0]
-            result.add_double.append(total)
-            result.add_int32.append(size)
+            result.double_value.append(total)
+            result.int32_value.append(size)
             response.result.append(result)
 
         if request.function_name == "rpc_avg_finalize":
@@ -121,6 +122,72 @@ class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
             size =  request.context.function_context.args_data[0].int32_value[0]
             avg = total / size
             result.double_value.append(avg)
+            response.result.append(result)
+        if request.function_name == "rpc_count_visit_info_update":
+            result = types_pb2.PValues()
+            result.has_null = False
+            result_type = types_pb2.PGenericType()
+            result_type.id = types_pb2.PGenericType.STRING
+            result.type.CopyFrom(result_type)
+            size =  len(request.args[0].string_value)
+            currentMap=dict()
+            if request.HasField("context"):
+                context = request.context.function_context.args_data[0].string_value[0]
+                currentMap = json.loads(context)
+            for i in range(size):
+                s = request.args[0].string_value[i]
+                mapInfo = json.loads(s)
+                ip=mapInfo['ip']
+                if currentMap.has_key(ip):
+                    last_val=currentMap[ip]
+                    last_val+=1
+                    currentMap[ip] = last_val
+                else:
+                    currentMap[ip] = 1
+            json_dict = json.dumps(currentMap)
+            result.string_value.append(json_dict)
+            response.result.append(result)
+
+        if request.function_name == "rpc_count_visit_info_merge":
+            result = types_pb2.PValues()
+            result.has_null = False
+            result_type = types_pb2.PGenericType()
+            result_type.id = types_pb2.PGenericType.STRING
+            result.type.CopyFrom(result_type)
+
+            context1 = request.args[0].string_value[0]
+            currentMap1 = json.loads(context1)
+            context2 = request.args[1].string_value[0]
+            currentMap2 = json.loads(context2)
+            for ip,num in  currentMap2.items():
+                if currentMap1.has_key(ip):
+                    currentMap1[ip] = currentMap1[ip] + num
+                else:
+                    currentMap1[ip] = num
+            json_dict = json.dumps(currentMap1)
+            result.string_value.append(json_dict)
+            response.result.append(result)
+
+        if request.function_name == "rpc_count_visit_info_finalize":
+            result = types_pb2.PValues()
+            result.has_null = False
+            result_type = types_pb2.PGenericType()
+            result_type.id = types_pb2.PGenericType.STRING
+            result.type.CopyFrom(result_type)
+
+            context = request.context.function_context.args_data[0].string_value[0]
+            currentMap = json.loads(context)
+            sortedMap=sorted(currentMap.items(), key = lambda kv:(kv[1], kv[0]),reverse=True) 
+            resultMap=dict()
+            topN=3
+            if len(sortedMap) < topN:
+                topN = len(sortedMap)
+            finalResult=""
+            print(sortedMap)
+            for i in  range(topN):
+                ip=sortedMap[i][0]
+                finalResult +=ip +":"+str(sortedMap[i][1]) +" "
+            result.string_value.append(finalResult)
             response.result.append(result)
         return response
 

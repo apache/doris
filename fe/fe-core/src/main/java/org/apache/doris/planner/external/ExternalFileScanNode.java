@@ -74,7 +74,7 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * ExternalFileScanNode for the file access type of datasource, now only support
+ * ExternalFileScanNode for the file access type of catalog, now only support
  * hive,hudi and iceberg.
  */
 public class ExternalFileScanNode extends ExternalScanNode {

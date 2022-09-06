@@ -152,6 +152,8 @@ PROPERTIES (
 ##### 过滤条件下推
 `Doris On ES`一个重要的功能就是过滤条件的下推: 过滤条件下推给ES，这样只有真正满足条件的数据才会被返回，能够显著的提高查询性能和降低Doris和Elasticsearch的CPU、memory、IO使用量
 
+`enable_new_es_dsl`代表是否使用新版dsl生成逻辑, 后续 bug 修复和迭代都在新版dsl开发, 默认为`true`, 可在`fe.conf`中进行修改
+
 下面的操作符(Operators)会被优化成如下ES Query:
 
 | SQL syntax  | ES 5.x+ syntax | 

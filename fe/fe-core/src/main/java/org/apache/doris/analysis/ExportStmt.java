@@ -193,7 +193,7 @@ public class ExportStmt extends StatementBase {
     }
 
     private void checkTable(Env env) throws AnalysisException {
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(tblName.getDb());
         Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {

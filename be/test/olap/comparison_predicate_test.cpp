@@ -28,18 +28,17 @@
 #include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 
 namespace doris {
 
 namespace datetime {
 
-static uint24_t to_date_timestamp(const char* date_string) {
+static uint32_t to_date_timestamp(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
     int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-    return uint24_t(value);
+    return uint32_t(value);
 }
 
 static uint64_t to_datetime_timestamp(const std::string& value_string) {
@@ -340,7 +339,7 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    uint24_t value = datetime::to_date_timestamp("2017-09-10");
+    uint32_t value = datetime::to_date_timestamp("2017-09-10");
     ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(0, value);
 
     std::vector<std::string> date_array;
@@ -358,7 +357,10 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+        const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+        uint24_t timestamp = 0;
+        memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+               sizeof(uint24_t));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -374,7 +376,10 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+            const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+            uint24_t timestamp = 0;
+            memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+                   sizeof(uint24_t));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }
@@ -670,7 +675,7 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    uint24_t value = datetime::to_date_timestamp("2017-09-10");
+    uint32_t value = datetime::to_date_timestamp("2017-09-10");
     ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATE, PredicateType::LT>(0, value);
 
     std::vector<std::string> date_array;
@@ -688,7 +693,10 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+        const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+        uint24_t timestamp = 0;
+        memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+               sizeof(uint24_t));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -704,7 +712,10 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+            const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+            uint24_t timestamp = 0;
+            memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+                   sizeof(uint24_t));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }

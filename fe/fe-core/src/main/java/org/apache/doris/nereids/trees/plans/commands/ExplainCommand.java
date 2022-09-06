@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 /**
  * explain command.
@@ -40,6 +41,11 @@ public class ExplainCommand implements Command {
     public ExplainCommand(ExplainLevel level, LogicalPlan logicalPlan) {
         this.level = level;
         this.logicalPlan = logicalPlan;
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitExplainCommand(this, context);
     }
 
     public ExplainLevel getLevel() {

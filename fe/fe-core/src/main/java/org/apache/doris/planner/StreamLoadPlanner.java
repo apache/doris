@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -61,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +85,7 @@ public class StreamLoadPlanner {
 
     private StreamLoadScanNode scanNode;
     private TupleDescriptor tupleDesc;
+    private TupleDescriptor scanTupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
@@ -122,7 +125,10 @@ public class StreamLoadPlanner {
             throw new UserException("There is no sequence column in the table " + destTable.getName());
         }
         resetAnalyzer();
-        // construct tuple descriptor, used for scanNode and dataSink
+        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+        // construct tuple descriptor, used for scanNode
+        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
@@ -131,13 +137,30 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+
+            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            scanSlotDesc.setIsMaterialized(true);
+            scanSlotDesc.setColumn(col);
+            scanSlotDesc.setIsNullable(col.isAllowNull());
+            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                try {
+                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                        scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                        break;
+                    }
+                } catch (Exception e) {
+                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                    // We just skip this case here.
+                }
+            }
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
 
         // create scan node
-        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
+        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
         scanNode.init(analyzer);
         descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
@@ -204,6 +227,7 @@ public class StreamLoadPlanner {
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
+        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
         params.setQueryGlobals(queryGlobals);
 

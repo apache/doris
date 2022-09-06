@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -39,6 +40,7 @@ Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& r
     // Resolve tuple ids to tuple indexes.
     for (int i = 0; i < _tuple_ids.size(); ++i) {
         int32_t tuple_idx = row_desc.get_tuple_idx(_tuple_ids[i]);
+        RETURN_IF_INVALID_TUPLE_IDX(_tuple_ids[i], tuple_idx);
         if (row_desc.tuple_is_nullable(tuple_idx)) {
             _tuple_idxs.push_back(tuple_idx);
         }

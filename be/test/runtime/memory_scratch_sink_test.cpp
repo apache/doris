@@ -40,7 +40,6 @@
 #include "runtime/tuple_row.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/blocking_queue.hpp"
-#include "util/logging.h"
 
 namespace doris {
 

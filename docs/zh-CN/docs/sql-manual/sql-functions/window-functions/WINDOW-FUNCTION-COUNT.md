@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 计算窗口内数据出现次数
 
 ```sql
-COUNT([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+COUNT(expression) [OVER (analytic_clause)]
 ```
 
 ### example

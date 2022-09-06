@@ -301,13 +301,25 @@ public class HashJoinNode extends PlanNode {
                 outputTupleDescList.add(analyzer.getTupleDesc(tupleId));
             }
         }
+        SlotId firstMaterializedSlotId = null;
         for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                if (slotDescriptor.isMaterialized()
-                        && (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
-                    outputSlotIds.add(slotDescriptor.getId());
+                if (slotDescriptor.isMaterialized()) {
+                    if ((requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                        outputSlotIds.add(slotDescriptor.getId());
+                    }
+                    if (firstMaterializedSlotId == null) {
+                        firstMaterializedSlotId = slotDescriptor.getId();
+                    }
                 }
             }
+        }
+
+        // be may be possible to output correct row number without any column data in future
+        // but for now, in order to have correct output row number, should keep at least one slot.
+        // use first materialized slot if outputSlotIds is empty.
+        if (outputSlotIds.isEmpty() && firstMaterializedSlotId != null) {
+            outputSlotIds.add(firstMaterializedSlotId);
         }
         initHashOutputSlotIds(outputSlotIds, analyzer);
     }
@@ -440,7 +452,7 @@ public class HashJoinNode extends PlanNode {
         int leftNullableNumber = 0;
         int rightNullableNumber = 0;
         if (copyLeft) {
-            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTblRefIds())) {
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTupleIds())) {
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
                         continue;
@@ -456,8 +468,8 @@ public class HashJoinNode extends PlanNode {
             }
         }
         if (copyRight) {
-            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl()
-                    .getTupleDesc(getChild(1).getOutputTblRefIds())) {
+            for (TupleDescriptor rightTupleDesc :
+                    analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTupleIds())) {
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
                         continue;
@@ -492,8 +504,8 @@ public class HashJoinNode extends PlanNode {
         // Then: add tuple is null in left child columns
         if (leftNullable && getChild(0).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(0).tblRefIds.get(0))) {
             List<Expr> tupleIsNullLhs = TupleIsNullPredicate
-                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), TNullSide.LEFT,
-                            analyzer);
+                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), new ArrayList<>(),
+                        TNullSide.LEFT, analyzer);
             tupleIsNullLhs
                     .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
             vSrcToOutputSMap.updateLhsExprs(tupleIsNullLhs);
@@ -506,7 +518,7 @@ public class HashJoinNode extends PlanNode {
                 int rightBeginIndex = vSrcToOutputSMap.size() - rightNullableNumber;
                 List<Expr> tupleIsNullLhs = TupleIsNullPredicate
                         .wrapExprs(vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()),
-                                TNullSide.RIGHT, analyzer);
+                                new ArrayList<>(), TNullSide.RIGHT, analyzer);
                 List<Expr> newLhsList = Lists.newArrayList();
                 if (rightBeginIndex > 0) {
                     newLhsList.addAll(vSrcToOutputSMap.getLhs().subList(0, rightBeginIndex));
@@ -726,7 +738,7 @@ public class HashJoinNode extends PlanNode {
                 List<EqJoinConjunctScanSlots> eqJoinConjunctSlots) {
             Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>> scanSlotsByJoinedTids = new LinkedHashMap<>();
             for (EqJoinConjunctScanSlots slots : eqJoinConjunctSlots) {
-                Pair<TupleId, TupleId> tids = Pair.create(slots.lhsTid(), slots.rhsTid());
+                Pair<TupleId, TupleId> tids = Pair.of(slots.lhsTid(), slots.rhsTid());
                 List<EqJoinConjunctScanSlots> scanSlots = scanSlotsByJoinedTids.get(tids);
                 if (scanSlots == null) {
                     scanSlots = new ArrayList<>();
@@ -1055,13 +1067,17 @@ public class HashJoinNode extends PlanNode {
         }
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                // TODO: Enable it after we support new optimizers
+                // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                // } else
                 msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
+            // TODO Enable it after we support new optimizers
+            // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         }
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
@@ -1231,5 +1247,26 @@ public class HashJoinNode extends PlanNode {
             }
         }
         return true;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvOutputTupleDesc(TupleDescriptor vOutputTupleDesc) {
+        this.vOutputTupleDesc = vOutputTupleDesc;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
+        this.vIntermediateTupleDescList = vIntermediateTupleDescList;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setvSrcToOutputSMap(List<Expr> lhs) {
+        this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
     }
 }

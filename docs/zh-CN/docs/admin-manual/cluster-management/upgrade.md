@@ -68,7 +68,7 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 1. 单独使用新版本部署一个测试用的 FE 进程（建议在自己本地的开发机，或者BE节点。如果在Follower或者Observer节点上，需要停止启动的进程,但是不建议在Follower或者Observer节点上测试）。
 2. 修改测试用的 FE 的配置文件 fe.conf，将所有端口设置为**与线上不同**。
 3. 在 fe.conf 添加配置：cluster_id=123456
-4. 在 fe.conf 添加配置：metadata\_failure_recovery=true
+4. 在 fe.conf 添加配置：metadata_failure_recovery=true
 5. 拷贝线上环境 Master FE 的元数据目录 doris-meta 到测试环境
 6. 将拷贝到测试环境中的 doris-meta/image/VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
 7. 在测试环境中，运行 sh bin/start_fe.sh 启动 FE

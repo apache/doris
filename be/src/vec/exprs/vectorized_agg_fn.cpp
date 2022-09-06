@@ -150,10 +150,10 @@ void AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Ar
 }
 
 void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                                       Arena* arena) {
+                                       Arena* arena, bool agg_many) {
     _calc_argment_columns(block);
     SCOPED_TIMER(_exec_timer);
-    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena);
+    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
 }
 
 void AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
@@ -161,6 +161,20 @@ void AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
     _calc_argment_columns(block);
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
+}
+
+void AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
+                                             const size_t num_rows, Arena* arena) {
+    _calc_argment_columns(block);
+    SCOPED_TIMER(_exec_timer);
+    _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
+}
+
+void AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
+                                                       const size_t num_rows, Arena* arena) {
+    _calc_argment_columns(block);
+    SCOPED_TIMER(_exec_timer);
+    _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
 }
 
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {

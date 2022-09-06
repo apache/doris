@@ -29,7 +29,7 @@ namespace doris::vectorized {
 
 doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                  VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     DCHECK_EQ(_children.size(), 1);
     auto child = _children[0];
@@ -75,7 +75,7 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
                                  int* result_column_id) {
     // for each child call execute
     int column_id = 0;
-    _children[0]->execute(context, block, &column_id);
+    RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
 
     size_t const_param_id = VExpr::insert_param(
             block, {_cast_param, _cast_param_data_type, _target_data_type_name}, block->rows());

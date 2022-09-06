@@ -18,13 +18,16 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
@@ -73,6 +76,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.LiteralUtils;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileWriter;
@@ -86,6 +90,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -120,6 +125,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -156,6 +162,7 @@ public class StmtExecutor implements ProfileWriter {
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
 
     private ConnectContext context;
+    private StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -183,6 +190,7 @@ public class StmtExecutor implements ProfileWriter {
         this.originStmt = originStmt;
         this.serializer = context.getSerializer();
         this.isProxy = isProxy;
+        this.statementContext = new StatementContext(context, originStmt);
     }
 
     // this constructor is only for test now.
@@ -197,6 +205,8 @@ public class StmtExecutor implements ProfileWriter {
         this.originStmt = parsedStmt.getOrigStmt();
         this.serializer = context.getSerializer();
         this.isProxy = false;
+        this.statementContext = new StatementContext(ctx, originStmt);
+        this.statementContext.setParsedStatement(parsedStmt);
     }
 
     public void setCoord(Coordinator coord) {
@@ -209,8 +219,6 @@ public class StmtExecutor implements ProfileWriter {
 
     // At the end of query execution, we begin to add up profile
     private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
-        long currentTimestamp = System.currentTimeMillis();
-        long totalTimeMs = currentTimestamp - context.getStartTime();
         RuntimeProfile queryProfile;
         // when a query hits the sql cache, `coord` is null.
         if (coord == null) {
@@ -222,38 +230,57 @@ public class StmtExecutor implements ProfileWriter {
             profile = new RuntimeProfile("Query");
             summaryProfile = new RuntimeProfile("Summary");
             profile.addChild(summaryProfile);
-            summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
             summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-            summaryProfile.addInfoString(ProfileManager.END_TIME,
-                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
-            summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
-                            ? "RUNNING" : context.getState().toString());
-            summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-            summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
-            summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
-            summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
-            summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
-
+            updateSummaryProfile(waiteBeReport);
+            for (Map.Entry<String, String> entry : getSummaryInfo().entrySet()) {
+                summaryProfile.addInfoString(entry.getKey(), entry.getValue());
+            }
             summaryProfile.addInfoString(ProfileManager.TRACE_ID, context.getSessionVariable().getTraceId());
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(queryProfile);
         } else {
-            summaryProfile.addInfoString(ProfileManager.END_TIME,
-                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
-            summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
-                            ? "RUNNING" : context.getState().toString());
+            updateSummaryProfile(waiteBeReport);
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
         queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
         if (coord != null) {
             coord.endProfile(waiteBeReport);
+        }
+    }
+
+    private void updateSummaryProfile(boolean waiteBeReport) {
+        Preconditions.checkNotNull(summaryProfile);
+        long currentTimestamp = System.currentTimeMillis();
+        long totalTimeMs = currentTimestamp - context.getStartTime();
+        summaryProfile.addInfoString(ProfileManager.END_TIME,
+                waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+        summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ? "RUNNING" :
+                        context.getState().toString());
+    }
+
+    private Map<String, String> getSummaryInfo() {
+        Map<String, String> infos = Maps.newLinkedHashMap();
+        infos.put(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
+        infos.put(ProfileManager.QUERY_TYPE, queryType);
+        infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
+        infos.put(ProfileManager.USER, context.getQualifiedUser());
+        infos.put(ProfileManager.DEFAULT_DB, context.getDatabase());
+        infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
+        infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
+        return infos;
+    }
+
+    public void addProfileToSpan() {
+        Span span = Span.fromContext(Context.current());
+        if (!span.isRecording()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : getSummaryInfo().entrySet()) {
+            span.setAttribute(entry.getKey(), entry.getValue());
         }
     }
 
@@ -326,10 +353,6 @@ public class StmtExecutor implements ProfileWriter {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         Span executeSpan = context.getTracer().spanBuilder("execute").setParent(Context.current()).startSpan();
-        executeSpan.setAttribute("queryId", DebugUtil.printId(queryId));
-        if (originStmt != null) {
-            executeSpan.setAttribute("sql", originStmt.originStmt);
-        }
         try (Scope scope = executeSpan.makeCurrent()) {
             execute(queryId);
         } finally {
@@ -344,7 +367,6 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
-        Span span = Span.fromContext(Context.current());
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
@@ -431,7 +453,6 @@ public class StmtExecutor implements ProfileWriter {
                             AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                                     DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
-                            span.setAttribute("queryId", DebugUtil.printId(newQueryId));
                         }
                         handleQueryStmt();
                         break;
@@ -600,7 +621,7 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
             if (selectStmt != null) {
-                parsedStmt = selectStmt;
+                setParsedStmt(selectStmt);
             }
         }
 
@@ -613,11 +634,11 @@ public class StmtExecutor implements ProfileWriter {
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
                 queryStmt = parsedStmt.getQueryStmt();
-                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+                queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
@@ -671,7 +692,7 @@ public class StmtExecutor implements ProfileWriter {
                     context.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
             try {
-                parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
+                StatementBase parsedStmt = setParsedStmt(SqlParserUtils.getStmt(parser, originStmt.idx));
                 parsedStmt.setOrigStmt(originStmt);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
@@ -700,6 +721,18 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
+        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+            QueryStmt queryStmt = null;
+            if (parsedStmt instanceof QueryStmt) {
+                queryStmt = (QueryStmt) parsedStmt;
+            }
+            if (parsedStmt instanceof InsertStmt) {
+                queryStmt = (QueryStmt) ((InsertStmt) parsedStmt).getQueryStmt();
+            }
+            if (queryStmt.getOrderByElements() != null && queryStmt.getOrderByElements().isEmpty()) {
+                queryStmt.removeOrderByElements();
+            }
+        }
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             ExprRewriter rewriter = analyzer.getExprRewriter();
@@ -716,7 +749,7 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
             if (analyzer.containSubquery()) {
-                parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
+                parsedStmt = setParsedStmt(StmtRewriter.rewrite(analyzer, parsedStmt));
                 reAnalyze = true;
             }
             if (parsedStmt instanceof SelectStmt) {
@@ -771,7 +804,7 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // create plan
-            planner = new NereidsPlanner(context);
+            planner = new NereidsPlanner(statementContext);
         } else {
             planner = new OriginalPlanner(analyzer);
         }
@@ -921,7 +954,7 @@ public class StmtExecutor implements ProfileWriter {
                 analyzer = new Analyzer(context.getEnv(), context);
                 newSelectStmt.analyze(analyzer);
                 if (parsedStmt instanceof LogicalPlanAdapter) {
-                    planner = new NereidsPlanner(context);
+                    planner = new NereidsPlanner(statementContext);
                 } else {
                     planner = new OriginalPlanner(analyzer);
                 }
@@ -943,8 +976,18 @@ public class StmtExecutor implements ProfileWriter {
             Expr expr = item.getExpr();
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
-                columns.add(new Column(columnName, PrimitiveType.VARCHAR));
-                data.add(expr.getStringValue());
+                columns.add(new Column(columnName, expr.getType()));
+                if (expr instanceof NullLiteral) {
+                    data.add(null);
+                } else if (expr instanceof FloatLiteral) {
+                    data.add(LiteralUtils.getStringValue((FloatLiteral) expr));
+                } else if (expr instanceof DecimalLiteral) {
+                    data.add(((DecimalLiteral) expr).getValue().stripTrailingZeros().toPlainString());
+                } else if (expr instanceof ArrayLiteral) {
+                    data.add(LiteralUtils.getStringValue((ArrayLiteral) expr));
+                } else {
+                    data.add(expr.getStringValue());
+                }
             } else {
                 return false;
             }
@@ -969,19 +1012,18 @@ public class StmtExecutor implements ProfileWriter {
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
-        // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
-        if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()
-                && Env.getCurrentSystemInfo().getBackendIds(true).isEmpty()) {
-            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-            if (handleSelectRequestInFe(parsedSelectStmt)) {
-                return;
-            }
-        }
-
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString);
             return;
+        }
+
+        // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
+        if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()) {
+            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+            if (handleSelectRequestInFe(parsedSelectStmt)) {
+                return;
+            }
         }
 
         MysqlChannel channel = context.getMysqlChannel();
@@ -1653,7 +1695,7 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt = ctasStmt.getInsertStmt();
                 execute();
             } catch (Exception e) {
-                LOG.warn("CTAS insert data error, stmt={}", parsedStmt.toSql(), e);
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
                 // insert error drop table
                 DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
                 try {
@@ -1688,5 +1730,11 @@ public class StmtExecutor implements ProfileWriter {
 
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    }
+
+    private StatementBase setParsedStmt(StatementBase parsedStmt) {
+        this.parsedStmt = parsedStmt;
+        this.statementContext.setParsedStatement(parsedStmt);
+        return parsedStmt;
     }
 }

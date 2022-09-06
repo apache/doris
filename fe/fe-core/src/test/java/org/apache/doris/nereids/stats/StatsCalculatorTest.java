@@ -26,19 +26,20 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
-import org.apache.doris.nereids.trees.plans.FakeJoin;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -50,6 +51,7 @@ import org.apache.doris.statistics.TableStats;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -106,8 +108,7 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalAggregate, Arrays.asList(childGroup));
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
-        statsCalculator.estimate();
+        StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
     }
 
@@ -150,8 +151,7 @@ public class StatsCalculatorTest {
         groupExpression.addChild(childGroup);
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
-        statsCalculator.estimate();
+        StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter logicalFilterOr = new LogicalFilter(or, groupPlan);
@@ -159,17 +159,14 @@ public class StatsCalculatorTest {
         groupExpressionOr.addChild(childGroup);
         Group ownerGroupOr = new Group();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
-        StatsCalculator statsCalculator2 = new StatsCalculator(groupExpressionOr);
-        statsCalculator2.estimate();
+        StatsCalculator.estimate(groupExpressionOr);
         Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
     @Test
     public void testHashJoin() {
-        List<String> qualifier = new ArrayList<>();
-        qualifier.add("test");
-        qualifier.add("t");
+        List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
         ColumnStats columnStats1 = new ColumnStats();
@@ -192,9 +189,12 @@ public class StatsCalculatorTest {
 
         EqualTo equalTo = new EqualTo(slot1, slot2);
 
-        FakeJoin fakeSemiJoin = new FakeJoin(JoinType.LEFT_SEMI_JOIN, Optional.of(equalTo));
-        FakeJoin fakeInnerJoin = new FakeJoin(JoinType.INNER_JOIN, Optional.of(equalTo));
-
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeSemiJoin = new LogicalJoin<>(
+                JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeInnerJoin = new LogicalJoin<>(
+                JoinType.INNER_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
         StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
         Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
         StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);
@@ -225,14 +225,13 @@ public class StatsCalculatorTest {
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
+        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList())
+                .withLogicalProperties(Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
         Group childGroup = new Group();
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
-        statsCalculator.estimate();
+        StatsCalculator.estimate(groupExpression);
         StatsDeriveResult stats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, stats.getSlotToColumnStats().size());
         Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
@@ -252,12 +251,7 @@ public class StatsCalculatorTest {
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
-        childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
-            @Override
-            public List<Slot> get() {
-                return Collections.emptyList();
-            }
-        }));
+        childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
@@ -266,11 +260,41 @@ public class StatsCalculatorTest {
         groupExpression.addChild(childGroup);
         Group ownerGroup = new Group();
         ownerGroup.addGroupExpression(groupExpression);
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
-        statsCalculator.estimate();
+        StatsCalculator.estimate(groupExpression);
         StatsDeriveResult limitStats = ownerGroup.getStatistics();
-        Assertions.assertEquals((long) (1), limitStats.getRowCount());
+        Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStats slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
+        Assertions.assertEquals(1, slot1Stats.getNdv());
+        Assertions.assertEquals(1, slot1Stats.getNumNulls());
+    }
+
+    @Test
+    public void testTopN() {
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStats1);
+        StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
+
+        Group childGroup = new Group();
+        childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+        childGroup.setStatistics(childStats);
+
+        LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(logicalTopN);
+        groupExpression.addChild(childGroup);
+        Group ownerGroup = new Group();
+        ownerGroup.addGroupExpression(groupExpression);
+        StatsCalculator.estimate(groupExpression);
+        StatsDeriveResult topNStats = ownerGroup.getStatistics();
+        Assertions.assertEquals(1, topNStats.getRowCount());
+        ColumnStats slot1Stats = topNStats.getSlotToColumnStats().get(slot1);
         Assertions.assertEquals(1, slot1Stats.getNdv());
         Assertions.assertEquals(1, slot1Stats.getNumNulls());
     }

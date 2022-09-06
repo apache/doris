@@ -245,6 +245,7 @@ Status FragmentExecState::execute() {
         CgroupsMgr::apply_system_cgroup();
         WARN_IF_ERROR(_executor.open(), strings::Substitute("Got error while opening fragment $0",
                                                             print_id(_fragment_instance_id)));
+
         _executor.close();
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
@@ -304,7 +305,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        ss << "couldn't get a client for " << _coord_addr;
+        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
+        LOG(WARNING) << "query_id: " << _query_id << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
     }
@@ -391,8 +393,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     TReportExecStatusResult res;
     Status rpc_status;
 
-    VLOG_ROW << "debug: reportExecStatus params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
+    VLOG_DEBUG << "reportExecStatus params is "
+               << apache::thrift::ThriftDebugString(params).c_str();
     try {
         try {
             coord->reportExecStatus(res, params);
@@ -489,11 +491,10 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     doris::signal::query_id_hi = exec_state->query_id().hi;
     doris::signal::query_id_lo = exec_state->query_id().lo;
 
-    TAG(LOG(INFO))
-            .log(std::move(func_name))
-            .query_id(exec_state->query_id())
-            .instance_id(exec_state->fragment_instance_id())
-            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
+    LOG_INFO(func_name)
+            .tag("query_id", exec_state->query_id())
+            .tag("instance_id", exec_state->fragment_instance_id())
+            .tag("pthread_id", (uintptr_t)pthread_self());
 
     exec_state->execute();
 
@@ -634,21 +635,37 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->set_rsc_info = true;
         }
 
-        if (params.__isset.query_options) {
-            fragments_ctx->timeout_second = params.query_options.query_timeout;
-            if (params.query_options.__isset.resource_limit) {
-                fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
-            }
+        fragments_ctx->timeout_second = params.query_options.query_timeout;
+
+#ifndef BE_TEST
+        // set thread token
+        // the thread token will be set if
+        // 1. the cpu_limit is set, or
+        // 2. the limit is very small ( < 1024)
+        int concurrency = 1;
+        bool is_serial = false;
+        if (params.query_options.__isset.resource_limit &&
+            params.query_options.resource_limit.__isset.cpu_limit) {
+            concurrency = params.query_options.resource_limit.cpu_limit;
+        } else {
+            concurrency = config::doris_scanner_thread_pool_thread_num;
         }
         if (params.__isset.fragment && params.fragment.__isset.plan &&
             params.fragment.plan.nodes.size() > 0) {
             for (auto& node : params.fragment.plan.nodes) {
+                // Only for SCAN NODE
+                if (!_is_scan_node(node.node_type)) {
+                    continue;
+                }
                 if (node.limit > 0 && node.limit < 1024) {
-                    fragments_ctx->set_serial_thread_token();
+                    concurrency = 1;
+                    is_serial = true;
                     break;
                 }
             }
         }
+        fragments_ctx->set_thread_token(concurrency, is_serial);
+#endif
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
@@ -701,6 +718,15 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     return Status::OK();
+}
+
+bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
+    return type == TPlanNodeType::OLAP_SCAN_NODE || type == TPlanNodeType::MYSQL_SCAN_NODE ||
+           type == TPlanNodeType::SCHEMA_SCAN_NODE || type == TPlanNodeType::META_SCAN_NODE ||
+           type == TPlanNodeType::BROKER_SCAN_NODE || type == TPlanNodeType::ES_SCAN_NODE ||
+           type == TPlanNodeType::ES_HTTP_SCAN_NODE || type == TPlanNodeType::ODBC_SCAN_NODE ||
+           type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE ||
+           type == TPlanNodeType::FILE_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,

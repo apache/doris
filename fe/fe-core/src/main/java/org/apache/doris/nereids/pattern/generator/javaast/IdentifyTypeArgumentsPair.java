@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import java.util.Optional;
 
-
 /** java's identify type and type arguments. */
 public class IdentifyTypeArgumentsPair implements JavaAstNode {
     public final String identifier;

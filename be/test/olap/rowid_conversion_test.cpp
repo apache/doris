@@ -24,6 +24,7 @@
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_reader.h"
@@ -100,6 +101,20 @@ protected:
         column_2->set_is_nullable(false);
         column_2->set_is_bf_column(false);
 
+        // unique table must contains the DELETE_SIGN column
+        if (keys_type == UNIQUE_KEYS) {
+            ColumnPB* column_3 = tablet_schema_pb.add_column();
+            column_3->set_unique_id(3);
+            column_3->set_name(DELETE_SIGN);
+            column_3->set_type("TINYINT");
+            column_3->set_length(1);
+            column_3->set_index_length(1);
+            column_3->set_is_nullable(false);
+            column_3->set_is_key(false);
+            column_3->set_is_nullable(false);
+            column_3->set_is_bf_column(false);
+        }
+
         tablet_schema->init_from_pb(tablet_schema_pb);
         return tablet_schema;
     }
@@ -163,6 +178,10 @@ protected:
                 uint32_t c2 = std::get<1>(rowset_data[i][rid]);
                 input_row.set_field_content(0, reinterpret_cast<char*>(&c1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&c2), &mem_pool);
+                if (tablet_schema->keys_type() == UNIQUE_KEYS) {
+                    uint8_t num = 0;
+                    input_row.set_field_content(2, reinterpret_cast<char*>(&num), &mem_pool);
+                }
                 s = rowset_writer->add_row(input_row);
                 EXPECT_TRUE(s.ok());
                 num_rows++;
@@ -179,6 +198,74 @@ protected:
         return rowset;
     }
 
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+        std::string json_rowset_meta = R"({
+            "rowset_id": 540081,
+            "tablet_id": 15673,
+            "txn_id": 4042,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "BETA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 2,
+            "end_version": 2,
+            "num_rows": 3929,
+            "total_disk_size": 84699,
+            "data_disk_size": 84464,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": -5350970832824939812,
+                "lo": -6717994719194512122
+            },
+            "creation_time": 1553765670,
+            "alpha_rowset_extra_meta_pb": {
+                "segment_groups": [
+                {
+                    "segment_group_id": 0,
+                    "num_segments": 2,
+                    "index_size": 132,
+                    "data_size": 576,
+                    "num_rows": 5,
+                    "zone_maps": [
+                    {
+                        "min": "MQ==",
+                        "max": "NQ==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "MQ==",
+                        "max": "Mw==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "J2J1c2gn",
+                        "max": "J3RvbSc=",
+                        "null_flag": false
+                    }
+                    ],
+                    "empty": false
+                }]
+            }
+        })";
+        pb1->init_from_json(json_rowset_meta);
+        pb1->set_start_version(start);
+        pb1->set_end_version(end);
+        pb1->set_creation_time(10000);
+    }
+
+    void add_delete_predicate(TabletSharedPtr tablet, DeletePredicatePB& del_pred,
+                              int64_t version) {
+        RowsetMetaSharedPtr rsm(new RowsetMeta());
+        init_rs_meta(rsm, version, version);
+        RowsetId id;
+        id.init(version * 1000);
+        rsm->set_rowset_id(id);
+        rsm->set_delete_predicate(del_pred);
+        rsm->set_tablet_schema(tablet->tablet_schema());
+        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
+        tablet->add_rowset(rowset);
+    }
+
     TabletSharedPtr create_tablet(const TabletSchema& tablet_schema,
                                   bool enable_unique_key_merge_on_write, int64_t version,
                                   bool has_delete_handler) {
@@ -191,7 +278,7 @@ protected:
             col.__set_column_name(column.name());
             col.__set_is_key(column.is_key());
             cols.push_back(col);
-            col_ordinal_to_unique_id[i] = i;
+            col_ordinal_to_unique_id[i] = column.unique_id();
         }
 
         TTabletSchema t_tablet_schema;
@@ -208,6 +295,9 @@ protected:
                 new TabletMeta(1, 1, 1, 1, 1, 1, t_tablet_schema, 1, col_ordinal_to_unique_id,
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, "", enable_unique_key_merge_on_write));
+
+        TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
+        tablet->init();
         if (has_delete_handler) {
             // delete data with key < 1000
             std::vector<TCondition> conditions;
@@ -222,10 +312,8 @@ protected:
             Status st =
                     DeleteHandler::generate_delete_predicate(tablet_schema, conditions, &del_pred);
             EXPECT_EQ(Status::OK(), st);
-            tablet_meta->add_delete_predicate(del_pred, version);
+            add_delete_predicate(tablet, del_pred, version);
         }
-
-        TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
         return tablet;
     }
 

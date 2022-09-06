@@ -39,33 +39,28 @@ public:
 Initializer init; // Used to init the error_states array
 
 Status::Status(const TStatus& s) {
-    if (s.status_code != TStatusCode::OK) {
+    _code = s.status_code;
+    if (_code != TStatusCode::OK) {
         // It is ok to set precise code == 1 here, because we do not know the precise code
         // just from thrift's TStatus
-        _code = s.status_code;
         _precise_code = 1;
         if (!s.error_msgs.empty()) {
             _err_msg = s.error_msgs[0];
         }
-    } else {
-        _code = 0;
     }
 }
 
 // TODO yiguolei, maybe should init PStatus's precise code because OLAPInternal Error may
 // tranfer precise code during BRPC
 Status::Status(const PStatus& s) {
-    TStatusCode::type code = (TStatusCode::type)s.status_code();
-    if (code != TStatusCode::OK) {
+    _code = (TStatusCode::type)s.status_code();
+    if (_code != TStatusCode::OK) {
         // It is ok to set precise code == 1 here, because we do not know the precise code
         // just from thrift's TStatus
-        _code = code;
         _precise_code = 1;
         if (s.error_msgs_size() > 0) {
             _err_msg = s.error_msgs(0);
         }
-    } else {
-        _code = 0;
     }
 }
 
@@ -113,7 +108,7 @@ void Status::to_protobuf(PStatus* s) const {
     }
 }
 
-std::string Status::code_as_string() const {
+const char* Status::code_as_string() const {
     switch (code()) {
     case TStatusCode::OK:
         return "OK";
@@ -172,10 +167,10 @@ std::string Status::code_as_string() const {
     case TStatusCode::DATA_QUALITY_ERROR:
         return "Data quality error";
     default: {
-        return fmt::format("Unknown code({})", code());
+        return "Unknown code";
     }
     }
-    return std::string();
+    return "Unknown code";
 }
 
 std::string Status::to_string() const {
@@ -212,7 +207,7 @@ std::string Status::to_json() const {
     writer.StartObject();
     // status
     writer.Key("status");
-    writer.String(code_as_string().c_str());
+    writer.String(code_as_string());
     // msg
     writer.Key("msg");
     if (ok()) {

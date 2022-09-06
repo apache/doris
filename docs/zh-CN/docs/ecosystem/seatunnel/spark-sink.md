@@ -25,7 +25,7 @@ under the License.
 -->
 
 # SeaTunnel
-最新版本的 [Apache SeaTunnel (原 waterdrop )](https://seatunnel.apache.org/zh-CN/) 已经支持 Doris 的连接器, SeaTunnel 可以用过 Spark 引擎和 Flink 引擎同步数据至 Doris 中.
+最新版本的 [Apache SeaTunnel (原 waterdrop )](https://seatunnel.apache.org/zh-CN/) 已经支持 Doris 的连接器, SeaTunnel 可以通过 Spark 引擎和 Flink 引擎同步数据至 Doris 中.
 
 事实上, SeaTunnel 通过 Stream Load 方式同步数据,性能强劲,欢迎大家使用
 

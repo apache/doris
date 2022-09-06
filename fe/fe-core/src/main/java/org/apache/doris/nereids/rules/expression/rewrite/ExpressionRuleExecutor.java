@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +56,13 @@ public class ExpressionRuleExecutor {
             result = applyRule(result, rule);
         }
         return result;
+    }
+
+    /**
+     * Given an expression, returns a rewritten expression.
+     */
+    public Optional<Expression> rewrite(Optional<Expression> root) {
+        return root.map(this::rewrite);
     }
 
     private Expression applyRule(Expression expr, ExpressionRewriteRule rule) {

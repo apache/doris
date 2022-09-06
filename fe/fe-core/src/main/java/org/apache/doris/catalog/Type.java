@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
@@ -268,14 +270,12 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        // now only_metric_type is the same to object_stored_type
-        // but actually they are not same in semantics.
-        return isObjectStored();
+        return isObjectStored() || isArrayType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll and bitmap column must use with specific function, and don't support filter or group by."
-                    + "please run 'help hll' or 'help bitmap' in your mysql client.";
+            "Doris hll, bitmap and array column must use with specific function, and don't support filter or group by."
+                    + "please run 'help hll' or 'help bitmap' or 'help array' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
@@ -508,6 +508,10 @@ public abstract class Type {
             }
 
             return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
+        } else if (t1.isArrayType() && t2.isNull()) {
+            return t1;
+        } else if (t1.isNull() && t2.isArrayType()) {
+            return t2;
         }
 
         return ScalarType.INVALID;
@@ -545,15 +549,39 @@ public abstract class Type {
     }
 
     /**
-     * Returns null if this expr is not instance of StringLiteral or StringLiteral
-     * inner value could not parse to long. otherwise return parsed Long result.
+     * Returns true if expr is StringLiteral and can parse to valid type, false
+     * otherwise.
+     * This function only support LargeInt and BigInt now.
      */
-    public static Long tryParseToLong(Expr expectStringExpr) {
-        if (expectStringExpr instanceof StringLiteral) {
-            String value = ((StringLiteral) expectStringExpr).getValue();
-            return Longs.tryParse(value);
+    public static boolean canParseTo(Expr expr, PrimitiveType type) {
+        if (expr instanceof StringLiteral) {
+            if (type == PrimitiveType.BIGINT) {
+                return canParseToBigInt((StringLiteral) expr);
+            } else if (type == PrimitiveType.LARGEINT) {
+                return canParseToLargeInt((StringLiteral) expr);
+            }
         }
-        return null;
+        return false;
+    }
+
+    /**
+     * Returns true if expr can parse to valid BigInt, false otherwise.
+     */
+    private static boolean canParseToBigInt(StringLiteral expr) {
+        String value = ((StringLiteral) expr).getValue();
+        return Longs.tryParse(value) != null;
+    }
+
+    /**
+     * Returns true if expr can parse to valid LargeInt, false otherwise.
+     */
+    private static boolean canParseToLargeInt(Expr expr) {
+        try {
+            new LargeIntLiteral(((StringLiteral) expr).getValue());
+        } catch (AnalysisException e) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -773,7 +801,7 @@ public abstract class Type {
                 break;
             }
         }
-        return new Pair<Type, Integer>(type, tmpNodeIdx);
+        return Pair.of(type, tmpNodeIdx);
     }
 
     /**
@@ -1547,6 +1575,8 @@ public abstract class Type {
             return t1;
         } else if (t2.isDatetimeV2()) {
             return t2;
+        } else if (t2.isDateV2() || t1.isDateV2()) {
+            return Type.DATETIMEV2;
         } else {
             return ScalarType.getDefaultDateType(Type.DATETIME);
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.AdminDiagnoseTabletStmt;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
@@ -133,6 +134,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
@@ -156,7 +158,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -172,8 +174,13 @@ import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionStatus;
@@ -199,6 +206,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -361,6 +369,8 @@ public class ShowExecutor {
             handleShowCatalogs();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
+        } else if (stmt instanceof AdminCopyTabletStmt) {
+            handleCopyTablet();
         } else {
             handleEmtpy();
         }
@@ -425,7 +435,7 @@ public class ShowExecutor {
     private void handleShowFunctions() throws AnalysisException {
         ShowFunctionsStmt showStmt = (ShowFunctionsStmt) stmt;
         Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         List<List<String>> resultRowSet = Lists.newArrayList();
         if (db instanceof Database) {
@@ -473,7 +483,7 @@ public class ShowExecutor {
     private void handleShowCreateFunction() throws AnalysisException {
         ShowCreateFunctionStmt showCreateFunctionStmt = (ShowCreateFunctionStmt) stmt;
         Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showCreateFunctionStmt.getDbName());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateFunctionStmt.getDbName());
         List<List<String>> resultRowSet = Lists.newArrayList();
         if (db instanceof Database) {
             Function function = ((Database) db).getFunction(showCreateFunctionStmt.getFunction());
@@ -489,7 +499,7 @@ public class ShowExecutor {
     private void handleShowEncryptKeys() throws AnalysisException {
         ShowEncryptKeysStmt showStmt = (ShowEncryptKeysStmt) stmt;
         Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         List<List<String>> resultRowSet = Lists.newArrayList();
         if (db instanceof Database) {
             List<EncryptKey> encryptKeys = ((Database) db).getEncryptKeys();
@@ -583,7 +593,7 @@ public class ShowExecutor {
         ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
         long dbId = showStmt.getDbId();
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf database = ctx.getCurrentDataSource().getDbNullable(dbId);
+        DatabaseIf database = ctx.getCurrentCatalog().getDbNullable(dbId);
         if (database != null) {
             List<String> row = new ArrayList<>();
             row.add(database.getFullName());
@@ -597,10 +607,10 @@ public class ShowExecutor {
         long tableId = showStmt.getTableId();
         List<List<String>> rows = Lists.newArrayList();
         Env env = ctx.getEnv();
-        List<Long> dbIds = env.getInternalDataSource().getDbIds();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
         // TODO should use inverted index
         for (long dbId : dbIds) {
-            Database database = env.getInternalDataSource().getDbNullable(dbId);
+            Database database = env.getInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }
@@ -622,10 +632,10 @@ public class ShowExecutor {
         long partitionId = showStmt.getPartitionId();
         List<List<String>> rows = Lists.newArrayList();
         Env env = ctx.getEnv();
-        List<Long> dbIds = env.getInternalDataSource().getDbIds();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
         // TODO should use inverted index
         for (long dbId : dbIds) {
-            Database database = env.getInternalDataSource().getDbNullable(dbId);
+            Database database = env.getInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }
@@ -659,15 +669,15 @@ public class ShowExecutor {
         ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // cluster feature is deprecated.
-        DataSourceIf dataSourceIf = ctx.getDataSource(showDbStmt.getCatalogName());
-        if (dataSourceIf == null) {
+        CatalogIf catalogIf = ctx.getCatalog(showDbStmt.getCatalogName());
+        if (catalogIf == null) {
             throw new AnalysisException("No catalog found with name " + showDbStmt.getCatalogName());
         }
-        List<String> dbNames = dataSourceIf.getDbNames();
+        List<String> dbNames = catalogIf.getDbNames();
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
-                                                        CaseSensibility.DATABASE.getCaseSensibility());
+                    CaseSensibility.DATABASE.getCaseSensibility());
         }
         Set<String> dbNameSet = Sets.newTreeSet();
         for (String fullName : dbNames) {
@@ -697,7 +707,7 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         // TODO(gaoxin): Whether to support "show tables from `ctl.db`" syntax in show statement?
         String catalogName = ctx.getDefaultCatalog();
-        DatabaseIf<TableIf> db = ctx.getCurrentDataSource().getDbOrAnalysisException(showTableStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getCurrentCatalog().getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
@@ -735,7 +745,7 @@ public class ShowExecutor {
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getCurrentDataSource().getDbNullable(showStmt.getDb());
+        DatabaseIf<TableIf> db = ctx.getCurrentCatalog().getDbNullable(showStmt.getDb());
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
@@ -800,6 +810,10 @@ public class ShowExecutor {
                 rows.add(row);
             }
         }
+        // sort by table name
+        rows.sort((x, y) -> {
+            return x.get(0).compareTo(y.get(0));
+        });
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -819,7 +833,7 @@ public class ShowExecutor {
     private void handleShowCreateDb() throws AnalysisException {
         ShowCreateDbStmt showStmt = (ShowCreateDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
         if (db.getDbProperties().getProperties().size() > 0) {
@@ -835,7 +849,7 @@ public class ShowExecutor {
     // Show create table
     private void handleShowCreateTable() throws AnalysisException {
         ShowCreateTableStmt showStmt = (ShowCreateTableStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getDataSourceMgr().getCatalog(showStmt.getCtl())
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalog(showStmt.getCtl())
                 .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
@@ -849,7 +863,7 @@ public class ShowExecutor {
                 return;
             }
             List<String> createTableStmt = Lists.newArrayList();
-            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */);
+            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
             if (createTableStmt.isEmpty()) {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
@@ -883,7 +897,7 @@ public class ShowExecutor {
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
@@ -935,7 +949,7 @@ public class ShowExecutor {
     private void handleShowIndex() throws AnalysisException {
         ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
         table.readLock();
         try {
@@ -960,7 +974,7 @@ public class ShowExecutor {
             view.readLock();
             try {
                 List<String> createViewStmt = Lists.newArrayList();
-                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */);
+                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
                 if (!createViewStmt.isEmpty()) {
                     rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
                 }
@@ -1035,7 +1049,7 @@ public class ShowExecutor {
 
         Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
         Env env = ctx.getEnv();
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
 
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
@@ -1096,7 +1110,7 @@ public class ShowExecutor {
         ShowStreamLoadStmt showStmt = (ShowStreamLoadStmt) stmt;
 
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
 
         List<List<Comparable>> streamLoadRecords = env.getStreamLoadRecordMgr()
@@ -1152,7 +1166,7 @@ public class ShowExecutor {
         }
 
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(showWarningsStmt.getDbName());
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
 
         long dbId = db.getId();
         Load load = env.getLoadInstance();
@@ -1365,7 +1379,7 @@ public class ShowExecutor {
         ShowDeleteStmt showStmt = (ShowDeleteStmt) stmt;
 
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
 
         DeleteHandler deleteHandler = env.getDeleteHandler();
@@ -1453,7 +1467,7 @@ public class ShowExecutor {
             int tabletIdx = -1;
             // check real meta
             do {
-                Database db = env.getInternalDataSource().getDbNullable(dbId);
+                Database db = env.getInternalCatalog().getDbNullable(dbId);
                 if (db == null) {
                     isSync = false;
                     break;
@@ -1517,7 +1531,7 @@ public class ShowExecutor {
                     partitionId.toString(), indexId.toString(),
                     isSync.toString(), String.valueOf(tabletIdx), detailCmd));
         } else {
-            Database db = env.getInternalDataSource().getDbOrAnalysisException(showStmt.getDbName());
+            Database db = env.getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
             OlapTable olapTable = db.getOlapTableOrAnalysisException(showStmt.getTableName());
 
             olapTable.readLock();
@@ -1664,7 +1678,7 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(showExportStmt.getDbName());
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -1848,7 +1862,7 @@ public class ShowExecutor {
     private void handleShowDynamicPartition() {
         ShowDynamicPartitionStmt showDynamicPartitionStmt = (ShowDynamicPartitionStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getEnv().getInternalDataSource().getDbNullable(showDynamicPartitionStmt.getDb());
+        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbNullable(showDynamicPartitionStmt.getDb());
         if (db != null && (db instanceof Database)) {
             List<Table> tableList = db.getTables();
             for (Table tbl : tableList) {
@@ -1916,7 +1930,7 @@ public class ShowExecutor {
     // Show transaction statement.
     private void handleShowTransaction() throws AnalysisException {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getInternalDataSource().getDbOrAnalysisException(showStmt.getDbName());
+        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
@@ -2132,7 +2146,7 @@ public class ShowExecutor {
     private void handleShowTableCreation() throws AnalysisException {
         ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
         String dbName = showStmt.getDbName();
-        DatabaseIf db = ctx.getCurrentDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
 
         List<IcebergTableCreationRecord> records = ctx.getEnv().getIcebergTableCreationRecordMgr()
                 .getTableCreationRecordByDbId(db.getId());
@@ -2254,14 +2268,112 @@ public class ShowExecutor {
 
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
-        resultSet = Env.getCurrentEnv().getDataSourceMgr().showCatalogs(showStmt);
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt);
     }
 
     private void handleShowAnalyze() throws AnalysisException {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        StatisticsJobManager jobManager = Env.getCurrentEnv()
-                .getStatisticsJobManager();
+        StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
         List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleCopyTablet() throws AnalysisException {
+        AdminCopyTabletStmt copyStmt = (AdminCopyTabletStmt) stmt;
+        long tabletId = copyStmt.getTabletId();
+        long version = copyStmt.getVersion();
+        long backendId = copyStmt.getBackendId();
+
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            throw new AnalysisException("Unknown tablet: " + tabletId);
+        }
+
+        // 1. find replica
+        Replica replica = null;
+        if (backendId != -1) {
+            replica = invertedIndex.getReplica(tabletId, backendId);
+        } else {
+            List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+            if (!replicas.isEmpty()) {
+                replica = replicas.get(0);
+            }
+        }
+        if (replica == null) {
+            throw new AnalysisException("Replica not found on backend: " + backendId);
+        }
+        backendId = replica.getBackendId();
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (be == null || !be.isAlive()) {
+            throw new AnalysisException("Unavailable backend: " + backendId);
+        }
+
+        // 2. find version
+        if (version != -1 && replica.getVersion() < version) {
+            throw new AnalysisException("Version is larger than replica max version: " + replica.getVersion());
+        }
+        version = version == -1 ? replica.getVersion() : version;
+
+        // 3. get create table stmt
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tabletMeta.getDbId());
+        OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
+        if (tbl == null) {
+            throw new AnalysisException("Failed to find table: " + tabletMeta.getTableId());
+        }
+
+        List<String> createTableStmt = Lists.newArrayList();
+        tbl.readLock();
+        try {
+            Env.getDdlStmt(tbl, createTableStmt, null, null, false, true /* hide password */, version);
+        } finally {
+            tbl.readUnlock();
+        }
+
+        // 4. create snapshot task
+        SnapshotTask task = new SnapshotTask(null, backendId, tabletId, -1, tabletMeta.getDbId(),
+                tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, 0,
+                copyStmt.getExpirationMinutes() * 60 * 1000, false);
+        task.setIsCopyTabletTask(true);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(1);
+        countDownLatch.addMark(backendId, tabletId);
+        task.setCountDownLatch(countDownLatch);
+
+        // 5. send task and wait
+        AgentBatchTask batchTask = new AgentBatchTask();
+        batchTask.addTask(task);
+        try {
+            AgentTaskQueue.addBatchTask(batchTask);
+            AgentTaskExecutor.submit(batchTask);
+
+            boolean ok = false;
+            try {
+                ok = countDownLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+                ok = false;
+            }
+
+            if (!ok) {
+                throw new AnalysisException(
+                        "Failed to make snapshot for tablet " + tabletId + " on backend: " + backendId);
+            }
+
+            // send result
+            List<List<String>> resultRowSet = Lists.newArrayList();
+            List<String> row = Lists.newArrayList();
+            row.add(String.valueOf(tabletId));
+            row.add(String.valueOf(backendId));
+            row.add(be.getHost());
+            row.add(task.getResultSnapshotPath());
+            row.add(String.valueOf(copyStmt.getExpirationMinutes()));
+            row.add(createTableStmt.get(0));
+            resultRowSet.add(row);
+
+            ShowResultSetMetaData showMetaData = copyStmt.getMetaData();
+            resultSet = new ShowResultSet(showMetaData, resultRowSet);
+        } finally {
+            AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
+        }
     }
 }

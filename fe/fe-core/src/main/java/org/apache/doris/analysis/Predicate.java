@@ -32,11 +32,13 @@ public abstract class Predicate extends Expr {
 
     public Predicate() {
         super();
+        type = Type.BOOLEAN;
         this.isEqJoinConjunct = false;
     }
 
     protected Predicate(Predicate other) {
         super(other);
+        type = other.type;
         isEqJoinConjunct = other.isEqJoinConjunct;
     }
 
@@ -50,7 +52,6 @@ public abstract class Predicate extends Expr {
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        type = Type.BOOLEAN;
         // values: true/false/null
         numDistinctValues = 3;
     }

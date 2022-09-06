@@ -241,7 +241,7 @@ enum ErrorCode {
 
 class Status {
 public:
-    Status() : _code(0) {}
+    Status() : _code(TStatusCode::OK), _precise_code(0) {}
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) = default;
@@ -393,7 +393,7 @@ public:
 
     static Status ConstructErrorStatus(int16_t precise_code);
 
-    bool ok() const { return _code == 0; }
+    bool ok() const { return _code == TStatusCode::OK; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
@@ -448,7 +448,7 @@ public:
 
     /// @return A string representation of the status code, without the message
     ///   text or sub code information.
-    std::string code_as_string() const;
+    const char* code_as_string() const;
 
     TStatusCode::type code() const {
         return ok() ? TStatusCode::OK : static_cast<TStatusCode::type>(_code);
@@ -490,7 +490,7 @@ public:
     }
 
 private:
-    int8_t _code;
+    TStatusCode::type _code;
     int16_t _precise_code;
     std::string _err_msg;
 };
@@ -502,18 +502,18 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 }
 
 // some generally useful macros
-#define RETURN_IF_ERROR(stmt)            \
-    do {                                 \
-        const Status& _status_ = (stmt); \
-        if (UNLIKELY(!_status_.ok())) {  \
-            return _status_;             \
-        }                                \
+#define RETURN_IF_ERROR(stmt)           \
+    do {                                \
+        Status _status_ = (stmt);       \
+        if (UNLIKELY(!_status_.ok())) { \
+            return _status_;            \
+        }                               \
     } while (false)
 
 // End _get_next_span after last call to get_next method
 #define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
     do {                                                          \
-        const auto& _status_ = (stmt);                            \
+        Status _status_ = (stmt);                                 \
         auto _span = (get_next_span);                             \
         if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
             _span->End();                                         \
@@ -533,7 +533,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 
 #define EXIT_IF_ERROR(stmt)                         \
     do {                                            \
-        const Status& _status_ = (stmt);            \
+        Status _status_ = (stmt);                   \
         if (UNLIKELY(!_status_.ok())) {             \
             LOG(ERROR) << _status_.get_error_msg(); \
             exit(1);                                \
@@ -543,7 +543,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 /// @brief Emit a warning if @c to_call returns a bad status.
 #define WARN_IF_ERROR(to_call, warning_prefix)                          \
     do {                                                                \
-        const Status& _s = (to_call);                                   \
+        Status _s = (to_call);                                          \
         if (UNLIKELY(!_s.ok())) {                                       \
             LOG(WARNING) << (warning_prefix) << ": " << _s.to_string(); \
         }                                                               \
@@ -551,7 +551,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 
 #define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)              \
     do {                                                                       \
-        const Status& _s = (stmt);                                             \
+        Status _s = (stmt);                                                    \
         if (UNLIKELY(!_s.ok())) {                                              \
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
             return ret_code;                                                   \
@@ -560,7 +560,7 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
 
 #define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix)                   \
     do {                                                                       \
-        const Status& _s = (stmt);                                             \
+        Status _s = (stmt);                                                    \
         if (UNLIKELY(!_s.ok())) {                                              \
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
             return _s;                                                         \

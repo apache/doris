@@ -415,11 +415,6 @@ private:
     // Grow the node array.
     void grow_node_array();
 
-    // Sets _mem_tracker_exceeded to true and MEM_LIMIT_EXCEEDED for the query.
-    // allocation_size is the attempted size of the allocation that would have
-    // brought us over the mem limit.
-    void mem_limit_exceeded(int64_t allocation_size);
-
     const std::vector<ExprContext*>& _build_expr_ctxs;
     const std::vector<ExprContext*>& _probe_expr_ctxs;
 

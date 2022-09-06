@@ -20,6 +20,8 @@
 #include <cstdint>
 
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
@@ -27,17 +29,9 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
-    using T = std::conditional_t<Type == TYPE_DATE, uint24_t,
-                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {
-        if constexpr (std::is_same_v<T, uint24_t>) {
-            _value_real = 0;
-            memory_copy(&_value_real, _value.get_data(), sizeof(T));
-        } else {
-            _value_real = _value;
-        }
-    }
+            : ColumnPredicate(column_id, opposite), _value(value) {}
 
     PredicateType type() const override { return PT; }
 
@@ -47,17 +41,34 @@ public:
             for (uint16_t i = 0; i < *size; ++i) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                new_size += _opposite ? !result : result;
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
+                    new_size += _opposite ? !result : result;
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    new_size += _opposite ? !result : result;
+                }
             }
         } else {
             for (uint16_t i = 0; i < *size; ++i) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = _operator(*cell_value, _value);
-                new_size += _opposite ? !result : result;
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result = _operator(tmp_uint32_value, _value);
+                    new_size += _opposite ? !result : result;
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = _operator(*cell_value, _value);
+                    new_size += _opposite ? !result : result;
+                }
             }
         }
         *size = new_size;
@@ -70,9 +81,18 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                flags[i] = flags[i] | (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                }
             }
         } else {
             for (uint16_t i = 0; i < size; ++i) {
@@ -80,9 +100,17 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = _operator(*cell_value, _value);
-                flags[i] = flags[i] | (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result = _operator(tmp_uint32_value, _value);
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = _operator(*cell_value, _value);
+                    flags[i] = flags[i] | (_opposite ? !result : result);
+                }
             }
         }
     }
@@ -95,9 +123,18 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
-                flags[i] = flags[i] & (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result =
+                            (!block->cell(idx).is_null() && _operator(tmp_uint32_value, _value));
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = (!block->cell(idx).is_null() && _operator(*cell_value, _value));
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                }
             }
         } else {
             for (uint16_t i = 0; i < size; ++i) {
@@ -105,9 +142,17 @@ public:
                     continue;
                 }
                 uint16_t idx = sel[i];
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                auto result = _operator(*cell_value, _value);
-                flags[i] = flags[i] & (_opposite ? !result : result);
+                if constexpr (Type == TYPE_DATE) {
+                    T tmp_uint32_value = 0;
+                    memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(),
+                           sizeof(uint24_t));
+                    auto result = _operator(tmp_uint32_value, _value);
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                } else {
+                    const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
+                    auto result = _operator(*cell_value, _value);
+                    flags[i] = flags[i] & (_opposite ? !result : result);
+                }
             }
         }
     }
@@ -156,6 +201,78 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
+#define COMPARE_TO_MIN_OR_MAX(ELE)                                                        \
+    if constexpr (Type == TYPE_DATE) {                                                    \
+        T tmp_uint32_value = 0;                                                           \
+        memcpy((char*)(&tmp_uint32_value), statistic.ELE->cell_ptr(), sizeof(uint24_t));  \
+        return _operator(tmp_uint32_value, _value);                                       \
+    } else {                                                                              \
+        return _operator(*reinterpret_cast<const T*>(statistic.ELE->cell_ptr()), _value); \
+    }
+
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null()) {
+            return true;
+        }
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return _operator(tmp_min_uint32_value <= _value && tmp_max_uint32_value >= _value,
+                                 true);
+            } else {
+                return _operator(
+                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _value &&
+                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _value,
+                        true);
+            }
+        } else if constexpr (PT == PredicateType::NE) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
+                                 true);
+            } else {
+                return _operator(
+                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
+                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value,
+                        true);
+            }
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            COMPARE_TO_MIN_OR_MAX(first)
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            COMPARE_TO_MIN_OR_MAX(second)
+        }
+    }
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                return bf->test_bytes(_value.ptr, _value.len);
+            } else if constexpr (Type == TYPE_DATE) {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                      sizeof(uint24_t));
+            } else {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                      sizeof(_value));
+            }
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
+    }
+
+    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
+
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         _evaluate_bit<false>(column, sel, size, flags);
@@ -193,7 +310,7 @@ public:
                                            .get_data()
                                            .data();
 
-                _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value_real);
+                _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -216,7 +333,7 @@ public:
                                 ->get_data()
                                 .data();
 
-                _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value_real);
+                _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value);
             }
         }
 
@@ -238,8 +355,6 @@ public:
     }
 
 private:
-    using TReal = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {
@@ -395,8 +510,7 @@ private:
                             ->get_data()
                             .data();
 
-            _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
-                                                _value_real);
+            _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array, _value);
         }
     }
 
@@ -442,12 +556,11 @@ private:
                             ->get_data()
                             .data();
 
-            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value_real);
+            return _base_loop<is_nullable>(sel, size, null_map, data_array, _value);
         }
     }
 
     T _value;
-    TReal _value_real;
 };
 
 } //namespace doris

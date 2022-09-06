@@ -128,6 +128,8 @@ private:
     RuntimeProfile::Counter* _first_batch_wait_total_timer;
     RuntimeProfile::Counter* _buffer_full_total_timer;
     RuntimeProfile::Counter* _data_arrival_timer;
+    RuntimeProfile::Counter* _decompress_timer;
+    RuntimeProfile::Counter* _decompress_bytes;
 
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 };

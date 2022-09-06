@@ -27,6 +27,7 @@
 
 #include <exception>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/chunk.h"
 #include "runtime/memory/chunk_allocator.h"
@@ -133,7 +134,7 @@ public:
             }
 
             /// No need for zero-fill, because mmap guarantees it.
-        } else if (size >= CHUNK_THRESHOLD) {
+        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
             doris::Chunk chunk;
             if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
                 doris::vectorized::throwFromErrno(
@@ -177,7 +178,9 @@ public:
             } else {
                 RELEASE_THREAD_MEM_TRACKER(size);
             }
-        } else if (size >= CHUNK_THRESHOLD) {
+        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD &&
+                   ((size & (size - 1)) == 0)) {
+            // Only power-of-two length are added to ChunkAllocator
             doris::ChunkAllocator::instance()->free((uint8_t*)buf, size);
         } else {
             ::free(buf);
@@ -230,6 +233,8 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
             }
         } else {
+            // CHUNK_THRESHOLD <= old_size <= MMAP_THRESHOLD use system realloc is slow, use ChunkAllocator.
+            // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
             free(buf, old_size);

@@ -56,7 +56,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 
 ## 开始备份
 
-1. 创建一个hdfs的远程仓库example_repo：
+1. 创建一个 hdfs 的远程仓库 example_repo：
 
    ```sql
    CREATE REPOSITORY `example_repo`
@@ -68,6 +68,25 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
       "password" = "password"
    );
    ```
+
+2. 创建一个 s3 的远程仓库 : s3_repo
+
+   ```
+   CREATE REPOSITORY `s3_repo`
+   WITH S3
+   ON LOCATION "s3://bucket_name/test"
+   PROPERTIES
+   (
+       "AWS_ENDPOINT" = "http://xxxx.xxxx.com",
+       "AWS_ACCESS_KEY" = "xxxx",
+       "AWS_SECRET_KEY"="xxx",
+       "AWS_REGION" = "xxx"
+   ); 
+   ```
+
+   >注意：
+   >
+   >ON LOCATION 这里后面跟的是 Bucket Name
 
 2. 全量备份 example_db 下的表 example_tbl 到仓库 example_repo 中：
 

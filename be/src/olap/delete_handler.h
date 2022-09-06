@@ -25,19 +25,19 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
 
-class Conditions;
 class RowCursor;
+class Tablet;
 class TabletReader;
 class TabletSchema;
 
 // Represent a delete condition.
 struct DeleteConditions {
-    int64_t filter_version = 0;     // The version of this condition
-    Conditions* del_cond = nullptr; // The delete condition
+    int64_t filter_version = 0; // The version of this condition
     std::vector<const ColumnPredicate*> column_predicate_vec;
 };
 
@@ -90,26 +90,18 @@ public:
     // return:
     //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
-    Status init(TabletSchemaSPtr schema, const std::vector<DeletePredicatePB>& delete_conditions,
-                int64_t version, const doris::TabletReader* = nullptr);
-
-    // Return the delete conditions' size.
-    size_t conditions_num() const { return _del_conds.size(); }
+    Status init(TabletSchemaSPtr tablet_schema,
+                const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
 
     bool empty() const { return _del_conds.empty(); }
-
-    // Return all the versions of the delete conditions.
-    std::vector<int64_t> get_conds_version();
 
     // Release an instance of this class.
     void finalize();
 
-    // Return all the delete conditions.
-    const std::vector<DeleteConditions>& get_delete_conditions() const { return _del_conds; }
-
     void get_delete_conditions_after_version(
-            int64_t version, std::vector<const Conditions*>* delete_conditions,
-            AndBlockColumnPredicate* and_block_column_predicate_ptr) const;
+            int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
+            std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
+                    col_id_to_del_predicates) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
@@ -118,6 +110,7 @@ private:
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
+    std::unique_ptr<MemPool> _predicate_mem_pool;
 
     DISALLOW_COPY_AND_ASSIGN(DeleteHandler);
 };

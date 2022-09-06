@@ -225,15 +225,46 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         break;
 
     case TYPE_ARRAY: {
-        const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
-        auto children_type = type.children.at(0);
-        auto iter = src->iterator(children_type.type);
+        auto child_type = type.children[0];
+        auto array_value = (const CollectionValue*)(value);
+
+        ArrayIterator iter = array_value->iterator(child_type.type);
         *stream << "[";
-        print_value(iter.get(), children_type, scale, stream);
-        iter.next();
-        for (; iter.has_next(); iter.next()) {
-            *stream << ", ";
-            print_value(iter.get(), children_type, scale, stream);
+
+        int begin = 0;
+        while (iter.has_next()) {
+            if (begin != 0) {
+                *stream << ", ";
+            }
+            if (!iter.get()) {
+                *stream << "NULL";
+            } else {
+                if (child_type.is_string_type()) {
+                    *stream << "'";
+                    print_value(iter.get(), child_type, scale, stream);
+                    *stream << "'";
+                } else if (child_type.is_date_type()) {
+                    DateTimeVal data;
+                    iter.get(&data);
+                    auto datetime_value = DateTimeValue::from_datetime_val(data);
+                    print_value(&datetime_value, child_type, scale, stream);
+                } else if (child_type.is_decimal_type()) {
+                    DecimalV2Val data;
+                    iter.get(&data);
+                    auto decimal_value = DecimalV2Value::from_decimal_val(data);
+                    print_value(&decimal_value, child_type, scale, stream);
+                } else if (child_type.type == TYPE_DOUBLE) {
+                    // Note: the default precision is 6, here should be reset to 15.
+                    // Otherwise, there is a risk of losing precision.
+                    stream->precision(15);
+                    print_value(iter.get(), child_type, scale, stream);
+                } else {
+                    print_value(iter.get(), child_type, scale, stream);
+                }
+            }
+
+            iter.next();
+            begin++;
         }
         *stream << "]";
         break;

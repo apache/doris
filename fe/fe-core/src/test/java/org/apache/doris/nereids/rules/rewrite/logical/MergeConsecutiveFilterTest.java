@@ -17,16 +17,15 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -48,13 +47,11 @@ public class MergeConsecutiveFilterTest {
         Expression expression3 = new IntegerLiteral(3);
         LogicalFilter filter3 = new LogicalFilter(expression3, filter2);
 
-        PlannerContext plannerContext = new Memo(filter3)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter3);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveFilters().build());
-        plannerContext.bottomUpRewrite(rules);
+        cascadesContext.bottomUpRewrite(rules);
         //check transformed plan
-        Plan resultPlan = plannerContext.getMemo().copyOut();
+        Plan resultPlan = cascadesContext.getMemo().copyOut();
         System.out.println(resultPlan.treeString());
         Assertions.assertTrue(resultPlan instanceof LogicalFilter);
         Expression allPredicates = ExpressionUtils.and(expression3,

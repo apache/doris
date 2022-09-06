@@ -44,6 +44,7 @@ import java.util.stream.Stream;
  *    |
  *  scan(k1,k2,k3,v1)
  * transformed:
+ * 　project(k1)
  *    |
  *  filter(k2 > 3)
  *   |

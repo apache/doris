@@ -255,6 +255,15 @@ public class Config extends ConfigBase {
     public static int bdbje_replica_ack_timeout_second = 10;
 
     /**
+     * The desired upper limit on the number of bytes of reserved space to
+     * retain in a replicated JE Environment.
+     * You only need to decrease this value if your FE meta disk is really small.
+     * And don't need to increase this value.
+     */
+    @ConfField
+    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
+    /**
      * num of thread to handle heartbeat events in heartbeat_mgr.
      */
     @ConfField(masterOnly = true)
@@ -1676,7 +1685,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = false;
 
     @ConfField
-    public static boolean enable_vectorized_load = false;
+    public static boolean enable_vectorized_load = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1732,4 +1741,24 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String s3_compatible_object_storages = "s3,oss,cos,bos";
+
+    /**
+     * Support complex data type ARRAY.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_array_type = false;
+
+    /**
+     * Use new fe generate es dsl.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_new_es_dsl = true;
+
+    /**
+     * The timeout of executing async remote fragment.
+     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
+     * condition，try to set this timeout longer.
+     */
+    @ConfField(mutable = true)
+    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
 }

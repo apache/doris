@@ -302,6 +302,11 @@ public:
         return scatter_impl<ColumnString>(num_columns, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnString>(res, selector);
+    }
+
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     void reserve(size_t n) override;

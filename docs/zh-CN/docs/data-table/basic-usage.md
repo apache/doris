@@ -1,6 +1,6 @@
 ---
 {
-    "title": "基础使用指南",
+    "title": "使用指南",
     "language": "zh-CN"
 }
 ---
@@ -24,23 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 基础使用指南
+# 使用指南
 
 Doris 采用 MySQL 协议进行通信，用户可通过 MySQL client 或者 MySQL JDBC连接到 Doris 集群。选择 MySQL client 版本时建议采用5.1 之后的版本，因为 5.1 之前不能支持长度超过 16 个字符的用户名。本文以 MySQL client 为例，通过一个完整的流程向用户展示 Doris 的基本使用方法。
 
 ## 创建用户
 
+下载免安装的 [MySQL 客户端](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-glibc2.12-x86_64.tar.gz)。
+
 ### Root用户登录与密码修改
 
-Doris 内置 root 和 admin 用户，密码默认都为空。
+Doris 内置 root，密码默认为空。
 
 >备注：
 >
->Doris 提供的默认 root 和 admin 用户是管理员用户
+>Doris 提供的默认 root 
 >
 >root 用户默认拥有集群所有权限。同时拥有 Grant_priv 和 Node_priv 的用户，可以将该权限赋予其他用户，拥有节点变更权限，包括 FE、BE、BROKER 节点的添加、删除、下线等操作。
->
->admin用户拥有 ADMIN_PRIV 和 GRANT_PRIV 权限
 >
 >关于权限这块的具体说明可以参照[权限管理](/docs/admin-manual/privilege-ldap/user-privilege)
 
@@ -193,7 +193,7 @@ DISTRIBUTED BY HASH(siteid) BUCKETS 10
 PROPERTIES("replication_num" = "1");
 ```
 
-#### 复合分区
+#### 多分区
 
 建立一个名字为 table2 的逻辑表。
 
@@ -276,7 +276,7 @@ mysql> DESC table2;
 >注意事项：
 
 > 1. 上述表通过设置 replication_num 建的都是单副本的表，Doris建议用户采用默认的 3 副本设置，以保证高可用。
-> 2. 可以对复合分区表动态的增删分区，详见 `HELP ALTER TABLE;` 中 Partition 相关部分。
+> 2. 可以对多分区表动态的增删分区，详见 `HELP ALTER TABLE;` 中 Partition 相关部分。
 > 3. 数据导入可以导入指定的 Partition，详见 `HELP LOAD;`。
 > 4. 可以动态修改表的 Schema，详见`HELP ALTER TABLE;`。
 > 5. 可以对 Table 增加上卷表（Rollup）以提高查询性能，这部分可以参见高级使用指南关于 Rollup 的描述。
@@ -284,7 +284,7 @@ mysql> DESC table2;
 
 ### 导入数据
 
-Doris 支持多种数据导入方式。具体可以参阅[数据导入](../data-operate/import/load-manual.md)文档。这里我们使用流式导入和 Broker 导入做示例。
+Doris 支持多种数据导入方式。具体可以参阅 [数据导入](../data-operate/import/load-manual.md) 文档。这里我们使用流式导入和 Broker 导入做示例。
 
 #### 流式导入
 
@@ -328,7 +328,7 @@ curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separ
 > 注意事项：
 >
 > 1. 采用流式导入建议文件大小限制在 10GB 以内，过大的文件会导致失败重试代价变大。
-> 2. 每一批导入数据都需要取一个 Label，Label 最好是一个和一批数据有关的字符串，方便阅读和管理。Doris 基于 Label 保证在一个Database 内，同一批数据只可导入成功一次。失败任务的 Label 可以重用。
+> 2. label：Label 的主要作用是唯一标识一个导入任务，并且能够保证相同的 Label 仅会被成功导入一次，具体可以查看 [数据导入事务及原子性 ](../data-operate/import/import-scenes/load-atomicity)。
 > 3. 流式导入是同步命令。命令返回成功则表示数据已经导入，返回失败表示这批数据没有导入。
 
 #### Broker 导入
@@ -428,3 +428,263 @@ mysql> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHE
 +-----------+
 1 row in set (0.13 sec)
 ```
+
+## 表结构变更
+
+使用 [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) 命令可以修改表的 Schema，包括如下修改：
+
+- 增加列
+- 删除列
+- 修改列类型
+- 改变列顺序
+
+以下通过使用示例说明表结构变更：
+
+原表 table1 的 Schema 如下:
+
+```text
++----------+-------------+------+-------+---------+-------+
+| Field    | Type        | Null | Key   | Default | Extra |
++----------+-------------+------+-------+---------+-------+
+| siteid   | int(11)     | No   | true  | 10      |       |
+| citycode | smallint(6) | No   | true  | N/A     |       |
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
++----------+-------------+------+-------+---------+-------+
+```
+
+我们新增一列 uv，类型为 BIGINT，聚合类型为 SUM，默认值为 0:
+
+```sql
+ALTER TABLE table1 ADD COLUMN uv BIGINT SUM DEFAULT '0' after pv;
+```
+
+提交成功后，可以通过以下命令查看作业进度:
+
+```sql
+SHOW ALTER TABLE COLUMN;
+```
+
+当作业状态为 `FINISHED`，则表示作业完成。新的 Schema 已生效。
+
+ALTER TABLE 完成之后, 可以通过 `DESC TABLE` 查看最新的 Schema。
+
+```sql
+mysql> DESC table1;
++----------+-------------+------+-------+---------+-------+
+| Field    | Type        | Null | Key   | Default | Extra |
++----------+-------------+------+-------+---------+-------+
+| siteid   | int(11)     | No   | true  | 10      |       |
+| citycode | smallint(6) | No   | true  | N/A     |       |
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
+| uv       | bigint(20)  | No   | false | 0       | SUM   |
++----------+-------------+------+-------+---------+-------+
+5 rows in set (0.00 sec)
+```
+
+可以使用以下命令取消当前正在执行的作业:
+
+```sql
+CANCEL ALTER TABLE COLUMN FROM table1;
+```
+
+更多帮助，可以参阅 `HELP ALTER TABLE`。
+
+## Rollup
+
+Rollup 可以理解为 Table 的一个物化索引结构。**物化** 是因为其数据在物理上独立存储，而 **索引** 的意思是，Rollup可以调整列顺序以增加前缀索引的命中率，也可以减少key列以增加数据的聚合度。
+
+使用[ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md)可以进行Rollup的各种变更操作。
+
+以下举例说明
+
+原表table1的Schema如下:
+
+```text
++----------+-------------+------+-------+---------+-------+
+| Field    | Type        | Null | Key   | Default | Extra |
++----------+-------------+------+-------+---------+-------+
+| siteid   | int(11)     | No   | true  | 10      |       |
+| citycode | smallint(6) | No   | true  | N/A     |       |
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
+| uv       | bigint(20)  | No   | false | 0       | SUM   |`
++----------+-------------+------+-------+---------+-------+
+```
+
+对于 table1 明细数据是 siteid, citycode, username 三者构成一组 key，从而对 pv 字段进行聚合；如果业务方经常有看城市 pv 总量的需求，可以建立一个只有 citycode, pv 的rollup。
+
+```sql
+ALTER TABLE table1 ADD ROLLUP rollup_city(citycode, pv);
+```
+
+提交成功后，可以通过以下命令查看作业进度：
+
+```sql
+SHOW ALTER TABLE ROLLUP;
+```
+
+当作业状态为 `FINISHED`，则表示作业完成。
+
+Rollup 建立完成之后可以使用 `DESC table1 ALL` 查看表的 Rollup 信息。
+
+```sql
+mysql> desc table1 all;
++-------------+----------+-------------+------+-------+--------+-------+
+| IndexName   | Field    | Type        | Null | Key   | Default | Extra |
++-------------+----------+-------------+------+-------+---------+-------+
+| table1      | siteid   | int(11)     | No   | true  | 10      |       |
+|             | citycode | smallint(6) | No   | true  | N/A     |       |
+|             | username | varchar(32) | No   | true  |         |       |
+|             | pv       | bigint(20)  | No   | false | 0       | SUM   |
+|             | uv       | bigint(20)  | No   | false | 0       | SUM   |
+|             |          |             |      |       |         |       |
+| rollup_city | citycode | smallint(6) | No   | true  | N/A     |       |
+|             | pv       | bigint(20)  | No   | false | 0       | SUM   |
++-------------+----------+-------------+------+-------+---------+-------+
+8 rows in set (0.01 sec)
+```
+
+可以使用以下命令取消当前正在执行的作业:
+
+```sql
+CANCEL ALTER TABLE ROLLUP FROM table1;
+```
+
+Rollup 建立之后，查询不需要指定 Rollup 进行查询。还是指定原有表进行查询即可。程序会自动判断是否应该使用 Rollup。是否命中 Rollup可以通过 `EXPLAIN your_sql;` 命令进行查看。
+
+更多帮助，可以参阅 `HELP ALTER TABLE`。
+
+## 物化视图
+
+物化视图是一种以空间换时间的数据分析加速技术。Doris 支持在基础表之上建立物化视图。比如可以在明细数据模型的表上建立基于部分列的聚合视图，这样可以同时满足对明细数据和聚合数据的快速查询。
+
+同时，Doris 能够自动保证物化视图和基础表的数据一致性，并且在查询时自动匹配合适的物化视图，极大降低用户的数据维护成本，为用户提供一个一致且透明的查询加速体验。
+
+关于物化视图的具体介绍，可参阅 [物化视图](../advanced/materialized-view)
+
+## 数据表的查询
+
+### 内存限制
+
+为了防止用户的一个查询可能因为消耗内存过大。查询进行了内存控制，一个查询任务，在单个 BE 节点上默认使用不超过 2GB 内存。
+
+用户在使用时，如果发现报 `Memory limit exceeded` 错误，一般是超过内存限制了。
+
+遇到内存超限时，用户应该尽量通过优化自己的 sql 语句来解决。
+
+如果确切发现2GB内存不能满足，可以手动设置内存参数。
+
+显示查询内存限制:
+
+```sql
+mysql> SHOW VARIABLES LIKE "%mem_limit%";
++---------------+------------+
+| Variable_name | Value      |
++---------------+------------+
+| exec_mem_limit| 2147483648 |
++---------------+------------+
+1 row in set (0.00 sec)
+```
+
+`exec_mem_limit` 的单位是 byte，可以通过 `SET` 命令改变 `exec_mem_limit` 的值。如改为 8GB。
+
+```sql
+mysql> SET exec_mem_limit = 8589934592;
+Query OK, 0 rows affected (0.00 sec)
+mysql> SHOW VARIABLES LIKE "%mem_limit%";
++---------------+------------+
+| Variable_name | Value      |
++---------------+------------+
+| exec_mem_limit| 8589934592 |
++---------------+------------+
+1 row in set (0.00 sec)
+```
+
+> - 以上该修改为 session 级别，仅在当前连接 session 内有效。断开重连则会变回默认值。
+> - 如果需要修改全局变量，可以这样设置：`SET GLOBAL exec_mem_limit = 8589934592;`。设置完成后，断开 session 重新登录，参数将永久生效。
+
+### 查询超时
+
+当前默认查询时间设置为最长为 300 秒，如果一个查询在 300 秒内没有完成，则查询会被 Doris 系统 cancel 掉。用户可以通过这个参数来定制自己应用的超时时间，实现类似 wait(timeout) 的阻塞方式。
+
+查看当前超时设置:
+
+```sql
+mysql> SHOW VARIABLES LIKE "%query_timeout%";
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| QUERY_TIMEOUT | 300   |
++---------------+-------+
+1 row in set (0.00 sec)
+```
+
+修改超时时间到1分钟:
+
+```sql
+mysql>  SET query_timeout = 60;
+Query OK, 0 rows affected (0.00 sec)
+```
+
+> - 当前超时的检查间隔为 5 秒，所以小于 5 秒的超时不会太准确。
+> - 以上修改同样为 session 级别。可以通过 `SET GLOBAL` 修改全局有效。
+
+### Broadcast/Shuffle Join
+
+系统默认实现 Join 的方式，是将小表进行条件过滤后，将其广播到大表所在的各个节点上，形成一个内存 Hash 表，然后流式读出大表的数据进行Hash Join。但是如果当小表过滤后的数据量无法放入内存的话，此时 Join 将无法完成，通常的报错应该是首先造成内存超限。
+
+如果遇到上述情况，建议显式指定 Shuffle Join，也被称作 Partitioned Join。即将小表和大表都按照 Join 的 key 进行 Hash，然后进行分布式的 Join。这个对内存的消耗就会分摊到集群的所有计算节点上。
+
+Doris会自动尝试进行 Broadcast Join，如果预估小表过大则会自动切换至 Shuffle Join。注意，如果此时显式指定了 Broadcast Join 也会自动切换至 Shuffle Join。
+
+使用 Broadcast Join（默认）:
+
+```sql
+mysql> select sum(table1.pv) from table1 join table2 where table1.siteid = 2;
++--------------------+
+| sum(`table1`.`pv`) |
++--------------------+
+|                 10 |
++--------------------+
+1 row in set (0.20 sec)
+```
+
+使用 Broadcast Join（显式指定）:
+
+```sql
+mysql> select sum(table1.pv) from table1 join [broadcast] table2 where table1.siteid = 2;
++--------------------+
+| sum(`table1`.`pv`) |
++--------------------+
+|                 10 |
++--------------------+
+1 row in set (0.20 sec)
+```
+
+使用 Shuffle Join:
+
+```sql
+mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.siteid = 2;
++--------------------+
+| sum(`table1`.`pv`) |
++--------------------+
+|                 10 |
++--------------------+
+1 row in set (0.15 sec)
+```
+
+### 查询重试和高可用
+
+当部署多个 FE 节点时，用户可以在多个 FE 之上部署负载均衡层来实现 Doris 的高可用。
+
+具体安装部署及使用方式请参照 [负载均衡](../admin-manual/cluster-management/load-balancing)
+
+## 数据更新和删除
+
+Doris 支持通过两种方式对已导入的数据进行删除。一种是通过 DELETE FROM 语句，指定 WHERE 条件对数据进行删除。这种方式比较通用，适合频率较低的定时删除任务。
+
+另一种删除方式仅针对 Unique 主键唯一模型，通过导入数据的方式将需要删除的主键行数据进行导入。Doris 内部会通过删除标记位对数据进行最终的物理删除。这种删除方式适合以实时的方式对数据进行删除。
+
+关于删除和更新操作的具体说明，可参阅 [数据更新](../data-operate/update-delete/update) 相关文档。

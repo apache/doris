@@ -27,7 +27,6 @@
 #include "olap/wrapper_field.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 #include "vec/columns/predicate_column.h"
 
 namespace doris {

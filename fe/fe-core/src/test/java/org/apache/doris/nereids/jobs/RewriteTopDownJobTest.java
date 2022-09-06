@@ -18,41 +18,53 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 public class RewriteTopDownJobTest {
-    public static class FakeRule extends OneRewriteRuleFactory {
+    public static class FakeRule implements RewriteRuleFactory {
         @Override
-        public Rule build() {
-            return unboundRelation().then(unboundRelation ->
-                    new LogicalBoundRelation(PlanConstructor.newOlapTable(0L, "test", 0), Lists.newArrayList("test"))
-            ).toRule(RuleType.BINDING_RELATION);
+        public List<Rule> buildRules() {
+            return ImmutableList.of(
+                    RuleType.BINDING_RELATION.build(
+                            unboundRelation().then(unboundRelation ->
+                                    new LogicalBoundRelation(
+                                            PlanConstructor.newOlapTable(0L, "test", 0),
+                                            Lists.newArrayList("test"))
+                            )
+                    ),
+                    RuleType.BINDING_PROJECT_SLOT.build(
+                            logicalProject()
+                                    .when(Plan::canBind)
+                                    .then(LogicalPlan::recomputeLogicalProperties)
+                    )
+            );
         }
     }
 
@@ -63,33 +75,30 @@ public class RewriteTopDownJobTest {
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
         );
-        PlannerContext plannerContext = new Memo(project)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyBottomUp(new FakeRule())
+                .checkMemo(memo -> {
+                    Group rootGroup = memo.getRoot();
+                    Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
+                    GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
+                    List<Slot> output = rootGroup.getLogicalProperties().getOutput();
+                    Assertions.assertEquals(1, output.size());
+                    Assertions.assertEquals("name", output.get(0).getName());
+                    Assertions.assertEquals(StringType.INSTANCE, output.get(0).getDataType());
+                    Assertions.assertEquals(1, rootGroupExpression.children().size());
+                    Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getPlan().getType());
 
-        List<Rule> fakeRules = Lists.newArrayList(new FakeRule().build());
-        plannerContext.topDownRewrite(fakeRules);
-
-        Group rootGroup = plannerContext.getMemo().getRoot();
-        Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
-        GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
-        List<Slot> output = rootGroup.getLogicalProperties().getOutput();
-        Assertions.assertEquals(1, output.size());
-        Assertions.assertEquals("name", output.get(0).getName());
-        Assertions.assertEquals(StringType.INSTANCE, output.get(0).getDataType());
-        Assertions.assertEquals(1, rootGroupExpression.children().size());
-        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getPlan().getType());
-
-        Group leafGroup = rootGroupExpression.child(0);
-        output = leafGroup.getLogicalProperties().getOutput();
-        Assertions.assertEquals(2, output.size());
-        Assertions.assertEquals("id", output.get(0).getName());
-        Assertions.assertEquals(IntegerType.INSTANCE, output.get(0).getDataType());
-        Assertions.assertEquals("name", output.get(1).getName());
-        Assertions.assertEquals(StringType.INSTANCE, output.get(1).getDataType());
-        Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
-        GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
-        Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());
+                    Group leafGroup = rootGroupExpression.child(0);
+                    output = leafGroup.getLogicalProperties().getOutput();
+                    Assertions.assertEquals(2, output.size());
+                    Assertions.assertEquals("id", output.get(0).getName());
+                    Assertions.assertEquals(IntegerType.INSTANCE, output.get(0).getDataType());
+                    Assertions.assertEquals("name", output.get(1).getName());
+                    Assertions.assertEquals(StringType.INSTANCE, output.get(1).getDataType());
+                    Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
+                    GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
+                    Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());
+                });
     }
 
     private static class LogicalBoundRelation extends LogicalRelation {
@@ -100,7 +109,8 @@ public class RewriteTopDownJobTest {
 
         public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, groupExpression, logicalProperties);
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+                    groupExpression, logicalProperties, Collections.emptyList());
         }
 
         @Override

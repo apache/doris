@@ -42,4 +42,4 @@ If you find any problems or suggestions while using Doris, you can provide feedb
 
 2. Github
 
-   Submit a [Github Issue](https://github.com/apache/incubator-doris/issues/new/choose)
+   Submit a [Github Issue](https://github.com/apache/doris/issues/new/choose)

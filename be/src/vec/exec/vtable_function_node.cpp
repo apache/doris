@@ -59,7 +59,7 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, _row_descriptor));
 
     // get current all output slots
-    for (const auto& tuple_desc : this->row_desc().tuple_descriptors()) {
+    for (const auto& tuple_desc : this->_row_descriptor.tuple_descriptors()) {
         for (const auto& slot_desc : tuple_desc->slots()) {
             _output_slots.push_back(slot_desc);
         }
@@ -117,7 +117,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
         if (_child_block->rows() == 0) {
             while (_child_block->rows() == 0 && !_child_eos) {
                 RETURN_IF_ERROR_AND_CHECK_SPAN(
-                        child(0)->get_next(state, _child_block.get(), &_child_eos),
+                        child(0)->get_next_after_projects(state, _child_block.get(), &_child_eos),
                         child(0)->get_next_span(), _child_eos);
             }
             if (_child_eos && _child_block->rows() == 0) {
@@ -166,6 +166,10 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
 
             // 1. copy data from child_block.
             for (int i = 0; i < _child_slots.size(); i++) {
+                if (!slot_need_copy(i)) {
+                    columns[i]->insert_default();
+                    continue;
+                }
                 auto src_column = _child_block->get_by_position(i).column;
                 columns[i]->insert_from(*src_column, _cur_child_offset);
             }

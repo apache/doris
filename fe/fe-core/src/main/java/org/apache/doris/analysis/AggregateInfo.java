@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
@@ -160,6 +161,14 @@ public final class AggregateInfo extends AggregateInfoBase {
         partitionExprs = exprs;
     }
 
+    private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
+        for (Expr expr : groupingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
+    }
+
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -176,6 +185,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         Preconditions.checkState(
                 (groupingExprs != null && !groupingExprs.isEmpty())
                         || (aggExprs != null && !aggExprs.isEmpty()));
+        validateGroupingExprs(groupingExprs);
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, AggPhase.FIRST);
 
         // collect agg exprs with DISTINCT clause
@@ -513,16 +523,8 @@ public final class AggregateInfo extends AggregateInfoBase {
             if (exprList.size() > 1) {
                 continue;
             }
-            Expr expr = exprList.get(0);
-            if (!(expr instanceof SlotRef)) {
-                continue;
-            }
-            SlotRef slotRef = (SlotRef) expr;
-            Expr right = smap.get(slotRef);
-            if (right == null) {
-                continue;
-            }
-            slotDesc.setIsNullable(right.isNullable());
+            Expr srcExpr = exprList.get(0).substitute(smap);
+            slotDesc.setIsNullable(srcExpr.isNullable() || slotDesc.getIsNullable());
         }
     }
 

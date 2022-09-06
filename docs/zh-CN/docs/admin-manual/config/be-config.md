@@ -59,7 +59,7 @@ BE 的配置项有两种方式进行配置：
   在 0.13 版本及之前，通过该方式修改的配置项将在 BE 进程重启后失效。在 0.14 及之后版本中，可以通过以下命令持久化修改后的配置。修改后的配置项存储在 `be_custom.conf` 文件中。
 
   ```
-  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true'
+  curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true
   ```
 
 ## 应用举例
@@ -1100,13 +1100,31 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 
 * 类型：int32
 * 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
-* 默认值：256
+* 默认值：64
 
 ### `send_batch_thread_pool_queue_size`
 
 * 类型：int32
 * 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
 * 默认值：102400
+
+### `download_cache_thread_pool_thread_num`
+
+* 类型: int32
+* 描述: DownloadCache线程池线程数目. 在FileCache的缓存下载任务之中, 缓存下载操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了DownloadCache线程池的大小。
+* 默认值：48
+
+### `download_cache_thread_pool_queue_size`
+
+* Type: int32
+* 描述: DownloadCache线程池线程数目. 在FileCache的缓存下载任务之中, 缓存下载操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
+### `download_cache_buffer_size`
+
+* 类型: int64
+* 描述: 下载缓存时用于接收数据的buffer的大小。
+* 默认值: 10485760
 
 ### `serialize_batch`
 
@@ -1175,7 +1193,7 @@ BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
 
 ### `storage_flood_stage_usage_percent`
 
-默认值：95 （95%）
+默认值：90 （90%）
 
 storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两个配置限制了数据目录的磁盘容量的最大使用。 如果这两个阈值都达到，则无法将更多数据写入该数据目录。 数据目录的最大已用容量百分比
 
@@ -1206,7 +1224,8 @@ StoragePageCache的分片大小，值为 2^n (n=0,1,2,...)。建议设置为接�
 
 * 类型：string
 
-* 描述：BE数据存储的目录,多目录之间用英文状态的分号`;`分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
+* 描述：BE数据存储的目录,多目录之间用英文状态的分号`;`分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。  
+  如果用户不是SSD和HDD磁盘混合使用的情况，不需要按照如下示例一和示例二的配置方法配置，只需指定存储目录即可；也不需要修改FE的默认存储介质配置  
 
   示例1如下：
   
@@ -1600,3 +1619,22 @@ webserver默认工作线程数
 * 描述: 最少进行合并的版本数，当选中的小数据量的rowset个数，大于这个值是才会进行真正的合并
 * 默认值: 10
 
+### `generate_cache_cleaner_task_interval_sec`
+* 类型：int64
+* 描述：缓存文件的清理间隔，单位：秒
+* 默认值：43200（12小时）
+
+### `file_cache_type`
+* 类型：string
+* 描述：缓存文件的类型。whole_file_cache：将segment文件整个下载，sub_file_cache：将segment文件按大小切分成多个文件。
+* 默认值：""
+
+### `max_sub_cache_file_size`
+* 类型：int64
+* 描述：缓存文件使用sub_file_cache时，切分文件的最大大小，单位B
+* 默认值：104857600（100MB）
+
+### `file_cache_alive_time_sec`
+* 类型：int64
+* 描述：缓存文件的保存时间，单位：秒
+* 默认值：604800（1个星期）

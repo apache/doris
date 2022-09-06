@@ -45,14 +45,13 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
             LogicalFilter<Plan> filter = ctx.root;
-            if (!ctx.plannerContext.getConnectContext().getSessionVariable()
+            if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
                     .isEnableNereidsReorderToEliminateCrossJoin()) {
                 return filter;
             }
             MultiJoin multiJoin = new MultiJoin();
             filter.accept(multiJoin, null);
-
-            return multiJoin.reorderJoinsAccordingToConditions();
+            return multiJoin.reorderJoinsAccordingToConditions().orElse(filter);
         }).toRule(RuleType.REORDER_JOIN);
     }
 }

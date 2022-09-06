@@ -138,12 +138,8 @@ public final class SparkDpp implements java.io.Serializable {
             RollupTreeNode curNode, SparkRDDAggregator[] sparkRDDAggregators) throws SparkDppException {
         final boolean isDuplicateTable = !StringUtils.equalsIgnoreCase(curNode.indexMeta.indexType, "AGGREGATE")
                 && !StringUtils.equalsIgnoreCase(curNode.indexMeta.indexType, "UNIQUE");
-
         // Aggregate/UNIQUE table
         if (!isDuplicateTable) {
-            // TODO(wb) set the reduce concurrency by statistic instead of hard code 200
-            int aggregateConcurrency = 200;
-
             int idx = 0;
             for (int i = 0; i < curNode.indexMeta.columns.size(); i++) {
                 if (!curNode.indexMeta.columns.get(i).isKey) {
@@ -155,14 +151,14 @@ public final class SparkDpp implements java.io.Serializable {
             if (curNode.indexMeta.isBaseIndex) {
                 JavaPairRDD<List<Object>, Object[]> result = currentPairRDD.mapToPair(
                         new EncodeBaseAggregateTableFunction(sparkRDDAggregators))
-                        .reduceByKey(new AggregateReduceFunction(sparkRDDAggregators), aggregateConcurrency);
+                        .reduceByKey(new AggregateReduceFunction(sparkRDDAggregators));
                 return result;
             } else {
                 JavaPairRDD<List<Object>, Object[]> result = currentPairRDD
                         .mapToPair(new EncodeRollupAggregateTableFunction(
                                 getColumnIndexInParentRollup(curNode.keyColumnNames, curNode.valueColumnNames,
                                         curNode.parent.keyColumnNames, curNode.parent.valueColumnNames)))
-                        .reduceByKey(new AggregateReduceFunction(sparkRDDAggregators), aggregateConcurrency);
+                        .reduceByKey(new AggregateReduceFunction(sparkRDDAggregators));
                 return result;
             }
         // Duplicate Table
@@ -402,6 +398,18 @@ public final class SparkDpp implements java.io.Serializable {
                     LOG.warn(String.format("the length of input is too long than schema."
                                     + " column_name:%s,input_str[%s],schema length:%s,actual length:%s",
                             etlColumn.columnName, row.toString(), etlColumn.stringLength, strSize));
+                    return false;
+                }
+                break;
+            case "STRING":
+            case "TEXT":
+                // TODO(zjf) padding string type
+                int strDataSize = 0;
+                if (srcValue != null && (strDataSize = srcValue.toString().getBytes(StandardCharsets.UTF_8).length)
+                        > DppUtils.STRING_LENGTH_LIMIT) {
+                    LOG.warn(String.format("The string type is limited to a maximum of %s bytes."
+                                    + " column_name:%s,input_str[%s],actual length:%s",
+                            DppUtils.STRING_LENGTH_LIMIT, etlColumn.columnName, row.toString(), strDataSize));
                     return false;
                 }
                 break;

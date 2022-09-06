@@ -303,10 +303,10 @@ Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, in
         return res;
     }
 
-    std::unique_lock<std::mutex> auto_lock(
-            _snapshot_mutex); // will automatically unlock when function return.
+    std::unique_lock<std::mutex> auto_lock(_snapshot_mutex);
+    uint64_t sid = _snapshot_base_id++;
     *out_path = fmt::format("{}/{}/{}.{}.{}", tablet->data_dir()->path(), SNAPSHOT_PREFIX, time_str,
-                            _snapshot_base_id++, timeout_s);
+                            sid, timeout_s);
     return res;
 }
 
@@ -320,6 +320,11 @@ std::string SnapshotManager::get_schema_hash_full_path(const TabletSharedPtr& re
 std::string SnapshotManager::_get_header_full_path(const TabletSharedPtr& ref_tablet,
                                                    const std::string& schema_hash_path) const {
     return fmt::format("{}/{}.hdr", schema_hash_path, ref_tablet->tablet_id());
+}
+
+std::string SnapshotManager::_get_json_header_full_path(const TabletSharedPtr& ref_tablet,
+                                                        const std::string& schema_hash_path) const {
+    return fmt::format("{}/{}.hdr.json", schema_hash_path, ref_tablet->tablet_id());
 }
 
 Status SnapshotManager::_link_index_and_data_files(
@@ -348,11 +353,11 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     // snapshot_id_path:
     //      /data/shard_id/tablet_id/snapshot/time_str/id.timeout/
-    std::string snapshot_id_path;
     int64_t timeout_s = config::snapshot_expire_time_sec;
     if (request.__isset.timeout) {
         timeout_s = request.timeout;
     }
+    std::string snapshot_id_path;
     res = _calc_snapshot_id_path(ref_tablet, timeout_s, &snapshot_id_path);
     if (!res.ok()) {
         LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
@@ -366,6 +371,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     // header_path:
     //      /schema_full_path/tablet_id.hdr
     auto header_path = _get_header_full_path(ref_tablet, schema_full_path);
+    //      /schema_full_path/tablet_id.hdr.json
+    auto json_header_path = _get_json_header_full_path(ref_tablet, schema_full_path);
     if (FileUtils::check_exist(schema_full_path)) {
         VLOG_TRACE << "remove the old schema_full_path.";
         FileUtils::remove_all(schema_full_path);
@@ -515,6 +522,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
+            if (res.ok() && request.__isset.is_copy_tablet_task && request.is_copy_tablet_task) {
+                res = new_tablet_meta->save_as_json(json_header_path, ref_tablet->data_dir());
+            }
         } else {
             res = Status::OLAPInternalError(OLAP_ERR_INVALID_SNAPSHOT_VERSION);
         }

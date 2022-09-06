@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -42,7 +41,7 @@ public class ArrayType extends Type {
 
     public ArrayType() {
         itemType = NULL;
-        containsNull = false;
+        containsNull = true;
     }
 
     public ArrayType(Type itemType) {
@@ -118,7 +117,7 @@ public class ArrayType extends Type {
             return false;
         }
         ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType);
+        return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
     }
 
     public static boolean canCastTo(ArrayType type, ArrayType targetType) {
@@ -155,9 +154,6 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        if (!ConnectContext.get().getSessionVariable().isEnableArrayType()) {
-            return false;
-        }
         return !itemType.isNull();
     }
 
@@ -180,7 +176,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean supportsTablePartitioning() {
-        return isSupported() && !isComplexType();
+        return false;
     }
 
     @Override
