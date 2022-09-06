@@ -44,6 +44,7 @@ void ParquetReader::close() {
         conjuncts.second.clear();
     }
     _row_group_readers.clear();
+    _read_row_groups.clear();
     _skipped_row_ranges.clear();
     _slot_conjuncts.clear();
     _file_reader->close();
@@ -100,16 +101,18 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
 
 Status ParquetReader::read_next_batch(Block* block, bool* eof) {
     int32_t num_of_readers = _row_group_readers.size();
-    if (_row_group_readers.empty()) {
+    DCHECK(num_of_readers <= _read_row_groups.size());
+    if (_read_row_groups.empty()) {
         *eof = true;
         return Status::OK();
     }
-    DCHECK(num_of_readers <= _read_row_groups.size());
     bool _batch_eof = false;
     RETURN_IF_ERROR(_current_group_reader->next_batch(block, _batch_size, &_batch_eof));
     if (_batch_eof) {
         if (!_next_row_group_reader()) {
             *eof = true;
+        } else {
+            _read_row_groups.pop_front();
         }
     }
     return Status::OK();
@@ -199,7 +202,7 @@ Status ParquetReader::_filter_row_groups() {
         bool filter_group = false;
         RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
         if (!filter_group) {
-            _read_row_groups.push_back(row_group_idx);
+            _read_row_groups.emplace_back(row_group_idx);
         }
     }
     return Status::OK();
