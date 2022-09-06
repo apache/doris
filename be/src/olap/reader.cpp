@@ -475,7 +475,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
-    int32_t index = _tablet->field_index(function_filter._col_name);
+    int32_t index = _tablet_schema->field_index(function_filter._col_name);
     if (index < 0) {
         return nullptr;
     }
