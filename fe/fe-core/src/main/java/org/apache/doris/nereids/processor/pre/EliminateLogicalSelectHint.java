@@ -41,7 +41,9 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
     private Logger logger = LoggerFactory.getLogger(getClass());
 
     @Override
-    public LogicalPlan visitLogicalSelectHint(LogicalSelectHint<Plan> selectHintPlan, StatementContext context) {
+    public LogicalPlan visitLogicalSelectHint(
+            LogicalSelectHint<? extends Plan> selectHintPlan,
+            StatementContext context) {
         for (Entry<String, SelectHint> hint : selectHintPlan.getHints().entrySet()) {
             String hintName = hint.getKey();
             if (hintName.equalsIgnoreCase("SET_VAR")) {

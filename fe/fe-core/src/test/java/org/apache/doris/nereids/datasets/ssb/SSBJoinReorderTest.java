@@ -143,14 +143,14 @@ public class SSBJoinReorderTest extends SSBTestBase {
         }
 
         @Override
-        public Void visitLogicalFilter(LogicalFilter<Plan> filter, Context context) {
+        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Context context) {
             filters.add(filter);
             filter.child().accept(this, new Context(filter));
             return null;
         }
 
         @Override
-        public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Context context) {
+        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Context context) {
             join.left().accept(this, new Context(join));
             join.right().accept(this, new Context(join));
             joins.add(join);

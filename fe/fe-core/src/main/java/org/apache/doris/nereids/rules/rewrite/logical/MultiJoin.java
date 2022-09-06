@@ -185,7 +185,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     }
 
     @Override
-    public Void visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
+    public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         Plan child = filter.child();
         if (child instanceof LogicalJoin) {
             conjunctsForAllHashJoins.addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
@@ -196,7 +196,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     }
 
     @Override
-    public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
+    public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         if (join.getJoinType() != JoinType.CROSS_JOIN && join.getJoinType() != JoinType.INNER_JOIN) {
             return null;
         }

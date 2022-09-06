@@ -37,9 +37,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
      * create physical plan by op, logicalProperties and children.
      */
     public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
-        super(type, Optional.empty(), Optional.of(logicalProperties), children);
-        // TODO: compute physical properties
-        this.physicalProperties = PhysicalProperties.ANY;
+        this(type, Optional.empty(), logicalProperties, children);
     }
 
     /**
@@ -52,9 +50,13 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
      */
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
                                 LogicalProperties logicalProperties, Plan... children) {
+        this(type, groupExpression, logicalProperties, PhysicalProperties.ANY, children);
+    }
+
+    public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Plan... children) {
         super(type, groupExpression, Optional.of(logicalProperties), children);
-        // TODO: compute physical properties
-        this.physicalProperties = PhysicalProperties.ANY;
+        this.physicalProperties = physicalProperties;
     }
 
     @Override

@@ -39,7 +39,7 @@ public class PhysicalProperties {
         this.distributionSpec = DistributionSpecAny.INSTANCE;
     }
 
-    private PhysicalProperties(DistributionSpec distributionSpec) {
+    public PhysicalProperties(DistributionSpec distributionSpec) {
         this.distributionSpec = distributionSpec;
         this.orderSpec = new OrderSpec();
     }
