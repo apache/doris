@@ -25,7 +25,7 @@ services:
     ports:
       - "19200:9200"
     environment:
-      cluster.name: "elasticsearch6"
+      ELASTICSEARCH_CLUSTER_NAME: "elasticsearch6"
       ES_JAVA_OPTS: "-Xms256m -Xmx256m"
       discovery.type: "single-node"
       ELASTICSEARCH_XPACK_SECURITY_ENABLED: "false"
