@@ -89,6 +89,7 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 // }
 
 using BlockRow = std::pair<vectorized::Block*, int32_t>;
+using VecBlock = vectorized::Block;
 
 struct VOlapTablePartition {
     int64_t id = 0;
