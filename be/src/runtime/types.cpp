@@ -202,9 +202,10 @@ std::string TypeDescriptor::debug_string() const {
     case TYPE_DECIMAL128:
         ss << "DECIMAL128(" << precision << ", " << scale << ")";
         return ss.str();
-    case TYPE_ARRAY:
-        ss << "ARRAY(" << type_to_string(children[0].type) << ")";
+    case TYPE_ARRAY: {
+        ss << "ARRAY<" << children[0].debug_string() << ">";
         return ss.str();
+    }
     default:
         return type_to_string(type);
     }
