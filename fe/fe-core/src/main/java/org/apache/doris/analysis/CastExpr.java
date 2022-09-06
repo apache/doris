@@ -62,6 +62,9 @@ public class CastExpr extends Expr {
     // True if this cast does not change the type.
     private boolean noOp = false;
 
+    // open back door for spark load ,ingore check type when used in spark-load
+    private boolean ignoreCheckType = false;
+
     private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
     static {
@@ -109,6 +112,26 @@ public class CastExpr extends Expr {
         }
         analysisDone();
     }
+
+    public CastExpr(Type targetType, Expr e, Boolean ignoreCheckType) {
+        super();
+        this.ignoreCheckType = ignoreCheckType;
+        Preconditions.checkArgument(targetType.isValid());
+        Preconditions.checkNotNull(e);
+        type = targetType;
+        targetTypeDef = null;
+        isImplicit = true;
+        children.add(e);
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
+        }
+        analysisDone();
+    }
+
 
     /**
      * Copy c'tor used in clone().
@@ -286,17 +309,10 @@ public class CastExpr extends Expr {
         if (noOp) {
             return;
         }
-
-        // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
-        // it is necessary to check if it is castable before creating fn.
-        // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
-        if (type.isArrayType() || childType.isArrayType()) {
-            if (!Type.canCastTo(childType, type)) {
-                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
-                        + " from " + childType + " to " + type);
-            }
+        if (!Type.canCastTo(childType, type) && !this.ignoreCheckType) {
+            throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+                    + " from " + childType + " to " + type);
         }
-
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);

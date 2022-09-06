@@ -956,7 +956,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 // which lead to spark load not work when you import bitmap data
                 // so here we open a back door for spark load, which can support implicitly convert to bitmap type
                 if (dstType == PrimitiveType.BITMAP) {
-                    return new CastExpr(slotDesc.getType(), expr);
+                    return new CastExpr(slotDesc.getType(), expr, true);
                 } else {
                     return expr.castTo(slotDesc.getType());
                 }
