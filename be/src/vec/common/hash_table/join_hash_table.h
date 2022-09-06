@@ -605,7 +605,6 @@ public:
     }
 
     LookupResult ALWAYS_INLINE find(Key x) {
-        std::cout << "find1\n";
         if (Cell::is_zero(x, *this)) return this->get_has_zero() ? this->zero_value() : nullptr;
 
         size_t hash_value = hash(x);
@@ -617,12 +616,10 @@ public:
     }
 
     ConstLookupResult ALWAYS_INLINE find(Key x) const {
-        std::cout << "find2\n";
         return const_cast<std::decay_t<decltype(*this)>*>(this)->find(x);
     }
 
     LookupResult ALWAYS_INLINE find(Key x, size_t hash_value) {
-        std::cout << "find3\n";
         if (Cell::is_zero(x, *this)) return this->get_has_zero() ? this->zero_value() : nullptr;
 
         size_t place_value = find_cell(x, hash_value, first[grower.place(hash_value)]);
