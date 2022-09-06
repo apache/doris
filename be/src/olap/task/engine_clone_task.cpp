@@ -456,6 +456,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             tablet->get_cumulative_compaction_lock());
     tablet->set_clone_occurred(true);
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
+    std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
