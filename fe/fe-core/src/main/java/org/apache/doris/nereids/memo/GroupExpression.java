@@ -206,9 +206,8 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        // if the plan is UnboundOneRowRelation or UnboundRelation or LogicalRelation or PhysicalRelation,
-        // this == that should be true, when if one relation appear in plan more than once,
-        // we cannot distinguish them throw equals function, since equals function cannot use output info.
+        // FIXME: Doris not support temporary materialization, so we should not merge same
+        //        scan relation plan. We should add id for XxxRelation and compare by id.
         if (plan instanceof Relation) {
             return false;
         }

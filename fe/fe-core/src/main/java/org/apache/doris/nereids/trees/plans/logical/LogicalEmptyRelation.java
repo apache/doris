@@ -15,23 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer;
+package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -39,27 +35,26 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * A relation that contains only one row consist of some constant expressions.
- * e.g. select 100, 'value'
+ * A logical relation that contains empty row.
+ * e.g.
+ * select * from tbl limit 0
  */
-public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRowRelation {
-    private List<NamedExpression> projects;
+public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation {
+    private final List<NamedExpression> projects;
 
-    public UnboundOneRowRelation(List<NamedExpression> projects) {
+    public LogicalEmptyRelation(List<NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());
     }
 
-    private UnboundOneRowRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
+    public LogicalEmptyRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().allMatch(Expression::isConstant),
-                "OneRowRelation must consist of some constant expression");
-        this.projects = ImmutableList.copyOf(projects);
+        super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
+        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundOneRowRelation(this, context);
+        return visitor.visitLogicalEmptyRelation(this, context);
     }
 
     @Override
@@ -69,32 +64,29 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
 
     @Override
     public List<Expression> getExpressions() {
-        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
+        return ImmutableList.of();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOneRowRelation(projects, groupExpression, Optional.of(logicalProperties));
+        return new LogicalEmptyRelation(projects, groupExpression, Optional.of(logicalProperties));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundOneRowRelation(projects, Optional.empty(), logicalProperties);
+        return new LogicalEmptyRelation(projects, Optional.empty(), logicalProperties);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        throw new UnboundException("output");
-    }
-
-    @Override
-    public LogicalProperties computeLogicalProperties() {
-        return new UnboundLogicalProperties();
+        return projects.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("UnboundOneRowRelation",
+        return Utils.toSqlString("LogicalEmptyRelation",
                 "projects", projects
         );
     }
@@ -110,12 +102,12 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
         if (!super.equals(o)) {
             return false;
         }
-        UnboundOneRowRelation that = (UnboundOneRowRelation) o;
+        LogicalEmptyRelation that = (LogicalEmptyRelation) o;
         return Objects.equals(projects, that.projects);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), projects);
+        return Objects.hash(projects);
     }
 }

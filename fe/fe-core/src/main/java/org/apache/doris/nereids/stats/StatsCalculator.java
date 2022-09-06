@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -48,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -98,6 +101,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getOwnerGroup().setStatistics(stats);
         groupExpression.setStatDerived(true);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, Void context) {
+        return computeEmptyRelation(emptyRelation);
     }
 
     @Override
@@ -156,6 +164,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     public StatsDeriveResult visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
         return groupExpression.getCopyOfChildStats(0);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
+        return computeEmptyRelation(emptyRelation);
     }
 
     @Override
@@ -346,6 +359,22 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));
         int rowCount = 1;
+        return new StatsDeriveResult(rowCount, columnStatsMap);
+    }
+
+    private StatsDeriveResult computeEmptyRelation(EmptyRelation emptyRelation) {
+        Map<Slot, ColumnStats> columnStatsMap = emptyRelation.getProjects()
+                .stream()
+                .map(project -> {
+                    ColumnStats columnStats = new ColumnStats();
+                    columnStats.setNdv(0);
+                    columnStats.setMaxSize(0);
+                    columnStats.setNumNulls(0);
+                    columnStats.setAvgSize(0);
+                    return Pair.of(project.toSlot(), columnStats);
+                })
+                .collect(Collectors.toMap(Pair::key, Pair::value));
+        int rowCount = 0;
         return new StatsDeriveResult(rowCount, columnStatsMap);
     }
 }

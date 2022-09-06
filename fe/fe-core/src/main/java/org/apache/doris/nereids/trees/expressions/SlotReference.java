@@ -34,6 +34,8 @@ import javax.annotation.Nullable;
  */
 public class SlotReference extends Slot {
     private final ExprId exprId;
+    // TODO: we should distinguish the name is alias or column name, and the column name should contains
+    //       `cluster:db`.`table`.`column`
     private final String name;
     private final List<String> qualifier;
     private final DataType dataType;
@@ -57,7 +59,6 @@ public class SlotReference extends Slot {
         this(exprId, name, dataType, nullable, qualifier, null);
     }
 
-
     /**
      * Constructor for SlotReference.
      *
@@ -80,7 +81,8 @@ public class SlotReference extends Slot {
 
     public static SlotReference fromColumn(Column column, List<String> qualifier) {
         DataType dataType = DataType.convertFromCatalogDataType(column.getType());
-        return new SlotReference(column.getName(), dataType, column.isAllowNull(), qualifier);
+        return new SlotReference(NamedExpressionUtil.newExprId(), column.getName(), dataType,
+                column.isAllowNull(), qualifier, column);
     }
 
     @Override
