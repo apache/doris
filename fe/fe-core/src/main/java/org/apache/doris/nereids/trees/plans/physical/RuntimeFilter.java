@@ -45,7 +45,7 @@ public class RuntimeFilter {
 
     private boolean finalized = false;
 
-    private RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type,
+    public RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type,
             int exprOrder) {
         this.id = id;
         this.srcSlot = src;

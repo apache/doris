@@ -232,7 +232,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addScanNode(olapScanNode);
         // translate runtime filter
         context.getRuntimeFilterGenerator().ifPresent(
-                filterGenerator -> filterGenerator.translateRuntimeFilterTarget(olapScan, olapScanNode, context));
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnOlapScanNode(olapScan.id).forEach(
+                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
+                )
+        );
         // Create PlanFragment
         // TODO: add data partition after we have physical properties
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, DataPartition.RANDOM);

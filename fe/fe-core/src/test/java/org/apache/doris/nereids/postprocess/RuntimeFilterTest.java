@@ -41,6 +41,7 @@ public class RuntimeFilterTest extends SSBTestBase {
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
         connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
+        connectContext.getSessionVariable().setRuntimeFilterType(15);
     }
 
     @Test
@@ -88,7 +89,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 2
-                && checkRuntimeFilterExpr(filters.get(0),  "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(0), "d_datekey", "lo_orderdate")
                 && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "c_custkey"));
     }
 
