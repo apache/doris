@@ -1889,6 +1889,7 @@ visible_functions = [
     [['if'], 'DATEV2', ['BOOLEAN', 'DATEV2', 'DATEV2'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], '', '', '', 'vec', 'CUSTOM'],
+    [['if'], 'HLL', ['BOOLEAN', 'HLL', 'HLL'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'STRING', ['BOOLEAN', 'STRING', 'STRING'], '', '', '', 'vec', 'CUSTOM'],
