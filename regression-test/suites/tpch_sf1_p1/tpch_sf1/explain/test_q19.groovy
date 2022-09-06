@@ -63,7 +63,7 @@ suite("test_explain_tpch_sf_1_q19") {
         check {
             explainStr ->
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 10> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
+				"  |  output: sum(<slot 10> sum(<slot 12> * (1 - <slot 13>)))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  output: sum(<slot 12> * (1 - <slot 13>))\n" + 

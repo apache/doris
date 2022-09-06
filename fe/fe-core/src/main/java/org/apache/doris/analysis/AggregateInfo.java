@@ -523,16 +523,8 @@ public final class AggregateInfo extends AggregateInfoBase {
             if (exprList.size() > 1) {
                 continue;
             }
-            Expr expr = exprList.get(0);
-            if (!(expr instanceof SlotRef)) {
-                continue;
-            }
-            SlotRef slotRef = (SlotRef) expr;
-            Expr right = smap.get(slotRef);
-            if (right == null) {
-                continue;
-            }
-            slotDesc.setIsNullable(right.isNullable());
+            Expr srcExpr = exprList.get(0).substitute(smap);
+            slotDesc.setIsNullable(srcExpr.isNullable() || slotDesc.getIsNullable());
         }
     }
 

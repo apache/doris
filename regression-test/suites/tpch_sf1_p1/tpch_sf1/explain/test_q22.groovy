@@ -65,7 +65,7 @@ suite("test_explain_tpch_sf_1_q22") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 32> <slot 29> `cntrycode` ASC") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: count(<slot 30> count(*)), sum(<slot 31> sum(`c_acctbal`))\n" + 
+				"  |  output: count(<slot 30> count(*)), sum(<slot 31> sum(<slot 37>))\n" + 
 				"  |  group by: <slot 29> `cntrycode`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 

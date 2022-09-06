@@ -41,7 +41,7 @@ suite("test_explain_tpch_sf_1_q14") {
         check {
             explainStr ->
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 6> sum(CASE WHEN `p_type` LIKE 'PROMO%' THEN `l_extendedprice` * (1 - `l_discount`) ELSE 0 END)), sum(<slot 7> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
+				"  |  output: sum(<slot 6> sum(CASE WHEN <slot 14> LIKE 'PROMO%' THEN <slot 10> * (1 - <slot 11>) ELSE 0 END)), sum(<slot 7> sum(<slot 10> * (1 - <slot 11>)))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  output: sum(CASE WHEN <slot 14> LIKE 'PROMO%' THEN <slot 10> * (1 - <slot 11>) ELSE 0 END), sum(<slot 10> * (1 - <slot 11>))\n" + 

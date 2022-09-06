@@ -58,12 +58,12 @@ suite("test_explain_tpch_sf_1_q11") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 22> `\$a\$1`.`\$c\$2` DESC") && 
 		explainStr.contains("cross join:\n" + 
-				"  |  predicates: <slot 9> sum(`ps_supplycost` * `ps_availqty`) > <slot 20> sum(`ps_supplycost` * `ps_availqty`) * 0.0001") && 
+				"  |  predicates: <slot 9> sum(<slot 31> * <slot 32>) > <slot 20> sum(<slot 43> * <slot 44>) * 0.0001") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 9> sum(`ps_supplycost` * `ps_availqty`))\n" + 
+				"  |  output: sum(<slot 9> sum(<slot 31> * <slot 32>))\n" + 
 				"  |  group by: <slot 8> `ps_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 19> sum(`ps_supplycost` * `ps_availqty`))\n" + 
+				"  |  output: sum(<slot 19> sum(<slot 43> * <slot 44>))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  output: sum(<slot 43> * <slot 44>)\n" + 

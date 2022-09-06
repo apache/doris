@@ -72,9 +72,9 @@ suite("test_explain_tpch_sf_1_q2") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 32> `s_acctbal` DESC, <slot 33> `n_name` ASC, <slot 34> `s_name` ASC, <slot 35> `p_partkey` ASC") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 78> = <slot 10> min(`ps_supplycost`)\n" + 
+				"  |  equal join conjunct: <slot 78> = <slot 10> min(<slot 109>)\n" + 
 				"  |  equal join conjunct: <slot 81> = <slot 9> `ps_partkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- <slot 10> min(`ps_supplycost`), RF001[in_or_bloom] <- <slot 9> `ps_partkey`") && 
+				"  |  runtime filters: RF000[in_or_bloom] <- <slot 10> min(<slot 109>), RF001[in_or_bloom] <- <slot 9> `ps_partkey`") && 
 		explainStr.contains("vec output tuple id: 19") && 
 		explainStr.contains("output slot ids: 121 122 125 126 127 128 129 132 \n" + 
 				"  |  hash output slot ids: 81 82 85 86 87 88 89 92 ") && 
@@ -105,7 +105,7 @@ suite("test_explain_tpch_sf_1_q2") {
 		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 13>, RF004[in_or_bloom] -> <slot 24>, RF005[in_or_bloom] -> `ps_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: min(<slot 10> min(`ps_supplycost`))\n" + 
+				"  |  output: min(<slot 10> min(<slot 109>))\n" + 
 				"  |  group by: <slot 9> `ps_partkey`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 

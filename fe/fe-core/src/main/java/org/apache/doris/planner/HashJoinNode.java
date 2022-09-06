@@ -452,15 +452,7 @@ public class HashJoinNode extends PlanNode {
         int leftNullableNumber = 0;
         int rightNullableNumber = 0;
         if (copyLeft) {
-            //cross join do not have OutputTblRefIds
-            List<TupleId> srcTupleIds = getChild(0) instanceof CrossJoinNode ? getChild(0).getOutputTupleIds()
-                    : getChild(0).getOutputTblRefIds();
-            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(srcTupleIds)) {
-                // if the child is cross join node, the only way to get the correct nullable info of its output slots
-                // is to check if the output tuple ids are outer joined or not.
-                // then pass this nullable info to hash join node will be correct.
-                boolean needSetToNullable =
-                        getChild(0) instanceof CrossJoinNode && analyzer.isOuterJoined(leftTupleDesc.getId());
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTupleIds())) {
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
                         continue;
@@ -471,19 +463,13 @@ public class HashJoinNode extends PlanNode {
                         outputSlotDesc.setIsNullable(true);
                         leftNullableNumber++;
                     }
-                    if (needSetToNullable) {
-                        outputSlotDesc.setIsNullable(true);
-                    }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
         }
         if (copyRight) {
-            List<TupleId> srcTupleIds = getChild(1) instanceof CrossJoinNode ? getChild(1).getOutputTupleIds()
-                    : getChild(1).getOutputTblRefIds();
-            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(srcTupleIds)) {
-                boolean needSetToNullable =
-                        getChild(1) instanceof CrossJoinNode && analyzer.isOuterJoined(rightTupleDesc.getId());
+            for (TupleDescriptor rightTupleDesc :
+                    analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTupleIds())) {
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
                         continue;
@@ -493,9 +479,6 @@ public class HashJoinNode extends PlanNode {
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
                         rightNullableNumber++;
-                    }
-                    if (needSetToNullable) {
-                        outputSlotDesc.setIsNullable(true);
                     }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
                 }

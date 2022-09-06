@@ -59,7 +59,7 @@ suite("test_explain_tpch_sf_1_q12") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 10> <slot 7> `l_shipmode` ASC") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 8> sum(CASE WHEN ((`o_orderpriority` = '1-URGENT' OR `o_orderpriority` = '2-HIGH') AND (`o_orderpriority` = '1-URGENT' OR `o_orderpriority` = '2-HIGH')) THEN 1 ELSE 0 END)), sum(<slot 9> sum(CASE WHEN `o_orderpriority` != '1-URGENT' AND `o_orderpriority` != '2-HIGH' THEN 1 ELSE 0 END))\n" + 
+				"  |  output: sum(<slot 8> sum(CASE WHEN ((<slot 18> = '1-URGENT' OR <slot 18> = '2-HIGH') AND (<slot 18> = '1-URGENT' OR <slot 18> = '2-HIGH')) THEN 1 ELSE 0 END)), sum(<slot 9> sum(CASE WHEN <slot 18> != '1-URGENT' AND <slot 18> != '2-HIGH' THEN 1 ELSE 0 END))\n" + 
 				"  |  group by: <slot 7> `l_shipmode`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
