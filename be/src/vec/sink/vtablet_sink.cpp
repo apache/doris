@@ -225,8 +225,6 @@ Status VNodeChannel::init(RuntimeState* state) {
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
     _timeout_watch.start();
 
-    _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
-
     // Initialize _cur_add_block_request
     _cur_add_block_request.set_allocated_id(&_parent->_load_id);
     _cur_add_block_request.set_index_id(_index_channel->_index_id);
@@ -448,7 +446,7 @@ Status VNodeChannel::add_block(vectorized::Block* block,
                        << " loadinfo:" << _load_info;
         }
 
-        _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block_row.first->clone_empty()));
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -731,6 +729,10 @@ void VNodeChannel::mark_close() {
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
         std::lock_guard<std::mutex> l(_pending_batches_lock);
+        if (!_cur_mutable_block) {
+            // add a dummy block
+            _cur_mutable_block.reset(new vectorized::MutableBlock());
+        }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;
         DCHECK(_pending_blocks.back().second.eos());
@@ -1269,12 +1271,24 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         return ret;
     };
 
+<<<<<<< HEAD
     auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
     auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
     auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
     auto need_to_validate = [&null_map, &filter_bitmap](size_t j, size_t row) {
         return !filter_bitmap->Get(row) && (null_map == nullptr || null_map[j] == 0);
     };
+=======
+    for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
+        SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+        block->get_by_position(i).column =
+                block->get_by_position(i).column->convert_to_full_column_if_const();
+        const auto& column = block->get_by_position(i).column;
+
+        auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
+        auto& real_column_ptr =
+                column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+>>>>>>> f25377f4b7 ([feature-dynamic-table](vtablet_sink) support sink block with extended columns)
 
     ssize_t last_invalid_row = -1;
     switch (type.type) {
@@ -1452,7 +1466,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
 }
 
 void VOlapTableSink::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
-    for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
+    for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
             if (desc->is_nullable()) {
