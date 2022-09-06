@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;

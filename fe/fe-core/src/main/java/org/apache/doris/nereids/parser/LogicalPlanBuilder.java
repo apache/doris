@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;

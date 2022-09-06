@@ -43,7 +43,6 @@ public class RewriteBottomUpJob extends Job {
     private final List<Rule> rules;
     private final boolean childrenOptimized;
 
-
     public RewriteBottomUpJob(Group group, JobContext context, List<RuleFactory> factories) {
         this(group, factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())

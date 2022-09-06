@@ -163,8 +163,6 @@ public class JoinUtils {
         return pair;
     }
 
-
-
     /**
      * Get all used slots from onClause of join.
      * Return pair of left used slots and right used slots.

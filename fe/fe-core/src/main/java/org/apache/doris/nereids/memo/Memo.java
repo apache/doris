@@ -472,7 +472,6 @@ public class Memo {
             .withLogicalProperties(Optional.of(logicalProperties));
     }
 
-
     /*
      * the scenarios that 'parentGroupExpression == toGroup': eliminate the root group.
      * the fromGroup is group 1, the toGroup is group 2, we can not replace group2's

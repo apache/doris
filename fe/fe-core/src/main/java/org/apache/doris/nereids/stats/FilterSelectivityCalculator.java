@@ -60,7 +60,6 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
         return expression.accept(this, null);
     }
 
-
     @Override
     public Double visit(Expression expr, Void context) {
         return DEFAULT_SELECTIVITY;
