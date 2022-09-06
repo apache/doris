@@ -830,8 +830,10 @@ MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int
             if (reserve_size != 0) {
                 _columns.back()->reserve(reserve_size);
             }
+            _names.push_back(slot_desc->col_name());
         }
     }
+    initialize_index_by_name();
 }
 
 size_t MutableBlock::rows() const {
@@ -847,12 +849,16 @@ size_t MutableBlock::rows() const {
 void MutableBlock::swap(MutableBlock& another) noexcept {
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
+    _names.swap(another._names);
+    initialize_index_by_name();
 }
 
 void MutableBlock::swap(MutableBlock&& another) noexcept {
     clear();
     _columns = std::move(another._columns);
     _data_types = std::move(another._data_types);
+    _names = std::move(another._names);
+    initialize_index_by_name();
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -887,7 +893,7 @@ Block MutableBlock::to_block(int start_column) {
 Block MutableBlock::to_block(int start_column, int end_column) {
     ColumnsWithTypeAndName columns_with_schema;
     for (size_t i = start_column; i < end_column; ++i) {
-        columns_with_schema.emplace_back(std::move(_columns[i]), _data_types[i], "");
+        columns_with_schema.emplace_back(std::move(_columns[i]), _data_types[i], _names[i]);
     }
     return {columns_with_schema};
 }
@@ -975,6 +981,35 @@ void MutableBlock::clear_column_data() noexcept {
             col->clear();
         }
     }
+}
+
+void MutableBlock::initialize_index_by_name() {
+    for (size_t i = 0, size = _names.size(); i < size; ++i) {
+        index_by_name[_names[i]] = i;
+    }
+}
+
+bool MutableBlock::has(const std::string& name) const {
+    return index_by_name.end() != index_by_name.find(name);
+}
+
+size_t MutableBlock::get_position_by_name(const std::string& name) const {
+    auto it = index_by_name.find(name);
+    if (index_by_name.end() == it) {
+        LOG(FATAL) << fmt::format("Not found column {} in block. There are only columns: {}", name,
+                                  dump_names());
+    }
+
+    return it->second;
+}
+
+std::string MutableBlock::dump_names() const {
+    std::stringstream out;
+    for (auto it = _names.begin(); it != _names.end(); ++it) {
+        if (it != _names.begin()) out << ", ";
+        out << *it;
+    }
+    return out.str();
 }
 
 } // namespace doris::vectorized
