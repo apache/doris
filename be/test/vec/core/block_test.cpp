@@ -196,10 +196,10 @@ void block_to_pb(
 }
 
 void fill_block_with_array_int(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset>::create();
+    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset64>::create();
     auto data_column = vectorized::ColumnVector<int32_t>::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
-    std::vector<vectorized::IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<vectorized::IColumn::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -218,10 +218,10 @@ void fill_block_with_array_int(vectorized::Block& block) {
 }
 
 void fill_block_with_array_string(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset>::create();
+    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset64>::create();
     auto data_column = vectorized::ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];
-    std::vector<vectorized::IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<vectorized::IColumn::Offset64> offs = {0, 2, 3, 3, 4};
     std::vector<std::string> vals = {"abc", "de", "fg", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
