@@ -123,7 +123,7 @@ void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 template <typename T>
 void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
                                                 const uint8_t* __restrict null_data) const {
-    HASEES_FUNCTION_COLUMN_IMPL();
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 template <typename T>

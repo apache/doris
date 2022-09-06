@@ -30,7 +30,7 @@
 
 class SipHash;
 
-#define HASEES_FUNCTION_COLUMN_IMPL()                                    \
+#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
     auto s = hashes.size();                                              \
     DCHECK(s == size());                                                 \
     if (null_data == nullptr) {                                          \

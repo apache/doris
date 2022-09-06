@@ -253,7 +253,7 @@ public:
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override {
-        HASEES_FUNCTION_COLUMN_IMPL();
+        SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
