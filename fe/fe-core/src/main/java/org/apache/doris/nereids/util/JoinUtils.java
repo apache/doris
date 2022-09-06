@@ -40,7 +40,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,25 +56,6 @@ public class JoinUtils {
 
     public static boolean couldBroadcast(Join join) {
         return !(join.getJoinType().isReturnUnmatchedRightJoin());
-    }
-
-    private static boolean isEqualTo(List<SlotReference> leftSlots, List<SlotReference> rightSlots,
-            Expression predicate) {
-        if (!(predicate instanceof EqualTo)) {
-            return false;
-        }
-
-        EqualTo equalTo = (EqualTo) predicate;
-        List<SlotReference> leftUsed = equalTo.left().collect(SlotReference.class::isInstance);
-        List<SlotReference> rightUsed = equalTo.right().collect(SlotReference.class::isInstance);
-        if (leftUsed.isEmpty() || rightUsed.isEmpty()) {
-            return false;
-        }
-
-        Set<SlotReference> leftSlotsSet = new HashSet<>(leftSlots);
-        Set<SlotReference> rightSlotsSet = new HashSet<>(rightSlots);
-        return (leftSlotsSet.containsAll(leftUsed) && rightSlotsSet.containsAll(rightUsed))
-                || (leftSlotsSet.containsAll(rightUsed) && rightSlotsSet.containsAll(leftUsed));
     }
 
     private static class JoinSlotCoverageChecker {
