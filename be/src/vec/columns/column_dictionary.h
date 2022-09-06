@@ -87,11 +87,6 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported in ColumnDictionary";
     }
 
-    void update_hashes_with_value(std::vector<SipHash>& hash,
-                                  const uint8_t* __restrict null_data) const override {
-        LOG(FATAL) << "update_hashes_with_value not supported in ColumnDictionary";
-    }
-
     void insert_data(const char* pos, size_t /*length*/) override {
         LOG(FATAL) << "insert_data not supported in ColumnDictionary";
     }

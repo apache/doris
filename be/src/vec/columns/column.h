@@ -303,7 +303,9 @@ public:
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
     virtual void update_hashes_with_value(std::vector<SipHash>& hash,
-                                          const uint8_t* __restrict null_data = nullptr) const = 0;
+                                          const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_hashes_with_value not supported";
+    };
 
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
