@@ -492,7 +492,7 @@ suite("test_window_function") {
         }
     }
 
-    sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="60000"); """
+    sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="300000"); """
 
     qt_window_hang2"""select A.${k1}, A.wj - B.dyk + 1 as num from 
         (select ${k1}, wj from ${line} as W1) as A join 
