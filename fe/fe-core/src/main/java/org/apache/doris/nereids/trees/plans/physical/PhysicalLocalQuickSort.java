@@ -33,63 +33,68 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Physical quick sort plan.
+ * physical local sort for physical properties enforcer.
  */
-public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements Sort {
+public class PhysicalLocalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements Sort {
 
-    public PhysicalQuickSort(List<OrderKey> orderKeys,
+    public PhysicalLocalQuickSort(List<OrderKey> orderKeys,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(orderKeys, Optional.empty(), logicalProperties, child);
     }
 
     /**
-     * Constructor of PhysicalHashJoinNode.
+     * Constructor of PhysicalLocalQuickSort.
      */
-    public PhysicalQuickSort(List<OrderKey> orderKeys,
+    public PhysicalLocalQuickSort(List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_LOCAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, child);
     }
 
     /**
-     * Constructor of PhysicalHashJoinNode.
+     * Constructor of PhysicalLocalQuickSort.
      */
-    public PhysicalQuickSort(List<OrderKey> orderKeys,
+    public PhysicalLocalQuickSort(List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, physicalProperties, child);
+        super(PlanType.PHYSICAL_LOCAL_QUICK_SORT, orderKeys, groupExpression,
+                logicalProperties, physicalProperties, child);
+    }
+
+    public List<OrderKey> getOrderKeys() {
+        return orderKeys;
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalQuickSort(this, context);
+        return visitor.visitPhysicalLocalQuickSort(this, context);
     }
 
     @Override
-    public PhysicalQuickSort<Plan> withChildren(List<Plan> children) {
+    public PhysicalLocalQuickSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalQuickSort<>(orderKeys, logicalProperties, children.get(0));
+        return new PhysicalLocalQuickSort<>(orderKeys, logicalProperties, children.get(0));
     }
 
     @Override
-    public PhysicalQuickSort<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalQuickSort<>(orderKeys, groupExpression, logicalProperties, child());
+    public PhysicalLocalQuickSort<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalLocalQuickSort<>(orderKeys, groupExpression, logicalProperties, child());
     }
 
     @Override
-    public PhysicalQuickSort<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
+    public PhysicalLocalQuickSort<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalLocalQuickSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
     }
 
     @Override
-    public PhysicalQuickSort<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
-        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), logicalProperties, physicalProperties, child());
+    public PhysicalLocalQuickSort<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
+        return new PhysicalLocalQuickSort<>(orderKeys, Optional.empty(),
+                logicalProperties, physicalProperties, child());
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalQuickSort",
-                "orderKeys", orderKeys
-        );
+        return Utils.toSqlString("PhysicalLocalQuickSort",
+                "orderKeys", orderKeys);
     }
 }

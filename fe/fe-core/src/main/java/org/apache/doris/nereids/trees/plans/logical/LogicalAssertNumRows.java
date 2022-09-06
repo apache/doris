@@ -81,7 +81,7 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalAssertNumRows((LogicalAssertNumRows<Plan>) this, context);
+        return visitor.visitLogicalAssertNumRows(this, context);
     }
 
     @Override

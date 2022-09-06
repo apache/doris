@@ -98,7 +98,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalLimit((LogicalLimit<Plan>) this, context);
+        return visitor.visitLogicalLimit(this, context);
     }
 
     public List<Expression> getExpressions() {

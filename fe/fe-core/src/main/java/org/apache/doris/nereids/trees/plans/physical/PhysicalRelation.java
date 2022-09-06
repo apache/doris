@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
@@ -38,14 +39,20 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     protected final List<String> qualifier;
 
     /**
-     * Constructor for PhysicalScan.
-     *
-     * @param type node type
-     * @param qualifier table's name
+     * Constructor for PhysicalRelation.
      */
     public PhysicalRelation(PlanType type, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(type, groupExpression, logicalProperties);
+        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    }
+
+    /**
+     * Constructor for PhysicalRelation.
+     */
+    public PhysicalRelation(PlanType type, List<String> qualifier, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties) {
+        super(type, groupExpression, logicalProperties, physicalProperties);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
 
