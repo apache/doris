@@ -60,6 +60,7 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -94,8 +95,6 @@ public:
     std::string to_http_path(const std::string& file_name);
 
     Status execute();
-
-    Status cancel_before_execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
@@ -236,13 +235,18 @@ Status FragmentExecState::execute() {
     if (_need_wait_execution_trigger) {
         // if _need_wait_execution_trigger is true, which means this instance
         // is prepared but need to wait for the signal to do the rest execution.
-        _fragments_ctx->wait_for_start();
-        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
+        if (!_fragments_ctx->wait_for_start()) {
+            return cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "wait fragment start timeout");
+        }
+    }
+    if (_executor.runtime_state()->is_cancelled()) {
+        return Status::Cancelled("cancelled before execution");
     }
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         CgroupsMgr::apply_system_cgroup();
+        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         WARN_IF_ERROR(_executor.open(), strings::Substitute("Got error while opening fragment $0",
                                                             print_id(_fragment_instance_id)));
 
@@ -253,24 +257,9 @@ Status FragmentExecState::execute() {
     return Status::OK();
 }
 
-Status FragmentExecState::cancel_before_execute() {
-    // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(executor()->runtime_state());
-#endif
-    _executor.set_abort();
-    _executor.cancel();
-    if (_pipe != nullptr) {
-        _pipe->cancel("Execution aborted before start");
-    }
-    return Status::OK();
-}
-
 Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     if (!_cancelled) {
-        _cancelled = true;
         std::lock_guard<std::mutex> l(_status_lock);
-        RETURN_IF_ERROR(_exec_status);
         if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
             _executor.set_is_report_on_cancel(false);
         }
@@ -278,6 +267,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
         if (_pipe != nullptr) {
             _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
         }
+        _cancelled = true;
     }
     return Status::OK();
 }
@@ -452,11 +442,15 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                 .set_max_threads(config::fragment_pool_thread_num_max)
                 .set_max_queue_size(config::fragment_pool_queue_size)
                 .build(&_thread_pool);
+
+    REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
+                         [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
+    DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();
@@ -565,7 +559,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
                 "timeout or be cancelled. host: {}",
                 BackendOptions::get_localhost());
     }
-    search->second->set_ready_to_execute();
+    search->second->set_ready_to_execute(false);
     return Status::OK();
 }
 
@@ -712,9 +706,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_map.erase(params.params.fragment_instance_id);
         }
-        exec_state->cancel_before_execute();
-        return Status::InternalError("Put planfragment to thread pool failed. err = {}, BE: {}",
-                                     st.get_error_msg(), BackendOptions::get_localhost());
+        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                           "push plan fragment to thread pool failed");
+        return Status::InternalError(
+                strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
+                                    print_id(params.params.fragment_instance_id),
+                                    st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();
@@ -761,9 +758,6 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _fragments_ctx_map.begin(); it != _fragments_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    // The execution logic of the instance needs to be notified.
-                    // The execution logic of the instance will eventually cancel the execution plan.
-                    it->second->set_ready_to_execute();
                     it = _fragments_ctx_map.erase(it);
                 } else {
                     ++it;
