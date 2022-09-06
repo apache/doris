@@ -49,6 +49,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -473,6 +474,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
         if (limit != -1) {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
+        }
+        if (!CollectionUtils.isEmpty(projectList)) {
+            expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("project output tuple id: ")
+                    .append(outputTupleDesc.getId().asInt()).append("\n");
         }
         // Output Tuple Ids only when explain plan level is set to verbose
         if (detailLevel.equals(TExplainLevel.VERBOSE)) {
