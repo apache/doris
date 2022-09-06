@@ -914,7 +914,7 @@ TEST_F(ThreadPoolTest, TestThreadTokenSerial) {
     std::cout << "after submit 1" << std::endl;
     token1->wait();
     ASSERT_EQ(0, token1->num_tasks());
-} 
+}
 
 TEST_F(ThreadPoolTest, TestThreadTokenConcurrent) {
     std::unique_ptr<ThreadPool> thread_pool;
@@ -933,6 +933,6 @@ TEST_F(ThreadPoolTest, TestThreadTokenConcurrent) {
     std::cout << "after submit 1" << std::endl;
     token1->wait();
     ASSERT_EQ(0, token1->num_tasks());
-} 
+}
 
 } // namespace doris

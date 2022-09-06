@@ -575,7 +575,7 @@ void ThreadPool::dispatch_thread() {
         // the token back.
         if (token->_num_unsubmitted_tasks > 0 && state == ThreadPoolToken::State::RUNNING) {
             // SERIAL: if _entries is not empty, then num_unsubmitted_tasks must be greater than 0.
-            // CONCURRENT: we have to check _num_unsubmitted_tasks because there may be at least 2 
+            // CONCURRENT: we have to check _num_unsubmitted_tasks because there may be at least 2
             // threads are running for the token.
             _queue.emplace_back(token);
             ++token->_num_submitted_tasks;
