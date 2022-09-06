@@ -55,7 +55,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new JoinExpressionRewrite().build());
     }
 
-
     private class ProjectExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {

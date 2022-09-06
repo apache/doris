@@ -213,7 +213,6 @@ public class Group {
         this.statistics = statistics;
     }
 
-
     public List<GroupExpression> getLogicalExpressions() {
         return logicalExpressions;
     }

@@ -53,7 +53,6 @@ public class ExpressionUtilsTest {
         Assertions.assertEquals(b, expressions.get(1));
         Assertions.assertEquals(c, expressions.get(2));
 
-
         expr = PARSER.parseExpression("(a or b) and c and (e or f)");
         expressions = ExpressionUtils.extractConjunction(expr);
         Expression aOrb = PARSER.parseExpression("a or b");

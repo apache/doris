@@ -104,7 +104,6 @@ public class PlanTranslatorContext {
         return slotIdToExprId.get(slotId);
     }
 
-
     public List<ScanNode> getScanNodes() {
         return scanNodes;
     }

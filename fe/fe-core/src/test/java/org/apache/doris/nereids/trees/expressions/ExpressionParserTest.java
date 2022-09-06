@@ -166,7 +166,6 @@ public class ExpressionParserTest extends ParserTestBase {
         String groupByWithFun1 = "select sum(a), b from test1 group by b";
         assertSql(groupByWithFun1);
 
-
         String groupByWithFun2 = "select sum(a), b, c+1 from test1 group by b, c";
         assertSql(groupByWithFun2);
 

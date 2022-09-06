@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContex
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
-
 /**
  * Rewrite rule of simplify CAST expression.
  * Remove redundant cast like

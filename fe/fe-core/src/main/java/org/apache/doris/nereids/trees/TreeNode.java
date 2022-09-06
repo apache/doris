@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees;
 
-
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;

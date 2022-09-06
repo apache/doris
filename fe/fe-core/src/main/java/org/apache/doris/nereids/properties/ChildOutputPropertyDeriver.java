@@ -43,7 +43,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     private List<PhysicalProperties> childrenOutputProperties;
     private double curTotalCost;
 
-
     public ChildOutputPropertyDeriver(PhysicalProperties requestProperty,
             List<PhysicalProperties> childrenOutputProperties, double curTotalCost) {
         this.childrenOutputProperties = childrenOutputProperties;

@@ -61,7 +61,6 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         );
     }
 
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -78,7 +77,6 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public int hashCode() {
         return Objects.hash(projects);
     }
-
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
