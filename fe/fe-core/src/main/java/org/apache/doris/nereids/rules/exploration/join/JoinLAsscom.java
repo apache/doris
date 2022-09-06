@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
@@ -64,8 +63,7 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
-                .when(topJoin -> JoinLAsscomHelper.check(type, topJoin, topJoin.left()))
-                .when(typeChecker)
+                .when(topJoin -> JoinLAsscomHelper.check(type, topJoin, topJoin.left())).when(typeChecker)
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
                     if (!helper.initJoinOnCondition()) {

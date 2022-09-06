@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.function.Predicate;
 
-
 /**
  * Rule for inner join RightAssociate.
  */
@@ -35,7 +34,6 @@ public class JoinRightAssociate extends OneExplorationRuleFactory {
     public static final JoinRightAssociate INNER = new JoinRightAssociate(Type.INNER);
 
     public static final JoinRightAssociate OUTER = new JoinRightAssociate(Type.OUTER);
-
 
     private final Predicate<LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan>> typeChecker;
 

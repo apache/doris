@@ -55,7 +55,6 @@ public class SemiJoinTranspose extends OneExplorationRuleFactory {
             GroupPlan b = bottomJoin.right();
             GroupPlan c = topJoin.right();
 
-
             LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                     topJoin.getHashJoinConjuncts(), topJoin.getOtherJoinCondition(), a, c);
             LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(

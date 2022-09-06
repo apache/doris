@@ -59,7 +59,6 @@ class JoinExchangeHelper {
     private final List<SlotReference> cOutput;
     private final List<SlotReference> dOutput;
 
-
     private final List<NamedExpression> allProjects = Lists.newArrayList();
 
     private final List<Expression> allHashJoinConjuncts = Lists.newArrayList();

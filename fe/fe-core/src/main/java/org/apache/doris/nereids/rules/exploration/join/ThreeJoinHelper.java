@@ -159,6 +159,4 @@ abstract class ThreeJoinHelper {
         }
         return Pair.of(newTopJoinChildProjectExprs, newBottomJoinProjectExprs);
     }
-
-
 }

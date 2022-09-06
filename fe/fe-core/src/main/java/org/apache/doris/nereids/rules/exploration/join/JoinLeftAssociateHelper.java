@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
@@ -64,7 +63,6 @@ class JoinLeftAssociateHelper extends ThreeJoinHelper {
         return new LogicalJoin<>(bottomJoin.getJoinType(), newTopHashJoinConjuncts,
                 ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right);
     }
-
 
     /**
      * Check JoinReorderContext.

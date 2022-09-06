@@ -107,7 +107,6 @@ public class RuleSet {
             // semi join Transpose ....
             .build();
 
-
     public List<Rule> getExplorationRules() {
         return EXPLORATION_RULES;
     }
