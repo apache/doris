@@ -28,6 +28,10 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TPrimitiveType;
+
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 
@@ -64,6 +68,26 @@ public class TypeDef implements ParseNode {
 
     public static TypeDef createChar(int len) {
         return new TypeDef(ScalarType.createChar(len));
+    }
+
+    public static Type createType(TColumnDesc tColumnDesc) {
+        TPrimitiveType tPrimitiveType = tColumnDesc.getColumnType();
+        PrimitiveType ptype = PrimitiveType.fromThrift(tPrimitiveType);
+        if (ptype.isArrayType()) {
+            // just support array for now
+            Preconditions.checkState(tColumnDesc.getChildren().size() == 1);
+            return new ArrayType(createType(tColumnDesc.getChildren().get(0)),
+                        tColumnDesc.getChildren().get(0).isIsAllowNull());
+        }
+        // scarlar type
+        int columnLength = tColumnDesc.getColumnLength();
+        int columnPrecision = tColumnDesc.getColumnPrecision();
+        int columnScale = tColumnDesc.getColumnScale();
+        return ScalarType.createType(ptype, columnLength, columnPrecision, columnScale);
+    }
+
+    public static TypeDef createTypeDef(TColumnDesc tcolumnDef) {
+        return new TypeDef(createType(tcolumnDef));
     }
 
     @Override

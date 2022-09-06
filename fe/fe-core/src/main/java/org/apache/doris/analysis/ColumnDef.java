@@ -95,6 +95,8 @@ public class ColumnDef {
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "0" means empty bitmap
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        // default "value", "[]" means empty array
+        public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
     }
 
     // parameter initialized in constructor
@@ -271,8 +273,10 @@ public class ColumnDef {
                 throw new AnalysisException("Array can only be used in the non-key column of"
                         + " the duplicate table at present.");
             }
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Array type column default value only support null");
+            if (defaultValue.isSet && defaultValue != DefaultValue.null_default_value
+                            && !defaultValue.value.equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value)) {
+                throw new AnalysisException("Array type column default value only support null or "
+                                + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value);
             }
         }
         if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING && isOlap) {
@@ -310,7 +314,7 @@ public class ColumnDef {
             throw new AnalysisException("Can not set null default value to non nullable column: " + name);
         }
 
-        if (defaultValue.isSet && defaultValue.value != null) {
+        if (type.isScalarType() && defaultValue.isSet && defaultValue.value != null) {
             validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
         }
     }
