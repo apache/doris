@@ -23,5 +23,5 @@
 ################################################################
 # restart elasticsearch containers
 ################################################################
-docker-compose -f docker-compose/elasticsearch.yaml down
-docker-compose -f docker-compose/elasticsearch.yaml up -d
+docker compose -f docker-compose/elasticsearch.yaml down
+docker compose -f docker-compose/elasticsearch.yaml up -d
