@@ -296,6 +296,8 @@ void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcControll
 template <typename T>
 Status PInternalServiceImpl<T>::_exec_plan_fragment(const std::string& ser_request,
                                                  PFragmentRequestVersion version, bool compact) {
+    // Could not parse fragment id from string here, just print a log to indicate that BE received a request
+    LOG(INFO) << "received a plan fragment request";
     if (version == PFragmentRequestVersion::VERSION_1) {
         // VERSION_1 should be removed in v1.2
         TExecPlanFragmentParams t_request;
@@ -344,6 +346,8 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(google::protobuf::RpcControll
     }
     if (!st.ok()) {
         LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
+    } else {
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid) << " successfully.";
     }
     st.to_protobuf(result->mutable_status());
 }

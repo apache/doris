@@ -33,8 +33,8 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
@@ -646,10 +646,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
         env->stream_mgr()->cancel(id);
         env->result_mgr()->cancel(id);
     }
-}
-
-void PlanFragmentExecutor::set_abort() {
-    update_status(Status::Aborted("Execution aborted before start"));
+    // Cancel the result queue manager used by spark doris connector
+    _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }
 
 const RowDescriptor& PlanFragmentExecutor::row_desc() {

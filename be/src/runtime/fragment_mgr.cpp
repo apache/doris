@@ -39,11 +39,11 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/thread_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -91,8 +91,6 @@ public:
     std::string to_http_path(const std::string& file_name);
 
     Status execute();
-
-    Status cancel_before_execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
@@ -245,19 +243,6 @@ Status FragmentExecState::execute() {
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
-    return Status::OK();
-}
-
-Status FragmentExecState::cancel_before_execute() {
-    // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(executor()->runtime_state());
-#endif
-    _executor.set_abort();
-    _executor.cancel();
-    if (_pipe != nullptr) {
-        _pipe->cancel("Execution aborted before start");
-    }
     return Status::OK();
 }
 
@@ -673,10 +658,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_map.erase(params.params.fragment_instance_id);
         }
-        exec_state->cancel_before_execute();
-        return Status::InternalError(
-                strings::Substitute("Put planfragment to thread pool failed. err = $0, BE: $1",
-                                    st.get_error_msg(), BackendOptions::get_localhost()));
+        exec_state->cancel();
+        return Status::InternalError("Put planfragment to thread pool failed. err = {}, BE: {}",
+                                     st.get_error_msg(), BackendOptions::get_localhost());
     }
 
     return Status::OK();
