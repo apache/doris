@@ -365,7 +365,7 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 + Step 3: Create Import Tasks
 
     ```
-    curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8000/api/bj_sales/store_sales/_stream_load
+    curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
     ```
 
 ## Common Questions
