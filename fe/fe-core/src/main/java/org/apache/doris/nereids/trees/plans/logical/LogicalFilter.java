@@ -40,7 +40,6 @@ import java.util.Optional;
 public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
     private final Expression predicates;
 
-
     public LogicalFilter(Expression predicates, CHILD_TYPE child) {
         this(predicates, Optional.empty(), Optional.empty(), child);
     }

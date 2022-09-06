@@ -50,7 +50,6 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
 
     private final boolean usingStream;
 
-
     public PhysicalAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             List<Expression> partitionExpressions, AggPhase aggPhase, boolean usingStream,
             LogicalProperties logicalProperties, CHILD_TYPE child) {

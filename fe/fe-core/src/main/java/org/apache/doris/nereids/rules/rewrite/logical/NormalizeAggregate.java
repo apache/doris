@@ -118,7 +118,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .collect(Collectors.toSet()));
             }
 
-
             // assemble
             LogicalPlan root = aggregate.child();
             if (partitionedKeys.containsKey(false)) {

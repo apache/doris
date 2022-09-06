@@ -35,7 +35,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-
 /**
  * Push the predicate in the LogicalFilter to the aggregate child.
  * For example:

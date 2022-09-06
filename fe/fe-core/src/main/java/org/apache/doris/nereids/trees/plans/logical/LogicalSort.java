@@ -91,7 +91,6 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return Objects.hash(orderKeys);
     }
 
-
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalSort((LogicalSort<Plan>) this, context);

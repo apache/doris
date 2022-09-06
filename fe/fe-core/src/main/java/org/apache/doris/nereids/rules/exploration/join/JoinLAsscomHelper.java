@@ -65,7 +65,6 @@ public class JoinLAsscomHelper {
     private final List<Expression> newTopHashJoinConjuncts = Lists.newArrayList();
     private final List<Expression> newTopNonHashJoinConjuncts = Lists.newArrayList();
 
-
     /**
      * Init plan and output.
      */
@@ -155,7 +154,6 @@ public class JoinLAsscomHelper {
         return true;
     }
 
-
     /**
      * Get projectExpr of left and right.
      * Just for project-inside.
@@ -180,7 +178,6 @@ public class JoinLAsscomHelper {
 
         return Pair.of(newLeftProjectExpr, newRightProjectExprs);
     }
-
 
     private LogicalJoin<GroupPlan, GroupPlan> newBottomJoin() {
         Optional<Expression> bottomNonHashExpr;

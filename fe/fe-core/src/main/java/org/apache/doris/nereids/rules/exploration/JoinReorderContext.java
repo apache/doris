@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration;
 
-
 /**
  * JoinReorderContext for Duplicate free.
  * Paper:
