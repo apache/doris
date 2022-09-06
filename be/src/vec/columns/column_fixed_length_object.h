@@ -20,6 +20,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 
 namespace doris::vectorized {
