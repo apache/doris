@@ -75,6 +75,9 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
 
     protected HMSExternalTable hmsTable;
 
+    protected int inputSplitNum = 0;
+    protected long inputFileSize = 0;
+
     public HiveScanProvider(HMSExternalTable hmsTable) {
         this.hmsTable = hmsTable;
     }
@@ -110,13 +113,6 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     @Override
     public String getMetaStoreUrl() {
         return hmsTable.getMetastoreUri();
-    }
-
-
-    @Override
-    public int getGroupNum() {
-        // Always return 1
-        return 1;
     }
 
     @Override
@@ -262,6 +258,7 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
         scanRangeLocations = Lists.newArrayList();
         try {
             List<InputSplit> inputSplits = getSplits(context.conjuncts);
+            this.inputSplitNum = inputSplits.size();
             if (inputSplits.isEmpty()) {
                 return;
             }
@@ -306,6 +303,7 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
                     curLocations = newLocations(context.params, backendPolicy);
                     fileSplitStrategy.next();
                 }
+                this.inputFileSize += fileSplit.getLength();
             }
             if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
                 scanRangeLocations.add(curLocations);
@@ -313,6 +311,16 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
         } catch (IOException e) {
             throw new UserException(e);
         }
+    }
+
+    @Override
+    public int getInputSplitNum() {
+        return this.inputSplitNum;
+    }
+
+    @Override
+    public long getInputFileSize() {
+        return this.inputFileSize;
     }
 
     private TScanRangeLocations newLocations(TFileScanRangeParams params, BackendPolicy backendPolicy) {

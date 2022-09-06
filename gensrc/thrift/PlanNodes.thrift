@@ -225,6 +225,22 @@ struct TFileScanSlotInfo {
     2: optional bool is_file_slot;
 }
 
+// descirbe how to read file
+struct TFileAttributes {
+    1: optional TFileTextScanRangeParams text_params;
+    //  it's usefull when format_type == FORMAT_JSON
+    2: optional bool strip_outer_array;
+    3: optional string jsonpaths;
+    4: optional string json_root;
+    5: optional bool num_as_string;
+    6: optional bool fuzzy_parse;
+    7: optional bool read_json_by_line;
+    // Whether read line by column defination, only for Hive
+    8: optional bool read_by_column_def;
+    // csv with header type
+    9: optional string header_type;
+}
+
 struct TFileScanRangeParams {
     1: optional Types.TFileType file_type;
     2: optional TFileFormatType format_type;
@@ -253,6 +269,7 @@ struct TFileScanRangeParams {
     11: optional bool strict_mode
 
     12: list<Types.TNetworkAddress> broker_addresses
+    13: TFileAttributes file_attributes
 }
 
 struct TFileRangeDesc {
@@ -264,22 +281,11 @@ struct TFileRangeDesc {
     3: optional i64 size;
     // columns parsed from file path should be after the columns read from file
     4: optional list<string> columns_from_path;
-    5: optional TFileTextScanRangeParams text_params;
-
-    //  it's usefull when format_type == FORMAT_JSON
-    6: optional bool strip_outer_array;
-    7: optional string jsonpaths;
-    8: optional string json_root;
-    9: optional bool num_as_string;
-    10: optional bool fuzzy_parse;
-    11: optional bool read_json_by_line;
-    // Whether read line by column defination, only for Hive
-    12: optional bool read_by_column_def;
-    // csv with header type
-    13: optional string header_type;
 }
 
-// HDFS file scan range
+// TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
+//  TFileScanRangeParams: describe how to read and convert file
+//  list<TFileRangeDesc>: file location and range
 struct TFileScanRange {
     1: optional list<TFileRangeDesc> ranges
     2: optional TFileScanRangeParams params

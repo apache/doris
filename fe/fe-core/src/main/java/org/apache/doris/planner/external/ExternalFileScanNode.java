@@ -40,7 +40,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
@@ -68,22 +67,21 @@ import java.util.Map;
 public class ExternalFileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(ExternalFileScanNode.class);
 
-    // Just for explain
-    private int inputSplitsNum = 0;
-    private long totalFileSize = 0;
-
     public static class ParamCreateContext {
-        public FileScanProviderIf scanProvider;
-        public TupleDescriptor srcTupleDescriptor;
-        public TupleDescriptor destTupleDescriptor;
-        public TFileScanRangeParams params;
         public BrokerFileGroup fileGroup;
+        public List<Expr> conjuncts;
+
+        public TupleDescriptor destTupleDescriptor;
+
+        // === Set when init ===
+        public TupleDescriptor srcTupleDescriptor;
         public Map<String, Expr> exprMap;
         public Map<String, SlotDescriptor> slotDescByName;
         public String timezone;
-        public Expr deleteCondition;
-        public LoadTask.MergeType mergeType;
-        public List<Expr> conjuncts;
+        // === Set when init ===
+
+        public TFileScanRangeParams params;
+
     }
 
     public enum Type {
@@ -93,22 +91,34 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private Type type = Type.QUERY;
     private final BackendPolicy backendPolicy = new BackendPolicy();
 
+    // Only for load job.
+    // Save all info about load attributes and files.
+    // Each DataDescription in a load stmt conreponding to a FileGroupInfo in this list.
+    private List<FileGroupInfo> fileGroupInfos = Lists.newArrayList();
+    // For query, there is only one FileScanProvider in this list.
+    // For load, the num of providers equals to the num of file group infos.
     private List<FileScanProviderIf> scanProviders = Lists.newArrayList();
+    // For query, there is only one ParamCreateContext in this list.
+    // For load, the num of ParamCreateContext equals to the num of file group infos.
     private List<ParamCreateContext> contexts = Lists.newArrayList();
 
-    private final List<String> partitionKeys = Lists.newArrayList();
-
+    // Final output of this file scan node
     private List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
-    private List<FileGroupInfo> fileGroupInfos = Lists.newArrayList();
+    // For explain
+    private long inputSplitsNum = 0;
+    private long totalFileSize = 0;
 
     /**
-     * External file scan node for hms table.
+     * External file scan node for:
+     * 1. Query hms table
+     * 2. Load from file
      */
     public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.FILE_SCAN_NODE);
     }
 
+    // Only for load job.
     public void setLoadInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             List<BrokerFileGroup> fileGroups, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded,
             boolean strictMode, int loadParallelism, UserIdentity userIdentity) {
@@ -164,10 +174,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
         backendPolicy.init();
         numNodes = backendPolicy.numBackends();
 
-        initFileGroupContexts(analyzer);
+        initParamCreateContexts(analyzer);
     }
 
-    private void initFileGroupContexts(Analyzer analyzer) throws UserException {
+    // For each scan provider, create a corresponding ParamCreateContext
+    private void initParamCreateContexts(Analyzer analyzer) throws UserException {
         for (FileScanProviderIf scanProvider : scanProviders) {
             ParamCreateContext context = scanProvider.createContext(analyzer);
             // set where and preceding filter.
@@ -233,22 +244,28 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        for (ParamCreateContext context : contexts) {
-            if (type == Type.LOAD) {
-                finalizeParamsForLoad(context, analyzer);
-            }
-            processFileGroup(context);
+        Preconditions.checkState(contexts.size() == scanProviders.size(),
+                contexts.size() + " vs. " + scanProviders.size());
+        for (int i = 0; i < contexts.size(); ++i) {
+            ParamCreateContext context = contexts.get(i);
+            finalizeParamsForLoad(context, analyzer);
+            FileScanProviderIf scanProvider = scanProviders.get(i);
+            createScanRangeLocations(context, scanProvider);
+            this.inputSplitsNum += scanProvider.getInputSplitNum();
+            this.totalFileSize += scanProvider.getInputFileSize();
         }
     }
 
     protected void finalizeParamsForLoad(ParamCreateContext context, Analyzer analyzer) throws UserException {
+        if (type != Type.LOAD) {
+            return;
+        }
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
-        TFileScanRangeParams params = context.params;
         TupleDescriptor srcTupleDesc = context.srcTupleDescriptor;
-        boolean strictMode = context.params.strict_mode;
         boolean negative = context.fileGroup.isNegative();
 
+        TFileScanRangeParams params = context.params;
         Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
         for (SlotDescriptor destSlotDesc : desc.getSlots()) {
             if (!destSlotDesc.isMaterialized()) {
@@ -302,10 +319,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             }
 
             checkBitmapCompatibility(analyzer, destSlotDesc, expr);
-
             checkQuantileStateCompatibility(analyzer, destSlotDesc, expr);
-
-            // check quantile_state
 
             if (negative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
@@ -316,7 +330,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
         params.setDestSidToSrcSidWithoutTrans(destSidToSrcSidWithoutTrans);
         params.setDestTupleId(desc.getId().asInt());
-        params.setStrictMode(strictMode);
         params.setSrcTupleId(srcTupleDesc.getId().asInt());
 
         // Need re compute memory layout after set some slot descriptor to nullable
@@ -346,8 +359,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    private void processFileGroup(ParamCreateContext context) throws UserException {
-        context.scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    private void createScanRangeLocations(ParamCreateContext context, FileScanProviderIf scanProvider)
+            throws UserException {
+        scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
     @Override

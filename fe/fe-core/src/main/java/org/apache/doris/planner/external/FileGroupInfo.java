@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -144,7 +143,7 @@ public class FileGroupInfo {
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
-    public void processFileGroup(ParamCreateContext context, BackendPolicy backendPolicy,
+    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
         long curInstanceBytes = 0;
@@ -154,38 +153,21 @@ public class FileGroupInfo {
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
             // header_type
-            String headerType = getHeaderType(context.fileGroup.getFileFormat());
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
-                    context.fileGroup.getColumnsFromPath());
-            int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
+                    context.fileGroup.getColumnNamesFromPath());
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
                         || formatType == TFileFormatType.FORMAT_JSON) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
-                            columnsFromPath, headerType);
-                    if (formatType == TFileFormatType.FORMAT_JSON) {
-                        rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
-                        rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
-                        rangeDesc.setJsonRoot(context.fileGroup.getJsonRoot());
-                        rangeDesc.setFuzzyParse(context.fileGroup.isFuzzyParse());
-                        rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
-                        rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
-                    }
-                    TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-                    textParams.setColumnSeparator(context.fileGroup.getValueSeparator());
-                    textParams.setLineDelimiter(context.fileGroup.getLineDelimiter());
-                    rangeDesc.setTextParams(textParams);
-
+                            columnsFromPath);
                     curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
-
                 } else {
                     TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes,
-                            columnsFromPath, headerType);
-                    rangeDesc.setReadByColumnDef(true);
+                            columnsFromPath);
                     curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
@@ -197,23 +179,7 @@ public class FileGroupInfo {
                 curInstanceBytes = 0;
 
             } else {
-                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath,
-                        headerType);
-                if (formatType == TFileFormatType.FORMAT_JSON) {
-                    rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
-                    rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
-                    rangeDesc.setJsonRoot(context.fileGroup.getJsonRoot());
-                    rangeDesc.setFuzzyParse(context.fileGroup.isFuzzyParse());
-                    rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
-                    rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
-                }
-
-                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-                textParams.setColumnSeparator(context.fileGroup.getValueSeparator());
-                textParams.setLineDelimiter(context.fileGroup.getLineDelimiter());
-                rangeDesc.setTextParams(textParams);
-
-                rangeDesc.setReadByColumnDef(true);
+                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -315,13 +281,12 @@ public class FileGroupInfo {
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,
-            List<String> columnsFromPath, String headerType) {
+            List<String> columnsFromPath) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setPath(fileStatus.path);
         rangeDesc.setStartOffset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
         rangeDesc.setColumnsFromPath(columnsFromPath);
-        rangeDesc.setHeaderType(headerType);
         return rangeDesc;
     }
 }

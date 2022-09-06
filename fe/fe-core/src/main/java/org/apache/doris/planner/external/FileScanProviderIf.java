@@ -40,8 +40,6 @@ public interface FileScanProviderIf {
     // Return S3/HDSF, etc.
     TFileType getLocationType() throws DdlException, MetaNotFoundException;
 
-    int getGroupNum();
-
     // Return file list
     List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException;
 
@@ -54,4 +52,8 @@ public interface FileScanProviderIf {
 
     void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException;
+
+    int getInputSplitNum();
+
+    long getInputFileSize();
 }

@@ -27,16 +27,21 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
@@ -52,7 +57,7 @@ public class LoadScanProvider implements FileScanProviderIf {
 
     FileGroupInfo fileGroupInfo;
 
-    public LoadScanProvider(FileGroupInfo fileGroup) {
+    public LoadScanProvider(FileGroupInfo fileGroupInfo) {
         this.fileGroupInfo = fileGroupInfo;
     }
 
@@ -64,11 +69,6 @@ public class LoadScanProvider implements FileScanProviderIf {
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return null;
-    }
-
-    @Override
-    public int getGroupNum() {
-        return 0;
     }
 
     @Override
@@ -89,20 +89,48 @@ public class LoadScanProvider implements FileScanProviderIf {
     @Override
     public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
         ParamCreateContext ctx = new ParamCreateContext();
-        ctx.scanProvider = this;
         ctx.fileGroup = fileGroupInfo.getFileGroup();
         ctx.timezone = analyzer.getTimezone();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        ctx.params = params;
-
-        BrokerFileGroup fileGroup = ctx.fileGroup;
         params.setStrictMode(fileGroupInfo.isStrictMode());
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
-        ctx.deleteCondition = fileGroup.getDeleteCondition();
-        ctx.mergeType = fileGroup.getMergeType();
+        if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
+            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
+            params.setHdfsParams(tHdfsParams);
+        }
+        TFileAttributes fileAttributes = new TFileAttributes();
+        setFileAttributes(ctx.fileGroup, fileAttributes);
+        params.setFileAttributes(fileAttributes);
+        ctx.params = params;
+
         initColumns(ctx, analyzer);
         return ctx;
+    }
+
+    public void setFileAttributes(BrokerFileGroup fileGroup, TFileAttributes fileAttributes) {
+        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+        textParams.setColumnSeparator(fileGroup.getColumnSeparator());
+        textParams.setLineDelimiter(fileGroup.getLineDelimiter());
+        fileAttributes.setTextParams(textParams);
+        fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
+        fileAttributes.setJsonpaths(fileGroup.getJsonPaths());
+        fileAttributes.setJsonRoot(fileGroup.getJsonRoot());
+        fileAttributes.setNumAsString(fileGroup.isNumAsString());
+        fileAttributes.setFuzzyParse(fileGroup.isFuzzyParse());
+        fileAttributes.setReadJsonByLine(fileGroup.isReadJsonByLine());
+        fileAttributes.setReadByColumnDef(true);
+        fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
+    }
+
+    private String getHeaderType(String formatType) {
+        if (formatType != null) {
+            if (formatType.equalsIgnoreCase(FeConstants.csv_with_names) || formatType.equalsIgnoreCase(
+                    FeConstants.csv_with_names_and_types)) {
+                return formatType;
+            }
+        }
+        return "";
     }
 
     @Override
@@ -110,7 +138,21 @@ public class LoadScanProvider implements FileScanProviderIf {
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
         Preconditions.checkNotNull(fileGroupInfo);
         fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);
-        fileGroupInfo.processFileGroup(context, backendPolicy, scanRangeLocations);
+        fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    }
+
+    @Override
+    public int getInputSplitNum() {
+        return fileGroupInfo.getFileStatuses().size();
+    }
+
+    @Override
+    public long getInputFileSize() {
+        long res = 0;
+        for (TBrokerFileStatus fileStatus : fileGroupInfo.getFileStatuses()) {
+            res = fileStatus.getSize();
+        }
+        return res;
     }
 
     /**
@@ -133,9 +175,10 @@ public class LoadScanProvider implements FileScanProviderIf {
         LoadTaskInfo.ImportColumnDescs columnDescs = new LoadTaskInfo.ImportColumnDescs();
         // fileGroup.getColumnExprList() contains columns from path
         columnDescs.descs = context.fileGroup.getColumnExprList();
-        if (context.mergeType == LoadTask.MergeType.MERGE) {
-            columnDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(context.deleteCondition));
-        } else if (context.mergeType == LoadTask.MergeType.DELETE) {
+        if (context.fileGroup.getMergeType() == LoadTask.MergeType.MERGE) {
+            columnDescs.descs.add(
+                    ImportColumnDesc.newDeleteSignImportColumnDesc(context.fileGroup.getDeleteCondition()));
+        } else if (context.fileGroup.getMergeType() == LoadTask.MergeType.DELETE) {
             columnDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
         }
         // add columnExpr for sequence column
@@ -143,39 +186,38 @@ public class LoadScanProvider implements FileScanProviderIf {
             columnDescs.descs.add(
                     new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, context.fileGroup.getSequenceCol())));
         }
-        // TOOD:
-        // required_slots 按顺序记录了源表的列，表标记哪些sipartition列，最终在BE cia c层 file slot and partition slot
-        // src slot id就按 order记录了源文件的列，然后在BE端作为input block的列order。并且from pat is 排在end的。
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.slotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
 
-        int numColumnsFromFile = srcSlotIds.size() - context.fileGroup.getColumnsFromPath().size();
+        int numColumnsFromFile = srcSlotIds.size() - context.fileGroup.getColumnNamesFromPath().size();
         Preconditions.checkState(numColumnsFromFile >= 0,
                 "srcSlotIds.size is: " + srcSlotIds.size() + ", num columns from path: "
-                        + context.fileGroup.getColumnsFromPath().size());
+                        + context.fileGroup.getColumnNamesFromPath().size());
+        context.params.setNumOfColumnsFromFile(numColumnsFromFile);
         for (int i = 0; i < srcSlotIds.size(); ++i) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(srcSlotIds.get(i));
             slotInfo.setIsFileSlot(i < numColumnsFromFile);
+            context.params.addToRequiredSlots(slotInfo);
         }
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {
         if (fileFormat != null) {
-            if (fileFormat.toLowerCase().equals("parquet")) {
+            String lowerFileFormat = fileFormat.toLowerCase();
+            if (lowerFileFormat.equals("parquet")) {
                 return TFileFormatType.FORMAT_PARQUET;
-            } else if (fileFormat.toLowerCase().equals("orc")) {
+            } else if (lowerFileFormat.equals("orc")) {
                 return TFileFormatType.FORMAT_ORC;
-            } else if (fileFormat.toLowerCase().equals("json")) {
+            } else if (lowerFileFormat.equals("json")) {
                 return TFileFormatType.FORMAT_JSON;
                 // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (fileFormat.toLowerCase().equals(FeConstants.csv) || fileFormat.toLowerCase()
-                    .equals(FeConstants.csv_with_names) || fileFormat.toLowerCase()
-                    .equals(FeConstants.csv_with_names_and_types)
+            } else if (lowerFileFormat.equals(FeConstants.csv) || lowerFileFormat.equals(FeConstants.csv_with_names)
+                    || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
                     // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                    || fileFormat.toLowerCase().equals(FeConstants.text)) {
+                    || lowerFileFormat.equals(FeConstants.text)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);

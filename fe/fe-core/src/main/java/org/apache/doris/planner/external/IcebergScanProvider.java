@@ -68,7 +68,7 @@ public class IcebergScanProvider extends HiveScanProvider {
     }
 
     @Override
-    public List<InputSplit> getSplits(List<Expr> exprs, int groupIdx) throws IOException, UserException {
+    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);
