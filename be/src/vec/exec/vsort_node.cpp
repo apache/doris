@@ -134,13 +134,12 @@ Status VSortNode::sort_input(RuntimeState* state) {
                     child(0)->get_next_after_projects(state, &upstream_block, &eos),
                     child(0)->get_next_span(), eos);
             if (upstream_block.rows() != 0) {
-                size_t mem_usage = upstream_block.allocated_bytes();
-                _total_mem_usage += mem_usage;
                 _unsorted_block->merge(upstream_block);
             }
-        } while (!eos && _unsorted_block->rows() < BufferedBlockSize &&
-                 _unsorted_block->allocated_bytes() < BufferedBlockBytes);
+        } while (!eos && _unsorted_block->rows() < BUFFERED_BLOCK_SIZE &&
+                 _unsorted_block->allocated_bytes() < BUFFERED_BLOCK_BYTES);
         if (_unsorted_block->rows() > 0) {
+            _total_mem_usage += _unsorted_block->allocated_bytes();
             Block block = _unsorted_block->to_block(0);
             RETURN_IF_ERROR(partial_sort(block));
             // dispose TOP-N logic

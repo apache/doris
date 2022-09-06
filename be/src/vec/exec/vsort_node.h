@@ -87,8 +87,8 @@ private:
 
     std::unique_ptr<MutableBlock> _unsorted_block;
 
-    static constexpr size_t BufferedBlockSize = 1024 * 1024;
-    static constexpr size_t BufferedBlockBytes = 16 << 20;
+    static constexpr size_t BUFFERED_BLOCK_SIZE = 1024 * 1024;
+    static constexpr size_t BUFFERED_BLOCK_BYTES = 16 << 20;
 };
 
 } // namespace doris::vectorized
