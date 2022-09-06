@@ -746,6 +746,9 @@ CONF_Int32(quick_compaction_max_rows, "1000");
 CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
+// Max waiting time to wait the "plan fragment start" rpc.
+// If timeout, the fragment will be cancelled.
+CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 } // namespace config
 
 } // namespace doris

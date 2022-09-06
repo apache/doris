@@ -175,9 +175,6 @@ public:
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
-        if (_is_local) {
-            LOG(INFO) << "will use local Exchange, dest_node_id is : " << _dest_node_id;
-        }
     }
 
     virtual ~Channel() {

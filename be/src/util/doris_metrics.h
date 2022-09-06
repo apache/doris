@@ -197,6 +197,7 @@ public:
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;
+    UIntGauge* fragment_thread_pool_queue_size;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
