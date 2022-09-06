@@ -301,13 +301,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Slot, ColumnStats> childColumnStats = statsDeriveResult.getSlotToColumnStats();
         Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
             List<SlotReference> slotReferences = projection.collect(SlotReference.class::isInstance);
-            if (slotReferences.isEmpty() || childColumnStats.get(slotReferences.get(0)) == null) {
+            if (slotReferences.isEmpty()) {
                 return new AbstractMap.SimpleEntry<>(projection.toSlot(), ColumnStats.createDefaultColumnStats());
             } else {
                 // TODO: just a trick here, need to do real project on column stats
                 return new AbstractMap.SimpleEntry<>(projection.toSlot(), childColumnStats.get(slotReferences.get(0)));
             }
-        }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
         statsDeriveResult.setSlotToColumnStats(columnsStats);
         return statsDeriveResult;
     }
