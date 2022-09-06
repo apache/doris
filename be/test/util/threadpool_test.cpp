@@ -899,7 +899,7 @@ TEST_F(ThreadPoolTest, TestThreadTokenSerial) {
             .set_min_threads(0)
             .set_max_threads(1)
             .set_max_queue_size(10)
-            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
+            .set_idle_timeout(std::chrono::milliseconds(2000))
             .build(&thread_pool);
 
     std::unique_ptr<ThreadPoolToken> token1 =
@@ -922,7 +922,7 @@ TEST_F(ThreadPoolTest, TestThreadTokenConcurrent) {
             .set_min_threads(0)
             .set_max_threads(1)
             .set_max_queue_size(10)
-            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
+            .set_idle_timeout(std::chrono::milliseconds(2000))
             .build(&thread_pool);
 
     std::unique_ptr<ThreadPoolToken> token1 =
