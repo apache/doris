@@ -459,25 +459,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     physicalHashJoin, hashJoinNode, leftFragment, rightFragment, context);
         }
 
-        // Nereids does not care about output order of join,
-        // but BE need left child's output must be before right child's output.
-        // So we need to swap the output order of left and right child if necessary.
-        // TODO: revert this after Nereids could ensure the output order is correct.
-        TupleDescriptor leftChildOutputTupleDesc = leftPlanRoot.getOutputTupleDesc();
-        TupleDescriptor leftTuple =
-                leftChildOutputTupleDesc != null ? leftChildOutputTupleDesc : context.getTupleDesc(leftPlanRoot);
-        TupleDescriptor rightChildOutputTupleDesc = rightPlanRoot.getOutputTupleDesc();
-        TupleDescriptor rightTuple =
-                rightChildOutputTupleDesc != null ? rightChildOutputTupleDesc : context.getTupleDesc(rightPlanRoot);
         TupleDescriptor outputDescriptor = context.generateTupleDesc();
-        Map<ExprId, SlotReference> slotReferenceMap = Maps.newHashMap();
-        hashJoin.getOutput().stream()
+        List<Expr> srcToOutput = hashJoin.getOutput().stream()
                 .map(SlotReference.class::cast)
-                .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
-        List<Expr> srcToOutput = Stream.concat(leftTuple.getSlots().stream(), rightTuple.getSlots().stream())
-                .map(sd -> context.findExprId(sd.getId()))
-                .map(slotReferenceMap::get)
-                .filter(Objects::nonNull)
                 .peek(s -> context.createSlotDesc(outputDescriptor, s))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -53,11 +52,6 @@ public class PlanTranslatorContext {
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
 
-    /**
-     * Inverted index from legacy slot to Nereids' slot.
-     */
-    private final Map<SlotId, ExprId> slotIdToExprId = Maps.newHashMap();
-
     private final List<ScanNode> scanNodes = Lists.newArrayList();
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
@@ -90,7 +84,6 @@ public class PlanTranslatorContext {
 
     public void addExprIdSlotRefPair(ExprId exprId, SlotRef slotRef) {
         exprIdToSlotRef.put(exprId, slotRef);
-        slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
     public void removePlanFragment(PlanFragment planFragment) {
@@ -103,10 +96,6 @@ public class PlanTranslatorContext {
 
     public void addScanNode(ScanNode scanNode) {
         scanNodes.add(scanNode);
-    }
-
-    public ExprId findExprId(SlotId slotId) {
-        return slotIdToExprId.get(slotId);
     }
 
     public List<ScanNode> getScanNodes() {
