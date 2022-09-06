@@ -140,10 +140,9 @@ Status VSortNode::sort_input(RuntimeState* state) {
             }
         } while (!eos && _unsorted_block->rows() < BufferedBlockSize &&
                  _unsorted_block->allocated_bytes() < BufferedBlockBytes);
-        Block block = _unsorted_block->to_block(0);
-        RETURN_IF_ERROR(partial_sort(block));
-
-        if (block.rows() > 0) {
+        if (_unsorted_block->rows() > 0) {
+            Block block = _unsorted_block->to_block(0);
+            RETURN_IF_ERROR(partial_sort(block));
             // dispose TOP-N logic
             if (_limit != -1) {
                 // Here is a little opt to reduce the mem uasge, we build a max heap
