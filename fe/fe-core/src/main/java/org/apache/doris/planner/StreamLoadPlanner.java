@@ -170,6 +170,20 @@ public class StreamLoadPlanner {
             }
         }
 
+        if (destTable.isDynamicSchema()) {
+            descTable.addReferencedTable(destTable);
+            tupleDesc.setTable(destTable);
+            // add a implict container column "__dynamic__" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            LOG.debug("plan tupleDesc {}", tupleDesc.toString());
+        }
+
         // create scan node
         ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
