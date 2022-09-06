@@ -47,7 +47,9 @@ under the License.
     <!-- other -->
     <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="DeclarationOrder" />
     <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="OverloadMethodsDeclarationOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="SingleSpaceSeparator" />
     <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="VariableDeclarationUsageDistance" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|PaloFe\.java" checks="EmptyLineSeparator" id="forNereids" />
 
     <!-- exclude rules for special files -->
     <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]ColumnParser\.java" checks="OneTopLevelClass" />

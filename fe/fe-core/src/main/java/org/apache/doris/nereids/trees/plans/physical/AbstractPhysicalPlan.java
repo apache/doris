@@ -20,12 +20,10 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -57,11 +55,6 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         super(type, groupExpression, Optional.of(logicalProperties), children);
         // TODO: compute physical properties
         this.physicalProperties = PhysicalProperties.ANY;
-    }
-
-    @Override
-    public List<Slot> getOutput() {
-        return logicalProperties.getOutput();
     }
 
     @Override

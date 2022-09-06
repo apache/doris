@@ -26,7 +26,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "runtime/mem_pool.h"
-#include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;

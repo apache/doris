@@ -30,7 +30,6 @@
 #include "gtest/gtest.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
-#include "util/logging.h"
 
 #ifndef BE_TEST
 #define BE_TEST

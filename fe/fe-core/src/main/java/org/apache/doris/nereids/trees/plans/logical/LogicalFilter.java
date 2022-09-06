@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +39,6 @@ import java.util.Optional;
  */
 public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
     private final Expression predicates;
-
 
     public LogicalFilter(Expression predicates, CHILD_TYPE child) {
         this(predicates, Optional.empty(), Optional.empty(), child);
@@ -55,13 +55,15 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
+    public List<Slot> computeOutput() {
+        return child().getOutput();
     }
 
     @Override
     public String toString() {
-        return "LogicalFilter (" + predicates + ")";
+        return Utils.toSqlString("LogicalFilter",
+                "predicates", predicates
+        );
     }
 
     @Override

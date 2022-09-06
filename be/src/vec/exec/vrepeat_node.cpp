@@ -167,7 +167,7 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (_child_block->rows() == 0) {
         while (_child_block->rows() == 0 && !_child_eos) {
             RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(0)->get_next(state, _child_block.get(), &_child_eos),
+                    child(0)->get_next_after_projects(state, _child_block.get(), &_child_eos),
                     child(0)->get_next_span(), _child_eos);
         }
 

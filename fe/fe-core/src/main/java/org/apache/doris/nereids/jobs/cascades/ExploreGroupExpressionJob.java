@@ -25,8 +25,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 
-import com.google.common.collect.Lists;
-
 import java.util.Comparator;
 import java.util.List;
 
@@ -50,8 +48,7 @@ public class ExploreGroupExpressionJob extends Job {
     @Override
     public void execute() {
         // TODO: enable exploration job after we test it
-        // List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
-        List<Rule> explorationRules = Lists.newArrayList();
+        List<Rule> explorationRules = getRuleSet().getExplorationRules();
         List<Rule> validRules = getValidRules(groupExpression, explorationRules);
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 

@@ -40,8 +40,10 @@ Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
     int text_column_idx = -1;
     int delimiter_column_idx = -1;
 
-    _vexpr_context->root()->children()[0]->execute(_vexpr_context, block, &text_column_idx);
-    _vexpr_context->root()->children()[1]->execute(_vexpr_context, block, &delimiter_column_idx);
+    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
+                                                                   &text_column_idx));
+    RETURN_IF_ERROR(_vexpr_context->root()->children()[1]->execute(_vexpr_context, block,
+                                                                   &delimiter_column_idx));
 
     _text_column = block->get_by_position(text_column_idx).column;
     _delimiter_column = block->get_by_position(delimiter_column_idx).column;

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "前缀索引",
+    "title": "索引",
     "language": "zh-CN"
 }
 ---
@@ -23,9 +23,15 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# 前缀索引
+# 索引
 
-## 基本概念
+索引用于帮助快速过滤或查找数据。
+
+目前 Doris 主要支持两类索引：内建的智能索引，包括前缀索引和 ZoneMap 索引。用户创建的二级索引，包括 [Bloom Filter 索引](./bloomfilter) 和[Bitmap倒排索引](./bitmap-index)。
+
+其中 ZoneMap 索引是在列存格式上，对每一列自动维护的索引信息，包括 Min/Max，Null 值个数等等。这种索引对用户透明。
+
+## 前缀索引
 
 不同于传统的数据库设计，Doris 不支持在任意列上创建索引。Doris 这类 MPP 架构的 OLAP 数据库，通常都是通过提高并发，来处理大量数据的。
 
@@ -73,6 +79,6 @@ SELECT * FROM table WHERE age=20；
 
 所以在建表时，**正确的选择列顺序，能够极大地提高查询效率**。
 
-## 通过ROLLUP来调整前缀索引
+## 通过 Rollup 来调整前缀索引
 
-因为建表时已经指定了列顺序，所以一个表只有一种前缀索引。这对于使用其他不能命中前缀索引的列作为条件进行的查询来说，效率上可能无法满足需求。因此，我们可以通过创建 ROLLUP 来人为的调整列顺序。详情可参考[ROLLUP](../hit-the-rollup.md)。
+因为建表时已经指定了列顺序，所以一个表只有一种前缀索引。这对于使用其他不能命中前缀索引的列作为条件进行的查询来说，效率上可能无法满足需求。因此，我们可以通过创建 ROLLUP 来人为的调整列顺序。详情可参考 [ROLLUP](../hit-the-rollup.md)。

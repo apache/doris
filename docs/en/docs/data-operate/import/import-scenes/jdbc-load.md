@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Synchronize data using JDBC",
+    "title": "Synchronize data using Insert method",
     "language": "en"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Synchronize data using JDBC
+# Synchronize data using Insert method
 
-Users can use INSERT statements to import data through the JDBC protocol.
+Users can use INSERT statement to import data through MySQL protocol.
 
 The INSERT statement is used in a similar way to the INSERT statement used in databases such as MySQL. The INSERT statement supports the following two syntaxes:
 
@@ -37,7 +37,7 @@ The INSERT statement is used in a similar way to the INSERT statement used in da
 
 Here we only introduce the second way. For a detailed description of the INSERT command, see the [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md) command documentation.
 
-## single write
+## Single write
 
 Single write means that the user directly executes an INSERT command. An example is as follows:
 
@@ -79,7 +79,7 @@ public class DorisJDBCDemo {
     private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mysql://%s:%d/%s?rewriteBatchedStatements=true";
     private static final String HOST = "127.0.0.1"; // Leader Node host
-    private static final int PORT = 8030; // http port of Leader Node
+    private static final int PORT = 9030; // query port of Leader Node
     private static final String DB = "demo";
     private static final String TBL = "test_1";
     private static final String USER = "admin";

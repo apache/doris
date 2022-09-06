@@ -27,7 +27,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
@@ -192,18 +192,18 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileDbDeleted(@Mocked Env env, @Mocked InternalDataSource ds) throws UserException {
+    public void testUpdateWhileDbDeleted(@Mocked Env env, @Mocked InternalCatalog catalog) throws UserException {
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
             }
         };
 
         new Expectations() {
             {
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -216,14 +216,14 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileTableDeleted(@Mocked Env env, @Mocked InternalDataSource ds,
+    public void testUpdateWhileTableDeleted(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database) throws UserException {
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -238,7 +238,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhilePartitionChanged(@Mocked Env env, @Mocked InternalDataSource ds,
+    public void testUpdateWhilePartitionChanged(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database, @Injectable Table table, @Injectable PartitionInfo partitionInfo,
             @Injectable KafkaProgress kafkaProgress) throws UserException {
         List<PartitionInfo> partitionInfoList = Lists.newArrayList();
@@ -246,10 +246,10 @@ public class RoutineLoadJobTest {
 
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);

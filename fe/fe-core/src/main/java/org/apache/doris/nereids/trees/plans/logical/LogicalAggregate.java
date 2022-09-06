@@ -27,10 +27,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -52,6 +52,7 @@ import java.util.Optional;
 public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Aggregate {
 
     private final boolean disassembled;
+    private final boolean normalized;
     private final List<Expression> groupByExpressions;
     private final List<NamedExpression> outputExpressions;
     private final AggPhase aggPhase;
@@ -63,16 +64,18 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, false, AggPhase.GLOBAL, child);
+        this(groupByExpressions, outputExpressions, false, false, AggPhase.GLOBAL, child);
     }
 
     public LogicalAggregate(
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             boolean disassembled,
+            boolean normalized,
             AggPhase aggPhase,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, disassembled, aggPhase, Optional.empty(), Optional.empty(), child);
+        this(groupByExpressions, outputExpressions, disassembled, normalized,
+                aggPhase, Optional.empty(), Optional.empty(), child);
     }
 
     /**
@@ -82,6 +85,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             boolean disassembled,
+            boolean normalized,
             AggPhase aggPhase,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
@@ -90,6 +94,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
         this.disassembled = disassembled;
+        this.normalized = normalized;
         this.aggPhase = aggPhase;
     }
 
@@ -107,13 +112,15 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
 
     @Override
     public String toString() {
-        return "LogicalAggregate (phase: [" + aggPhase.name() + "], output: ["
-                + StringUtils.join(outputExpressions, ", ")
-                + "], groupBy: [" + StringUtils.join(groupByExpressions, ", ") + "])";
+        return Utils.toSqlString("LogicalAggregate",
+                "phase", aggPhase,
+                "outputExpr", outputExpressions,
+                "groupByExpr", groupByExpressions
+        );
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
+    public List<Slot> computeOutput() {
         return outputExpressions.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
@@ -134,6 +141,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
 
     public boolean isDisassembled() {
         return disassembled;
+    }
+
+    public boolean isNormalized() {
+        return normalized;
     }
 
     /**
@@ -160,23 +171,25 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     @Override
     public LogicalAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalAggregate(groupByExpressions, outputExpressions, disassembled, aggPhase, children.get(0));
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions,
+                disassembled, normalized, aggPhase, children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalAggregate(groupByExpressions, outputExpressions, disassembled, aggPhase, groupExpression,
-            Optional.of(logicalProperties), children.get(0));
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions,
+                disassembled, normalized, aggPhase, groupExpression, Optional.of(logicalProperties), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalAggregate(groupByExpressions, outputExpressions, disassembled, aggPhase, Optional.empty(),
-            logicalProperties, children.get(0));
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions,
+                disassembled, normalized, aggPhase, Optional.empty(), logicalProperties, children.get(0));
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
-                                                 List<NamedExpression> outputExpressionList) {
-        return new LogicalAggregate(groupByExprList, outputExpressionList, disassembled, aggPhase, child());
+            List<NamedExpression> outputExpressionList) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressionList,
+                disassembled, normalized, aggPhase, child());
     }
 }

@@ -58,26 +58,26 @@ public class CatalogFactory {
     }
 
     /**
-     * create the datasource instance from data source log.
+     * create the catalog instance from catalog log.
      */
-    public static DataSourceIf constructorFromLog(CatalogLog log) throws DdlException {
-        return constructorDataSource(log.getCatalogId(), log.getCatalogName(), log.getProps());
+    public static CatalogIf constructorFromLog(CatalogLog log) throws DdlException {
+        return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getProps());
     }
 
-    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props)
+    private static CatalogIf constructorCatalog(long catalogId, String name, Map<String, String> props)
             throws DdlException {
         String type = props.get("type");
-        DataSourceIf dataSource;
+        CatalogIf catalog;
         switch (type) {
             case "hms":
-                dataSource = new HMSExternalDataSource(catalogId, name, props);
+                catalog = new HMSExternalCatalog(catalogId, name, props);
                 break;
             case "es":
-                dataSource = new EsExternalDataSource(catalogId, name, props);
+                catalog = new EsExternalCatalog(catalogId, name, props);
                 break;
             default:
-                throw new RuntimeException("Unknown datasource type for " + type);
+                throw new RuntimeException("Unknown catalog type: " + type);
         }
-        return dataSource;
+        return catalog;
     }
 }

@@ -76,6 +76,15 @@ public class ColumnStats {
     private LiteralExpr minValue;
     private LiteralExpr maxValue;
 
+    public static ColumnStats createDefaultColumnStats() {
+        ColumnStats columnStats = new ColumnStats();
+        columnStats.setAvgSize(1);
+        columnStats.setMaxSize(1);
+        columnStats.setNdv(1);
+        columnStats.setNumNulls(0);
+        return columnStats;
+    }
+
     public ColumnStats(ColumnStats other) {
         this.ndv = other.ndv;
         this.avgSize = other.avgSize;

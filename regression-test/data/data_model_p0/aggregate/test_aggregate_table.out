@@ -21,7 +21,7 @@ char_value_replace	CHAR(10)	Yes	false	\N	REPLACE
 char_value_replace_if_not_null	CHAR(10)	Yes	false	\N	REPLACE_IF_NOT_NULL
 
 -- !date_agg_table --
-0	2000-12-31	2000-01-01	\N	2000-12-31
+0	2000-12-31	2000-01-01	\N	2000-12-31	2000-12-31	2000-01-01	\N	2000-12-31	2000-12-31T11:11:11	2000-01-01T11:11:11	\N	2000-12-31T11:11:11	2000-12-31T11:11:11.111	2000-01-01T11:11:11.111	\N	2000-12-31T11:11:11.111	2000-12-31T11:11:11.111111	2000-01-01T11:11:11.111111	\N	2000-12-31T11:11:11.111111
 
 -- !desc_date_table --
 k	INT	Yes	true	\N	
@@ -29,4 +29,20 @@ date_value_max	DATE	Yes	false	\N	MAX
 date_value_min	DATE	Yes	false	\N	MIN
 date_value_replace	DATE	Yes	false	\N	REPLACE
 date_value_replace_if_not_null	DATE	Yes	false	\N	REPLACE_IF_NOT_NULL
+datev2_value_max	DATEV2	Yes	false	\N	MAX
+datev2_value_min	DATEV2	Yes	false	\N	MIN
+datev2_value_replace	DATEV2	Yes	false	\N	REPLACE
+datev2_value_replace_if_not_null	DATEV2	Yes	false	\N	REPLACE_IF_NOT_NULL
+datetimev2_value_max	DATETIMEV2(0)	Yes	false	\N	MAX
+datetimev2_value_min	DATETIMEV2(0)	Yes	false	\N	MIN
+datetimev2_value_replace	DATETIMEV2(0)	Yes	false	\N	REPLACE
+datetimev2_value_replace_if_not_null	DATETIMEV2(0)	Yes	false	\N	REPLACE_IF_NOT_NULL
+datetimev2_value_max_1	DATETIMEV2(3)	Yes	false	\N	MAX
+datetimev2_value_min_1	DATETIMEV2(3)	Yes	false	\N	MIN
+datetimev2_value_replace_1	DATETIMEV2(3)	Yes	false	\N	REPLACE
+datetimev2_value_replace_if_not_null_1	DATETIMEV2(3)	Yes	false	\N	REPLACE_IF_NOT_NULL
+datetimev2_value_max_2	DATETIMEV2(6)	Yes	false	\N	MAX
+datetimev2_value_min_2	DATETIMEV2(6)	Yes	false	\N	MIN
+datetimev2_value_replace_2	DATETIMEV2(6)	Yes	false	\N	REPLACE
+datetimev2_value_replace_if_not_null_2	DATETIMEV2(6)	Yes	false	\N	REPLACE_IF_NOT_NULL
 

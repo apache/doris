@@ -20,36 +20,23 @@ package org.apache.doris.nereids.util;
 import org.junit.jupiter.api.Assertions;
 
 import java.lang.reflect.Field;
-import java.util.List;
 import java.util.function.Predicate;
-import java.util.stream.IntStream;
 
 public class FieldChecker {
-
-    public final List<String> fields;
-
-    public FieldChecker(List<String> fields) {
-        this.fields = fields;
-    }
-
-    public <T> Predicate<T> check(List<Object> valueList) {
+    public static <T> Predicate<T> check(String fieldName, Object value) {
         return (o) -> {
-            Assertions.assertEquals(fields.size(), valueList.size());
-            Class<?> classInfo = o.getClass();
-            IntStream.range(0, valueList.size()).forEach(i -> {
-                Field field;
-                try {
-                    field = classInfo.getDeclaredField(this.fields.get(i));
-                } catch (NoSuchFieldException e) {
-                    throw new RuntimeException(e);
-                }
-                field.setAccessible(true);
-                try {
-                    Assertions.assertEquals(valueList.get(i), field.get(o));
-                } catch (IllegalAccessException e) {
-                    throw new RuntimeException(e);
-                }
-            });
+            Field field;
+            try {
+                field = o.getClass().getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            field.setAccessible(true);
+            try {
+                Assertions.assertEquals(value, field.get(o));
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
             return true;
         };
     }

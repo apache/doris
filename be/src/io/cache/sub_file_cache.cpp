@@ -26,7 +26,6 @@ namespace io {
 using std::vector;
 
 const static std::string SUB_FILE_CACHE_PREFIX = "SUB_CACHE";
-const static std::string SUB_FILE_DONE_PREFIX = "SUB_CACHE_DONE";
 
 SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
                            io::FileReaderSPtr remote_file_reader)
@@ -71,9 +70,18 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
                 if (offset_begin + req_size > _remote_file_reader->size()) {
                     req_size = _remote_file_reader->size() - offset_begin;
                 }
-                RETURN_IF_ERROR(_generate_cache_reader(*iter, req_size));
+                auto st = _generate_cache_reader(offset_begin, req_size);
+                if (!st.ok()) {
+                    WARN_IF_ERROR(_remote_file_reader->close(),
+                                  fmt::format("Close remote file reader failed: {}",
+                                              _remote_file_reader->path().native()));
+                    return st;
+                }
             }
         }
+        RETURN_NOT_OK_STATUS_WITH_WARN(_remote_file_reader->close(),
+                                       fmt::format("Close remote file reader failed: {}",
+                                                   _remote_file_reader->path().native()));
         _cache_file_size = _get_cache_file_size();
     }
     {
@@ -82,7 +90,6 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
         for (vector<size_t>::const_iterator iter = need_cache_offsets.cbegin();
              iter != need_cache_offsets.cend(); ++iter) {
             size_t offset_begin = *iter;
-            size_t req_size = config::max_sub_cache_file_size;
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end()) {
                 LOG(ERROR) << "Local cache file reader can't be found: " << offset_begin << ", "
                            << offset_begin;
@@ -91,6 +98,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             if (offset_begin < offset) {
                 offset_begin = offset;
             }
+            size_t req_size = *iter + config::max_sub_cache_file_size - offset_begin;
             if (offset + result.size < *iter + config::max_sub_cache_file_size) {
                 req_size = offset + result.size - offset_begin;
             }
@@ -116,53 +124,59 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
 
 Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     Path cache_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_CACHE_PREFIX, offset);
-    Path cache_done_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_DONE_PREFIX, offset);
+    Path cache_done_file = _cache_dir / fmt::format("{}_{}{}", SUB_FILE_CACHE_PREFIX, offset,
+                                                    CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(cache_done_file, &done_file_exist),
             fmt::format("Check local cache done file exist failed. {}", cache_done_file.native()));
+
+    std::promise<Status> download_st;
+    std::future<Status> future = download_st.get_future();
     if (!done_file_exist) {
-        bool cache_file_exist = false;
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
-                fmt::format("Check local cache file exist failed. {}", cache_file.native()));
-        if (cache_file_exist) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    io::global_local_filesystem()->delete_file(cache_file),
-                    fmt::format("Check local cache file exist failed. {}", cache_file.native()));
+        ThreadPoolToken* thread_token =
+                ExecEnv::GetInstance()->get_serial_download_cache_thread_token();
+        if (thread_token != nullptr) {
+            auto st = thread_token->submit_func([this, &download_st, cache_done_file, cache_file,
+                                                 offset, req_size] {
+                auto func = [this, cache_done_file, cache_file, offset, req_size] {
+                    bool done_file_exist = false;
+                    // Judge again whether cache_done_file exists, it is possible that the cache
+                    // is downloaded while waiting in the thread pool
+                    RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->exists(
+                                                           cache_done_file, &done_file_exist),
+                                                   "Check local cache done file exist failed.");
+                    bool cache_file_exist = false;
+                    RETURN_NOT_OK_STATUS_WITH_WARN(
+                            io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
+                            fmt::format("Check local cache file exist failed. {}",
+                                        cache_file.native()));
+                    if (done_file_exist && cache_file_exist) {
+                        return Status::OK();
+                    } else if (!done_file_exist && cache_file_exist) {
+                        RETURN_NOT_OK_STATUS_WITH_WARN(
+                                io::global_local_filesystem()->delete_file(cache_file),
+                                fmt::format("Check local cache file exist failed. {}",
+                                            cache_file.native()));
+                    }
+                    RETURN_NOT_OK_STATUS_WITH_WARN(
+                            download_cache_to_local(cache_file, cache_done_file,
+                                                    _remote_file_reader, req_size, offset),
+                            "Download cache from remote to local failed.");
+                    return Status::OK();
+                };
+                download_st.set_value(func());
+            });
+            if (!st.ok()) {
+                LOG(FATAL) << "Failed to submit download cache task to thread pool! "
+                           << st.get_error_msg();
+            }
+        } else {
+            return Status::InternalError("Failed to get download cache thread token");
         }
-        LOG(INFO) << "Download cache file from remote file: "
-                  << _remote_file_reader->path().native() << " -> " << cache_file.native();
-        std::unique_ptr<char[]> file_buf(new char[req_size]);
-        Slice file_slice(file_buf.get(), req_size);
-        size_t bytes_read = 0;
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                _remote_file_reader->read_at(0, file_slice, &bytes_read),
-                fmt::format("read remote file failed. {}. offset: {}, size: {}",
-                            _remote_file_reader->path().native(), offset, req_size));
-        if (bytes_read != req_size) {
-            LOG(ERROR) << "read remote file failed: " << _remote_file_reader->path().native()
-                       << ", bytes read: " << bytes_read
-                       << " vs file size: " << _remote_file_reader->size();
-            return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        if (!future.get().ok()) {
+            return future.get();
         }
-        io::FileWriterPtr file_writer;
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->create_file(cache_file, &file_writer),
-                fmt::format("Create local cache file failed: {}", cache_file.native()));
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                file_writer->append(file_slice),
-                fmt::format("Write local cache file failed: {}", cache_file.native()));
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                file_writer->close(),
-                fmt::format("Close local cache file failed: {}", cache_file.native()));
-        io::FileWriterPtr done_file_writer;
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->create_file(cache_done_file, &done_file_writer),
-                fmt::format("Create local done file failed: {}", cache_done_file.native()));
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                done_file_writer->close(),
-                fmt::format("Close local done file failed: {}", cache_done_file.native()));
     }
     io::FileReaderSPtr cache_reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader));
@@ -223,7 +237,8 @@ Status SubFileCache::_clean_cache_internal(size_t offset) {
     }
     _cache_file_size = 0;
     Path cache_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_CACHE_PREFIX, offset);
-    Path done_file = _cache_dir / fmt::format("{}_{}", SUB_FILE_DONE_PREFIX, offset);
+    Path done_file = _cache_dir /
+                     fmt::format("{}_{}{}", SUB_FILE_CACHE_PREFIX, offset, CACHE_DONE_FILE_SUFFIX);
     bool done_file_exist = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             io::global_local_filesystem()->exists(done_file, &done_file_exist),

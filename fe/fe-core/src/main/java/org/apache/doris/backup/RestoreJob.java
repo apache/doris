@@ -97,6 +97,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class RestoreJob extends AbstractJob {
+    private static final String PROP_RESERVE_REPLICA = "reserve_replica";
+
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
 
     // CHECKSTYLE OFF
@@ -132,6 +134,8 @@ public class RestoreJob extends AbstractJob {
 
     private ReplicaAllocation replicaAlloc;
 
+    private boolean reserveReplica = false;
+
     // this 2 members is to save all newly restored objs
     // tbl name -> part
     private List<Pair<String, Partition>> restoredPartitions = Lists.newArrayList();
@@ -162,7 +166,8 @@ public class RestoreJob extends AbstractJob {
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
-            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, Env env, long repoId) {
+            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica, Env env,
+            long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -170,6 +175,8 @@ public class RestoreJob extends AbstractJob {
         this.replicaAlloc = replicaAlloc;
         this.state = RestoreJobState.PENDING;
         this.metaVersion = metaVersion;
+        this.reserveReplica = reserveReplica;
+        properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
     }
 
     public RestoreJobState getState() {
@@ -362,7 +369,7 @@ public class RestoreJob extends AbstractJob {
             return;
         }
 
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
             return;
@@ -417,7 +424,7 @@ public class RestoreJob extends AbstractJob {
      * 6. make snapshot for all replicas for incremental download later.
      */
     private void checkAndPrepareMeta() {
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
@@ -566,9 +573,13 @@ public class RestoreJob extends AbstractJob {
                             String partitionName = partitionEntry.getKey();
                             BackupPartitionInfo backupPartInfo = partitionEntry.getValue();
                             Partition localPartition = localOlapTbl.getPartition(partitionName);
+                            Partition remotePartition = remoteOlapTbl.getPartition(partitionName);
                             if (localPartition != null) {
                                 // Partition already exist.
                                 PartitionInfo localPartInfo = localOlapTbl.getPartitionInfo();
+                                PartitionInfo remotePartInfo = remoteOlapTbl.getPartitionInfo();
+                                ReplicaAllocation remoteReplicaAlloc = remotePartInfo.getReplicaAllocation(
+                                        remotePartition.getId());
                                 if (localPartInfo.getType() == PartitionType.RANGE
                                         || localPartInfo.getType() == PartitionType.LIST) {
                                     PartitionItem localItem = localPartInfo.getItem(localPartition.getId());
@@ -577,7 +588,7 @@ public class RestoreJob extends AbstractJob {
                                     if (localItem.equals(remoteItem)) {
                                         // Same partition, same range
                                         if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition,
-                                                localTbl, backupPartInfo, partitionName, tblInfo)) {
+                                                localTbl, backupPartInfo, partitionName, tblInfo, remoteReplicaAlloc)) {
                                             return;
                                         }
                                     } else {
@@ -590,7 +601,7 @@ public class RestoreJob extends AbstractJob {
                                 } else {
                                     // If this is a single partitioned table.
                                     if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition, localTbl,
-                                            backupPartInfo, partitionName, tblInfo)) {
+                                            backupPartInfo, partitionName, tblInfo, remoteReplicaAlloc)) {
                                         return;
                                     }
                                 }
@@ -609,14 +620,20 @@ public class RestoreJob extends AbstractJob {
                                         return;
                                     } else {
                                         // this partition can be added to this table, set ids
+                                        ReplicaAllocation restoreReplicaAlloc = replicaAlloc;
+                                        if (reserveReplica) {
+                                            PartitionInfo remotePartInfo = remoteOlapTbl.getPartitionInfo();
+                                            restoreReplicaAlloc = remotePartInfo.getReplicaAllocation(
+                                                remotePartition.getId());
+                                        }
                                         Partition restorePart = resetPartitionForRestore(localOlapTbl, remoteOlapTbl,
                                                 partitionName,
                                                 db.getClusterName(),
-                                                replicaAlloc);
+                                                restoreReplicaAlloc);
                                         if (restorePart == null) {
                                             return;
                                         }
-                                        restoredPartitions.add(Pair.create(localOlapTbl.getName(), restorePart));
+                                        restoredPartitions.add(Pair.of(localOlapTbl.getName(), restorePart));
                                     }
                                 } else {
                                     // It is impossible that a single partitioned table exist
@@ -642,7 +659,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // reset all ids in this table
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc);
+                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -794,8 +811,12 @@ public class RestoreJob extends AbstractJob {
                         long remotePartId = backupPartitionInfo.id;
                         PartitionItem remoteItem = remoteTbl.getPartitionInfo().getItem(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
+                        ReplicaAllocation restoreReplicaAlloc = replicaAlloc;
+                        if (reserveReplica) {
+                            restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
+                        }
                         localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
-                                remoteDataProperty, replicaAlloc,
+                                remoteDataProperty, restoreReplicaAlloc,
                                 remotePartitionInfo.getIsInMemory(remotePartId));
                     }
                     localTbl.addPartition(restoredPart);
@@ -927,9 +948,15 @@ public class RestoreJob extends AbstractJob {
     }
 
     private boolean genFileMappingWhenBackupReplicasEqual(PartitionInfo localPartInfo, Partition localPartition,
-            Table localTbl, BackupPartitionInfo backupPartInfo, String partitionName, BackupOlapTableInfo tblInfo) {
-        short restoreReplicaNum = replicaAlloc.getTotalReplicaNum();
+            Table localTbl, BackupPartitionInfo backupPartInfo, String partitionName, BackupOlapTableInfo tblInfo,
+            ReplicaAllocation remoteReplicaAlloc) {
+        short restoreReplicaNum;
         short localReplicaNum = localPartInfo.getReplicaAllocation(localPartition.getId()).getTotalReplicaNum();
+        if (!reserveReplica) {
+            restoreReplicaNum = replicaAlloc.getTotalReplicaNum();
+        } else {
+            restoreReplicaNum = remoteReplicaAlloc.getTotalReplicaNum();
+        }
         if (localReplicaNum != restoreReplicaNum) {
             status = new Status(ErrCode.COMMON_ERROR, "Partition " + partitionName
                     + " in table " + localTbl.getName()
@@ -970,7 +997,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
                             localTbl.getCompressionType(),
-                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy());
+                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
+                            localTbl.disableAutoCompaction());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1084,7 +1112,7 @@ public class RestoreJob extends AbstractJob {
     private void replayCheckAndPrepareMeta() {
         Database db;
         try {
-            db = env.getInternalDataSource().getDbOrMetaException(dbId);
+            db = env.getInternalCatalog().getDbOrMetaException(dbId);
         } catch (MetaNotFoundException e) {
             LOG.warn("[INCONSISTENT META] replayCheckAndPrepareMeta failed", e);
             return;
@@ -1126,8 +1154,12 @@ public class RestoreJob extends AbstractJob {
                     .getPartInfo(restorePart.getName());
             long remotePartId = backupPartitionInfo.id;
             DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
+            ReplicaAllocation restoreReplicaAlloc = replicaAlloc;
+            if (reserveReplica) {
+                restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
+            }
             localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
-                    remoteDataProperty, replicaAlloc,
+                    remoteDataProperty, restoreReplicaAlloc,
                     remotePartitionInfo.getIsInMemory(remotePartId));
             localTbl.addPartition(restorePart);
 
@@ -1220,7 +1252,7 @@ public class RestoreJob extends AbstractJob {
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
-            Database db = env.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 status = new Status(ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
                 return;
@@ -1414,7 +1446,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     private Status allTabletCommitted(boolean isReplay) {
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
@@ -1513,6 +1545,7 @@ public class RestoreJob extends AbstractJob {
         info.add(String.valueOf(allowLoad));
         info.add(String.valueOf(replicaAlloc.getTotalReplicaNum()));
         info.add(replicaAlloc.toCreateStmt());
+        info.add(String.valueOf(reserveReplica));
         info.add(getRestoreObjs());
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(metaPreparedTime));
@@ -1584,7 +1617,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // clean restored objs
-        Database db = env.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
             setTableStateToNormal(db);
@@ -1812,7 +1845,7 @@ public class RestoreJob extends AbstractJob {
         for (int i = 0; i < size; i++) {
             String tblName = Text.readString(in);
             Partition part = Partition.read(in);
-            restoredPartitions.add(Pair.create(tblName, part));
+            restoredPartitions.add(Pair.of(tblName, part));
         }
 
         size = in.readInt();
@@ -1857,6 +1890,7 @@ public class RestoreJob extends AbstractJob {
             String value = Text.readString(in);
             properties.put(key, value);
         }
+        reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
     }
 
     @Override

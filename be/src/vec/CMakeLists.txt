@@ -66,6 +66,7 @@ set(VEC_FILES
   data_types/data_type_array.cpp
   data_types/data_type_bitmap.cpp
   data_types/data_type_factory.cpp
+  data_types/data_type_fixed_length_object.cpp
   data_types/data_type_hll.cpp
   data_types/data_type_nothing.cpp
   data_types/data_type_nothing.cpp
@@ -231,8 +232,19 @@ set(VEC_FILES
   exec/format/parquet/schema_desc.cpp
   exec/format/parquet/vparquet_column_reader.cpp
   exec/format/parquet/level_decoder.cpp
-  exec/format/parquet/parquet_common.cpp)
+  exec/format/parquet/parquet_common.cpp
+  exec/scan/vscan_node.cpp
+  exec/scan/vscanner.cpp
+  exec/scan/scanner_context.cpp
+  exec/scan/scanner_scheduler.cpp
+  exec/scan/new_olap_scan_node.cpp
+  exec/scan/new_olap_scanner.cpp
+  exec/scan/new_file_arrow_scanner.cpp
+  exec/scan/new_file_scan_node.cpp
+  exec/scan/new_file_scanner.cpp
+  exec/scan/new_file_text_scanner.cpp
+)
 
 add_library(Vec STATIC
-    ${VEC_FILES}
-)
+        ${VEC_FILES}
+        )

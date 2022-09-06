@@ -1,4 +1,6 @@
 #!/bin/bash
+# shellcheck disable=2034
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -27,22 +29,22 @@
 ###################################################
 
 # thirdparties will be downloaded and unpacked here
-export TP_SOURCE_DIR=$TP_DIR/src
+export TP_SOURCE_DIR="${TP_DIR:-.}/src"
 
 # thirdparties will be installed to here
-export TP_INSTALL_DIR=$TP_DIR/installed
+export TP_INSTALL_DIR="${TP_DIR:-.}/installed"
 
 # patches for all thirdparties
-export TP_PATCH_DIR=$TP_DIR/patches
+export TP_PATCH_DIR="${TP_DIR:-.}/patches"
 
 # header files of all thirdparties will be intalled to here
-export TP_INCLUDE_DIR=$TP_INSTALL_DIR/include
+export TP_INCLUDE_DIR="${TP_INSTALL_DIR}/include"
 
 # libraries of all thirdparties will be intalled to here
-export TP_LIB_DIR=$TP_INSTALL_DIR/lib
+export TP_LIB_DIR="${TP_INSTALL_DIR}/lib"
 
 # all java libraries will be unpacked to here
-export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
+export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 
 # source of all dependencies, default unuse it
 # export REPOSITORY_URL=
@@ -422,62 +424,64 @@ SSE2NEON_SOURCE=sse2neon-1.5.1
 SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT
-OPENSSL
-THRIFT
-PROTOBUF
-GFLAGS
-GLOG
-GTEST
-RAPIDJSON
-SNAPPY
-GPERFTOOLS
-ZLIB
-LZ4
-BZIP
-LZO2
-CURL
-RE2
-HYPERSCAN
-RAGEL
-BOOST
-MYSQL
-ODBC
-LEVELDB
-BRPC
-ROCKSDB
-CYRUS_SASL
-LIBRDKAFKA
-FLATBUFFERS
-ARROW
-BROTLI
-ZSTD
-S2
-BITSHUFFLE
-CROARINGBITMAP
-FMT
-PARALLEL_HASHMAP
-ORC
-JEMALLOC
-CCTZ
-DATATABLES
-BOOTSTRAP_TABLE_JS
-BOOTSTRAP_TABLE_CSS
-TSAN_HEADER
-AWS_SDK
-LZMA
-XML2
-IDN
-GSASL
-KRB5
-HDFS3
-LIBDIVIDE
-PDQSORT
-BENCHMARK
-XSIMD
-SIMDJSON
-NLOHMANN_JSON
-OPENTELEMETRY_PROTO
-OPENTELEMETRY
-LIBBACKTRACE
-SSE2NEON"
+export TP_ARCHIVES=(
+    'LIBEVENT'
+    'OPENSSL'
+    'THRIFT'
+    'PROTOBUF'
+    'GFLAGS'
+    'GLOG'
+    'GTEST'
+    'RAPIDJSON'
+    'SNAPPY'
+    'GPERFTOOLS'
+    'ZLIB'
+    'LZ4'
+    'BZIP'
+    'LZO2'
+    'CURL'
+    'RE2'
+    'HYPERSCAN'
+    'RAGEL'
+    'BOOST'
+    'MYSQL'
+    'ODBC'
+    'LEVELDB'
+    'BRPC'
+    'ROCKSDB'
+    'CYRUS_SASL'
+    'LIBRDKAFKA'
+    'FLATBUFFERS'
+    'ARROW'
+    'BROTLI'
+    'ZSTD'
+    'S2'
+    'BITSHUFFLE'
+    'CROARINGBITMAP'
+    'FMT'
+    'PARALLEL_HASHMAP'
+    'ORC'
+    'JEMALLOC'
+    'CCTZ'
+    'DATATABLES'
+    'BOOTSTRAP_TABLE_JS'
+    'BOOTSTRAP_TABLE_CSS'
+    'TSAN_HEADER'
+    'AWS_SDK'
+    'LZMA'
+    'XML2'
+    'IDN'
+    'GSASL'
+    'KRB5'
+    'HDFS3'
+    'LIBDIVIDE'
+    'PDQSORT'
+    'BENCHMARK'
+    'XSIMD'
+    'SIMDJSON'
+    'NLOHMANN_JSON'
+    'OPENTELEMETRY_PROTO'
+    'OPENTELEMETRY'
+    'LIBBACKTRACE'
+    'SSE2NEON'
+)

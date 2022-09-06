@@ -242,6 +242,10 @@ public class SortInfo {
                 SlotDescriptor origSlotDesc = origSlotRef.getDesc();
                 SlotDescriptor materializedDesc =
                         analyzer.copySlotDescriptor(origSlotDesc, sortTupleDesc);
+                // set to nullable if the origSlot is outer joined
+                if (analyzer.isOuterJoined(origSlotDesc.getParent().getId())) {
+                    materializedDesc.setIsNullable(true);
+                }
                 SlotRef cloneRef = new SlotRef(materializedDesc);
                 substOrderBy.put(origSlotRef, cloneRef);
                 sortTupleExprs.add(origSlotRef);
@@ -271,6 +275,11 @@ public class SortInfo {
      */
     public ExprSubstitutionMap createMaterializedOrderExprs(
             TupleDescriptor sortTupleDesc, Analyzer analyzer) {
+        // the sort node exprs may come from the child outer join node
+        // we need change the slots to nullable from all outer join nullable side temporarily
+        // then the sort node expr would have correct nullable info
+        // after create the output tuple we need revert the change by call analyzer.changeSlotsToNotNullable(slots)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         ExprSubstitutionMap substOrderBy = new ExprSubstitutionMap();
         for (Expr origOrderingExpr : orderingExprs) {
             SlotDescriptor materializedDesc = analyzer.addSlotDescriptor(sortTupleDesc);
@@ -280,6 +289,7 @@ public class SortInfo {
             substOrderBy.put(origOrderingExpr, materializedRef);
             materializedOrderingExprs.add(origOrderingExpr);
         }
+        analyzer.changeSlotsToNotNullable(slots);
         return substOrderBy;
     }
 

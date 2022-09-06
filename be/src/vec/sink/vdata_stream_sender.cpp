@@ -69,6 +69,17 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
     }
 
+    if (!_brpc_stub) {
+        std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                      _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+
+    if (state->query_options().__isset.enable_local_exchange) {
+        _enable_local_exchange = state->query_options().enable_local_exchange;
+    }
+
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
@@ -78,13 +89,13 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
 }
 
 Status VDataStreamSender::Channel::send_current_block(bool eos) {
-    // TODO: Now, local exchange will cause the performance problem is in a multi-threaded scenario
-    //  so this feature is turned off here. We need to re-examine this logic
-    //    if (is_local()) {
-    //        return send_local_block(eos);
-    //    }
+    // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
+    // so this feature is turned off here by default. We need to re-examine this logic
+    if (_enable_local_exchange && is_local()) {
+        return send_local_block(eos);
+    }
     auto block = _mutable_block->to_block();
-    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
+    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block, &_compressed_data_buffer));
     block.clear_column_data();
     _mutable_block->set_muatable_columns(block.mutate_columns());
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
@@ -96,15 +107,16 @@ Status VDataStreamSender::Channel::send_local_block(bool eos) {
     std::shared_ptr<VDataStreamRecvr> recvr =
             _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
                                                                     _dest_node_id);
+    Block block = _mutable_block->to_block();
+    _mutable_block->set_muatable_columns(block.clone_empty_columns());
     if (recvr != nullptr) {
-        Block block = _mutable_block->to_block();
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
+        COUNTER_UPDATE(_parent->_local_sent_rows, block.rows());
         recvr->add_block(&block, _parent->_sender_id, true);
         if (eos) {
             recvr->remove_sender(_parent->_sender_id, _be_number);
         }
     }
-    _mutable_block->clear();
     return Status::OK();
 }
 
@@ -114,6 +126,7 @@ Status VDataStreamSender::Channel::send_local_block(Block* block) {
                                                                     _dest_node_id);
     if (recvr != nullptr) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block->bytes());
+        COUNTER_UPDATE(_parent->_local_sent_rows, block->rows());
         recvr->add_block(block, _parent->_sender_id, false);
     }
     return Status::OK();
@@ -323,6 +336,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _cur_pb_block(&_pb_block1),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
+          _compress_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
@@ -340,6 +354,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _cur_pb_block(&_pb_block1),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
+          _compress_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
@@ -417,7 +432,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
     _uncompressed_bytes_counter = ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
     _ignore_rows = ADD_COUNTER(profile(), "IgnoreRows", TUnit::UNIT);
+    _local_sent_rows = ADD_COUNTER(profile(), "LocalSentRows", TUnit::UNIT);
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
+    _compress_timer = ADD_TIMER(profile(), "CompressTime");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -438,6 +455,8 @@ Status VDataStreamSender::open(RuntimeState* state) {
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
     }
+
+    _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
 }
 
@@ -462,7 +481,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else {
-            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
+            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, &_compressed_data_buffer,
+                                            _channels.size()));
             for (auto channel : _channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_block(block));
@@ -480,7 +500,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_block(block));
         } else {
-            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
+            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block(),
+                                            &_compressed_data_buffer));
             RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block()));
             current_channel->ch_roll_pb_block();
         }
@@ -585,14 +606,21 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
 }
 
 Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_receivers) {
+    return serialize_block(src, dest, &_compressed_data_buffer, num_receivers);
+}
+
+Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, std::string* compressed_buffer,
+                                          int num_receivers) {
     {
         SCOPED_TIMER(_serialize_batch_timer);
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
+        RETURN_IF_ERROR(src->serialize(dest, compressed_buffer, &uncompressed_bytes,
+                                       &compressed_bytes, _compression_type,
                                        _transfer_large_data_by_brpc));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
+        COUNTER_UPDATE(_compress_timer, src->get_compress_time());
     }
 
     return Status::OK();

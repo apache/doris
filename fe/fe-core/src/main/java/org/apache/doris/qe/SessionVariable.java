@@ -93,8 +93,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
-    public static final String ENABLE_NEREIDS_CBO = "enable_nereids_cbo";
-
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -195,8 +193,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
-    static final String ENABLE_ARRAY_TYPE = "enable_array_type";
-
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
 
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
@@ -210,6 +206,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
+
+    public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
+
+    public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -340,8 +340,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
+    // 1024 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    public int batchSize = 1024;
+    public int batchSize = 992;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
@@ -355,6 +356,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
+    @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
+    public String fragmentTransmissionCompressionCodec = "lz4";
+
     /*
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
@@ -363,7 +367,7 @@ public class SessionVariable implements Serializable, Writable {
     public int parallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
-    public boolean enableInsertStrict = false;
+    public boolean enableInsertStrict = true;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
@@ -450,9 +454,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
-    private boolean enableNereidsCBO = false;
-
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
     private boolean enableFoldConstantByBe = false;
 
@@ -497,9 +498,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
-    private boolean enableArrayType = false;
-
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -528,6 +526,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
+    public boolean enableLocalExchange = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -922,6 +923,10 @@ public class SessionVariable implements Serializable, Writable {
         return this.enableFunctionPushdown;
     }
 
+    public boolean getEnableLocalExchange() {
+        return enableLocalExchange;
+    }
+
     /**
      * getInsertVisibleTimeoutMs.
      **/
@@ -1024,24 +1029,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
     }
 
-    public boolean isEnableNereidsCBO() {
-        return enableNereidsCBO;
-    }
-
-    public void setEnableNereidsCBO(boolean enableNereidsCBO) {
-        this.enableNereidsCBO = enableNereidsCBO;
-    }
-
     public void setDisableJoinReorder(boolean disableJoinReorder) {
         this.disableJoinReorder = disableJoinReorder;
-    }
-
-    public boolean isEnableArrayType() {
-        return enableArrayType;
-    }
-
-    public void setEnableArrayType(boolean enableArrayType) {
-        this.enableArrayType = enableArrayType;
     }
 
     /**
@@ -1083,6 +1072,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
         this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
+    }
+
+    public void setFragmentTransmissionCompressionCodec(String codec) {
+        this.fragmentTransmissionCompressionCodec = codec;
     }
 
     // Serialize to thrift object
@@ -1128,6 +1121,8 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
+        tResult.setEnableLocalExchange(enableLocalExchange);
 
         return tResult;
     }

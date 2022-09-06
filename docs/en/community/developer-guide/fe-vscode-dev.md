@@ -37,7 +37,7 @@ Some developers are building FE development environment on a development machine
 
 ## Download code for compilation
 
-1. https://github.com/apache/incubator-doris.git Download the doris source code
+1. https://github.com/apache/doris.git Download the doris source code
 
 2. use VSCode to open the code `/fe` directory
 
@@ -72,7 +72,7 @@ example:
 ## Build
 
 Other articles have already explained:
-* [Build with LDB toolchain ](../../docs/install/source-install/compilation-with-ldb-toolchain.md)
+* [Build with LDB toolchain ](/docs/install/source-install/compilation-with-ldb-toolchain)
 * ......
 
 In order to debug, you need to add debugging parameters when fe starts, such as `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005` .

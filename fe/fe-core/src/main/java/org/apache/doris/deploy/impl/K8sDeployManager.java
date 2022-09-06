@@ -148,7 +148,7 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(Pair.create(eaddr.getIp(), port));
+                result.add(Pair.of(eaddr.getIp(), port));
             }
         }
 

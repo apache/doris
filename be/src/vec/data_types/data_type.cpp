@@ -143,6 +143,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::HLL;
     case TypeIndex::Array:
         return PGenericType::LIST;
+    case TypeIndex::FixedLengthObject:
+        return PGenericType::FIXEDLENGTHOBJECT;
     default:
         return PGenericType::UNKNOWN;
     }

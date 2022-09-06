@@ -23,6 +23,9 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.SlotExtractor;
 
@@ -54,15 +57,51 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return RuleType.COLUMN_PRUNE_AGGREGATION_CHILD.build(logicalAggregate().then(agg -> {
+            List<Slot> childOutput = agg.child().getOutput();
+            if (isAggregateWithConstant(agg)) {
+                Slot slot = selectMinimumColumn(childOutput);
+                if (childOutput.size() == 1 && childOutput.get(0).equals(slot)) {
+                    return agg;
+                }
+                return agg.withChildren(ImmutableList.of(new LogicalProject<>(ImmutableList.of(slot), agg.child())));
+            }
             List<Expression> slots = Lists.newArrayList();
             slots.addAll(agg.getExpressions());
             Set<Slot> outputs = SlotExtractor.extractSlot(slots);
-            List<NamedExpression> prunedOutputs = agg.child().getOutput().stream().filter(outputs::contains)
+            List<NamedExpression> prunedOutputs = childOutput.stream().filter(outputs::contains)
                     .collect(Collectors.toList());
             if (prunedOutputs.size() == agg.child().getOutput().size()) {
                 return agg;
             }
             return agg.withChildren(ImmutableList.of(new LogicalProject<>(prunedOutputs, agg.child())));
         }));
+    }
+
+    /**
+     * For these aggregate function with constant param. Such as:
+     *  count(*), count(1), sum(1)..etc.
+     * @return null, if there exists an aggregation function that its parameters contains non-constant expr.
+     *               else return a slot with min data type.
+     */
+    private boolean isAggregateWithConstant(LogicalAggregate<GroupPlan> agg) {
+        for (NamedExpression output : agg.getOutputExpressions()) {
+            if (output.anyMatch(SlotReference.class::isInstance)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Slot selectMinimumColumn(List<Slot> outputList) {
+        Slot minSlot = null;
+        for (Slot slot : outputList) {
+            if (minSlot == null) {
+                minSlot = slot;
+            } else {
+                int slotDataTypeWidth = slot.getDataType().width();
+                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
+            }
+        }
+        return minSlot;
     }
 }

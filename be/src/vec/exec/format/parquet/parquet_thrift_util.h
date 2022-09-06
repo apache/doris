@@ -34,7 +34,7 @@ constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr int64_t PARQUET_FOOTER_READ_SIZE = 64 * 1024;
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 
-Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file_metadata) {
+static Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file_metadata) {
     // try with buffer on stack
     uint8_t buff[PARQUET_FOOTER_READ_SIZE];
     int64_t file_size = file->size();
@@ -67,9 +67,4 @@ Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file
     RETURN_IF_ERROR(file_metadata->init_schema());
     return Status::OK();
 }
-
-//    Status parse_page_header() {
-//        uint8_t* page_buf;
-//
-//    }
 } // namespace doris::vectorized

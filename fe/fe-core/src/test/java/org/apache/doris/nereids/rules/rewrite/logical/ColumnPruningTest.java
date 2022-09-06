@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -57,13 +58,11 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
     public void testPruneColumns1() {
         // TODO: It's inconvenient and less efficient to use planPattern().when(...) to check plan properties.
         // Enhance the generated patterns in the future.
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze(
-                                "select id,name,grade from student "
-                                        + "left join score on student.id = score.sid where score.grade > 60"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select id,name,grade from student left join score on student.id = score.sid"
+                        + " where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -90,14 +89,12 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
 
     @Test
     public void testPruneColumns2() {
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze(
-                                "select name,sex,cid,grade "
-                                        + "from student left join score on student.id = score.sid "
-                                        + "where score.grade > 60"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select name,sex,cid,grade "
+                        + "from student left join score on student.id = score.sid "
+                        + "where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -124,11 +121,10 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
 
     @Test
     public void testPruneColumns3() {
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze("select id,name from student where age > 18"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select id,name from student where age > 18")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject().when(p -> getOutputQualifiedNames(p)
@@ -143,15 +139,14 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
 
     @Test
     public void testPruneColumns4() {
-        new PlanChecker()
-                .plan(new NereidsAnalyzer(connectContext)
-                        .analyze("select name,cname,grade "
-                                + "from student left join score "
-                                + "on student.id = score.sid left join course "
-                                + "on score.cid = course.cid "
-                                + "where score.grade > 60"))
-                .applyTopDown(new ColumnPruning(), connectContext)
-                .matches(
+        PlanChecker.from(connectContext)
+                .analyze("select name,cname,grade "
+                        + "from student left join score "
+                        + "on student.id = score.sid left join course "
+                        + "on score.cid = course.cid "
+                        + "where score.grade > 60")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -180,6 +175,96 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
                                                 "default_cluster:test.course.cname",
                                                 "default_cluster:test.score.grade")))
                                 )
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(1) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountConstantAndSumConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(1), SUM(2) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarAndSumConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*), SUM(2) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarAndSumColumnStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*), SUM(grade) FROM test.score")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(DoubleType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarAndSumColumnAndSumConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*), SUM(grade) + SUM(2) FROM test.score")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(DoubleType.INSTANCE)
+                                        && p.getProjects().size() == 1)
                         )
                 );
     }

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -30,12 +30,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -67,8 +67,7 @@ public class JoinLAsscomProjectTest {
         outputs.add(t3Output);
     }
 
-    private Pair<LogicalJoin, LogicalJoin> testJoinProjectLAsscom(PlannerContext plannerContext,
-            List<NamedExpression> projects) {
+    private Pair<LogicalJoin, LogicalJoin> testJoinProjectLAsscom(List<NamedExpression> projects) {
         /*
          *        topJoin                   newTopJoin
          *        /     \                   /        \
@@ -89,21 +88,24 @@ public class JoinLAsscomProjectTest {
 
         LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
                 projects,
-                new LogicalJoin<>(JoinType.INNER_JOIN, Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1)));
+                new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(bottomJoinOnCondition),
+                        Optional.empty(), scans.get(0), scans.get(1)));
 
         LogicalJoin<LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>>, LogicalOlapScan> topJoin
-                = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), project, scans.get(2));
+                = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(topJoinOnCondition),
+                Optional.empty(), project, scans.get(2));
 
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
         Rule rule = new JoinLAsscomProject().build();
-        List<Plan> transform = rule.transform(topJoin, plannerContext);
+        List<Plan> transform = rule.transform(topJoin, cascadesContext);
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
         LogicalJoin newTopJoin = (LogicalJoin) transform.get(0);
-        return new Pair<>(topJoin, newTopJoin);
+        return Pair.of(topJoin, newTopJoin);
     }
 
     @Test
-    public void testStarJoinProjectLAsscom(@Mocked PlannerContext plannerContext) {
+    public void testStarJoinProjectLAsscom() {
         List<SlotReference> t1 = outputs.get(0);
         List<SlotReference> t2 = outputs.get(1);
         List<NamedExpression> projects = ImmutableList.of(
@@ -113,7 +115,7 @@ public class JoinLAsscomProjectTest {
                 t2.get(1)
         );
 
-        Pair<LogicalJoin, LogicalJoin> pair = testJoinProjectLAsscom(plannerContext, projects);
+        Pair<LogicalJoin, LogicalJoin> pair = testJoinProjectLAsscom(projects);
 
         LogicalJoin oldJoin = pair.first;
         LogicalJoin newTopJoin = pair.second;

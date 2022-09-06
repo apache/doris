@@ -45,7 +45,7 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
 Compaction::~Compaction() {
 #ifndef BE_TEST
     // Compaction tracker cannot be completely accurate, offset the global impact.
-    StorageEngine::instance()->compaction_mem_tracker()->consumption_revise(
+    StorageEngine::instance()->compaction_mem_tracker()->cache_consume_local(
             -_mem_tracker->consumption());
 #endif
 }
@@ -231,9 +231,12 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
+              << ", input_row_num=" << _input_row_num
+              << ", output_row_num=" << _output_rowset->num_rows()
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy="
-              << _tablet->cumulative_compaction_policy()->name() << ".";
+              << _tablet->cumulative_compaction_policy()->name()
+              << ", compact_row_per_second=" << _input_row_num / watch.get_elapse_second();
 
     return Status::OK();
 }
@@ -256,17 +259,23 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+    {
+        std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
 
-    // update dst rowset delete bitmap
-    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write()) {
-        _tablet->tablet_meta()->update_delete_bitmap(_input_rowsets, _output_rs_writer->version(),
-                                                     _rowid_conversion);
+        // update dst rowset delete bitmap
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write()) {
+            _tablet->tablet_meta()->update_delete_bitmap(
+                    _input_rowsets, _output_rs_writer->version(), _rowid_conversion);
+        }
+
+        RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
-
-    RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        _tablet->save_meta();
+    }
     return Status::OK();
 }
 

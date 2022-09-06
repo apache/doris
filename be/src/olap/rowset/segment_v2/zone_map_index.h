@@ -69,29 +69,55 @@ struct ZoneMap {
     }
 };
 
+class ZoneMapIndexWriter {
+public:
+    static Status create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res);
+
+    ZoneMapIndexWriter() = default;
+
+    virtual ~ZoneMapIndexWriter() = default;
+
+    virtual void add_values(const void* values, size_t count) = 0;
+
+    virtual void add_nulls(uint32_t count) = 0;
+
+    // mark the end of one data page so that we can finalize the corresponding zone map
+    virtual Status flush() = 0;
+
+    virtual Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) = 0;
+
+    virtual void moidfy_index_before_flush(ZoneMap& zone_map) = 0;
+
+    virtual uint64_t size() const = 0;
+
+    virtual void reset_page_zone_map() = 0;
+    virtual void reset_segment_zone_map() = 0;
+};
+
 // Zone map index is represented by an IndexedColumn with ordinal index.
 // The IndexedColumn stores serialized ZoneMapPB for each data page.
 // It also create and store the segment-level zone map in the index meta so that
 // reader can prune an entire segment without reading pages.
-class ZoneMapIndexWriter {
+template <PrimitiveType Type>
+class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    explicit ZoneMapIndexWriter(Field* field);
+    explicit TypedZoneMapIndexWriter(Field* field);
 
-    void add_values(const void* values, size_t count);
+    void add_values(const void* values, size_t count) override;
 
-    void add_nulls(uint32_t count) { _page_zone_map.has_null = true; }
+    void add_nulls(uint32_t count) override { _page_zone_map.has_null = true; }
 
     // mark the end of one data page so that we can finalize the corresponding zone map
-    Status flush();
+    Status flush() override;
 
-    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta);
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
 
-    void moidfy_index_before_flush(ZoneMap& zone_map);
+    void moidfy_index_before_flush(ZoneMap& zone_map) override;
 
-    uint64_t size() const { return _estimated_size; }
+    uint64_t size() const override { return _estimated_size; }
 
-    void reset_page_zone_map();
-    void reset_segment_zone_map();
+    void reset_page_zone_map() override;
+    void reset_segment_zone_map() override;
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {

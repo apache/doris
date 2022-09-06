@@ -105,7 +105,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
-    TabletReader::init(read_params);
+    RETURN_NOT_OK(TabletReader::init(read_params));
 
     int32_t return_column_size = 0;
     // read sequence column if not reader_query
@@ -151,6 +151,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
+            if (_filter_delete) {
+                _delete_filter_column = ColumnUInt8::create();
+            }
         }
         break;
     case KeysType::AGG_KEYS:
@@ -172,6 +175,7 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
         return res;
     }
     *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
+    _eof = *eof;
     if (UNLIKELY(_reader_context.record_rowids)) {
         res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
         if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
@@ -205,6 +209,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            _eof = true;
             *eof = true;
             break;
         }
@@ -262,6 +267,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            _eof = true;
             *eof = true;
             if (UNLIKELY(_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
@@ -275,6 +281,32 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
     } while (target_block_row < _batch_size);
 
+    // do filter detete row in base compaction, only base compaction need to do the job
+    if (_filter_delete) {
+        int delete_sign_idx =
+                (_sequence_col_idx == -1) ? target_columns.size() - 1 : target_columns.size() - 2;
+        DCHECK(delete_sign_idx > 0);
+        MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
+        reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
+
+        auto* __restrict filter_data =
+                reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
+        auto* __restrict delete_data =
+                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
+                        ->get_data()
+                        .data();
+        for (int i = 0; i < target_block_row; ++i) {
+            filter_data[i] = delete_data[i] == 0;
+        }
+
+        ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
+                                                         std::make_shared<DataTypeUInt8>(),
+                                                         "__DORIS_COMPACTION_FILTER__"};
+        block->insert(column_with_type_and_name);
+        Block::filter_block(block, target_columns.size(), target_columns.size());
+        _stats.rows_del_filtered += target_block_row - block->rows();
+        DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
+    }
     return Status::OK();
 }
 

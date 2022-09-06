@@ -69,6 +69,25 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
    );
    ```
 
+2. Create a remote repository for s3 : s3_repo
+
+   ```
+   CREATE REPOSITORY `s3_repo`
+   WITH S3
+   ON LOCATION "s3://bucket_name/test"
+   PROPERTIES
+   (
+       "AWS_ENDPOINT" = "http://xxxx.xxxx.com",
+       "AWS_ACCESS_KEY" = "xxxx",
+       "AWS_SECRET_KEY" = "xxx",
+       "AWS_REGION" = "xxx"
+   ); 
+   ```
+
+   >Note that.
+   >
+   >ON LOCATION is followed by Bucket Name here
+
 1. Full backup of table example_tbl under example_db to warehouse example_repo:
 
    ```sql

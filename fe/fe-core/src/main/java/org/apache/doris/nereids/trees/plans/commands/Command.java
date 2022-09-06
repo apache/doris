@@ -74,6 +74,11 @@ public interface Command extends LogicalPlan {
     }
 
     @Override
+    default boolean canBind() {
+        throw new RuntimeException("Command do not implement canResolve");
+    }
+
+    @Override
     default List<Slot> getOutput() {
         throw new RuntimeException("Command do not implement getOutput");
     }

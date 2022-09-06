@@ -275,7 +275,7 @@ public abstract class PatternGenerator {
                 childrenPattern = ", " + childrenPattern;
             }
 
-            String pattern =  "default " + methodGeneric + "\n"
+            String pattern = "default " + methodGeneric + "\n"
                     + "PatternDescriptor" + genericParam + "\n"
                     + "        " + patterName + "(" + methodParam + ") {\n"
                     + "    return new PatternDescriptor" + genericParam + "(\n"

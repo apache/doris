@@ -18,14 +18,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class ShowRollupStmtTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private Analyzer analyzer;
 
     @Before

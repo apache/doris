@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 /**
  * Utility to copy plan into {@link Memo} and apply rewrite rules.
@@ -37,17 +39,15 @@ public class PlanRewriter {
 
     public static Memo bottomUpRewriteMemo(Plan plan, ConnectContext connectContext, RuleFactory... rules) {
         return new Memo(plan)
-                .newPlannerContext(connectContext)
-                .setDefaultJobContext()
-                .topDownRewrite(rules)
+                .newCascadesContext(new StatementContext(connectContext, new OriginStatement("", 0)))
+                .bottomUpRewrite(rules)
                 .getMemo();
     }
 
     public static Memo bottomUpRewriteMemo(Plan plan, ConnectContext connectContext, Rule... rules) {
         return new Memo(plan)
-                .newPlannerContext(connectContext)
-                .setDefaultJobContext()
-                .topDownRewrite(rules)
+                .newCascadesContext(new StatementContext(connectContext, new OriginStatement("", 0)))
+                .bottomUpRewrite(rules)
                 .getMemo();
     }
 
@@ -61,16 +61,14 @@ public class PlanRewriter {
 
     public static Memo topDownRewriteMemo(Plan plan, ConnectContext connectContext, RuleFactory... rules) {
         return new Memo(plan)
-                .newPlannerContext(connectContext)
-                .setDefaultJobContext()
+                .newCascadesContext(new StatementContext(connectContext, new OriginStatement("", 0)))
                 .topDownRewrite(rules)
                 .getMemo();
     }
 
     public static Memo topDownRewriteMemo(Plan plan, ConnectContext connectContext, Rule... rules) {
         return new Memo(plan)
-                .newPlannerContext(connectContext)
-                .setDefaultJobContext()
+                .newCascadesContext(new StatementContext(connectContext, new OriginStatement("", 0)))
                 .topDownRewrite(rules)
                 .getMemo();
     }

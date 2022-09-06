@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -53,7 +54,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new FilterExpressionRewrite().build(),
                 new JoinExpressionRewrite().build());
     }
-
 
     private class ProjectExpressionRewrite extends OneRewriteRuleFactory {
         @Override
@@ -96,8 +96,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (outputExpressions.containsAll(newOutputExpressions)) {
                     return agg;
                 }
-                return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions, agg.isDisassembled(),
-                        agg.getAggPhase(), agg.child());
+                return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
+                        agg.isDisassembled(), agg.isNormalized(), agg.getAggPhase(), agg.child());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
         }
     }
@@ -106,15 +106,25 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalJoin().then(join -> {
-                Optional<Expression> condition = join.getCondition();
-                if (!condition.isPresent()) {
+                List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+                Optional<Expression> otherJoinCondition = join.getOtherJoinCondition();
+                if (!otherJoinCondition.isPresent() && hashJoinConjuncts.isEmpty()) {
                     return join;
                 }
-                Expression newCondition = rewriter.rewrite(condition.get());
-                if (newCondition.equals(condition.get())) {
+                List<Expression> rewriteHashJoinConjuncts = Lists.newArrayList();
+                boolean joinConjunctsChanged = false;
+                for (Expression expr : hashJoinConjuncts) {
+                    Expression newExpr = rewriter.rewrite(expr);
+                    joinConjunctsChanged = joinConjunctsChanged || !newExpr.equals(expr);
+                    rewriteHashJoinConjuncts.add(newExpr);
+                }
+
+                Optional<Expression> newOtherJoinCondition = rewriter.rewrite(otherJoinCondition);
+                if (!joinConjunctsChanged && newOtherJoinCondition.equals(otherJoinCondition)) {
                     return join;
                 }
-                return new LogicalJoin<>(join.getJoinType(), Optional.of(newCondition), join.left(), join.right());
+                return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
+                        newOtherJoinCondition, join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }

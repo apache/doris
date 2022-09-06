@@ -373,7 +373,6 @@ public class StoragePolicy extends Policy {
             storageResource = alterStorageResource;
         }
 
-
         md5Checksum = calcPropertiesMd5();
         notifyUpdate();
     }

@@ -48,9 +48,9 @@ sudo apt install gcc-10 g++-10
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-4. install : libssl-dev
+4. install : openssl libssl-dev
 ```
-sudo apt install -y libssl-dev
+sudo apt install -y openssl libssl-dev
 ```
 
 ## Compile
@@ -91,7 +91,7 @@ Note: This compilation has the following instructions:
 
 If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/workspace/doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
 
-## Deployment and debugging
+## Deployment and debugging(GDB)
 
 1. Authorize be compilation result files
 
@@ -280,3 +280,17 @@ An example of a complete launch.json is as follows:
 
 ![](/images/image-20210618091006146.png)
 
+## Debugging(LLDB)
+
+lldb's attach mode is fast than gdb，and the usage is similar to gdb. we should install plugin `CodeLLDB`, then add config to launch:
+```json
+{
+    "name": "CodeLLDB attach",
+    "type": "lldb",
+    "request": "attach",
+    "program": "${workspaceFolder}/output/be/lib/doris_be",
+    "pid":"${command:pickMyProcess}"
+}
+```
+
+It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work。

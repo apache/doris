@@ -36,7 +36,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -73,7 +73,7 @@ public class RestoreJobTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
 
     private MockBackupHandler backupHandler;
 
@@ -124,11 +124,11 @@ public class RestoreJobTest {
 
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
@@ -242,7 +242,7 @@ public class RestoreJobTest {
         db.dropTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, env, repo.getId());
+                new ReplicaAllocation((short) 3), 100000, -1, false, env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();

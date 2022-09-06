@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,7 +54,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties(children));
+        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties());
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
 
@@ -66,6 +67,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return groupExpression;
     }
 
+    @Override
+    public boolean canBind() {
+        return !bound()
+                && !(this instanceof Unbound)
+                && childrenBound();
+    }
+
     /**
      * Get tree like string describing query plan.
      *
@@ -73,9 +81,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
      */
     @Override
     public String treeString() {
-        List<String> lines = new ArrayList<>();
-        treeString(lines, 0, new ArrayList<>(), this);
-        return StringUtils.join(lines, "\n");
+        return TreeStringUtils.treeString(this,
+                plan -> plan.toString(),
+                plan -> (List) ((Plan) plan).children());
     }
 
     private void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Plan plan) {
@@ -119,4 +127,15 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public int hashCode() {
         return Objects.hash(statsDeriveResult, logicalProperties);
     }
+
+    @Override
+    public List<Slot> getOutput() {
+        return logicalProperties.getOutput();
+    }
+
+    @Override
+    public Plan child(int index) {
+        return super.child(index);
+    }
+
 }

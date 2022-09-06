@@ -17,30 +17,44 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultSubExprRewriter;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.planner.PlannerContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -51,13 +65,17 @@ import java.util.stream.Stream;
 public class BindSlotReference implements AnalysisRuleFactory {
     private final Optional<Scope> outerScope;
 
+    public BindSlotReference() {
+        this(Optional.empty());
+    }
+
     public BindSlotReference(Optional<Scope> outputScope) {
-        this.outerScope = outputScope;
+        this.outerScope = Objects.requireNonNull(outputScope, "outerScope can not be null");
     }
 
     private Scope toScope(List<Slot> slots) {
         if (outerScope.isPresent()) {
-            return new Scope(outerScope, slots);
+            return new Scope(outerScope, slots, outerScope.get().getSubquery());
         } else {
             return new Scope(slots);
         }
@@ -67,46 +85,58 @@ public class BindSlotReference implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
-                logicalProject().then(project -> {
+                logicalProject().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundSlots =
-                            bind(project.getProjects(), project.children(), project);
+                            bind(project.getProjects(), project.children(), project, ctx.cascadesContext);
                     return new LogicalProject<>(flatBoundStar(boundSlots), project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
-                logicalFilter().then(filter -> {
-                    Expression boundPredicates = bind(filter.getPredicates(), filter.children(), filter);
+                logicalFilter().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalFilter<GroupPlan> filter = ctx.root;
+                    Expression boundPredicates = bind(filter.getPredicates(), filter.children(),
+                            filter, ctx.cascadesContext);
                     return new LogicalFilter<>(boundPredicates, filter.child());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
-                logicalJoin().then(join -> {
-                    Optional<Expression> cond = join.getCondition()
-                            .map(expr -> bind(expr, join.children(), join));
-                    return new LogicalJoin<>(join.getJoinType(), cond, join.left(), join.right());
+                logicalJoin().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
+                    Optional<Expression> cond = join.getOtherJoinCondition()
+                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
+                    return new LogicalJoin<>(join.getJoinType(),
+                            ImmutableList.of(), cond, join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
-                logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressions(), agg.children(), agg);
-                    List<NamedExpression> output = bind(agg.getOutputExpressions(), agg.children(), agg);
+                logicalAggregate().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalAggregate<GroupPlan> agg = ctx.root;
+                    List<Expression> groupBy =
+                            bind(agg.getGroupByExpressions(), agg.children(), agg, ctx.cascadesContext);
+                    List<NamedExpression> output =
+                            bind(agg.getOutputExpressions(), agg.children(), agg, ctx.cascadesContext);
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
-                logicalSort().then(sort -> {
+                logicalSort().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalSort<GroupPlan> sort = ctx.root;
                     List<OrderKey> sortItemList = sort.getOrderKeys()
                             .stream()
                             .map(orderKey -> {
-                                Expression item = bind(orderKey.getExpr(), sort.children(), sort);
+                                Expression item = bind(orderKey.getExpr(), sort.children(), sort, ctx.cascadesContext);
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
 
                     return new LogicalSort<>(sortItemList, sort.child());
                 })
             ),
-            RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
-                    logicalSubQueryAlias().then(alias -> new LogicalSubQueryAlias<>(alias.getAlias(), alias.child()))
+
+            RuleType.BINDING_NON_LEAF_LOGICAL_PLAN.build(
+                logicalPlan()
+                        .when(plan -> plan.canBind() && !(plan instanceof LeafPlan))
+                        .then(LogicalPlan::recomputeLogicalProperties)
             )
         );
     }
@@ -123,24 +153,25 @@ public class BindSlotReference implements AnalysisRuleFactory {
             }).collect(Collectors.toList());
     }
 
-    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs, Plan plan) {
+    private <E extends Expression> List<E> bind(List<E> exprList, List<Plan> inputs, Plan plan,
+            CascadesContext cascadesContext) {
         return exprList.stream()
-            .map(expr -> bind(expr, inputs, plan))
+            .map(expr -> bind(expr, inputs, plan, cascadesContext))
             .collect(Collectors.toList());
     }
 
-    private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan) {
+    private <E extends Expression> E bind(E expr, List<Plan> inputs, Plan plan, CascadesContext cascadesContext) {
         List<Slot> boundedSlots = inputs.stream()
                 .flatMap(input -> input.getOutput().stream())
                 .collect(Collectors.toList());
-        return (E) new SlotBinder(toScope(boundedSlots), plan).bind(expr);
+        return (E) new SlotBinder(toScope(boundedSlots), plan, cascadesContext).bind(expr);
     }
 
-    private class SlotBinder extends DefaultSubExprRewriter<Void> {
+    private class SlotBinder extends SubExprAnalyzer {
         private final Plan plan;
 
-        public SlotBinder(Scope scope, Plan plan) {
-            super(scope);
+        public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {
+            super(scope, cascadesContext);
             this.plan = plan;
         }
 
@@ -149,7 +180,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitUnboundAlias(UnboundAlias unboundAlias, Void context) {
+        public Expression visitUnboundAlias(UnboundAlias unboundAlias, PlannerContext context) {
             Expression child = unboundAlias.child().accept(this, context);
             if (child instanceof NamedExpression) {
                 return new Alias(child, ((NamedExpression) child).getName());
@@ -160,19 +191,26 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Slot visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
-            Optional<List<Slot>> boundedOpt = getScope()
-                    .toScopeLink() // Scope Link from inner scope to outer scope
-                    .stream()
-                    .map(scope -> bindSlot(unboundSlot, scope.getSlots()))
-                    .filter(slots -> !slots.isEmpty())
-                    .findFirst();
+        public Slot visitUnboundSlot(UnboundSlot unboundSlot, PlannerContext context) {
+            Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
+            boolean foundInThisScope = !boundedOpt.get().isEmpty();
+            // Currently only looking for symbols on the previous level.
+            if (!foundInThisScope && getScope().getOuterScope().isPresent()) {
+                boundedOpt = Optional.of(bindSlot(unboundSlot,
+                        getScope()
+                        .getOuterScope()
+                        .get()
+                        .getSlots()));
+            }
             if (!boundedOpt.isPresent()) {
                 throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
             }
             List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
                 case 1:
+                    if (!foundInThisScope) {
+                        getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
+                    }
                     return bounded.get(0);
                 default:
                     throw new AnalysisException(unboundSlot + " is ambiguous： "
@@ -183,7 +221,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
+        public Expression visitUnboundStar(UnboundStar unboundStar, PlannerContext context) {
             if (!(plan instanceof LogicalProject)) {
                 throw new AnalysisException("UnboundStar must exists in Projection");
             }
@@ -200,7 +238,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             }
         }
 
-        private BoundStar bindQualifiedStar(List<String> qualifierStar, Void context) {
+        private BoundStar bindQualifiedStar(List<String> qualifierStar, PlannerContext context) {
             // FIXME: compatible with previous behavior:
             // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
             List<Slot> slots = getScope().getSlots().stream().filter(boundSlot -> {
@@ -245,35 +283,38 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
             return boundSlots.stream().filter(boundSlot -> {
                 List<String> nameParts = unboundSlot.getNameParts();
-                switch (nameParts.size()) {
-                    case 1:
-                        // Unbound slot name is `column`
-                        return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
-                    case 2:
-                        // Unbound slot name is `table`.`column`
-                        List<String> qualifier = boundSlot.getQualifier();
-                        String name = boundSlot.getName();
-                        switch (qualifier.size()) {
-                            case 2:
-                                // qualifier is `db`.`table`
-                                return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                        && nameParts.get(1).equalsIgnoreCase(name);
-                            case 1:
-                                // qualifier is `table`
-                                return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                        && nameParts.get(1).equalsIgnoreCase(name);
-                            case 0:
-                                // has no qualifiers
-                                return nameParts.get(1).equalsIgnoreCase(name);
-                            default:
-                                throw new AnalysisException("Not supported qualifier: "
-                                        + StringUtils.join(qualifier, "."));
-                        }
-                    default:
-                        throw new AnalysisException("Not supported name: "
-                            + StringUtils.join(nameParts, "."));
+                if (nameParts.size() == 1) {
+                    return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
+                } else if (nameParts.size() <= 3) {
+                    int size = nameParts.size();
+                    // if nameParts.size() == 3, nameParts.get(0) is cluster name.
+                    return handleNamePartsTwoOrThree(boundSlot, nameParts.subList(size - 2, size));
                 }
+                //TODO: handle name parts more than three.
+                throw new AnalysisException("Not supported name: "
+                        + StringUtils.join(nameParts, "."));
             }).collect(Collectors.toList());
+        }
+    }
+
+    private boolean handleNamePartsTwoOrThree(Slot boundSlot, List<String> nameParts) {
+        List<String> qualifier = boundSlot.getQualifier();
+        String name = boundSlot.getName();
+        switch (qualifier.size()) {
+            case 2:
+                // qualifier is `db`.`table`
+                return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
+                        && nameParts.get(1).equalsIgnoreCase(name);
+            case 1:
+                // qualifier is `table`
+                return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
+                        && nameParts.get(1).equalsIgnoreCase(name);
+            case 0:
+                // has no qualifiers
+                return nameParts.get(1).equalsIgnoreCase(name);
+            default:
+                throw new AnalysisException("Not supported qualifier: "
+                        + StringUtils.join(qualifier, "."));
         }
     }
 
@@ -292,6 +333,150 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         public List<Slot> getSlots() {
             return (List) children();
+        }
+    }
+
+    /**
+     * Use the visitor to iterate sub expression.
+     */
+    private static class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
+        private final Scope scope;
+        private final CascadesContext cascadesContext;
+
+        public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext) {
+            this.scope = scope;
+            this.cascadesContext = cascadesContext;
+        }
+
+        @Override
+        public Expression visitNot(Not not, PlannerContext context) {
+            Expression child = not.child();
+            if (child instanceof Exists) {
+                return visitExistsSubquery(
+                        new Exists(((Exists) child).getQueryPlan(), true), context);
+            } else if (child instanceof InSubquery) {
+                return visitInSubquery(new InSubquery(((InSubquery) child).getCompareExpr(),
+                        ((InSubquery) child).getListQuery(), true), context);
+            }
+            return visit(not, context);
+        }
+
+        @Override
+        public Expression visitExistsSubquery(Exists exists, PlannerContext context) {
+            AnalyzedResult analyzedResult = analyzeSubquery(exists);
+
+            return new Exists(analyzedResult.getLogicalPlan(),
+                    analyzedResult.getCorrelatedSlots(), exists.isNot());
+        }
+
+        @Override
+        public Expression visitInSubquery(InSubquery expr, PlannerContext context) {
+            AnalyzedResult analyzedResult = analyzeSubquery(expr);
+
+            checkOutputColumn(analyzedResult.getLogicalPlan());
+            checkHasGroupBy(analyzedResult);
+
+            return new InSubquery(
+                    expr.getCompareExpr().accept(this, context),
+                    new ListQuery(analyzedResult.getLogicalPlan()),
+                    analyzedResult.getCorrelatedSlots(), expr.isNot());
+        }
+
+        @Override
+        public Expression visitScalarSubquery(ScalarSubquery scalar, PlannerContext context) {
+            AnalyzedResult analyzedResult = analyzeSubquery(scalar);
+
+            checkOutputColumn(analyzedResult.getLogicalPlan());
+            checkRootIsAgg(analyzedResult);
+            checkHasGroupBy(analyzedResult);
+
+            return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
+        }
+
+        private void checkOutputColumn(LogicalPlan plan) {
+            if (plan.getOutput().size() != 1) {
+                throw new AnalysisException("Multiple columns returned by subquery are not yet supported. Found "
+                        + plan.getOutput().size());
+            }
+        }
+
+        private void checkRootIsAgg(AnalyzedResult analyzedResult) {
+            if (!analyzedResult.isCorrelated()) {
+                return;
+            }
+            if (!analyzedResult.rootIsAgg()) {
+                throw new AnalysisException("The select item in correlated subquery of binary predicate "
+                        + "should only be sum, min, max, avg and count. Current subquery: "
+                        + analyzedResult.getLogicalPlan());
+            }
+        }
+
+        private void checkHasGroupBy(AnalyzedResult analyzedResult) {
+            if (!analyzedResult.isCorrelated()) {
+                return;
+            }
+            if (analyzedResult.hasGroupBy()) {
+                throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
+                        + analyzedResult.getLogicalPlan());
+            }
+        }
+
+        private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
+            CascadesContext subqueryContext = new Memo(expr.getQueryPlan())
+                    .newCascadesContext((cascadesContext.getStatementContext()));
+            Scope subqueryScope = genScopeWithSubquery(expr);
+            subqueryContext
+                    .newAnalyzer(Optional.of(subqueryScope))
+                    .analyze();
+            return new AnalyzedResult((LogicalPlan) subqueryContext.getMemo().copyOut(false),
+                    subqueryScope.getCorrelatedSlots());
+        }
+
+        private Scope genScopeWithSubquery(SubqueryExpr expr) {
+            return new Scope(getScope().getOuterScope(),
+                    getScope().getSlots(),
+                    Optional.ofNullable(expr));
+        }
+
+        public Scope getScope() {
+            return scope;
+        }
+
+        public CascadesContext getCascadesContext() {
+            return cascadesContext;
+        }
+    }
+
+    private static class AnalyzedResult {
+        private final LogicalPlan logicalPlan;
+        private final List<Slot> correlatedSlots;
+
+        public AnalyzedResult(LogicalPlan logicalPlan, List<Slot> correlatedSlots) {
+            this.logicalPlan = Objects.requireNonNull(logicalPlan, "logicalPlan can not be null");
+            this.correlatedSlots = correlatedSlots == null ? new ArrayList<>() : ImmutableList.copyOf(correlatedSlots);
+        }
+
+        public LogicalPlan getLogicalPlan() {
+            return logicalPlan;
+        }
+
+        public List<Slot> getCorrelatedSlots() {
+            return correlatedSlots;
+        }
+
+        public boolean isCorrelated() {
+            return !correlatedSlots.isEmpty();
+        }
+
+        public boolean rootIsAgg() {
+            return logicalPlan instanceof LogicalAggregate;
+        }
+
+        public boolean hasGroupBy() {
+            if (rootIsAgg()) {
+                return !((LogicalAggregate) logicalPlan).getGroupByExpressions().isEmpty();
+            }
+            return false;
         }
     }
 }

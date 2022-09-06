@@ -1397,7 +1397,7 @@ public:
     static const int STRING_LENGTH_RECORD_LENGTH = 4;
 
 private:
-    StringValueSet _set;
+    StringSet _set;
     // _type is serialized into buffer by one byte
     FunctionContext::Type _type;
 };

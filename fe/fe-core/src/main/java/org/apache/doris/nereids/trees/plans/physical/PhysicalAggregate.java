@@ -26,10 +26,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,10 +50,9 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
 
     private final boolean usingStream;
 
-
     public PhysicalAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
-                             List<Expression> partitionExpressions, AggPhase aggPhase, boolean usingStream,
-                             LogicalProperties logicalProperties, CHILD_TYPE child) {
+            List<Expression> partitionExpressions, AggPhase aggPhase, boolean usingStream,
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, partitionExpressions, aggPhase, usingStream,
                 Optional.empty(), logicalProperties, child);
     }
@@ -67,9 +66,9 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
      * @param usingStream whether it's stream agg.
      */
     public PhysicalAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
-                             List<Expression> partitionExpressions, AggPhase aggPhase, boolean usingStream,
-                             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                             CHILD_TYPE child) {
+            List<Expression> partitionExpressions, AggPhase aggPhase, boolean usingStream,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
@@ -112,9 +111,11 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
 
     @Override
     public String toString() {
-        return "PhysicalAggregate (phase: [" + aggPhase.name() + "], output: ["
-                + StringUtils.join(outputExpressions, ", ")
-                + "], groupBy: [" + StringUtils.join(groupByExpressions, ", ") + "])";
+        return Utils.toSqlString("PhysicalAggregate",
+                "phase", aggPhase,
+                "outputExpr", outputExpressions,
+                "groupByExpr", groupByExpressions
+        );
     }
 
     /**
@@ -144,18 +145,18 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-            usingStream, logicalProperties, children.get(0));
+                usingStream, logicalProperties, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-            usingStream, groupExpression, logicalProperties, child());
+                usingStream, groupExpression, logicalProperties, child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-            usingStream, Optional.empty(), logicalProperties.get(), child());
+                usingStream, Optional.empty(), logicalProperties.get(), child());
     }
 }

@@ -54,30 +54,31 @@ public:
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
 
-        ZoneMapIndexWriter builder(field);
+        std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+        ZoneMapIndexWriter::create(field, builder);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
         for (auto& value : values1) {
             Slice slice(value);
-            builder.add_values((const uint8_t*)&slice, 1);
+            builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder.flush();
+        builder->flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
         for (auto& value : values2) {
             Slice slice(value);
-            builder.add_values((const uint8_t*)&slice, 1);
+            builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder.add_nulls(1);
-        builder.flush();
+        builder->add_nulls(1);
+        builder->flush();
         for (int i = 0; i < 6; ++i) {
-            builder.add_nulls(1);
+            builder->add_nulls(1);
         }
-        builder.flush();
+        builder->flush();
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
             io::FileWriterPtr file_writer;
             EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
-            EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
+            EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
             EXPECT_TRUE(file_writer->close().ok());
         }
@@ -108,22 +109,23 @@ public:
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
 
-        ZoneMapIndexWriter builder(field);
+        std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+        ZoneMapIndexWriter::create(field, builder);
         char ch = 'a';
         char buf[1024];
         for (int i = 0; i < 5; i++) {
             memset(buf, ch + i, 1024);
             Slice slice(buf, 1024);
-            builder.add_values((const uint8_t*)&slice, 1);
+            builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder.flush();
+        builder->flush();
 
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
             io::FileWriterPtr file_writer;
             EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
-            EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
+            EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
             EXPECT_TRUE(file_writer->close().ok());
         }
@@ -156,26 +158,27 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     TabletColumn int_column = create_int_key(0);
     Field* field = FieldFactory::create(int_column);
 
-    ZoneMapIndexWriter builder(field);
+    std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+    ZoneMapIndexWriter::create(field, builder);
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
     for (auto value : values1) {
-        builder.add_values((const uint8_t*)&value, 1);
+        builder->add_values((const uint8_t*)&value, 1);
     }
-    builder.flush();
+    builder->flush();
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
     for (auto value : values2) {
-        builder.add_values((const uint8_t*)&value, 1);
+        builder->add_values((const uint8_t*)&value, 1);
     }
-    builder.add_nulls(1);
-    builder.flush();
-    builder.add_nulls(6);
-    builder.flush();
+    builder->add_nulls(1);
+    builder->flush();
+    builder->add_nulls(6);
+    builder->flush();
     // write out zone map index
     ColumnIndexMetaPB index_meta;
     {
         io::FileWriterPtr file_writer;
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
-        EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
+        EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
         EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
         EXPECT_TRUE(file_writer->close().ok());
     }

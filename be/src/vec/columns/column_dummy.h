@@ -125,6 +125,20 @@ public:
         return res;
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
+                                      selector.size(), num_rows);
+        }
+
+        res->reserve(num_rows);
+
+        for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
+    }
+
     void get_extremes(Field&, Field&) const override {}
 
     void addSize(size_t delta) { s += delta; }

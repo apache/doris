@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`B00LEAN BITMAP_HAS_ANY(BITMAP lhs, BITMAP rhs)`
+`BOOLEAN BITMAP_HAS_ANY(BITMAP lhs, BITMAP rhs)`
 
 计算两个Bitmap列是否存在相交元素，返回值是Boolean值. 
 

@@ -25,9 +25,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -56,7 +56,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
+        return Utils.toSqlString("PhysicalProject",
+                "projects", projects
+        );
     }
 
     @Override
@@ -75,7 +77,6 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public int hashCode() {
         return Objects.hash(projects);
     }
-
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {

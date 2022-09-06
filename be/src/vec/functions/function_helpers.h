@@ -95,6 +95,13 @@ Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& 
 Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args,
                                        size_t result);
 
+/// Returns the copy of a given block in only args column specified in
+/// the "arguments" parameter is replaced with its respective nested
+/// column if it is nullable.
+/// TODO: the old funciton `create_block_with_nested_columns` have perfermance problem, replace all
+/// by the function and delete old one.
+Block create_block_with_nested_columns_only_args(const Block& block, const ColumnNumbers& args);
+
 /// Checks argument type at specified index with predicate.
 /// throws if there is no argument at specified index or if predicate returns false.
 void validate_argument_type(const IFunction& func, const DataTypes& arguments,

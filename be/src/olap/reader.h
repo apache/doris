@@ -22,7 +22,6 @@
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "olap/delete_handler.h"
-#include "olap/olap_cond.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
@@ -79,7 +78,7 @@ public:
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
         std::vector<FunctionFilter> function_filters;
-        std::vector<DeletePredicatePB> delete_predicates;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
 
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
@@ -165,8 +164,6 @@ protected:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
-
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
 
@@ -176,16 +173,10 @@ protected:
 
     Status _init_return_columns(const ReaderParams& read_params);
 
-    void _init_load_bf_columns(const ReaderParams& read_params);
-    void _init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
-                               std::set<uint32_t>* load_bf_columns);
-
     TabletSharedPtr tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<MemPool> _predicate_mem_pool;
-    std::set<uint32_t> _load_bf_columns;
-    std::set<uint32_t> _load_bf_all_columns;
     std::vector<uint32_t> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys
@@ -200,11 +191,6 @@ protected:
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
-    // contains condition on key columns in agg or unique table or all column in dup tables
-    Conditions _conditions;
-    // contains _conditions and condition on value columns, used for push down
-    // conditions to base rowset of unique table
-    Conditions _all_conditions;
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;

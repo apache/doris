@@ -528,7 +528,7 @@ public class TabletScheduler extends MasterDaemon {
                         partition.getVisibleVersion(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         backendsSet);
-                statusPair = Pair.create(st, Priority.HIGH);
+                statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
                 List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
@@ -1283,7 +1283,8 @@ public class TabletScheduler extends MasterDaemon {
             Preconditions.checkState(!forColocate);
             ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster(), tag);
             if (statistic == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
+                throw new SchedException(Status.UNRECOVERABLE,
+                        String.format("cluster %s for tag %s does not exist.", tabletCtx.getCluster(), tag));
             }
             beStatistics = statistic.getSortedBeLoadStats(null /* sorted ignore medium */);
         } else {

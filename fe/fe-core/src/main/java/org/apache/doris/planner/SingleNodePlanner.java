@@ -65,6 +65,7 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.thrift.TNullSide;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -181,7 +182,7 @@ public class SingleNodePlanner {
     private PlanNode createEmptyNode(PlanNode inputPlan, QueryStmt stmt, Analyzer analyzer) throws UserException {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         if (inputPlan != null) {
-            tupleIds = inputPlan.tupleIds;
+            tupleIds.addAll(inputPlan.getOutputTupleIds());
         }
         if (tupleIds.isEmpty()) {
             // Constant selects do not have materialized tuples at this stage.
@@ -711,14 +712,14 @@ public class SingleNodePlanner {
             if (plan.getCardinality() == -1) {
                 // use 0 for the size to avoid it becoming the leftmost input
                 // TODO: Consider raw size of scanned partitions in the absence of stats.
-                candidates.add(new Pair<>(ref, new Long(0)));
+                candidates.add(Pair.of(ref, new Long(0)));
                 LOG.debug("The candidate of " + ref.getUniqueAlias() + ": -1. "
                         + "Using 0 instead of -1 to avoid error");
                 continue;
             }
             Preconditions.checkState(ref.isAnalyzed());
             long materializedSize = plan.getCardinality();
-            candidates.add(new Pair<>(ref, new Long(materializedSize)));
+            candidates.add(Pair.of(ref, new Long(materializedSize)));
             LOG.debug("The candidate of " + ref.getUniqueAlias() + ": " + materializedSize);
         }
         if (candidates.isEmpty()) {
@@ -1002,7 +1003,7 @@ public class SingleNodePlanner {
                 }
 
                 Preconditions.checkState(plan != null);
-                refPlans.add(new Pair(ref, plan));
+                refPlans.add(Pair.of(ref, plan));
             }
             // save state of conjunct assignment; needed for join plan generation
             for (Pair<TableRef, PlanNode> entry : refPlans) {
@@ -1143,7 +1144,7 @@ public class SingleNodePlanner {
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo
                         = materializedViewSelector.selectBestMV(olapScanNode);
                 if (bestIndexInfo == null) {
-                    selectFailed |= true;
+                    selectFailed = true;
                     TupleId tupleId = olapScanNode.getTupleId();
                     selectStmt.updateDisableTuplesMVRewriter(tupleId);
                     LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
@@ -1393,8 +1394,14 @@ public class SingleNodePlanner {
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
                 if (analyzer.isOuterJoined(inlineViewRef.getId())) {
-                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
+                    List<Expr> nullableRhs;
+                    if (analyzer.isOuterJoinedLeftSide(inlineViewRef.getId())) {
+                        nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
+                            unionNode.getTupleIds(), TNullSide.LEFT, analyzer);
+                    } else {
+                        nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
+                            unionNode.getTupleIds(), TNullSide.RIGHT, analyzer);
+                    }
                     unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
                 }
                 return unionNode;
@@ -1422,7 +1429,7 @@ public class SingleNodePlanner {
             // because the rhs exprs must first be resolved against the physical output of
             // 'planRoot' to correctly determine whether wrapping is necessary.
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                    outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
+                    outputSmap.getRhs(), rootNode.getTupleIds(), null, analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
@@ -1719,6 +1726,7 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
+            case MATERIALIZED_VIEW:
                 OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());

@@ -24,21 +24,18 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-BUILD_DIR=build
-HELP_DIR=contents
-HELP_ZIP_FILE=help-resource.zip
-SQL_REF_DOC_DIR=zh-CN/docs/sql-manual/
+BUILD_DIR='build'
+HELP_DIR='contents'
+HELP_ZIP_FILE='help-resource.zip'
+SQL_REF_DOC_DIR='zh-CN/docs/sql-manual'
 
-cd $ROOT
-rm -rf $BUILD_DIR $HELP_DIR $HELP_ZIP_FILE
-mkdir -p $BUILD_DIR $HELP_DIR
+cd "${ROOT}"
+rm -rf "${BUILD_DIR}" "${HELP_DIR}" "${HELP_ZIP_FILE}"
+mkdir -p "${BUILD_DIR}" "${HELP_DIR}"
 
-cp -r $SQL_REF_DOC_DIR/* $HELP_DIR/
+cp -r "${SQL_REF_DOC_DIR}"/* "${HELP_DIR}"/
 
-zip -r $HELP_ZIP_FILE $HELP_DIR
-mv $HELP_ZIP_FILE $BUILD_DIR/
-
-
+zip -r "${HELP_ZIP_FILE}" "${HELP_DIR}"
+mv "${HELP_ZIP_FILE}" "${BUILD_DIR}"/

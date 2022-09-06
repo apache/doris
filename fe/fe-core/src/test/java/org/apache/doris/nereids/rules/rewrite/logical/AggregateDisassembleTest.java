@@ -21,10 +21,10 @@ import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -49,7 +49,7 @@ public class AggregateDisassembleTest {
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
     }
 
     /**

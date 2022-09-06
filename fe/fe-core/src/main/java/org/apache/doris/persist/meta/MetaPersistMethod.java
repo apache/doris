@@ -198,10 +198,10 @@ public class MetaPersistMethod {
                         Env.class.getDeclaredMethod("savePolicy", CountingDataOutputStream.class, long.class);
                 break;
             case "datasource":
-                metaPersistMethod.readMethod =
-                        Env.class.getDeclaredMethod("loadDatasource", DataInputStream.class, long.class);
-                metaPersistMethod.writeMethod =
-                        Env.class.getDeclaredMethod("saveDatasource", CountingDataOutputStream.class, long.class);
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadCatalog", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveCatalog",
+                        CountingDataOutputStream.class, long.class);
                 break;
             default:
                 break;

@@ -165,6 +165,11 @@ public:
         return scatter_impl<ColumnNullable>(num_columns, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnNullable>(res, selector);
+    }
+
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     void for_each_subcolumn(ColumnCallback callback) override {

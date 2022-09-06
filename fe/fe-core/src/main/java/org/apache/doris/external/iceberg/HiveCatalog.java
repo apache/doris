@@ -47,6 +47,9 @@ public class HiveCatalog implements IcebergCatalog {
     public void initialize(IcebergProperty icebergProperty) {
         // set hadoop conf
         Configuration conf = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : icebergProperty.getDfsProperties().entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();

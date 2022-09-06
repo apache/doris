@@ -76,8 +76,8 @@ public class GetDdlStmtAction extends RestBaseController {
 
         table.readLock();
         try {
-            Env.getDdlStmt(table, createTableStmt, addPartitionStmt,
-                    createRollupStmt, true, false /* show password */);
+            Env.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */,
+                    -1L);
         } finally {
             table.readUnlock();
         }

@@ -37,7 +37,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -102,22 +102,21 @@ public class DescribeStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         dbTableName.analyze(analyzer);
 
-        if (!Env.getCurrentEnv().getAuth()
-                .checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     dbTableName.toString());
         }
 
-        DataSourceIf ds = Env.getCurrentEnv().getDataSourceMgr().getCatalog(dbTableName.getCtl());
-        DatabaseIf db = ds.getDbOrAnalysisException(dbTableName.getDb());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(dbTableName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {
             if (!isAllTables) {
                 // show base table schema only
-                String procString = "/catalogs/" + ds.getId() + "/" + db.getId() + "/" + table.getId() + "/"
+                String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId() + "/"
                         + TableProcDir.INDEX_SCHEMA + "/";
                 if (table.getType() == TableType.OLAP) {
                     procString += ((OlapTable) table).getBaseIndexId();

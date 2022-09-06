@@ -33,6 +33,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,6 +61,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     protected long id;
     protected volatile String name;
+    protected volatile String qualifiedDbName;
     protected TableType type;
     protected long createTime;
     protected ReentrantReadWriteLock rwLock;
@@ -248,6 +250,18 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
+    void setQualifiedDbName(String qualifiedDbName) {
+        this.qualifiedDbName = qualifiedDbName;
+    }
+
+    public String getQualifiedName() {
+        if (StringUtils.isEmpty(qualifiedDbName)) {
+            return name;
+        } else {
+            return qualifiedDbName + "." + name;
+        }
+    }
+
     public TableType getType() {
         return type;
     }
@@ -315,6 +329,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.MATERIALIZED_VIEW) {
+            table = new MaterializedView();
         } else if (type == TableType.ODBC) {
             table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
@@ -387,10 +403,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
         // read create time
         this.createTime = in.readLong();
-    }
-
-    public boolean equals(Table table) {
-        return true;
     }
 
     // return if this table is partitioned.

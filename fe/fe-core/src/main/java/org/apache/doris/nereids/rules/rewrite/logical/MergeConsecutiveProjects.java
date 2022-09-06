@@ -23,11 +23,13 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionReplacer;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -50,6 +52,47 @@ import java.util.stream.Collectors;
  */
 
 public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
+
+    private static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
+        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
+
+        /**
+         * case 1:
+         *          project(alias(c) as d, alias(x) as y)
+         *                      |
+         *                      |                          ===>       project(alias(a) as d, alias(b) as y)
+         *                      |
+         *          project(slotRef(a) as c, slotRef(b) as x)
+         * case 2:
+         *         project(slotRef(x.c), slotRef(x.d))
+         *                      |                          ===>       project(slotRef(a) as x.c, slotRef(b) as x.d)
+         *         project(slotRef(a) as c, slotRef(b) as d)
+         * case 3: others
+         */
+        @Override
+        public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
+            if (expr instanceof Alias && expr.child(0) instanceof SlotReference) {
+                // case 1:
+                Expression c = expr.child(0);
+                // Alias doesn't contain qualifier
+                Slot ref = ((SlotReference) c).withQualifier(Collections.emptyList());
+                if (substitutionMap.containsKey(ref)) {
+                    return expr.withChildren(substitutionMap.get(ref).children());
+                }
+            } else if (expr instanceof SlotReference) {
+                // case 2:
+                Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
+                if (substitutionMap.containsKey(ref)) {
+                    Alias res = (Alias) substitutionMap.get(ref);
+                    return (res.child() instanceof SlotReference) ? res : res.child();
+                }
+            } else if (substitutionMap.containsKey(expr)) {
+                return substitutionMap.get(expr).child(0);
+            }
+            return super.visit(expr, substitutionMap);
+        }
+    }
+
     @Override
     public Rule build() {
         return logicalProject(logicalProject()).then(project -> {
@@ -59,14 +102,14 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
             Map<Expression, Expression> childAliasMap = childProjectExpressions.stream()
                     .filter(e -> e instanceof Alias)
                     .collect(Collectors.toMap(
-                            NamedExpression::toSlot, e -> e.child(0))
+                            NamedExpression::toSlot, e -> e)
                     );
 
             projectExpressions = projectExpressions.stream()
-                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
+                    .map(e -> MergeConsecutiveProjects.ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
-            return new LogicalProject(projectExpressions, (Plan) childProject.children().get(0));
+            return new LogicalProject<>(projectExpressions, childProject.children().get(0));
         }).toRule(RuleType.MERGE_CONSECUTIVE_PROJECTS);
     }
 }

@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-suite("create_table_use_partion_policy", "policy") {
+suite("create_table_use_partion_policy") {
     def create_table_partion_use_not_create_policy = try_sql """
         CREATE TABLE create_table_partion_use_not_create_policy
         (
@@ -111,5 +111,41 @@ suite("create_table_use_partion_policy", "policy") {
 
     sql """
     DROP TABLE create_table_partion_use_created_policy
+    """
+
+    def create_table_partition_use_created_policy_1 = try_sql """
+        CREATE TABLE create_table_partion_use_created_policy_1
+        (
+            k1 DATEV2,
+            k2 INT,
+            V1 VARCHAR(2048) REPLACE
+        ) PARTITION BY RANGE (k1) (
+            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
+    """
+
+    assertEquals(create_table_partition_use_created_policy_1.size(), 1);
+
+    sql """
+    DROP TABLE create_table_partion_use_created_policy_1
+    """
+
+    def create_table_partition_use_created_policy_2 = try_sql """
+        CREATE TABLE create_table_partion_use_created_policy_2
+        (
+            k1 DATETIMEV2(3),
+            k2 INT,
+            V1 VARCHAR(2048) REPLACE
+        ) PARTITION BY RANGE (k1) (
+            PARTITION p1 VALUES LESS THAN ("2022-01-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
+    """
+
+    assertEquals(create_table_partition_use_created_policy_2.size(), 1);
+
+    sql """
+    DROP TABLE create_table_partion_use_created_policy_2
     """
 }

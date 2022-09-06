@@ -243,7 +243,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILD, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN, KW_CURRENT_TIMESTAMP,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT, KW_COMPLETE,
-    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
+    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COPY, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DATEV2, KW_DATETIMEV2, KW_DAY, KW_DECIMAL, KW_DECIMALV3, KW_DECOMMISSION, KW_DEFAULT, KW_DEFERRED, KW_DEMAND, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_UPDATE, KW_DIAGNOSE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
@@ -446,6 +446,7 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
+nonterminal KeysDesc opt_mv_keys;
 
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc list_partition_key_desc;
@@ -1337,6 +1338,16 @@ opt_mv_refersh_info ::=
     :}
     ;
 
+opt_mv_keys ::=
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, Lists.newArrayList());
+    :}
+    | KW_KEY LPAREN ident_list:keys RPAREN
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    ;
+
 // Create Statement
 create_stmt ::=
     /* Database */
@@ -1461,12 +1472,13 @@ create_stmt ::=
     :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
-         opt_partition:partition
-         opt_distribution:distribution
-         opt_properties:tblProperties
+         opt_mv_keys:keyDesc
+         opt_partition:partitionDesc
+         opt_distribution:distributionDesc
+         opt_properties:properties
          KW_AS query_stmt:query
     {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, partition, distribution, tblProperties, query);
+        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
@@ -4740,12 +4752,16 @@ order_by_elements ::=
   order_by_element:e
   {:
     ArrayList<OrderByElement> list = new ArrayList<OrderByElement>();
-    list.add(e);
+    if (!(e.getExpr() instanceof NullLiteral)) {
+        list.add(e);
+    }
     RESULT = list;
   :}
   | order_by_elements:list COMMA order_by_element:e
   {:
-    list.add(e);
+    if (!(e.getExpr() instanceof NullLiteral)) {
+        list.add(e);
+    }
     RESULT = list;
   :}
   ;
@@ -4833,32 +4849,26 @@ type ::=
   {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR LPAREN ident_or_text:lenStr RPAREN
   {: ScalarType type = ScalarType.createVarcharType(lenStr);
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
-  | KW_ARRAY LESSTHAN KW_NOT_NULL LPAREN type:value_type RPAREN GREATERTHAN
-  {: RESULT = new ArrayType(value_type, false); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
   {: RESULT = new StructType(fields); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR LPAREN ident_or_text:lenStr RPAREN
   {: ScalarType type = ScalarType.createCharType(lenStr);
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR
@@ -4885,7 +4895,6 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_ALL
@@ -5620,6 +5629,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(true);
     :}
+    | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
+    {:
+        RESULT = new AdminCopyTabletStmt(tabletId, properties);
+    :}
     ;
 
 truncate_stmt ::=
@@ -5792,6 +5805,8 @@ keyword ::=
     | KW_CONNECTION_ID:id
     {: RESULT = id; :}
     | KW_CONVERT:id
+    {: RESULT = id; :}
+    | KW_COPY:id
     {: RESULT = id; :}
     | KW_CREATION:id
     {: RESULT = id; :}

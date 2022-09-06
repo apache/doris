@@ -17,92 +17,71 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.exceptions.ParseException;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class LimitClauseTest {
+public class LimitClauseTest extends ParserTestBase {
     @Test
     public void testLimit() {
-        NereidsParser nereidsParser = new NereidsParser();
-        String sql = "SELECT b FROM test order by a limit 3 offset 100";
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
-        LogicalLimit limit = (LogicalLimit) logicalPlan;
-        Assertions.assertEquals(3, limit.getLimit());
-        Assertions.assertEquals(100, limit.getOffset());
-        Assertions.assertEquals(1, limit.children().size());
-        Assertions.assertTrue(limit.child(0) instanceof  LogicalSort);
+        parsePlan("SELECT b FROM test order by a limit 3 offset 100")
+                .matchesFromRoot(
+                        logicalLimit(
+                                logicalSort()
+                        ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
+                );
 
-        sql = "SELECT b FROM test order by a limit 100, 3";
-        logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
-        limit = (LogicalLimit) logicalPlan;
-        Assertions.assertEquals(3, limit.getLimit());
-        Assertions.assertEquals(100, limit.getOffset());
-        Assertions.assertEquals(1, limit.children().size());
-        Assertions.assertTrue(limit.child(0) instanceof LogicalSort);
+        parsePlan("SELECT b FROM test order by a limit 100, 3")
+                .matchesFromRoot(
+                        logicalLimit(
+                                logicalSort()
+                        ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
+                );
 
-        sql = "SELECT b FROM test limit 3";
-        logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
-        limit = (LogicalLimit) logicalPlan;
-        Assertions.assertEquals(3, limit.getLimit());
-        Assertions.assertEquals(0, limit.getOffset());
-        Assertions.assertEquals(1, limit.children().size());
-        Assertions.assertTrue(limit.child(0) instanceof LogicalProject);
+        parsePlan("SELECT b FROM test limit 3")
+                .matchesFromRoot(logicalLimit().when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0));
 
-        sql = "SELECT b FROM test order by a limit 3";
-        logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
-        limit = (LogicalLimit) logicalPlan;
-        Assertions.assertEquals(3, limit.getLimit());
-        Assertions.assertEquals(0, limit.getOffset());
-        Assertions.assertEquals(1, limit.children().size());
-        Assertions.assertTrue(limit.child(0) instanceof LogicalSort);
+        parsePlan("SELECT b FROM test order by a limit 3")
+                .matchesFromRoot(
+                        logicalLimit(
+                                logicalSort()
+                        ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0)
+                );
     }
 
     @Test
     public void testLimitExceptionCase() {
-        NereidsParser nereidsParser = new NereidsParser();
-        IllegalStateException exception = Assertions.assertThrows(
-                IllegalStateException.class,
-                () -> {
-                    String sql = "SELECT b FROM test limit 3 offset 100";
-                    nereidsParser.parseSingle(sql);
-                });
-        Assertions.assertEquals("OFFSET requires an ORDER BY clause",
-                    exception.getMessage());
+        parsePlan("SELECT b FROM test limit 3 offset 100")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("\n"
+                        + "OFFSET requires an ORDER BY clause(line 1, pos19)\n"
+                        + "\n"
+                        + "== SQL ==\n"
+                        + "SELECT b FROM test limit 3 offset 100\n"
+                        + "-------------------^^^");
 
-        exception = Assertions.assertThrows(
-                IllegalStateException.class,
-                () -> {
-                    String sql = "SELECT b FROM test limit 100, 3";
-                    nereidsParser.parseSingle(sql);
-                });
-        Assertions.assertEquals("OFFSET requires an ORDER BY clause",
-                    exception.getMessage());
-
+        parsePlan("SELECT b FROM test limit 100, 3")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("\n"
+                        + "OFFSET requires an ORDER BY clause(line 1, pos19)\n"
+                        + "\n"
+                        + "== SQL ==\n"
+                        + "SELECT b FROM test limit 100, 3\n"
+                        + "-------------------^^^");
     }
 
     @Test
     public void testNoLimit() {
-        NereidsParser nereidsParser = new NereidsParser();
-        String sql = "select a from tbl order by x";
-        LogicalPlan root = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(root instanceof LogicalSort);
+        parsePlan("select a from tbl order by x").matchesFromRoot(logicalSort());
     }
-
 
     @Test
     public void testNoQueryOrganization() {
-        NereidsParser nereidsParser = new NereidsParser();
-        String sql = "select a from tbl";
-        LogicalPlan root = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(root instanceof LogicalProject);
+        parsePlan("select a from tbl")
+                .matchesFromRoot(
+                        logicalProject(
+                                unboundRelation()
+                        )
+                );
     }
 }

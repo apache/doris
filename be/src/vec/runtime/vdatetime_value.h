@@ -740,6 +740,8 @@ public:
 
     void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 
+    void set_microsecond(uint32_t microsecond);
+
     bool from_olap_date(uint64_t date) {
         auto [year, month, day] = std::tuple {0, 0, 0};
 
@@ -815,14 +817,20 @@ public:
 
     // Return true if range or date is invalid
     static bool is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                           uint8_t minute, uint8_t second, uint32_t microsecond);
+                           uint8_t minute, uint8_t second, uint32_t microsecond,
+                           bool only_time_part = false);
 
     bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                  uint8_t minute, uint8_t second, uint32_t microsecond) {
-        if (is_invalid(year, month, day, hour, minute, second, microsecond)) {
+                                  uint8_t minute, uint8_t second, uint32_t microsecond,
+                                  bool only_time_part = false) {
+        if (is_invalid(year, month, day, hour, minute, second, microsecond, only_time_part)) {
             return false;
         }
-        set_time(year, month, day, hour, minute, second, microsecond);
+        if (only_time_part) {
+            set_time(0, 0, 0, hour, minute, second, microsecond);
+        } else {
+            set_time(year, month, day, hour, minute, second, microsecond);
+        }
         return true;
     };
 
@@ -924,6 +932,9 @@ public:
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
     bool from_unixtime(int64_t, const std::string& timezone);
     bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+
+    bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
+    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, const int scale);
 
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.
@@ -1134,6 +1145,9 @@ public:
         }
     };
 
+    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
+                              const char** sub_val_end);
+
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
@@ -1144,9 +1158,6 @@ private:
 
     // Helper to set max, min, zero
     void set_zero();
-
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
 
     union {
         T date_v2_value_;
