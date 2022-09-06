@@ -35,7 +35,7 @@ namespace doris::vectorized {
 
 template <typename T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
-    auto& other = static_cast<const Self&>(rhs_);
+    auto& other = assert_cast<const Self&>(rhs_);
     const T& a = data[n];
     const T& b = other.data[m];
 
@@ -157,7 +157,7 @@ MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);

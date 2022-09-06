@@ -60,7 +60,7 @@ public:
         auto res = this->create(_item_size);
 
         if (size > 0) {
-            auto& new_col = static_cast<Self&>(*res);
+            auto& new_col = assert_cast<Self&>(*res);
             new_col.resize(size);
             auto* new_data = new_col._data.data();
 
@@ -75,7 +75,7 @@ public:
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override {
-        const Self& src_vec = static_cast<const Self&>(src);
+        const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         if (_item_size == 0) {
