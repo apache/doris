@@ -26,12 +26,12 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Join Commute
  */
-@Developing
 public class JoinCommute extends OneExplorationRuleFactory {
 
     public static final JoinCommute OUTER_LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP);
@@ -62,8 +62,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
             }
 
-            return newJoin;
-            // return JoinReorderCommon.project(new ArrayList<>(join.getOutput()), newJoin).get();
+            return JoinReorderCommon.project(new ArrayList<>(join.getOutput()), newJoin).get();
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 

@@ -31,7 +31,6 @@ import java.util.function.Predicate;
 /**
  * Rule for change inner join LAsscom (associative and commutive).
  */
-@Developing
 public class JoinLAsscom extends OneExplorationRuleFactory {
     // for inner-inner
     public static final JoinLAsscom INNER = new JoinLAsscom(Type.INNER);
