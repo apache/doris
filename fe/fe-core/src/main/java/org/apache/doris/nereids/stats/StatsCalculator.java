@@ -146,7 +146,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
-        return groupExpression.getCopyOfChildStats(0);
+        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
     }
 
     @Override
@@ -208,7 +208,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             Void context) {
-        return groupExpression.getCopyOfChildStats(0);
+        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
+    }
+
+    private StatsDeriveResult computeAssertNumRows(long desiredNumOfRows) {
+        StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
+        statsDeriveResult.updateRowCountByLimit(1);
+        return statsDeriveResult;
     }
 
     private StatsDeriveResult computeFilter(Filter filter) {
@@ -277,19 +283,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
         Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
-        long resultSetCount = 1;
-        for (Expression groupByExpression : groupByExpressions) {
-            Set<Slot> slots = groupByExpression.getInputSlots();
-            // TODO: Support more complex group expr.
-            //       For example:
-            //              select max(col1+col3) from t1 group by col1+col3;
-            if (slots.size() != 1) {
-                continue;
-            }
-            Slot slotReference = slots.iterator().next();
-            ColumnStats columnStats = childSlotToColumnStats.get(slotReference);
-            resultSetCount *= columnStats.getNdv();
-        }
+        long resultSetCount = groupByExpressions.stream()
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .filter(childSlotToColumnStats::containsKey)
+                .map(childSlotToColumnStats::get)
+                .map(ColumnStats::getNdv)
+                .reduce(1L, (a, b) -> a * b);
+
         Map<Slot, ColumnStats> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
