@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,7 +60,8 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public String toString() {
-        return "LogicalAssertNumRows (" + assertNumRowsElement + ")";
+        return Utils.toSqlString("LogicalAssertNumRows (",
+                "assertNumRowsElement", assertNumRowsElement);
     }
 
     @Override

@@ -21,18 +21,14 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.Lists;
-
-import java.util.List;
 
 /**
  * Convert scalarApply to LogicalJoin.
@@ -58,10 +54,8 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                         1, apply.getSubqueryExpr().toString(),
                         AssertNumRowsElement.Assertion.EQ),
                 (LogicalPlan) apply.right());
-        LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
+        return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 (LogicalPlan) apply.left(), assertNumRows);
-        List<Slot> projects = ((LogicalPlan) apply.left()).getOutput();
-        return new LogicalProject(projects, newJoin);
     }
 
     private Plan correlatedToJoin(LogicalApply apply) {

@@ -400,9 +400,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment leftFragment = nestedLoopJoin.child(0).accept(this, context);
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
+        TupleDescriptor leftChildOutputTupleDesc = leftFragmentPlanRoot.getOutputTupleDesc();
+        TupleDescriptor leftTuple =
+                leftChildOutputTupleDesc != null
+                        ? leftChildOutputTupleDesc : context.getTupleDesc(leftFragmentPlanRoot);
+        TupleDescriptor rightChildOutputTupleDesc = rightFragmentPlanRoot.getOutputTupleDesc();
+        TupleDescriptor rightTuple =
+                rightChildOutputTupleDesc != null
+                        ? rightChildOutputTupleDesc : context.getTupleDesc(rightFragmentPlanRoot);
+
         if (JoinUtils.shouldNestedLoopJoin(nestedLoopJoin)) {
             CrossJoinNode crossJoinNode =
-                    new CrossJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot, null);
+                    new CrossJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot, null,
+                            leftTuple, rightTuple);
             rightFragment.getPlanRoot().setCompactData(false);
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
@@ -534,11 +544,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalAssertNumRows(PhysicalAssertNumRows<Plan> assertNumRows,
             PlanTranslatorContext context) {
         PlanFragment inputFragment = assertNumRows.child(0).accept(this, context);
-        //create assertNode
-        PlanNode child = inputFragment.getPlanRoot();
-        AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
-                child, ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
         PlanFragment mergeFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
+        //create assertNode
+        AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
+                mergeFragment.getPlanRoot(),
+                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
         mergeFragment.addPlanRoot(assertNumRowsNode);
         return mergeFragment;
     }

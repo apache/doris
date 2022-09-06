@@ -68,6 +68,11 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
             List<Expression> correlatedPredicate = split.get(true);
             List<Expression> unCorrelatedPredicate = split.get(false);
 
+            // the representative has experienced the rule and added the correlated predicate to the apply node
+            if (correlatedPredicate.isEmpty()) {
+                return apply;
+            }
+
             LogicalFilter<GroupPlan> newUnCorrelatedFilter = null;
             if (!unCorrelatedPredicate.isEmpty()) {
                 newUnCorrelatedFilter = new LogicalFilter<>(ExpressionUtils.and(unCorrelatedPredicate),

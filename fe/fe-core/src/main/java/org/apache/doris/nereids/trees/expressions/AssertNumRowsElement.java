@@ -75,7 +75,7 @@ public class AssertNumRowsElement extends Expression implements LeafExpression {
     public String toString() {
         return Utils.toSqlString("desiredNumOfRows: ",
                 Long.toString(desiredNumOfRows),
-                "assertion: " + assertion);
+                "assertion: ", assertion);
     }
 
     @Override
