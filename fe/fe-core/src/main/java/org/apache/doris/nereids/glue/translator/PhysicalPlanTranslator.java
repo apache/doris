@@ -391,6 +391,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(ExpressionUtils::extractConjunction)
                 .orElseGet(Lists::newArrayList)
                 .stream()
+                // TODO add constant expr will cause be crash, currently we only handle true literal.
+                //  remove it after Nereids could ensure no constant expr in other join condition
                 .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
