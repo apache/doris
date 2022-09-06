@@ -658,9 +658,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_map.erase(params.params.fragment_instance_id);
         }
-        exec_state->cancel();
-        return Status::InternalError("Put planfragment to thread pool failed. err = {}, BE: {}",
-                                     st.get_error_msg(), BackendOptions::get_localhost());
+        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                           "Put planfragment to thread pool failed");
+        return Status::InternalError(
+                strings::Substitute("Put planfragment to thread pool failed. err = {}, BE: {}",
+                                    st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();
