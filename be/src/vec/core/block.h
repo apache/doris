@@ -524,8 +524,8 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const int* row_begin, const int* row_end);
-    void add_rows(const Block* block, size_t row_begin, size_t length);
+    void add_rows(const Block* block, const int* row_begin, const int* row_end, bool align = false);
+    void add_rows(const Block* block, size_t row_begin, size_t length, bool align = false);
 
     std::string dump_data(size_t row_limit = 100) const;
 
