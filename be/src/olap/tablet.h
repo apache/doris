@@ -585,10 +585,6 @@ inline size_t Tablet::next_unique_id() const {
     return _schema->next_column_unique_id();
 }
 
-inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema->field_index(field_name);
-}
-
 inline size_t Tablet::row_size() const {
     return _schema->row_size();
 }
