@@ -618,9 +618,9 @@ private:
 
         const auto& string_column = reinterpret_cast<const ColumnString&>(*array_nested_column);
         const Chars& string_src_chars = string_column.get_chars();
-        const Offsets& src_string_offsets = string_column.get_offsets();
-        const Offsets& src_array_offsets = array_column.get_offsets();
-        ColumnArray::Offset current_src_array_offset = 0;
+        const auto& src_string_offsets = string_column.get_offsets();
+        const auto& src_array_offsets = array_column.get_offsets();
+        size_t current_src_array_offset = 0;
 
         // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {

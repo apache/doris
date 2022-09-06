@@ -67,7 +67,7 @@ public:
     }
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
-    using ColumnOffsets = ColumnVector<Offset>;
+    using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
@@ -118,11 +118,11 @@ public:
     IColumn& get_offsets_column() { return *offsets; }
     const IColumn& get_offsets_column() const { return *offsets; }
 
-    Offsets& ALWAYS_INLINE get_offsets() {
+    Offsets64& ALWAYS_INLINE get_offsets() {
         return assert_cast<ColumnOffsets&>(*offsets).get_data();
     }
 
-    const Offsets& ALWAYS_INLINE get_offsets() const {
+    const Offsets64& ALWAYS_INLINE get_offsets() const {
         return assert_cast<const ColumnOffsets&>(*offsets).get_data();
     }
 
