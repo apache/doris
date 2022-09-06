@@ -53,9 +53,9 @@ suite("test_explain_tpch_sf_1_q5") {
         check {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
-				"  |  order by: <slot 18> <slot 17> sum(`l_extendedprice` * (1 - `l_discount`)) DESC") && 
+				"  |  order by: <slot 18> <slot 17> sum(<slot 61> * (1 - <slot 62>)) DESC") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 17> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
+				"  |  output: sum(<slot 17> sum(<slot 61> * (1 - <slot 62>)))\n" + 
 				"  |  group by: <slot 16> `n_name`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
