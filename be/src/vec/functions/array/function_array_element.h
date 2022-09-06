@@ -82,7 +82,7 @@ public:
 
 private:
     template <typename ColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
+    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map) {
         const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
@@ -123,7 +123,7 @@ private:
         return dst_column;
     }
 
-    ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const IColumn& nested_column,
+    ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map) {
         const auto& src_str_offs =

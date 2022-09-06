@@ -163,7 +163,6 @@ public class MemoRewriteTest implements PatternMatchSupported {
                     );
         });
 
-
         // valid case: 5 steps
         class A extends UnboundRelation {
             // 1: declare the Plan has some states
@@ -631,7 +630,6 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         ).when(limit10::equals)
                 );
     }
-
 
     @Test
     public void testRewriteBottomPlanToOnePlan() {

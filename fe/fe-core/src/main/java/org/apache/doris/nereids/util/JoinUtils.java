@@ -102,7 +102,7 @@ public class JoinUtils {
          * @return true if the equal can be used as hash join condition
          */
         boolean isHashJoinCondition(EqualTo equalTo) {
-            List<SlotReference> equalLeft =  equalTo.left().collect(SlotReference.class::isInstance);
+            List<SlotReference> equalLeft = equalTo.left().collect(SlotReference.class::isInstance);
             if (equalLeft.isEmpty()) {
                 return false;
             }
@@ -162,8 +162,6 @@ public class JoinUtils {
         }
         return pair;
     }
-
-
 
     /**
      * Get all used slots from onClause of join.

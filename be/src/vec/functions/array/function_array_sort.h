@@ -67,7 +67,7 @@ public:
         auto dest_column_ptr = ColumnArray::create(nested_type->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_column_ptr->get_data();
-        ColumnArray::Offsets& dest_offsets = dest_column_ptr->get_offsets();
+        auto& dest_offsets = dest_column_ptr->get_offsets();
         DCHECK(dest_nested_column != nullptr);
         dest_nested_column->reserve(src_nested_column->size());
         dest_offsets.reserve(input_rows_count);
@@ -103,15 +103,15 @@ public:
 private:
     // sort the non-null element according to the permutation
     template <typename SrcDataType>
-    void _sort_by_permutation(ColumnArray::Offset& prev_offset,
-                              const ColumnArray::Offset& curr_offset,
+    void _sort_by_permutation(ColumnArray::Offset64& prev_offset,
+                              const ColumnArray::Offset64& curr_offset,
                               const SrcDataType* src_data_concrete, const IColumn& src_column,
                               const NullMapType* src_null_map, IColumn::Permutation& permutation) {
-        for (ColumnArray::Offset j = prev_offset; j + 1 < curr_offset; ++j) {
+        for (size_t j = prev_offset; j + 1 < curr_offset; ++j) {
             if (src_null_map && (*src_null_map)[j]) {
                 continue;
             }
-            for (ColumnArray::Offset k = j + 1; k < curr_offset; ++k) {
+            for (size_t k = j + 1; k < curr_offset; ++k) {
                 if (src_null_map && (*src_null_map)[k]) {
                     continue;
                 }
@@ -128,8 +128,8 @@ private:
     }
 
     template <typename ColumnType>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
+    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
         using NestType = typename ColumnType::value_type;
         const ColumnType* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
@@ -141,7 +141,7 @@ private:
         ColumnType& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
         PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
 
-        ColumnArray::Offset prev_src_offset = 0;
+        ColumnArray::Offset64 prev_src_offset = 0;
         IColumn::Permutation permutation(src_column.size());
         for (size_t i = 0; i < src_column.size(); ++i) {
             permutation[i] = i;
@@ -149,7 +149,7 @@ private:
 
         for (auto curr_src_offset : src_offsets) {
             // filter and insert null element first
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
                     DCHECK(dest_null_map != nullptr);
                     (*dest_null_map).push_back(true);
@@ -161,7 +161,7 @@ private:
                                              src_column, src_null_map, permutation);
 
             // insert non-null element after sort by permutation
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
                     continue;
                 }
@@ -178,8 +178,8 @@ private:
         return true;
     }
 
-    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
+    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
         const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
@@ -191,7 +191,7 @@ private:
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(src_column.size());
 
-        ColumnArray::Offset prev_src_offset = 0;
+        size_t prev_src_offset = 0;
         IColumn::Permutation permutation(src_column.size());
         for (size_t i = 0; i < src_column.size(); ++i) {
             permutation[i] = i;
@@ -199,7 +199,7 @@ private:
 
         for (auto curr_src_offset : src_offsets) {
             // filter and insert null element first
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
                     DCHECK(dest_null_map != nullptr);
                     column_string_offsets.push_back(column_string_offsets.back());
@@ -211,7 +211,7 @@ private:
                                                src_column, src_null_map, permutation);
 
             // insert non-null element after sort by permutation
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
                     continue;
                 }
@@ -238,8 +238,8 @@ private:
         return true;
     }
 
-    bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
-                          IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
+    bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) {
         bool res = false;

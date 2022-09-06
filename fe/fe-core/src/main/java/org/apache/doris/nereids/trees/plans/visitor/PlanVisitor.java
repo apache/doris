@@ -91,7 +91,6 @@ public abstract class PlanVisitor<R, C> {
         return visit(hint, context);
     }
 
-
     public R visitLogicalAggregate(LogicalAggregate<Plan> aggregate, C context) {
         return visit(aggregate, context);
     }

@@ -117,7 +117,8 @@ private:
     }
 
     template <typename ColumnType>
-    static bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
+    static bool _execute_number(const IColumn& src_column,
+                                const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
@@ -129,10 +130,10 @@ private:
             return false;
         }
 
-        ColumnArray::Offset prev_src_offset = 0;
+        size_t prev_src_offset = 0;
         for (auto curr_src_offset : src_offsets) {
             std::string result_str;
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && src_null_map[j]) {
                     if (null_replace_str.size() == 0) {
                         continue;
@@ -160,7 +161,8 @@ private:
         return true;
     }
 
-    static bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
+    static bool _execute_string(const IColumn& src_column,
+                                const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str,
                                 ColumnString* dest_column_ptr) {
@@ -169,10 +171,10 @@ private:
             return false;
         }
 
-        ColumnArray::Offset prev_src_offset = 0;
+        size_t prev_src_offset = 0;
         for (auto curr_src_offset : src_offsets) {
             std::string result_str;
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && src_null_map[j]) {
                     if (null_replace_str.size() == 0) {
                         continue;
@@ -193,7 +195,8 @@ private:
         return true;
     }
 
-    static bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
+    static bool _execute_by_type(const IColumn& src_column,
+                                 const ColumnArray::Offsets64& src_offsets,
                                  const UInt8* src_null_map, const std::string& sep_str,
                                  const std::string& null_replace_str, DataTypePtr& nested_type,
                                  ColumnString* dest_column_ptr) {

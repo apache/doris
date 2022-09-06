@@ -324,6 +324,21 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
     }
 
     @Test
+    public void testUseKeyType() throws Exception {
+        String createSql = "create table `test`.`test_use_key_type` UNIQUE KEY(`userId`) PROPERTIES (\"replication_num\" = \"1\")"
+                + " as select * from `test`.`varchar_table`";
+        createTableAsSelect(createSql);
+        ShowResultSet showResultSet = showCreateTableByName("test_use_key_type");
+        Assertions.assertEquals(
+                "CREATE TABLE `test_use_key_type` (\n" + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL\n" + ") ENGINE=OLAP\n" + "UNIQUE KEY(`userId`)\n"
+                        + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n" + "\"disable_auto_compaction\" = \"false\"\n" + ");",
+                showResultSet.getResultRows().get(0).get(1));
+    }
+
+    @Test
     public void testQuerySchema() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String create1 = "create table test.qs1 (k1 int, k2 int) distributed by hash(k1) "

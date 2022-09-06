@@ -71,7 +71,7 @@ public:
         // for fast, expect MemInfo::initialized() to be true.
         if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             auto st = Status::MemoryLimitExceeded(
-                    "process memory used {} exceed limit {}, failed_alloc_size={}",
+                    "process memory used {} B, exceed limit {} B, failed_alloc_size={} B",
                     PerfCounters::get_vm_rss(), MemInfo::mem_limit(), bytes);
             ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(st.get_error_msg());
             return st;
@@ -229,7 +229,7 @@ private:
     // The number of child trackers that have been added.
     std::atomic_size_t _had_child_count = 0;
 
-    bool _print_log_usage = true;
+    bool _print_log_usage = false;
 
     // Lock to protect gc_memory(). This prevents many GCs from occurring at once.
     std::mutex _gc_lock;
@@ -266,7 +266,7 @@ inline void MemTrackerLimiter::cache_consume_local(int64_t bytes) {
     if (consume_bytes != 0) {
         for (auto& tracker : _all_ancestors) {
             if (tracker->label() == "Process") return;
-            tracker->_consumption->add(bytes);
+            tracker->_consumption->add(consume_bytes);
         }
     }
 }

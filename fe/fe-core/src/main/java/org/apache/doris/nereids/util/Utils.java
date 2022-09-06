@@ -106,7 +106,6 @@ public class Utils {
         return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
 
-
     /**
      * equals for List but ignore order.
      */

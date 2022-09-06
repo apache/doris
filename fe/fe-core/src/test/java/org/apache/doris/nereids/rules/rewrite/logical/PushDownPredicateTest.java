@@ -89,7 +89,6 @@ public class PushDownPredicateTest {
         Expression whereCondition2 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
 
-
         Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.of(onCondition), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 

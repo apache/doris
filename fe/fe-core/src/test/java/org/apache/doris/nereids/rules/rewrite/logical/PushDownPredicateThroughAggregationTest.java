@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;

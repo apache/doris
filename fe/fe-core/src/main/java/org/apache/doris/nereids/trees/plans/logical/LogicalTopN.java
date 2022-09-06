@@ -102,7 +102,6 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return Objects.hash(orderKeys, limit, offset);
     }
 
-
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalTopN((LogicalTopN<Plan>) this, context);
