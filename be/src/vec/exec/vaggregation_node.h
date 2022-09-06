@@ -671,7 +671,12 @@ private:
     RuntimeProfile::Counter* _expr_timer;
     RuntimeProfile::Counter* _get_results_timer;
     RuntimeProfile::Counter* _serialize_data_timer;
+    RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
+    RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _streaming_agg_timer;
+    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_input_counter;
 
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
