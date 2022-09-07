@@ -99,8 +99,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
-
-    if (_tablet_meta->all_rs_metas().empty()) {
+    // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
+    // that mean the tablet_meta is still no upgrade to 1.2.
+    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
         _max_version_schema = BaseTablet::tablet_schema();
     } else {
         _max_version_schema =
