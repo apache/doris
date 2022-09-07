@@ -16,6 +16,7 @@
 // under the License.
 
 #include "http/http_client.h"
+#include "util/stack_util.h"
 
 #include "common/config.h"
 
