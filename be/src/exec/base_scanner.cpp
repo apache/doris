@@ -481,4 +481,38 @@ void BaseScanner::_fill_columns_from_path() {
     }
 }
 
+bool BaseScanner::is_null(const Slice& slice) {
+    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
+}
+
+bool BaseScanner::is_array(const Slice& slice) {
+    return slice.size > 1 && slice.data[0] == '[' && slice.data[slice.size - 1] == ']';
+}
+
+bool BaseScanner::check_array_format(std::vector<Slice>& split_values) {
+    // if not the array format, filter this line and return error url
+    auto dest_slot_descs = _dest_tuple_desc->slots();
+    for (int j = 0; j < split_values.size() && j < dest_slot_descs.size(); ++j) {
+        auto dest_slot_desc = dest_slot_descs[j];
+        if (!dest_slot_desc->is_materialized()) {
+            continue;
+        }
+        const Slice& value = split_values[j];
+        if (dest_slot_desc->type().is_array_type() && !is_null(value) && !is_array(value)) {
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    [&]() -> std::string { return std::string(value.data, value.size); },
+                    [&]() -> std::string {
+                        fmt::memory_buffer err_msg;
+                        fmt::format_to(err_msg, "Invalid format for array column({})",
+                                       dest_slot_desc->col_name());
+                        return fmt::to_string(err_msg);
+                    },
+                    &_scanner_eof));
+            _counter->num_rows_filtered++;
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace doris
