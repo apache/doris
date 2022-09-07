@@ -65,7 +65,8 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalEmptyRelation(projects, groupExpression, logicalProperties, physicalProperties);
+        return new PhysicalEmptyRelation(projects, groupExpression,
+                logicalPropertiesSupplier.get(), physicalProperties);
     }
 
     @Override
@@ -116,6 +117,6 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     @Override
     public PhysicalPlan withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalEmptyRelation(projects, Optional.empty(),
-                logicalProperties, physicalProperties);
+                logicalPropertiesSupplier.get(), physicalProperties);
     }
 }

@@ -43,7 +43,7 @@ import java.util.Optional;
  * e.g. select 100, 'value'
  */
 public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRowRelation {
-    private List<NamedExpression> projects;
+    private final List<NamedExpression> projects;
 
     public UnboundOneRowRelation(List<NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());
@@ -74,7 +74,7 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOneRowRelation(projects, groupExpression, Optional.of(logicalProperties));
+        return new UnboundOneRowRelation(projects, groupExpression, Optional.of(logicalPropertiesSupplier.get()));
     }
 
     @Override
@@ -89,7 +89,7 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
 
     @Override
     public LogicalProperties computeLogicalProperties() {
-        return new UnboundLogicalProperties();
+        return UnboundLogicalProperties.INSTANCE;
     }
 
     @Override

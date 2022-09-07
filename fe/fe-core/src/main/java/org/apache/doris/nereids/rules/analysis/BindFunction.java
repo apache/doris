@@ -54,8 +54,8 @@ public class BindFunction implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_ONE_ROW_RELATION_FUNCTION.build(
-                logicalOneRowRelation().then(project -> {
-                    List<NamedExpression> projects = project.getProjects();
+                logicalOneRowRelation().then(oneRowRelation -> {
+                    List<NamedExpression> projects = oneRowRelation.getProjects();
                     List<NamedExpression> boundProjects = bind(projects);
                     // TODO:
                     // trick logic: currently XxxRelation in GroupExpression always difference to each other,
@@ -64,7 +64,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
                     // GroupExpression by id
                     if (projects.equals(boundProjects)) {
-                        return project;
+                        return oneRowRelation;
                     }
                     return new LogicalOneRowRelation(boundProjects);
                 })

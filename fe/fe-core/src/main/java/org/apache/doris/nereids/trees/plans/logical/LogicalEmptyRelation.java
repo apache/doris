@@ -69,7 +69,7 @@ public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalEmptyRelation(projects, groupExpression, Optional.of(logicalProperties));
+        return new LogicalEmptyRelation(projects, groupExpression, Optional.of(logicalPropertiesSupplier.get()));
     }
 
     @Override

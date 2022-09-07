@@ -40,7 +40,7 @@ import java.util.Optional;
  * e.g. select 100, 'value'
  */
 public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation {
-    private List<NamedExpression> projects;
+    private final List<NamedExpression> projects;
 
     public LogicalOneRowRelation(List<NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());
@@ -71,7 +71,7 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOneRowRelation(projects, groupExpression, Optional.of(logicalProperties));
+        return new LogicalOneRowRelation(projects, groupExpression, Optional.of(logicalPropertiesSupplier.get()));
     }
 
     @Override
