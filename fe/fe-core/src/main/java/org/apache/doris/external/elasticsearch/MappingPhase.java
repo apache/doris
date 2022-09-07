@@ -119,7 +119,7 @@ public class MappingPhase implements SearchPhase {
                 if (!docValue) {
                     return;
                 }
-            } else {
+            } else if (fieldType == null) {
                 return;
             }
             docValueField = colName;

@@ -120,6 +120,7 @@ public class EsUtilTest extends EsTestCase {
         Assertions.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
         Assertions.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
         Assertions.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
+        Assertions.assertEquals(null, searchContext1.docValueFieldsContext().get("k4"));
 
     }
 

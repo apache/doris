@@ -16,6 +16,22 @@
                 "type": "keyword"
               }
             }
+          },
+          "k4": {
+            "properties": {
+              "child1": {
+                "type": "text",
+                "fields": {
+                  "keyword": {
+                    "type": "keyword",
+                    "ignore_above": 256
+                  }
+                }
+              },
+              "child2": {
+                "type": "long"
+              }
+            }
           }
         }
       }
