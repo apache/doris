@@ -36,8 +36,8 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
 }
 
 Status NewOlapScanNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(VScanNode::prepare(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _scanner_mem_tracker = std::make_unique<MemTracker>("OlapScanners");
     return Status::OK();
 }

@@ -74,6 +74,7 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     RETURN_IF_ERROR(_init_profile());
 
