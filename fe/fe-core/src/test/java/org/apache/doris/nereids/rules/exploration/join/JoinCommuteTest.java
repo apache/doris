@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -26,20 +26,19 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Optional;
 
-@Disabled
 public class JoinCommuteTest {
     @Test
     public void testInnerJoinCommute() {
@@ -53,14 +52,23 @@ public class JoinCommuteTest {
                 JoinType.INNER_JOIN, Lists.newArrayList(onCondition),
                 Optional.empty(), scan1, scan2);
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
-        Rule rule = JoinCommute.OUTER_LEFT_DEEP.build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .transform(JoinCommute.OUTER_LEFT_DEEP.build())
+                .checkMemo(memo -> {
+                    Group root = memo.getRoot();
+                    Assertions.assertEquals(2, root.getLogicalExpressions().size());
 
-        List<Plan> transform = rule.transform(join, cascadesContext);
-        Assertions.assertEquals(1, transform.size());
-        Plan newJoin = transform.get(0);
+                    Assertions.assertTrue(root.logicalExpressionsAt(0).getPlan() instanceof LogicalJoin);
+                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalProject);
 
-        Assertions.assertEquals(join.child(0), newJoin.child(1));
-        Assertions.assertEquals(join.child(1), newJoin.child(0));
+                    GroupExpression newJoinGroupExpr = root.logicalExpressionsAt(1).child(0).getLogicalExpression();
+                    Plan left = newJoinGroupExpr.child(0).getLogicalExpression().getPlan();
+                    Plan right = newJoinGroupExpr.child(1).getLogicalExpression().getPlan();
+                    Assertions.assertTrue(left instanceof LogicalOlapScan);
+                    Assertions.assertTrue(right instanceof LogicalOlapScan);
+
+                    Assertions.assertEquals("t2", ((LogicalOlapScan) left).getTable().getName());
+                    Assertions.assertEquals("t1", ((LogicalOlapScan) right).getTable().getName());
+                });
     }
 }

@@ -77,17 +77,19 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
                     Set<SlotReference> usedSlotRefs = expr.collect(SlotReference.class::isInstance);
                     return usedSlotRefs.stream();
                 }).filter(Utils.getOutputSlotReference(bottomJoin)::contains).collect(Collectors.toSet());
-        boolean addRightProject = !newRightProjectExprs.isEmpty();
-        boolean addLeftProject = !newLeftProjectExpr.isEmpty();
+        boolean existRightProject = !newRightProjectExprs.isEmpty();
+        boolean existLeftProject = !newLeftProjectExpr.isEmpty();
         onUsedSlotRef.forEach(slotRef -> {
-            if (addRightProject && bOutput.contains(slotRef) && !newRightProjectExprs.contains(slotRef)) {
+            if (existRightProject && bOutput.contains(slotRef) && !newRightProjectExprs.contains(slotRef)) {
                 newRightProjectExprs.add(slotRef);
-            } else if (addLeftProject && aOutput.contains(slotRef) && !newLeftProjectExpr.contains(slotRef)) {
+            } else if (existLeftProject && aOutput.contains(slotRef) && !newLeftProjectExpr.contains(slotRef)) {
                 newLeftProjectExpr.add(slotRef);
             }
         });
 
-        newLeftProjectExpr.addAll(cOutput);
+        if (existLeftProject) {
+            newLeftProjectExpr.addAll(cOutput);
+        }
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                 newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c,
                 bottomJoin.getJoinReorderContext());
