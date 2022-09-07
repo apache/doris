@@ -48,7 +48,7 @@ EsHttpScanNode::EsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode, const D
 EsHttpScanNode::~EsHttpScanNode() {}
 
 Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ScanNode::init(tnode));
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;

@@ -161,7 +161,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalApply<>(groupExpression, Optional.of(logicalProperties),
+        return new LogicalApply<>(groupExpression, Optional.of(getLogicalProperties()),
                 correlationSlot, subqueryExpr, correlationFilter, left(), right());
     }
 

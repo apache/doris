@@ -73,6 +73,7 @@
 #include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vintersect_node.h"
+#include "vec/exec/vjdbc_scan_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vodbc_scan_node.h"
 #include "vec/exec/volap_scan_node.h"
@@ -417,6 +418,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::BROKER_SCAN_NODE:
         case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
         case TPlanNodeType::FILE_SCAN_NODE:
+        case TPlanNodeType::JDBC_SCAN_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -449,6 +451,18 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+        }
+        return Status::OK();
+
+    case TPlanNodeType::JDBC_SCAN_NODE:
+        if (state->enable_vectorized_exec()) {
+#ifdef LIBJVM
+            *node = pool->add(new vectorized::VJdbcScanNode(pool, tnode, descs));
+#else
+            return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
+#endif
+        } else {
+            return Status::InternalError("Jdbc scan node only support vectorized engine.");
         }
         return Status::OK();
 

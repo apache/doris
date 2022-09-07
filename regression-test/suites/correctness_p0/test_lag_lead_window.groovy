@@ -31,13 +31,27 @@ suite("test_lag_lead_window") {
         ('b','aa','/wyyt-image/2022/04/13/1434607674511761493.jpg'),
         ('c','cc','/wyyt-image/2022/04/13/1434607674511761493.jpg') """
 
-    // not_vectorized
     sql """ set enable_vectorized_engine = false """
+    qt_select_default """ 
+        select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
+            lag(cc,1,'unknown') over (PARTITION by cc  order by aa) as lag_cc 
+        from ${tableName}  
+        order by aa; """
 
-    qt_select_default """ select min(t.cc) over(PARTITION by t.cc  order by t.aa) ,
-                            lag(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t order by aa, bb, cc; """
+    qt_select_default2 """ select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
+                                  lead(cc,1,'') over (PARTITION by cc  order by aa) as lead_cc 
+                           from ${tableName} 
+                           order by aa; """
 
-    qt_select_default2 """ select min(t.cc) over(PARTITION by t.cc  order by t.aa) ,
-                            lead(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t order by aa, bb, cc; """
+    sql """ set enable_vectorized_engine = true """
+    qt_select_default """ 
+        select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
+            lag(cc,1,'unknown') over (PARTITION by cc  order by aa) as lag_cc 
+        from ${tableName}  
+        order by aa; """
 
+    qt_select_default2 """ select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
+                                  lead(cc,1,'') over (PARTITION by cc  order by aa) as lead_cc 
+                           from ${tableName} 
+                           order by aa; """
 }

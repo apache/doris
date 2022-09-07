@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -53,13 +52,4 @@ public abstract class LogicalBinary<
     }
 
     public abstract List<Slot> computeOutput();
-
-    @Override
-    public final LogicalProperties computeLogicalProperties() {
-        if (left().getLogicalProperties() instanceof UnboundLogicalProperties
-                || right().getLogicalProperties() instanceof UnboundLogicalProperties) {
-            return new UnboundLogicalProperties();
-        }
-        return new LogicalProperties(() -> computeOutput());
-    }
 }

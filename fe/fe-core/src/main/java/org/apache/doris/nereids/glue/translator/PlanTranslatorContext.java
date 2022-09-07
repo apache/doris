@@ -111,6 +111,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public void removePlanFragment(PlanFragment planFragment) {
+        this.planFragments.remove(planFragment);
+    }
+
     public SlotRef findSlotRef(ExprId exprId) {
         return exprIdToSlotRef.get(exprId);
     }

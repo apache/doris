@@ -1252,6 +1252,13 @@ public class HashJoinNode extends PlanNode {
     /**
      * Used by nereids.
      */
+    public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
+        this.otherJoinConjuncts = otherJoinConjuncts;
+    }
+
+    /**
+     * Used by nereids.
+     */
     public void setvOutputTupleDesc(TupleDescriptor vOutputTupleDesc) {
         this.vOutputTupleDesc = vOutputTupleDesc;
     }

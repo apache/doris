@@ -408,6 +408,7 @@ class Suite implements GroovyInterceptable {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }
             if (errorMsg != null) {
+                logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
                 throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
             }
         }

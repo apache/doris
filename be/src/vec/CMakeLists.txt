@@ -107,6 +107,8 @@ set(VEC_FILES
   exec/vbroker_scan_node.cpp
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
+  exec/vjdbc_connector.cpp
+  exec/vjdbc_scan_node.cpp
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp

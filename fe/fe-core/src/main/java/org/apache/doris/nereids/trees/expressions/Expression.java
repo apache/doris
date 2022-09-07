@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -35,6 +36,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -126,6 +128,15 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new RuntimeException("Do not implement uncheckedCastTo");
     }
 
+    /**
+     * Get all the input slots of the expression.
+     * <p>
+     * Note that the input slots of subquery's inner plan is not included.
+     */
+    public final Set<Slot> getInputSlots() {
+        return collect(Slot.class::isInstance);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -143,4 +154,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         return 0;
     }
 
+    /**
+     * This expression has unbound symbols or not.
+     */
+    public boolean hasUnbound() {
+        return this.anyMatch(Unbound.class::isInstance);
+    }
 }

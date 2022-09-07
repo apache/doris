@@ -274,6 +274,17 @@ struct THudiTable {
   3: optional map<string, string> properties
 }
 
+struct TJdbcTable {
+  1: optional string jdbc_url
+  2: optional string jdbc_table_name
+  3: optional string jdbc_user
+  4: optional string jdbc_password
+  5: optional string jdbc_driver_url
+  6: optional string jdbc_resource_name
+  7: optional string jdbc_driver_class
+  8: optional string jdbc_driver_checksum
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -295,6 +306,7 @@ struct TTableDescriptor {
   17: optional THiveTable hiveTable
   18: optional TIcebergTable icebergTable
   19: optional THudiTable hudiTable
+  20: optional TJdbcTable jdbcTable
 }
 
 struct TDescriptorTable {

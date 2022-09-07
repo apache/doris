@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
@@ -39,5 +40,10 @@ public abstract class PhysicalUnary<CHILD_TYPE extends Plan>
     public PhysicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
                              LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, child);
+    }
+
+    public PhysicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, physicalProperties, child);
     }
 }

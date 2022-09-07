@@ -21,6 +21,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.OlapScanNodeId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -48,9 +49,6 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     /**
      * Constructor for PhysicalOlapScan.
-     *
-     * @param olapTable OlapTable in Doris
-     * @param qualifier qualifier of table name
      */
     public PhysicalOlapScan(OlapScanNodeId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
@@ -77,6 +75,22 @@ public class PhysicalOlapScan extends PhysicalRelation {
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = selectedTabletIds;
         this.selectedPartitionIds = selectedPartitionIds;
+        this.distributionSpec = distributionSpec;
+    }
+
+    /**
+     * Constructor for PhysicalOlapScan.
+     */
+    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, long selectedIndexId,
+            List<Long> selectedTabletId, List<Long> selectedPartitionId, DistributionSpec distributionSpec,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties) {
+        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties);
+
+        this.olapTable = olapTable;
+        this.selectedIndexId = selectedIndexId;
+        this.selectedTabletIds = selectedTabletId;
+        this.selectedPartitionIds = selectedPartitionId;
         this.distributionSpec = distributionSpec;
     }
 
@@ -134,12 +148,24 @@ public class PhysicalOlapScan extends PhysicalRelation {
     }
 
     @Override
+    public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
+                distributionSpec, groupExpression, getLogicalProperties());
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, groupExpression, logicalProperties);
     }
 
     @Override
+    public PhysicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
+                distributionSpec, Optional.empty(), logicalProperties.get());
+    }
+
+    @Override
+    public PhysicalOlapScan withPhysicalProperties(PhysicalProperties physicalProperties) {
+        return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
+                distributionSpec, Optional.empty(), getLogicalProperties(), physicalProperties);
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, Optional.empty(), logicalProperties.get());

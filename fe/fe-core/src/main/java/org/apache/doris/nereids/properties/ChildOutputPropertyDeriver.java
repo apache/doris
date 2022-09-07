@@ -17,17 +17,34 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Used for property drive.
@@ -39,23 +56,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      *         │
      * childOutputProperty
      */
-    private PhysicalProperties requestProperty;
-    private List<PhysicalProperties> childrenOutputProperties;
-    private double curTotalCost;
+    private final List<PhysicalProperties> childrenOutputProperties;
 
-    public ChildOutputPropertyDeriver(PhysicalProperties requestProperty,
-            List<PhysicalProperties> childrenOutputProperties, double curTotalCost) {
-        this.childrenOutputProperties = childrenOutputProperties;
-        this.requestProperty = requestProperty;
-        this.curTotalCost = curTotalCost;
+    public ChildOutputPropertyDeriver(List<PhysicalProperties> childrenOutputProperties) {
+        this.childrenOutputProperties = Objects.requireNonNull(childrenOutputProperties);
     }
 
     public PhysicalProperties getOutputProperties(GroupExpression groupExpression) {
         return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
-    }
-
-    public double getCurTotalCost() {
-        return curTotalCost;
     }
 
     @Override
@@ -64,62 +72,129 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     @Override
-    public PhysicalProperties visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
-        Preconditions.checkState(childrenOutputProperties.size() == 2);
-        PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
-        PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
-
-        // broadcast
-        // TODO: handle condition of broadcast
-        if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
-            return leftOutputProperty;
+    public PhysicalProperties visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        // TODO: add distinct phase output properties
+        switch (agg.getAggPhase()) {
+            case LOCAL:
+                return new PhysicalProperties(childOutputProperty.getDistributionSpec());
+            case GLOBAL:
+                List<ExprId> columns = agg.getPartitionExpressions().stream()
+                        .map(SlotReference.class::cast)
+                        .map(SlotReference::getExprId)
+                        .collect(Collectors.toList());
+                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.AGGREGATE));
+            case DISTINCT_LOCAL:
+            case DISTINCT_GLOBAL:
+            default:
+                throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
-
-        // shuffle
-        // TODO: handle condition of shuffle
-        DistributionSpec leftDistribution = leftOutputProperty.getDistributionSpec();
-        DistributionSpec rightDistribution = rightOutputProperty.getDistributionSpec();
-        if (!(leftDistribution instanceof DistributionSpecHash)
-                || !(rightDistribution instanceof DistributionSpecHash)) {
-            Preconditions.checkState(false, "error");
-            return PhysicalProperties.ANY;
-        }
-
-        return leftOutputProperty;
     }
 
     @Override
-    public PhysicalProperties visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
-            PlanContext context) {
-        // TODO: copy from hash join, should update according to nested loop join properties.
+    public PhysicalProperties visitPhysicalLocalQuickSort(
+            PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return new PhysicalProperties(
+                childrenOutputProperties.get(0).getDistributionSpec(),
+                new OrderSpec(sort.getOrderKeys()));
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec(topN.getOrderKeys()));
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec(sort.getOrderKeys()));
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        return new PhysicalProperties(DistributionSpecGather.INSTANCE, childOutputProperty.getOrderSpec());
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return childrenOutputProperties.get(0);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return childrenOutputProperties.get(0);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalDistribute(
+            PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
+        return distribute.getPhysicalProperties();
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalHashJoin(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 2);
         PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
         PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
 
         // broadcast
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
-            // TODO
-            return leftOutputProperty;
+            DistributionSpec parentDistributionSpec = leftOutputProperty.getDistributionSpec();
+            if (leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
+                DistributionSpecHash leftHash = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
+                List<ExprId> rightHashEqualSlots = JoinUtils.getOnClauseUsedSlots(hashJoin).second;
+                DistributionSpecHash rightHash = new DistributionSpecHash(rightHashEqualSlots, ShuffleType.JOIN);
+                parentDistributionSpec = DistributionSpecHash.merge(leftHash, rightHash);
+            }
+            return new PhysicalProperties(parentDistributionSpec);
         }
 
         // shuffle
-        // List<SlotReference> leftSlotRefs = hashJoin.left().getOutput().stream().map(slot -> (SlotReference) slot)
-        //        .collect(Collectors.toList());
-        // List<SlotReference> rightSlotRefs = hashJoin.right().getOutput().stream().map(slot -> (SlotReference) slot)
-        //                .collect(Collectors.toList());
+        if (leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash
+                && rightOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
+            DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
+            DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
 
-        //        List<SlotReference> leftOnSlotRefs;
-        //        List<SlotReference> rightOnSlotRefs;
-        //        Preconditions.checkState(leftOnSlotRefs.size() == rightOnSlotRefs.size());
-        DistributionSpec leftDistribution = leftOutputProperty.getDistributionSpec();
-        DistributionSpec rightDistribution = rightOutputProperty.getDistributionSpec();
-        if (!(leftDistribution instanceof DistributionSpecHash)
-                || !(rightDistribution instanceof DistributionSpecHash)) {
-            Preconditions.checkState(false, "error");
-            return PhysicalProperties.ANY;
+            // colocate join
+            if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
+                    && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
+                final long leftTableId = leftHashSpec.getTableId();
+                final long rightTableId = rightHashSpec.getTableId();
+                final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
+                final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
+                boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
+                        && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
+                ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+                if (noNeedCheckColocateGroup
+                        || (colocateIndex.isSameGroup(leftTableId, rightTableId)
+                        && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+                    return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec));
+                }
+            }
+
+            // shuffle
+            return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec, ShuffleType.JOIN));
         }
 
-        return leftOutputProperty;
+        throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalNestedLoopJoin(
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
+            PlanContext context) {
+        // TODO: currently, only support cross join in BE
+        Preconditions.checkState(childrenOutputProperties.size() == 2);
+        PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
+        return new PhysicalProperties(leftOutputProperty.getDistributionSpec());
     }
 
     @Override

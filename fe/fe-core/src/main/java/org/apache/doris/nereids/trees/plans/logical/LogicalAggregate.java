@@ -160,12 +160,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
         LogicalAggregate that = (LogicalAggregate) o;
         return Objects.equals(groupByExpressions, that.groupByExpressions)
                 && Objects.equals(outputExpressions, that.outputExpressions)
-                && aggPhase == that.aggPhase;
+                && aggPhase == that.aggPhase
+                && disassembled == that.disassembled
+                && normalized == that.normalized;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExpressions, outputExpressions, aggPhase);
+        return Objects.hash(groupByExpressions, outputExpressions, aggPhase, normalized, disassembled);
     }
 
     @Override
@@ -178,7 +180,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                disassembled, normalized, aggPhase, groupExpression, Optional.of(logicalProperties), children.get(0));
+                disassembled, normalized, aggPhase, groupExpression, Optional.of(getLogicalProperties()),
+                children.get(0));
     }
 
     @Override

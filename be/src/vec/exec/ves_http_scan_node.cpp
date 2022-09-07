@@ -42,7 +42,7 @@ VEsHttpScanNode::VEsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _wait_scanner_timer(nullptr) {}
 
 Status VEsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ScanNode::init(tnode));
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -26,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
@@ -61,6 +62,22 @@ public abstract class AbstractPhysicalJoin<
         this.otherJoinCondition = Objects.requireNonNull(condition, "condition can not be null");
     }
 
+    /**
+     * Constructor of PhysicalJoin.
+     *
+     * @param joinType Which join type, left semi join, inner join...
+     * @param condition join condition.
+     */
+    public AbstractPhysicalJoin(PlanType type, JoinType joinType, List<Expression> hashJoinConjuncts,
+            Optional<Expression> condition, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, groupExpression, logicalProperties, physicalProperties, leftChild, rightChild);
+        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.hashJoinConjuncts = hashJoinConjuncts;
+        this.otherJoinCondition = Objects.requireNonNull(condition, "condition can not be null");
+    }
+
     public List<Expression> getHashJoinConjuncts() {
         return hashJoinConjuncts;
     }
@@ -75,7 +92,10 @@ public abstract class AbstractPhysicalJoin<
 
     @Override
     public List<Expression> getExpressions() {
-        return otherJoinCondition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
+        Builder<Expression> builder = new Builder<Expression>()
+                .addAll(hashJoinConjuncts);
+        otherJoinCondition.ifPresent(builder::add);
+        return builder.build();
     }
 
     // TODO:

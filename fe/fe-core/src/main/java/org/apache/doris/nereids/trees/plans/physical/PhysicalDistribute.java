@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -35,30 +36,40 @@ import java.util.Optional;
 /**
  * Enforcer plan.
  */
-public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
     protected DistributionSpec distributionSpec;
 
-    public PhysicalDistribution(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
+    public PhysicalDistribute(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(spec, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalDistribution(DistributionSpec spec, Optional<GroupExpression> groupExpression,
+    public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
         this.distributionSpec = spec;
     }
 
+    public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, physicalProperties, child);
+        this.distributionSpec = spec;
+    }
+
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalDistribution",
+        return Utils.toSqlString("PhysicalDistribute",
                 "distributionSpec", distributionSpec
         );
     }
 
+    public DistributionSpec getDistributionSpec() {
+        return distributionSpec;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalDistribution((PhysicalDistribution<Plan>) this, context);
+        return visitor.visitPhysicalDistribute(this, context);
     }
 
     @Override
@@ -67,20 +78,26 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     }
 
     @Override
-    public Plan withChildren(List<Plan> children) {
+    public PhysicalDistribute<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
-                logicalProperties, children.get(0));
+        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
+                getLogicalProperties(), children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDistribution<>(distributionSpec, groupExpression, logicalProperties, child());
+    public PhysicalDistribute<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalDistribute<>(distributionSpec, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
-                logicalProperties.get(), child());
+    public PhysicalDistribute<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
+            logicalProperties.get(), child());
+    }
+
+    @Override
+    public PhysicalDistribute<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
+        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
+                getLogicalProperties(), physicalProperties, child());
     }
 }

@@ -132,6 +132,9 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;

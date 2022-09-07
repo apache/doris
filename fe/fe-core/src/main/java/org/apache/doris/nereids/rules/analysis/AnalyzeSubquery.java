@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * AnalyzeSubquery. translate from subquery to LogicalApply.
@@ -52,7 +53,7 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
                 RuleType.ANALYZE_FILTER_SUBQUERY.build(
                         logicalFilter().thenApply(ctx -> {
                             LogicalFilter filter = ctx.root;
-                            List<SubqueryExpr> subqueryExprs = filter.getPredicates()
+                            Set<SubqueryExpr> subqueryExprs = filter.getPredicates()
                                     .collect(SubqueryExpr.class::isInstance);
                             if (subqueryExprs.isEmpty()) {
                                 return filter;
@@ -69,7 +70,7 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
         );
     }
 
-    private LogicalPlan analyzedSubquery(List<SubqueryExpr> subqueryExprs,
+    private LogicalPlan analyzedSubquery(Set<SubqueryExpr> subqueryExprs,
             LogicalPlan childPlan, CascadesContext ctx) {
         LogicalPlan tmpPlan = childPlan;
         for (SubqueryExpr subqueryExpr : subqueryExprs) {

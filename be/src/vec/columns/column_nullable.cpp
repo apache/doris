@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_nullable.h"
 
+#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -48,6 +49,22 @@ void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
         hash.update(0);
     else
         get_nested_column().update_hash_with_value(n, hash);
+}
+
+void ColumnNullable::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                              const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = hashes.size();
+    DCHECK(s == size());
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(real_null_data), s) == s) {
+        nested_column->update_hashes_with_value(hashes, nullptr);
+    } else {
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) hashes[i].update(0);
+        }
+        nested_column->update_hashes_with_value(hashes, real_null_data);
+    }
 }
 
 MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {

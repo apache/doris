@@ -29,10 +29,10 @@ import java.util.Objects;
 /**
  * PlanPostprocessors: after copy out the plan from the memo, we use this rewriter to rewrite plan by visitor.
  */
-public class PlanPostprocessors {
+public class PlanPostProcessors {
     private final CascadesContext cascadesContext;
 
-    public PlanPostprocessors(CascadesContext cascadesContext) {
+    public PlanPostProcessors(CascadesContext cascadesContext) {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
     }
 
