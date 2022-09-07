@@ -152,7 +152,7 @@ public:
     void sort_column(const IColumn& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
         int new_limit = limit_;
-        auto comparator = [&](size_t a, size_t b) {
+        auto comparator = [&](const size_t a, const size_t b) {
             return column.compare_at(a, b, *column_.first, nulls_direction_);
         };
         ColumnPartialSortingLess less(column_);
@@ -204,12 +204,12 @@ public:
                      EqualRange& range, bool last_column) const {
         int new_limit = limit_;
         if (!_should_inline_value(perms)) {
-            auto comparator = [&](size_t a, size_t b) {
+            auto comparator = [&](const size_t a, const size_t b) {
                 return CompareHelper<T>::compare(column.get_data()[a], column.get_data()[b],
                                                  nulls_direction_);
             };
 
-            auto sort_comparator = [&](size_t a, size_t b) {
+            auto sort_comparator = [&](const size_t a, const size_t b) {
                 return CompareHelper<T>::compare(column.get_data()[a], column.get_data()[b],
                                                  nulls_direction_) *
                                direction_ <
@@ -260,14 +260,14 @@ public:
             // create inlined permutation
             PermutationForColumn<T> permutation_for_column(perms.size());
             _create_permutation(column, permutation_for_column.data(), perms);
-            auto comparator = [&](PermutationWithInlineValue<T> a,
-                                  PermutationWithInlineValue<T> b) {
+            auto comparator = [&](const PermutationWithInlineValue<T>& a,
+                                  const PermutationWithInlineValue<T>& b) {
                 return CompareHelper<T>::compare(a.inline_value_, b.inline_value_,
                                                  nulls_direction_);
             };
 
-            auto sort_comparator = [&](PermutationWithInlineValue<T> a,
-                                       PermutationWithInlineValue<T> b) {
+            auto sort_comparator = [&](const PermutationWithInlineValue<T>& a,
+                                       const PermutationWithInlineValue<T>& b) {
                 return CompareHelper<T>::compare(a.inline_value_, b.inline_value_,
                                                  nulls_direction_) *
                                direction_ <
@@ -325,14 +325,14 @@ public:
                      EqualRange& range, bool last_column) const {
         int new_limit = limit_;
         if (!_should_inline_value(perms)) {
-            auto comparator = [&](size_t a, size_t b) {
+            auto comparator = [&](const size_t a, const size_t b) {
                 return column.get_data()[a] > column.get_data()[b]
                                ? 1
                                : (column.get_data()[a] < column.get_data()[b] ? -1 : 0);
             };
 
-            auto sort_comparator = [&](size_t a, size_t b) {
-                return (column.get_data()[a] < column.get_data()[b] ? -1 : 1) * direction_ < 0;
+            auto sort_comparator = [&](const size_t a, const size_t b) {
+                return comparator(a, b) * direction_ < 0;
             };
             auto do_sort = [&](size_t first_iter, size_t last_iter) {
                 auto begin = perms.begin() + first_iter;
@@ -379,16 +379,16 @@ public:
             // create inlined permutation
             PermutationForColumn<T> permutation_for_column(perms.size());
             _create_permutation(column, permutation_for_column.data(), perms);
-            auto comparator = [&](PermutationWithInlineValue<T> a,
-                                  PermutationWithInlineValue<T> b) {
+            auto comparator = [&](const PermutationWithInlineValue<T>& a,
+                                  const PermutationWithInlineValue<T>& b) {
                 return a.inline_value_ > b.inline_value_
                                ? 1
                                : (a.inline_value_ < b.inline_value_ ? -1 : 0);
             };
 
-            auto sort_comparator = [&](PermutationWithInlineValue<T> a,
-                                       PermutationWithInlineValue<T> b) {
-                return (a.inline_value_ < b.inline_value_ ? -1 : 1) * direction_ < 0;
+            auto sort_comparator = [&](const PermutationWithInlineValue<T>& a,
+                                       const PermutationWithInlineValue<T>& b) {
+                return comparator(a, b) * direction_ < 0;
             };
             auto do_sort = [&](size_t first_iter, size_t last_iter) {
                 auto begin = permutation_for_column.begin() + first_iter;
@@ -441,11 +441,11 @@ public:
                      EqualRange& range, bool last_column) const {
         int new_limit = limit_;
         if (!_should_inline_value(perms)) {
-            auto comparator = [&](size_t a, size_t b) {
+            auto comparator = [&](const size_t a, const size_t b) {
                 return column.compare_at(a, b, column, nulls_direction_);
             };
 
-            auto sort_comparator = [&](size_t a, size_t b) {
+            auto sort_comparator = [&](const size_t a, const size_t b) {
                 return column.compare_at(a, b, column, nulls_direction_) * direction_ < 0;
             };
             auto do_sort = [&](size_t first_iter, size_t last_iter) {
@@ -493,14 +493,14 @@ public:
             // create inlined permutation
             PermutationForColumn<StringRef> permutation_for_column(perms.size());
             _create_permutation(column, permutation_for_column.data(), perms);
-            auto comparator = [&](PermutationWithInlineValue<StringRef> a,
-                                  PermutationWithInlineValue<StringRef> b) {
+            auto comparator = [&](const PermutationWithInlineValue<StringRef>& a,
+                                  const PermutationWithInlineValue<StringRef>& b) {
                 return memcmp_small_allow_overflow15(a.inline_value_.data, a.inline_value_.size,
                                                      b.inline_value_.data, b.inline_value_.size);
             };
 
-            auto sort_comparator = [&](PermutationWithInlineValue<StringRef> a,
-                                       PermutationWithInlineValue<StringRef> b) {
+            auto sort_comparator = [&](const PermutationWithInlineValue<StringRef>& a,
+                                       const PermutationWithInlineValue<StringRef>& b) {
                 return memcmp_small_allow_overflow15(a.inline_value_.data, a.inline_value_.size,
                                                      b.inline_value_.data, b.inline_value_.size) *
                                direction_ <
