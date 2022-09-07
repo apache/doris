@@ -636,6 +636,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     _cancel_reason = reason;
     _cancel_msg = msg;
     _runtime_state->set_is_cancelled(true);
+    // To notify wait_for_start()
+    _runtime_state->get_query_fragments_ctx()->set_ready_to_execute(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
     auto env = _runtime_state->exec_env();
@@ -646,10 +648,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
         env->stream_mgr()->cancel(id);
         env->result_mgr()->cancel(id);
     }
-}
-
-void PlanFragmentExecutor::set_abort() {
-    update_status(Status::Aborted("Execution aborted before start"));
+    // Cancel the result queue manager used by spark doris connector
+    _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }
 
 const RowDescriptor& PlanFragmentExecutor::row_desc() {

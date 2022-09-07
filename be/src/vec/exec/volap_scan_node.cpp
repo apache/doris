@@ -216,8 +216,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
-            status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            status = Status::Cancelled("Scan thread cancelled, cause query done, maybe reach limit.");
             break;
         }
 
@@ -542,7 +541,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
             _block_consumed_cv.notify_all();
             *eos = true;
-            LOG(INFO) << "VOlapScanNode ReachedLimit.";
         } else {
             *eos = false;
         }
