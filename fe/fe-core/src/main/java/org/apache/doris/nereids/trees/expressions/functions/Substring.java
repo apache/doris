@@ -52,8 +52,23 @@ public class Substring extends BoundFunction implements TernaryExpression, Impli
         super("substring", str, pos, new IntegerLiteral(Integer.MAX_VALUE));
     }
 
+    public Expression getTarget() {
+        return child(0);
+    }
+
+    public Expression getPosition() {
+        return child(1);
+    }
+
+    public Expression getLength() {
+        return child(2);
+    }
+
     @Override
     public DataType getDataType() {
+        if (getLength() instanceof IntegerLiteral) {
+            return VarcharType.createVarcharType(((IntegerLiteral) getLength()).getValue());
+        }
         return VarcharType.SYSTEM_DEFAULT;
     }
 

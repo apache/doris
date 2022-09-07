@@ -84,4 +84,20 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         });
         return (T) result.build();
     }
+
+    /**
+     * iterate top down and test predicate if contains any instance of the classes
+     * @param types classes array
+     * @return true if it has any instance of the types
+     */
+    default boolean containsType(Class...types) {
+        return anyMatch(node -> {
+            for (Class type : types) {
+                if (type.isInstance(node)) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
 }

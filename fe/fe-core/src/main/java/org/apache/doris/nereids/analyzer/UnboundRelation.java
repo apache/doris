@@ -135,6 +135,6 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), nameParts);
+        return Objects.hash(nameParts);
     }
 }

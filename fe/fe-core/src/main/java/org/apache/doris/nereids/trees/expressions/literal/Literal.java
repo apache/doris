@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import java.math.BigInteger;
 import java.util.Objects;
 
 /**
@@ -49,8 +50,16 @@ public abstract class Literal extends Expression implements LeafExpression {
     public static Literal of(Object value) {
         if (value == null) {
             return new NullLiteral();
+        } else if (value instanceof Byte) {
+            return new TinyIntLiteral(((Byte) value).byteValue());
+        } else if (value instanceof Short) {
+            return new SmallIntLiteral(((Short) value).shortValue());
         } else if (value instanceof Integer) {
             return new IntegerLiteral((Integer) value);
+        } else if (value instanceof Long) {
+            return new BigIntLiteral(((Long) value).longValue());
+        } else if (value instanceof BigInteger) {
+            return new LargeIntLiteral((BigInteger) value);
         } else if (value instanceof Boolean) {
             return new BooleanLiteral((Boolean) value);
         } else if (value instanceof String) {

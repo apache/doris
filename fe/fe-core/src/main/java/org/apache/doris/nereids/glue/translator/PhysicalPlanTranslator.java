@@ -238,7 +238,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(output, null, context);
         for (int i = 0; i < output.size(); i++) {
             SlotDescriptor slotDescriptor = tupleDescriptor.getSlots().get(i);
-            slotDescriptor.setIsNullable(true);
+            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
 
             Slot slot = output.get(i);
             SlotRef slotRef = context.findSlotRef(slot.getExprId());

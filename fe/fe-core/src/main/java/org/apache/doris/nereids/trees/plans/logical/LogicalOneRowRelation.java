@@ -49,8 +49,8 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
     private LogicalOneRowRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().allMatch(Expression::isConstant),
-                "OneRowRelation must consist of some constant expression");
+        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
+                "OneRowRelation can not contains any slot");
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 

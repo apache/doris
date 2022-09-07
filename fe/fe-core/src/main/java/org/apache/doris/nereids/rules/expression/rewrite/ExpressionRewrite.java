@@ -43,6 +43,10 @@ import java.util.stream.Collectors;
 public class ExpressionRewrite implements RewriteRuleFactory {
     private final ExpressionRuleExecutor rewriter;
 
+    public ExpressionRewrite(ExpressionRewriteRule... rules) {
+        this.rewriter = new ExpressionRuleExecutor(ImmutableList.copyOf(rules));
+    }
+
     public ExpressionRewrite(ExpressionRuleExecutor rewriter) {
         this.rewriter = Objects.requireNonNull(rewriter, "rewriter is null");
     }

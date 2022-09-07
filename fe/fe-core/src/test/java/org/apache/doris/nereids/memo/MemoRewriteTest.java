@@ -310,8 +310,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit().when(limit10::equals).then(limit -> limit)
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
                         ).when(limit10::equals)
@@ -335,8 +334,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit().when(limit10::equals).then(limit -> limit.withChildren(limit.child()))
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
                         ).when(limit10::equals)
@@ -360,8 +358,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit().when(limit10::equals).then(limit -> limit.child())
                 )
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(student)
-                .matches(
+                .matchesFromRoot(
                     logicalOlapScan().when(student::equals)
                 );
     }
@@ -383,8 +380,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit(logicalOlapScan()).when(limit10::equals).then(limit -> limit.child())
                 )
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(student)
-                .matches(
+                .matchesFromRoot(
                         logicalOlapScan().when(student::equals)
                 );
     }
@@ -407,8 +403,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit(unboundRelation()).then(limit -> student)
                 )
                 .checkGroupNum(1)
-                .checkFirstRootLogicalPlan(student)
-                .matches(
+                .matchesFromRoot(
                         logicalOlapScan().when(student::equals)
                 );
     }
@@ -433,8 +428,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit(unboundRelation()).then(limit -> limit5)
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit5)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
                         ).when(limit5::equals)
@@ -460,8 +454,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit().when(limit10::equals).then(limit -> limit5)
                 )
                 .checkGroupNum(2)
-                .checkFirstRootLogicalPlan(limit5)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalOlapScan().when(student::equals)
                         ).when(limit5::equals)
@@ -547,8 +540,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         logicalLimit(unboundRelation()).then(l -> limit10)
                 )
                 .checkGroupNum(3)
-                .checkFirstRootLogicalPlan(limit10)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalLimit(
                                         logicalOlapScan().when(scan::equals)
@@ -587,8 +579,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         )
                 )
                 .checkGroupNum(3)
-                .checkFirstRootLogicalPlan(limit5)
-                .matches(
+                .matchesFromRoot(
                         logicalLimit(
                                 logicalLimit(
                                         unboundRelation().when(student::equals)

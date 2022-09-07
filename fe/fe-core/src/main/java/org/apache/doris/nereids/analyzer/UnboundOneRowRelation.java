@@ -52,8 +52,8 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
     private UnboundOneRowRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().allMatch(Expression::isConstant),
-                "OneRowRelation must consist of some constant expression");
+        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
+                "OneRowRelation can not contains any slot");
         this.projects = ImmutableList.copyOf(projects);
     }
 
@@ -116,6 +116,6 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), projects);
+        return Objects.hash(projects);
     }
 }
