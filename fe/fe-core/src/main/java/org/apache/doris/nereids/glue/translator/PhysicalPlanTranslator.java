@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -425,6 +426,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .peek(s -> context.createSlotDesc(outputDescriptor, s))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
+
+        List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
+                .map(ExpressionUtils::extractConjunction)
+                .orElseGet(Lists::newArrayList)
+                .stream()
+                // TODO add constant expr will cause be crash, currently we only handle true literal.
+                //  remove it after Nereids could ensure no constant expr in other join condition
+                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        hashJoinNode.setOtherJoinConjuncts(otherJoinConjuncts);
         hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(outputDescriptor));
         hashJoinNode.setvOutputTupleDesc(outputDescriptor);
         hashJoinNode.setvSrcToOutputSMap(srcToOutput);
