@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOneRowRelation().then(relation ->
-                new PhysicalOneRowRelation(relation.getProjects(), relation.getLogicalProperties())
-        ).toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
+        return logicalOneRowRelation()
+                .then(relation -> new PhysicalOneRowRelation(relation.getProjects(), relation.getLogicalProperties()))
+                .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
     }
 }
