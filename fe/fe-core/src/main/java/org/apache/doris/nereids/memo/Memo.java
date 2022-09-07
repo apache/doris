@@ -219,6 +219,10 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+        // check logicalproperties, must same output in a Group.
+        if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+            throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
+        }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
             return CopyInResult.of(false, groupExpr.get());
