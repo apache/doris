@@ -168,13 +168,13 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     public PhysicalAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-                usingStream, logicalProperties, children.get(0));
+                usingStream, getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalAggregate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-                usingStream, groupExpression, logicalProperties, child());
+                usingStream, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -186,6 +186,6 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     @Override
     public PhysicalAggregate<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-                usingStream, Optional.empty(), logicalProperties, physicalProperties, child());
+                usingStream, Optional.empty(), getLogicalProperties(), physicalProperties, child());
     }
 }

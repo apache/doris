@@ -279,14 +279,14 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
         long resultSetCount = 1;
         for (Expression groupByExpression : groupByExpressions) {
-            List<SlotReference> slotReferences = groupByExpression.collect(SlotReference.class::isInstance);
+            Set<Slot> slots = groupByExpression.getInputSlots();
             // TODO: Support more complex group expr.
             //       For example:
             //              select max(col1+col3) from t1 group by col1+col3;
-            if (slotReferences.size() != 1) {
+            if (slots.size() != 1) {
                 continue;
             }
-            SlotReference slotReference = slotReferences.get(0);
+            Slot slotReference = slots.iterator().next();
             ColumnStats columnStats = childSlotToColumnStats.get(slotReference);
             resultSetCount *= columnStats.getNdv();
         }
@@ -308,12 +308,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
         Map<Slot, ColumnStats> childColumnStats = statsDeriveResult.getSlotToColumnStats();
         Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
-            List<SlotReference> slotReferences = projection.collect(SlotReference.class::isInstance);
-            if (slotReferences.isEmpty()) {
+            Set<Slot> slots = projection.getInputSlots();
+            if (slots.isEmpty()) {
                 return new AbstractMap.SimpleEntry<>(projection.toSlot(), ColumnStats.createDefaultColumnStats());
             } else {
                 // TODO: just a trick here, need to do real project on column stats
-                return new AbstractMap.SimpleEntry<>(projection.toSlot(), childColumnStats.get(slotReferences.get(0)));
+                return new AbstractMap.SimpleEntry<>(projection.toSlot(),
+                        childColumnStats.get(slots.iterator().next()));
             }
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         statsDeriveResult.setSlotToColumnStats(columnsStats);

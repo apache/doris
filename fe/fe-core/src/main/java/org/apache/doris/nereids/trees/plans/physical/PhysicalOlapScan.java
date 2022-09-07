@@ -126,7 +126,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
     @Override
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
-                distributionSpec, groupExpression, logicalProperties);
+                distributionSpec, groupExpression, getLogicalProperties());
     }
 
     @Override
@@ -138,6 +138,6 @@ public class PhysicalOlapScan extends PhysicalRelation {
     @Override
     public PhysicalOlapScan withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalOlapScan(olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
-                distributionSpec, Optional.empty(), logicalProperties, physicalProperties);
+                distributionSpec, Optional.empty(), getLogicalProperties(), physicalProperties);
     }
 }

@@ -81,12 +81,12 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public PhysicalDistribute<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-            logicalProperties, children.get(0));
+                getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDistribute<>(distributionSpec, groupExpression, logicalProperties, child());
+        return new PhysicalDistribute<>(distributionSpec, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -98,6 +98,6 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     @Override
     public PhysicalDistribute<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-            logicalProperties, physicalProperties, child());
+                getLogicalProperties(), physicalProperties, child());
     }
 }

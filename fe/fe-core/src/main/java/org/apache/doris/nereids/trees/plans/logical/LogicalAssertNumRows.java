@@ -98,7 +98,7 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalAssertNumRows<>(assertNumRowsElement,
-                groupExpression, Optional.of(logicalProperties), child());
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override

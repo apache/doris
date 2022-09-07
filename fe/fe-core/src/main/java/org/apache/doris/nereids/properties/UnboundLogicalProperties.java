@@ -29,7 +29,9 @@ import java.util.List;
  * so UnboundRelation.computeLogicalProperties() return a UnboundLogicalProperties temporary.
  */
 public class UnboundLogicalProperties extends LogicalProperties {
-    public UnboundLogicalProperties() {
+    public static final UnboundLogicalProperties INSTANCE = new UnboundLogicalProperties();
+
+    private UnboundLogicalProperties() {
         super(ImmutableList::of);
     }
 

@@ -101,24 +101,24 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalAssertNumRows<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalAssertNumRows<>(assertNumRowsElement, logicalProperties, children.get(0));
+        return new PhysicalAssertNumRows<>(assertNumRowsElement, getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalAssertNumRows<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
-                logicalProperties, physicalProperties, child());
+                getLogicalProperties(), physicalProperties, child());
     }
 
     @Override
     public PhysicalAssertNumRows<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalAssertNumRows<>(assertNumRowsElement, Optional.empty(),
-                logicalProperties.get(), physicalProperties, child());
+                logicalProperties.get(), getPhysicalProperties(), child());
     }
 
     @Override
     public PhysicalAssertNumRows<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalAssertNumRows<>(assertNumRowsElement, Optional.empty(),
-                logicalProperties, physicalProperties, child());
+                getLogicalProperties(), physicalProperties, child());
     }
 }

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -92,7 +91,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             List<Expression> rightPredicates = Lists.newArrayList();
 
             for (Expression p : otherConditions) {
-                Set<Slot> slots = SlotExtractor.extractSlot(p);
+                Set<Slot> slots = p.getInputSlots();
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
                     rightPredicates.add(p);
@@ -141,8 +140,8 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
         ComparisonPredicate comparison = (ComparisonPredicate) predicate;
 
-        Set<Slot> leftSlots = SlotExtractor.extractSlot(comparison.left());
-        Set<Slot> rightSlots = SlotExtractor.extractSlot(comparison.right());
+        Set<Slot> leftSlots = comparison.left().getInputSlots();
+        Set<Slot> rightSlots = comparison.right().getInputSlots();
 
         if (!(leftSlots.size() >= 1 && rightSlots.size() >= 1)) {
             return null;

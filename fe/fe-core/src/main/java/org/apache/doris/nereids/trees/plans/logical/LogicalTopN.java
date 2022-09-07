@@ -122,7 +122,8 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(getLogicalProperties()),
+                child());
     }
 
     @Override

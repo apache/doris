@@ -25,8 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Abstract class for all plan node.
@@ -50,6 +53,10 @@ public interface Plan extends TreeNode<Plan> {
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
+    default boolean hasUnboundExpression() {
+        return getExpressions().stream().anyMatch(Expression::hasUnbound);
+    }
+
     default boolean childrenBound() {
         return children()
                 .stream()
@@ -60,7 +67,29 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute logical properties for " + getClass().getName());
     }
 
+    /**
+     * Get output slot list of the plan.
+     */
     List<Slot> getOutput();
+
+    /**
+     * Get output slot set of the plan.
+     */
+    default Set<Slot> getOutputSet() {
+        return ImmutableSet.copyOf(getOutput());
+    }
+
+    /**
+     * Get the input slot set of the plan.
+     * The result is collected from all the expressions' input slots appearing in the plan node.
+     * <p>
+     * Note that the input slots of subquery's inner plan are not included.
+     */
+    default Set<Slot> getInputSlots() {
+        return getExpressions().stream()
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .collect(ImmutableSet.toImmutableSet());
+    }
 
     default List<Slot> computeOutput() {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());

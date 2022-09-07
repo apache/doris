@@ -21,15 +21,9 @@ import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.util.SlotExtractor;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -42,12 +36,8 @@ public abstract class AbstractPushDownProjectRule<C extends Plan> extends OneRew
 
     @Override
     public Rule build() {
-        return logicalProject(target).then(project -> {
-            List<Expression> projects = Lists.newArrayList();
-            projects.addAll(project.getProjects());
-            Set<Slot> projectSlots = SlotExtractor.extractSlot(projects);
-            return project.withChildren(ImmutableList.of(pushDownProject(project.child(), projectSlots)));
-        }).toRule(ruleType);
+        return logicalProject(target).then(project -> project.withChildren(
+                pushDownProject(project.child(), project.getInputSlots()))).toRule(ruleType);
     }
 
     protected abstract Plan pushDownProject(C plan, Set<Slot> references);

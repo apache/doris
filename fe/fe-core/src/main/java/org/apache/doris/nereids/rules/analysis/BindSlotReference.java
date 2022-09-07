@@ -107,8 +107,12 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
                     Optional<Expression> cond = join.getOtherJoinCondition()
                             .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
+
+                    List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
+                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
+                            .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            ImmutableList.of(), cond, join.left(), join.right());
+                            hashJoinConjuncts, cond, join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
