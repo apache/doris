@@ -854,6 +854,9 @@ CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 // This config should be removed when the new scan node is ready.
 CONF_Bool(enable_new_scan_node, "true");
 
+// limit the queue of pending batches which will be sent by a single nodechannel
+CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
