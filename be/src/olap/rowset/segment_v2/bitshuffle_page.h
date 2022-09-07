@@ -408,6 +408,32 @@ public:
         return Status::OK();
     };
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        auto read_count = 0;
+        CppType data[total];
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elements)) {
+                break;
+            }
+
+            data[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+        }
+
+        if (LIKELY(read_count > 0)) dst->insert_many_fix_len_data((const char*)data, read_count);
+
+        *n = read_count;
+        return Status::OK();
+    }
+
     Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
         return next_batch<false>(n, dst);
     }

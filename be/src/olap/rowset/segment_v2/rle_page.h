@@ -253,6 +253,38 @@ public:
         return Status::OK();
     };
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        bool result = false;
+        size_t read_count = 0;
+        CppType value;
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elements)) {
+                *n = read_count;
+                return Status::OK();
+            }
+
+            _rle_decoder.Skip(ord - _cur_index);
+            _cur_index = ord;
+
+            result = _rle_decoder.Get(&value);
+            _cur_index++;
+            DCHECK(result);
+            dst->insert_data((char*)(&value), SIZE_OF_TYPE);
+            read_count++;
+        }
+        *n = read_count;
+        return Status::OK();
+    }
+
     size_t count() const override { return _num_elements; }
 
     size_t current_index() const override { return _cur_index; }
