@@ -214,7 +214,6 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false);
 
-    Status add_row(Block* block, int row);
     Status add_rows(Block* block, const std::vector<int>& row);
 
     Status send_current_block(bool eos = false);
