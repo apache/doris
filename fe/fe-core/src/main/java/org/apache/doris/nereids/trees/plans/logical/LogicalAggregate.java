@@ -73,7 +73,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, false, false, false, AggPhase.GLOBAL, child);
+        this(groupByExpressions, outputExpressions, false, false, true, AggPhase.GLOBAL, child);
     }
 
     public LogicalAggregate(
@@ -178,12 +178,13 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
                 && Objects.equals(outputExpressions, that.outputExpressions)
                 && aggPhase == that.aggPhase
                 && disassembled == that.disassembled
-                && normalized == that.normalized;
+                && normalized == that.normalized
+                && isFinalPhase == that.isFinalPhase;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExpressions, outputExpressions, aggPhase, normalized, disassembled);
+        return Objects.hash(groupByExpressions, outputExpressions, aggPhase, normalized, disassembled, isFinalPhase);
     }
 
     @Override
@@ -195,8 +196,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
 
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalAggregate<>(groupByExpressions, outputExpressions, isFinalPhase,
-                disassembled, normalized, aggPhase, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions, disassembled, normalized, isFinalPhase,
+                aggPhase, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     @Override

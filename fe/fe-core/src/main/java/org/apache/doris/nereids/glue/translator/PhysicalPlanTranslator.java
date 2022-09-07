@@ -228,6 +228,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 aggregationNode.setIntermediateTuple();
                 break;
             case GLOBAL:
+            case DISTINCT_LOCAL:
                 if (currentFragment.getPlanRoot() instanceof ExchangeNode) {
                     ExchangeNode exchangeNode = (ExchangeNode) currentFragment.getPlanRoot();
                     currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, mergePartition);
@@ -237,15 +238,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     context.addPlanFragment(currentFragment);
                 }
                 currentFragment.updateDataPartition(mergePartition);
-                break;
-            case DISTINCT_LOCAL:
-                AggregationNode globalAggNode = (AggregationNode) aggregationNode.getChild(0);
-                globalAggNode.unsetNeedsFinalize();
-                globalAggNode.setIntermediateTuple();
-                inputPlanFragment.updateDataPartition(mergePartition);
-                // change child fragment's outputPartition to DISTINCT_LOCAL's group by exprs
-                List<PlanFragment> fragments = context.getPlanFragments();
-                fragments.get(fragments.size() - 2).setOutputPartition(mergePartition);
                 break;
             default:
                 throw new RuntimeException("Unsupported yet");

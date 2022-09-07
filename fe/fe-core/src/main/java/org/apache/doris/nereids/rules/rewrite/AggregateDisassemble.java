@@ -226,8 +226,8 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 globalGroupByExprs,
                 globalOutputExprs,
                 true,
-                true,
                 aggregate.isNormalized(),
+                true,
                 AggPhase.GLOBAL,
                 localAggregate
         );

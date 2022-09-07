@@ -175,7 +175,8 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExpressions, outputExpressions, partitionExpressions, aggPhase, usingStream);
+        return Objects.hash(groupByExpressions, outputExpressions, partitionExpressions, aggPhase, usingStream,
+                isFinalPhase);
     }
 
     @Override

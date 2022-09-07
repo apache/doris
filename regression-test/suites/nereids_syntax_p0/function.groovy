@@ -40,6 +40,10 @@ suite("function") {
         SELECT count(c_city), count(*) AS custdist FROM customer;
     """
 
+    order_qt_distinct_count """
+        SELECT count(distinct c_custkey + 1) AS custdist FROM customer group by c_city;
+    """
+
     order_qt_avg """
         SELECT avg(lo_tax), avg(lo_extendedprice) AS avg_extendedprice FROM lineorder;
     """
