@@ -387,18 +387,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
-        List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
-                .map(ExpressionUtils::extractConjunction)
-                .orElseGet(Lists::newArrayList)
-                .stream()
-                // TODO add constant expr will cause be crash, currently we only handle true literal.
-                //  remove it after Nereids could ensure no constant expr in other join condition
-                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
-
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftPlanRoot,
-                rightPlanRoot, JoinType.toJoinOperator(joinType), execEqConjuncts, otherJoinConjuncts,
+                rightPlanRoot, JoinType.toJoinOperator(joinType), execEqConjuncts, Lists.newArrayList(),
                 null, null, null);
 
         PlanFragment currentFragment;
@@ -436,6 +426,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .peek(s -> context.createSlotDesc(outputDescriptor, s))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
+
+        List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
+                .map(ExpressionUtils::extractConjunction)
+                .orElseGet(Lists::newArrayList)
+                .stream()
+                // TODO add constant expr will cause be crash, currently we only handle true literal.
+                //  remove it after Nereids could ensure no constant expr in other join condition
+                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        hashJoinNode.setOtherJoinConjuncts(otherJoinConjuncts);
         hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(outputDescriptor));
         hashJoinNode.setvOutputTupleDesc(outputDescriptor);
         hashJoinNode.setvSrcToOutputSMap(srcToOutput);
