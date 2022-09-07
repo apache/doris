@@ -87,7 +87,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                             // check local flag
                             local.getOutputExpressions().stream()
-                                    .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                                    .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                                     .map(AggregateFunction.class::cast)
                                     .forEach(e -> Assertions.assertTrue(e.isLocal()));
 
@@ -116,7 +116,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                     // check local flag
                     global.getOutputExpressions().stream()
-                            .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                            .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                             .map(AggregateFunction.class::cast)
                             .forEach(e -> Assertions.assertFalse(e.isLocal()));
 
@@ -160,7 +160,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                             // check local flag
                             local.getOutputExpressions().stream()
-                                    .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                                    .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                                     .map(AggregateFunction.class::cast)
                                     .forEach(e -> Assertions.assertTrue(e.isLocal()));
 
@@ -189,7 +189,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                     // check local flag
                     global.getOutputExpressions().stream()
-                            .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                            .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                             .map(AggregateFunction.class::cast)
                             .forEach(e -> Assertions.assertFalse(e.isLocal()));
 
@@ -226,7 +226,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                             // check local flag
                             local.getOutputExpressions().stream()
-                                    .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                                    .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                                     .map(AggregateFunction.class::cast)
                                     .forEach(e -> Assertions.assertTrue(e.isLocal()));
 
@@ -248,7 +248,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                     // check local flag
                     global.getOutputExpressions().stream()
-                            .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                            .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                             .map(AggregateFunction.class::cast)
                             .forEach(e -> Assertions.assertFalse(e.isLocal()));
 
@@ -291,7 +291,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                             // check local flag
                             local.getOutputExpressions().stream()
-                                    .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                                    .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                                     .map(AggregateFunction.class::cast)
                                     .forEach(e -> Assertions.assertTrue(e.isLocal()));
 
@@ -315,7 +315,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
 
                     // check local flag
                     global.getOutputExpressions().stream()
-                            .flatMap(e -> ((List<AggregateFunction>)(e.collect(AggregateFunction.class::isInstance))).stream())
+                            .flatMap(e -> ((List<AggregateFunction>) (e.collect(AggregateFunction.class::isInstance))).stream())
                             .map(AggregateFunction.class::cast)
                             .forEach(e -> Assertions.assertFalse(e.isLocal()));
 
