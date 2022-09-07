@@ -94,8 +94,6 @@ public class PhysicalHashJoin<
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
                 getLogicalProperties(), children.get(0), children.get(1));
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, groupExpression,
-                logicalProperties, children.get(0), children.get(1));
     }
 
     @Override

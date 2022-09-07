@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -53,7 +52,7 @@ public class RuntimeFilter {
     }
 
     public static RuntimeFilter createRuntimeFilter(RuntimeFilterId id, EqualTo conjunction,
-            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin<Plan, Plan> node) {
+            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin node) {
         Pair<Expression, Expression> srcs = checkAndMaybeSwapChild(conjunction, node);
         if (srcs == null) {
             return null;
@@ -62,7 +61,7 @@ public class RuntimeFilter {
     }
 
     private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
-            PhysicalHashJoin<Plan, Plan> join) {
+            PhysicalHashJoin join) {
         if (expr.children().stream().anyMatch(Literal.class::isInstance)) {
             return null;
         }

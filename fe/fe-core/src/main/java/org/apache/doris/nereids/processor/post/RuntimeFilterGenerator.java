@@ -111,7 +111,8 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
 
     // TODO: current support inner join, cross join, right outer join, and will support more join type.
     @Override
-    public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> join, CascadesContext ctx) {
+    public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
+            CascadesContext ctx) {
         if (deniedJoinType.contains(join.getJoinType())) {
             /* TODO: translate left outer join to inner join if there are inner join ancestors
              * if it has encountered inner join, like
@@ -189,7 +190,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
      * @param node hash join node
      * @param ctx plan translator context
      */
-    public void translateRuntimeFilter(PhysicalHashJoin<Plan, Plan> join,
+    public void translateRuntimeFilter(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             HashJoinNode node, PlanTranslatorContext ctx) {
         join.getHashJoinConjuncts().forEach(expr -> {
             if (!(expr.child(0) instanceof SlotReference)) {

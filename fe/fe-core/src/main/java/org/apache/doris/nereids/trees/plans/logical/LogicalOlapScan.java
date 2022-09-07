@@ -108,8 +108,7 @@ public class LogicalOlapScan extends LogicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(logicalProperties),
+        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned);
     }
 
@@ -120,8 +119,7 @@ public class LogicalOlapScan extends LogicalRelation {
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(logicalPropertiesSupplier.get()),
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(logicalProperties),
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(logicalPropertiesSupplier.get()),
                 selectedPartitionId, true);
     }
 
