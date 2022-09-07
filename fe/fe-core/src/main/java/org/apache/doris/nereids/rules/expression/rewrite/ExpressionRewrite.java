@@ -72,7 +72,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
                 // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
                 // GroupExpression by id
-                if (!projects.equals(newProjects)) {
+                if (projects.equals(newProjects)) {
                     return oneRowRelation;
                 }
                 return new LogicalOneRowRelation(newProjects);

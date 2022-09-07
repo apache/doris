@@ -63,7 +63,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
                     // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
                     // GroupExpression by id
-                    if (!projects.equals(boundProjects)) {
+                    if (projects.equals(boundProjects)) {
                         return project;
                     }
                     return new LogicalOneRowRelation(boundProjects);
