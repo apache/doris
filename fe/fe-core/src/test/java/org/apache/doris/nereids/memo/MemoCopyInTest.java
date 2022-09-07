@@ -39,10 +39,10 @@ public class MemoCopyInTest implements PatternMatchSupported {
      * Group 3: Join(Group 1, Group 2)
      * Group 4: Join(Group 0, Group 3)
      * Group 5: Filter(Group 4)
-     *
+     * <p>
      * Then:
      * Copy In Join(Group 2, Group 1) into Group 3
-     *
+     * <p>
      * Expected:
      * Group 0: UnboundRelation C
      * Group 1: UnboundRelation B
@@ -56,17 +56,20 @@ public class MemoCopyInTest implements PatternMatchSupported {
         UnboundRelation unboundRelationA = new UnboundRelation(Lists.newArrayList("A"));
         UnboundRelation unboundRelationB = new UnboundRelation(Lists.newArrayList("B"));
         UnboundRelation unboundRelationC = new UnboundRelation(Lists.newArrayList("C"));
-        LogicalJoin logicalJoinBA = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationB, unboundRelationA);
-        LogicalJoin logicalJoinCBA = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationC, logicalJoinBA);
-        LogicalFilter logicalFilter = new LogicalFilter<>(new BooleanLiteral(true), logicalJoinCBA);
+        LogicalJoin<UnboundRelation, UnboundRelation> logicalJoinBA = new LogicalJoin<>(JoinType.INNER_JOIN,
+                unboundRelationB, unboundRelationA);
+        LogicalJoin<UnboundRelation, LogicalJoin<UnboundRelation, UnboundRelation>> logicalJoinCBA = new LogicalJoin<>(
+                JoinType.INNER_JOIN, unboundRelationC, logicalJoinBA);
+        LogicalFilter<LogicalJoin<UnboundRelation, LogicalJoin<UnboundRelation, UnboundRelation>>> logicalFilter
+                = new LogicalFilter<>(new BooleanLiteral(true), logicalJoinCBA);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), logicalFilter)
                 .checkGroupNum(6)
                 .transform(
                         // swap join's children
                         logicalJoin(unboundRelation(), unboundRelation()).then(joinBA ->
-                            new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left())
-                ))
+                                new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left())
+                        ))
                 .checkGroupNum(6)
                 .checkGroupExpressionNum(7)
                 .checkMemo(memo -> {

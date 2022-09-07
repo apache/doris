@@ -341,8 +341,10 @@ public class Memo {
             }
         }
         if (!source.equals(destination)) {
+            // TODO: stats and other
             source.moveLogicalExpressionOwnership(destination);
             source.movePhysicalExpressionOwnership(destination);
+            source.moveLowestCostPlansOwnership(destination);
             groups.remove(source.getGroupId());
         }
         return destination;

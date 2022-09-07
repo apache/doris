@@ -307,7 +307,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 // TODO: just a trick here, need to do real project on column stats
                 return new AbstractMap.SimpleEntry<>(projection.toSlot(), childColumnStats.get(slotReferences.get(0)));
             }
-        }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
         statsDeriveResult.setSlotToColumnStats(columnsStats);
         return statsDeriveResult;
     }
