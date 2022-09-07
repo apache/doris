@@ -38,6 +38,7 @@ public enum PlanType {
     LOGICAL_APPLY,
     LOGICAL_SELECT_HINT,
     LOGICAL_ASSERT_NUM_ROWS,
+    LOGICAL_HAVING,
     GROUP_PLAN,
 
     // physical plan

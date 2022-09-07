@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
+import org.apache.doris.nereids.rules.analysis.ResolveHaving;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
 import com.google.common.collect.ImmutableList;
@@ -45,6 +46,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                         new BindRelation(),
                         new BindSlotReference(scope),
                         new BindFunction(),
+                        new ResolveHaving(),
                         new ProjectToGlobalAggregate())
                 )));
     }
