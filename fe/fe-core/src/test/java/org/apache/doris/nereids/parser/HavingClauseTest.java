@@ -93,8 +93,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                         logicalAggregate(
                             logicalOlapScan()
                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(a1, new TinyIntLiteral((byte) 0))))
-            );
+                    ).when(FieldChecker.check("predicates", new GreaterThan(a1, new TinyIntLiteral((byte) 0)))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
