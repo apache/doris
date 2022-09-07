@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -42,12 +43,12 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     private List<NamedExpression> projects;
 
     public PhysicalOneRowRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
-        this(projects, Optional.empty(), logicalProperties);
+        this(projects, Optional.empty(), logicalProperties, null);
     }
 
     private PhysicalOneRowRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties) {
-        super(PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties) {
+        super(PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression, logicalProperties, physicalProperties);
         Preconditions.checkArgument(projects.stream().allMatch(Expression::isConstant),
                 "OneRowRelation must consist of some constant expression");
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
@@ -70,12 +71,13 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOneRowRelation(projects, groupExpression, logicalProperties);
+        return new PhysicalOneRowRelation(projects, groupExpression, logicalProperties, physicalProperties);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOneRowRelation(projects, Optional.empty(), logicalProperties.get());
+        return new PhysicalOneRowRelation(projects, Optional.empty(),
+                logicalProperties.get(), physicalProperties);
     }
 
     @Override
@@ -100,5 +102,11 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     @Override
     public int hashCode() {
         return Objects.hash(projects);
+    }
+
+    @Override
+    public PhysicalOneRowRelation withPhysicalProperties(PhysicalProperties physicalProperties) {
+        return new PhysicalOneRowRelation(projects, Optional.empty(),
+                logicalProperties, physicalProperties);
     }
 }
