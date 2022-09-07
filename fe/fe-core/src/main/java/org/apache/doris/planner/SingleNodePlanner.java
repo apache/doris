@@ -55,6 +55,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
@@ -1764,6 +1765,9 @@ public class SingleNodePlanner {
             case HUDI:
                 scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
                         null, -1);
+                break;
+            case JDBC:
+                scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (JdbcTable) tblRef.getTable());
                 break;
             case TABLE_VALUED_FUNCTION:
                 scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),

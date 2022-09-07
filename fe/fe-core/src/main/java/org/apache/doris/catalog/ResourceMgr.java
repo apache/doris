@@ -72,8 +72,9 @@ public class ResourceMgr implements Writable {
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK
                 && stmt.getResourceType() != ResourceType.ODBC_CATALOG
-                && stmt.getResourceType() != ResourceType.S3) {
-            throw new DdlException("Only support SPARK, ODBC_CATALOG and REMOTE_STORAGE resource.");
+                && stmt.getResourceType() != ResourceType.S3
+                && stmt.getResourceType() != ResourceType.JDBC) {
+            throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, and REMOTE_STORAGE resource.");
         }
         Resource resource = Resource.fromStmt(stmt);
         createResource(resource);
