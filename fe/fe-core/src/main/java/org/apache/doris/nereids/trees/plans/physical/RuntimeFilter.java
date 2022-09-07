@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -30,9 +31,9 @@ import org.apache.doris.thrift.TRuntimeFilterType;
  */
 public class RuntimeFilter {
 
-    private final SlotReference srcSlot;
+    private final Slot srcSlot;
 
-    private SlotReference targetSlot;
+    private Slot targetSlot;
 
     private final RuntimeFilterId id;
 
@@ -42,7 +43,7 @@ public class RuntimeFilter {
 
     private boolean finalized = false;
 
-    public RuntimeFilter(RuntimeFilterId id, SlotReference src, SlotReference target, TRuntimeFilterType type,
+    public RuntimeFilter(RuntimeFilterId id, Slot src, Slot target, TRuntimeFilterType type,
             int exprOrder) {
         this.id = id;
         this.srcSlot = src;
@@ -78,11 +79,11 @@ public class RuntimeFilter {
         return Pair.of(expr.child(exchangeTag), expr.child(1 ^ exchangeTag));
     }
 
-    public SlotReference getSrcExpr() {
+    public Slot getSrcExpr() {
         return srcSlot;
     }
 
-    public SlotReference getTargetExpr() {
+    public Slot getTargetExpr() {
         return targetSlot;
     }
 
@@ -98,7 +99,7 @@ public class RuntimeFilter {
         return exprOrder;
     }
 
-    public void setTargetSlot(SlotReference targetSlot) {
+    public void setTargetSlot(Slot targetSlot) {
         this.targetSlot = targetSlot;
     }
 
