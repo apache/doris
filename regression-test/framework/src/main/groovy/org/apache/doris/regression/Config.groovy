@@ -77,6 +77,9 @@ class Config {
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public String elasticsearch6
+    public String elasticsearch7
+    public String elasticsearch8
 
     Config() {}
 
@@ -84,7 +87,8 @@ class Config {
            String feHttpAddress, String feHttpUser, String feHttpPassword,
            String suitePath, String dataPath, String realDataPath, String sf1DataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
-           String testDirectories, String excludeDirectories, String pluginPath) {
+           String testDirectories, String excludeDirectories, String pluginPath,
+           String elasticsearch6, String elasticsearch7, String elasticsearch8) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -103,6 +107,9 @@ class Config {
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
         this.pluginPath = pluginPath
+        this.elasticsearch6 = elasticsearch6
+        this.elasticsearch7 = elasticsearch7
+        this.elasticsearch8 = elasticsearch8
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -215,7 +222,10 @@ class Config {
             configToString(obj.excludeSuites),
             configToString(obj.testDirectories),
             configToString(obj.excludeDirectories),
-            configToString(obj.pluginPath)
+            configToString(obj.pluginPath),
+            configToString(obj.elasticsearch6),
+            configToString(obj.elasticsearch7),
+            configToString(obj.elasticsearch8)
         )
 
         def declareFileNames = config.getClass()
@@ -335,6 +345,21 @@ class Config {
         if (config.actionParallel == null) {
             config.actionParallel = 10
             log.info("Set actionParallel to 10 because not specify.".toString())
+        }
+
+        if (config.elasticsearch6 == null) {
+            config.elasticsearch6 = "http://127.0.0.1:19200"
+            log.info("Set elasticsearch6 to http://127.0.0.1:19200 because not specify.".toString())
+        }
+
+        if (config.elasticsearch7 == null) {
+            config.elasticsearch7 = "http://127.0.0.1:29200"
+            log.info("Set elasticsearch7 to http://127.0.0.1:29200 because not specify.".toString())
+        }
+
+        if (config.elasticsearch8 == null) {
+            config.elasticsearch8 = "http://127.0.0.1:39200"
+            log.info("Set elasticsearch8 to http://127.0.0.1:39200 because not specify.".toString())
         }
     }
     
