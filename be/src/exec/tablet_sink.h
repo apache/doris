@@ -131,9 +131,7 @@ public:
         return _packet_in_flight.compare_exchange_strong(value, true);
     }
 
-    void clear_in_flight() {
-        _packet_in_flight = false;
-    }
+    void clear_in_flight() { _packet_in_flight = false; }
 
     bool is_packet_in_flight() { return _packet_in_flight; }
 
@@ -198,7 +196,8 @@ public:
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status(RuntimeState* state, std::unique_ptr<ThreadPoolToken>& thread_pool_token);
+    int try_send_and_fetch_status(RuntimeState* state,
+                                  std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
     void try_send_batch(RuntimeState* state);
 
@@ -232,9 +231,7 @@ public:
                            _node_info.brpc_port);
     }
 
-    size_t get_pending_bytes() {
-        return _pending_batches_bytes;
-    }
+    size_t get_pending_bytes() { return _pending_batches_bytes; }
 
 private:
     void _cancel_with_msg(const std::string& msg);
@@ -279,7 +276,7 @@ private:
     std::atomic<int> _pending_batches_num {0};
     // limit _pending_batches size
     std::atomic<size_t> _pending_batches_bytes {0};
-    size_t _max_pending_batches_bytes {10 * 1024 * 1024};
+    size_t _max_pending_batches_bytes {(size_t)config::nodechannel_pending_queue_max_bytes};
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
@@ -321,13 +318,15 @@ public:
 
     void add_row(BlockRow& block_row, int64_t tablet_id);
 
-    void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
+    void for_each_node_channel(
+            const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
         }
     }
 
-    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err, int64_t tablet_id = -1);
+    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+                        int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
     // set error tablet info in runtime state, so that it can be returned to FE.
@@ -337,11 +336,12 @@ public:
 
     size_t get_pending_bytes() const {
         size_t mem_consumption = 0;
-        for (auto& kv:  _node_channels){
+        for (auto& kv : _node_channels) {
             mem_consumption += kv.second->get_pending_bytes();
         }
         return mem_consumption;
     }
+
 private:
     friend class NodeChannel;
     friend class VOlapTableSink;
@@ -510,9 +510,7 @@ protected:
     // compute tablet index for every row batch
     // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
     // only compute tablet index in the corresponding partition once for the whole time in olap table sink
-    enum FindTabletMode {
-        FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK
-    };
+    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 };
 

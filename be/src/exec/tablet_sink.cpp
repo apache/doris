@@ -103,7 +103,6 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
     _timeout_watch.start();
-    _max_pending_batches_bytes = _parent->_load_mem_limit / 20; //TODO: session variable percent
 
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
@@ -271,6 +270,10 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             //To simplify the add_row logic, postpone adding batch into req until the time of sending req
             _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
             _pending_batches_num++;
+            VLOG_DEBUG << "OlapTableSink:" << _parent << " NodeChannel:" << this
+                       << " pending_batches_bytes:" << _pending_batches_bytes
+                       << " jobid:" << std::to_string(_state->load_job_id())
+                       << " tabletid:" << tablet_id << " loadinfo:" << _load_info;
         }
 
         _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
