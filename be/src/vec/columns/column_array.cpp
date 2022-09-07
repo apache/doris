@@ -219,8 +219,12 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);
 
-    hash.update(array_size);
     for (size_t i = 0; i < array_size; ++i) get_data().update_hash_with_value(offset + i, hash);
+}
+
+void ColumnArray::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                           const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
 void ColumnArray::insert(const Field& x) {

@@ -528,10 +528,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         std::vector<SipHash> siphashs(rows);
         // result[j] means column index, i means rows index
         for (int j = 0; j < result_size; ++j) {
-            auto column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                column->update_hash_with_value(i, siphashs[i]);
-            }
+            block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
         }
 
         // channel2rows' subscript means channel id

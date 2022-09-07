@@ -121,6 +121,12 @@ void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
+void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                                const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
 void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
                                        IColumn::Permutation& res) const {
 #if 1 /// TODO: perf test

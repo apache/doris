@@ -183,7 +183,13 @@ public:
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
     }
 
+    // maybe we do not need to impl the function
     void update_hash_with_value(size_t n, SipHash& hash) const override {
+        // TODO add hash function
+    }
+
+    void update_hashes_with_value(std::vector<SipHash>& hash,
+                                  const uint8_t* __restrict null_data) const override {
         // TODO add hash function
     }
 

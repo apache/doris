@@ -22,6 +22,7 @@
 
 #include "vec/columns/columns_common.h"
 #include "vec/common/pod_array.h"
+#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 
 namespace doris::vectorized {
@@ -84,6 +85,22 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     return ColumnConst::create(data, limit);
+}
+
+void ColumnConst::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                           const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    DCHECK(hashes.size() == size());
+    auto real_data = data->get_data_at(0);
+    if (real_data.data == nullptr) {
+        for (auto& hash : hashes) {
+            hash.update(0);
+        }
+    } else {
+        for (auto& hash : hashes) {
+            hash.update(real_data.data, real_data.size);
+        }
+    }
 }
 
 MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
