@@ -89,7 +89,7 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalLimit<>(limit, offset, logicalProperties, children.get(0));
+        return new PhysicalLimit<>(limit, offset, getLogicalProperties(), children.get(0));
     }
 
     @Override
@@ -102,7 +102,7 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public PhysicalLimit<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalLimit<>(limit, offset, groupExpression, logicalProperties, child());
+        return new PhysicalLimit<>(limit, offset, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -112,7 +112,7 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public PhysicalLimit<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
-        return new PhysicalLimit<>(limit, offset, groupExpression, logicalProperties, physicalProperties, child());
+        return new PhysicalLimit<>(limit, offset, groupExpression, getLogicalProperties(), physicalProperties, child());
     }
 
     @Override

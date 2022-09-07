@@ -107,7 +107,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalLimit<>(limit, offset, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalLimit<>(limit, offset, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override

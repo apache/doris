@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -67,12 +67,13 @@ public class JoinUtils {
             rightExprIds = right.stream().map(SlotReference::getExprId).collect(Collectors.toSet());
         }
 
-        boolean isCoveredByLeftSlots(List<SlotReference> slots) {
-            return slots.stream().map(SlotReference::getExprId)
+        boolean isCoveredByLeftSlots(Set<SlotReference> slots) {
+            return slots.stream()
+                    .map(SlotReference::getExprId)
                     .allMatch(leftExprIds::contains);
         }
 
-        boolean isCoveredByRightSlots(List<SlotReference> slots) {
+        boolean isCoveredByRightSlots(Set<SlotReference> slots) {
             return slots.stream()
                     .map(SlotReference::getExprId)
                     .allMatch(rightExprIds::contains);
@@ -89,12 +90,12 @@ public class JoinUtils {
          * @return true if the equal can be used as hash join condition
          */
         boolean isHashJoinCondition(EqualTo equalTo) {
-            List<SlotReference> equalLeft = equalTo.left().collect(SlotReference.class::isInstance);
+            Set<SlotReference> equalLeft = equalTo.left().collect(SlotReference.class::isInstance);
             if (equalLeft.isEmpty()) {
                 return false;
             }
 
-            List<SlotReference> equalRight = equalTo.right().collect(SlotReference.class::isInstance);
+            Set<SlotReference> equalRight = equalTo.right().collect(SlotReference.class::isInstance);
             if (equalRight.isEmpty()) {
                 return false;
             }
@@ -134,19 +135,14 @@ public class JoinUtils {
      */
     public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(List<SlotReference> leftSlots,
             List<SlotReference> rightSlots, List<Expression> onConditions) {
-
-        Pair<List<Expression>, List<Expression>> pair = Pair.of(Lists.newArrayList(), Lists.newArrayList());
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
         Map<Boolean, List<Expression>> mapper = onConditions.stream()
                 .collect(Collectors.groupingBy(
                         expr -> (expr instanceof EqualTo) && checker.isHashJoinCondition((EqualTo) expr)));
-        if (mapper.containsKey(true)) {
-            pair.first = mapper.get(true);
-        }
-        if (mapper.containsKey(false)) {
-            pair.second = mapper.get(false);
-        }
-        return pair;
+        return Pair.of(
+                mapper.getOrDefault(true, ImmutableList.of()),
+                mapper.getOrDefault(false, ImmutableList.of())
+        );
     }
 
     /**
@@ -165,8 +161,8 @@ public class JoinUtils {
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
 
         for (EqualTo equalTo : equalToList) {
-            List<SlotReference> leftOnSlots = equalTo.left().collect(SlotReference.class::isInstance);
-            List<SlotReference> rightOnSlots = equalTo.right().collect(SlotReference.class::isInstance);
+            Set<SlotReference> leftOnSlots = equalTo.left().collect(SlotReference.class::isInstance);
+            Set<SlotReference> rightOnSlots = equalTo.right().collect(SlotReference.class::isInstance);
             List<ExprId> leftOnSlotsExprId = leftOnSlots.stream()
                     .map(SlotReference::getExprId).collect(Collectors.toList());
             List<ExprId> rightOnSlotsExprId = rightOnSlots.stream()
@@ -201,13 +197,11 @@ public class JoinUtils {
      * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
      * In this situation, the children of predicate need to be swap => t1.id=t2.id.
      */
-    public static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
-        Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toSet());
-        if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
+    public static Expression swapEqualToForChildrenOrder(EqualTo equalTo, Set<Slot> leftOutput) {
+        if (leftOutput.containsAll(equalTo.left().getInputSlots())) {
             return equalTo;
         } else {
-            return new EqualTo(equalTo.right(), equalTo.left());
+            return equalTo.commute();
         }
     }
 

@@ -75,7 +75,7 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalHaving<>(predicates, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalHaving<>(predicates, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override

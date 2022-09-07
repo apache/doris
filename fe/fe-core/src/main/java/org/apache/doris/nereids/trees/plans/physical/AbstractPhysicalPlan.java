@@ -59,12 +59,6 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         this.physicalProperties = physicalProperties;
     }
 
-    @Override
-    public LogicalProperties getLogicalProperties() {
-        return logicalProperties;
-    }
-
-    @Override
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
     }

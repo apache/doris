@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
@@ -92,7 +92,10 @@ public abstract class AbstractPhysicalJoin<
 
     @Override
     public List<Expression> getExpressions() {
-        return otherJoinCondition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
+        Builder<Expression> builder = new Builder<Expression>()
+                .addAll(hashJoinConjuncts);
+        otherJoinCondition.ifPresent(builder::add);
+        return builder.build();
     }
 
     // TODO:

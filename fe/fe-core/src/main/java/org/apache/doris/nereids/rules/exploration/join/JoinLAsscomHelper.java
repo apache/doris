@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,6 +35,7 @@ import com.google.common.collect.Lists;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Common function for JoinLAsscom
@@ -109,11 +111,10 @@ public class JoinLAsscomHelper {
         for (Expression topJoinOnClauseConjunct : topHashJoinConjuncts) {
             // Ignore join with some OnClause like:
             // Join C = B + A for above example.
-            List<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
-            if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutputSlots)
-                    && ExpressionUtils.isIntersecting(topJoinUsedSlot, bOutputSlots)
-                    && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutputSlots)
-            ) {
+            Set<Slot> topJoinUsedSlot = topJoinOnClauseConjunct.getInputSlots();
+            if (topJoinUsedSlot.containsAll(aOutputSlots)
+                    && topJoinUsedSlot.containsAll(bOutputSlots)
+                    && topJoinUsedSlot.containsAll(cOutputSlots)) {
                 return false;
             }
         }
@@ -122,11 +123,11 @@ public class JoinLAsscomHelper {
         allHashJoinConjuncts.addAll(topHashJoinConjuncts);
         allHashJoinConjuncts.addAll(bottomHashJoinConjuncts);
 
-        HashSet<SlotReference> newBottomJoinSlots = new HashSet<>(aOutputSlots);
+        Set<Slot> newBottomJoinSlots = new HashSet<>(aOutputSlots);
         newBottomJoinSlots.addAll(cOutputSlots);
 
         for (Expression hashConjunct : allHashJoinConjuncts) {
-            List<SlotReference> slots = hashConjunct.collect(SlotReference.class::isInstance);
+            Set<Slot> slots = hashConjunct.getInputSlots();
             if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomHashJoinConjuncts.add(hashConjunct);
             } else {
@@ -134,7 +135,7 @@ public class JoinLAsscomHelper {
             }
         }
         for (Expression nonHashConjunct : allNonHashJoinConjuncts) {
-            List<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
+            Set<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
             if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomNonHashJoinConjuncts.add(nonHashConjunct);
             } else {
@@ -168,7 +169,7 @@ public class JoinLAsscomHelper {
 
         HashSet<SlotReference> bOutputSlotsSet = new HashSet<>(bOutputSlots);
         for (NamedExpression projectExpr : projectExprs) {
-            List<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
+            Set<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
             if (bOutputSlotsSet.containsAll(usedSlotRefs)) {
                 newRightProjectExprs.add(projectExpr);
             } else {

@@ -96,14 +96,14 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinCondition, logicalProperties, children.get(0), children.get(1));
+                hashJoinConjuncts, otherJoinCondition, getLogicalProperties(), children.get(0), children.get(1));
     }
 
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinCondition, groupExpression, logicalProperties, left(), right());
+                hashJoinConjuncts, otherJoinCondition, groupExpression, getLogicalProperties(), left(), right());
     }
 
     @Override
@@ -119,6 +119,6 @@ public class PhysicalNestedLoopJoin<
             PhysicalProperties physicalProperties) {
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinCondition, Optional.empty(),
-                logicalProperties, physicalProperties, left(), right());
+                getLogicalProperties(), physicalProperties, left(), right());
     }
 }

@@ -93,14 +93,14 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
-                logicalProperties, children.get(0), children.get(1));
+                getLogicalProperties(), children.get(0), children.get(1));
     }
 
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
-                groupExpression, logicalProperties, left(), right());
+                groupExpression, getLogicalProperties(), left(), right());
     }
 
     @Override
@@ -114,6 +114,6 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalProperties(
             PhysicalProperties physicalProperties) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
-                Optional.empty(), logicalProperties, physicalProperties, left(), right());
+                Optional.empty(), getLogicalProperties(), physicalProperties, left(), right());
     }
 }

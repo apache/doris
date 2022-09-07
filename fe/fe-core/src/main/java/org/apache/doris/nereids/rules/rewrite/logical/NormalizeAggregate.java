@@ -105,7 +105,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
             if (partitionedOutputs.containsKey(true)) {
                 // process expressions that contain aggregate function
                 Set<AggregateFunction> aggregateFunctions = partitionedOutputs.get(true).stream()
-                        .flatMap(e -> e.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
+                        .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
                         .collect(Collectors.toSet());
                 newOutputs.addAll(aggregateFunctions.stream()
                         .map(f -> new Alias(f, f.toSql()))
@@ -113,7 +113,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .collect(Collectors.toList()));
                 // add slot references in aggregate function to bottom projections
                 bottomProjections.addAll(aggregateFunctions.stream()
-                        .flatMap(f -> f.<List<SlotReference>>collect(SlotReference.class::isInstance).stream())
+                        .flatMap(f -> f.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
                         .map(SlotReference.class::cast)
                         .collect(Collectors.toSet()));
             }
