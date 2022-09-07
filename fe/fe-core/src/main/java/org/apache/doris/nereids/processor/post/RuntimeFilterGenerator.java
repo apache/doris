@@ -202,7 +202,6 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
      * Translate nereids runtime filter on hash join node
      * translate the runtime filter whose target expression id is one of the output slot reference of the left child of
      * the physical hash join.
-     * @param join hash join physical plan
      * @param node hash join node
      * @param ctx plan translator context
      */
