@@ -107,6 +107,12 @@ public:
         return nullptr;
     }
 
+    // shrink the end zeros for CHAR type or ARRAY<CHAR> type
+    virtual MutablePtr get_shinked_column() {
+        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        return nullptr;
+    }
+
     /// Returns number of values in column.
     virtual size_t size() const = 0;
 
@@ -519,6 +525,8 @@ public:
     virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
+
+    virtual bool is_column_array() const { return false; }
 
     /// If the only value column can contain is NULL.
     /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))

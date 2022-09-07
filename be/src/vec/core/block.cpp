@@ -1063,25 +1063,12 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
 void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {
-            if (this->get_by_position(idx).column->is_nullable()) {
-                this->get_by_position(idx).column = ColumnNullable::create(
-                        reinterpret_cast<const ColumnString*>(
-                                reinterpret_cast<const ColumnNullable*>(
-                                        this->get_by_position(idx).column.get())
-                                        ->get_nested_column_ptr()
-                                        .get())
-                                ->get_shinked_column(),
-                        reinterpret_cast<const ColumnNullable*>(
-                                this->get_by_position(idx).column.get())
-                                ->get_null_map_column_ptr());
-            } else {
-                this->get_by_position(idx).column = reinterpret_cast<const ColumnString*>(
-                                                            this->get_by_position(idx).column.get())
-                                                            ->get_shinked_column();
-            }
+            auto& col_and_name = this->get_by_position(idx);
+            col_and_name.column = col_and_name.column->assume_mutable()->get_shinked_column();
         }
     }
 }
+
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {

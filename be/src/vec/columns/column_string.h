@@ -84,6 +84,8 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
+    MutableColumnPtr get_shinked_column() override;
+
     Field operator[](size_t n) const override {
         assert(n < size());
         return Field(&chars[offset_at(n)], size_at(n) - 1);
@@ -367,16 +369,6 @@ public:
         }
 
         chars.emplace_back(0);
-    }
-
-    MutableColumnPtr get_shinked_column() const {
-        auto shrinked_column = ColumnString::create();
-        for (int i = 0; i < size(); i++) {
-            StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnString*>(shrinked_column.get())
-                    ->insert_data(str.data, strnlen(str.data, str.size));
-        }
-        return shrinked_column;
     }
 };
 

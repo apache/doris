@@ -44,6 +44,11 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 }
 
+MutableColumnPtr ColumnNullable::get_shinked_column() {
+    return ColumnNullable::create(get_nested_column_ptr()->get_shinked_column(),
+                                  get_null_map_column_ptr());
+}
+
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     if (is_null_at(n))
         hash.update(0);

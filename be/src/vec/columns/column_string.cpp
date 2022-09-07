@@ -63,6 +63,18 @@ MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     return res;
 }
 
+MutableColumnPtr ColumnString::get_shinked_column() {
+    auto shrinked_column = ColumnString::create();
+    shrinked_column->get_offsets().reserve(offsets.size());
+    shrinked_column->get_chars().reserve(chars.size());
+    for (int i = 0; i < size(); i++) {
+        StringRef str = get_data_at(i);
+        reinterpret_cast<ColumnString*>(shrinked_column.get())
+                ->insert_data(str.data, strnlen(str.data, str.size));
+    }
+    return shrinked_column;
+}
+
 void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 

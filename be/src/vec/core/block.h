@@ -351,6 +351,7 @@ public:
     doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int,
                                   bool padding_char = false);
 
+    // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
     int64_t get_decompress_time() const { return _decompress_time_ns; }

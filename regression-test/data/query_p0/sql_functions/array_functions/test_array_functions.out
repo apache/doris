@@ -116,3 +116,21 @@
 6	1_2_3_4_5_4_3_2_1	a-b-c-d-c-b-a
 7	8_9_null_10_null	f-null-g-null-h
 
+-- !select --
+1	true
+2	false
+3	false
+4	\N
+5	\N
+6	\N
+7	\N
+
+-- !select --
+1	false
+2	false
+3	false
+4	\N
+5	\N
+6	\N
+7	\N
+

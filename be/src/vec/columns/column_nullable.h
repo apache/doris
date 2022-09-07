@@ -67,6 +67,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    MutableColumnPtr get_shinked_column() override;
+
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -197,6 +199,7 @@ public:
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
+    bool is_column_array() const override { return get_nested_column().is_column_array(); }
     bool is_fixed_and_contiguous() const override { return false; }
     bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
     size_t size_of_value_if_fixed() const override {
