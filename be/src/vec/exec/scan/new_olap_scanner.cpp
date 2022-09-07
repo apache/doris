@@ -114,6 +114,7 @@ Status NewOlapScanner::prepare(
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
