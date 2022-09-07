@@ -43,7 +43,7 @@ suite("view") {
             select *
             from v2
             ) t 
-        on v1.c_custkey = t.lo_custkey;
+        on v1.c_custkey = t.lo_custkey
     """
 
     qt_select_1 """
