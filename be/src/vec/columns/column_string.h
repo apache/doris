@@ -327,31 +327,19 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override {
-        return true;
-    }
+    bool can_be_inside_nullable() const override { return true; }
 
-    bool is_column_string() const override {
-        return true;
-    }
+    bool is_column_string() const override { return true; }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnString);
     }
 
-    Chars& get_chars() {
-        return chars;
-    }
-    const Chars& get_chars() const {
-        return chars;
-    }
+    Chars& get_chars() { return chars; }
+    const Chars& get_chars() const { return chars; }
 
-    Offsets& get_offsets() {
-        return offsets;
-    }
-    const Offsets& get_offsets() const {
-        return offsets;
-    }
+    Offsets& get_offsets() { return offsets; }
+    const Offsets& get_offsets() const { return offsets; }
 
     void clear() override {
         chars.clear();
