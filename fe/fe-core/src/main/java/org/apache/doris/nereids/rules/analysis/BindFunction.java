@@ -63,7 +63,7 @@ public class BindFunction implements AnalysisRuleFactory {
                     // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
                     // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
                     // GroupExpression by id
-                    if (!isChanged(projects, boundProjects)) {
+                    if (!projects.equals(boundProjects)) {
                         return project;
                     }
                     return new LogicalOneRowRelation(boundProjects);
@@ -95,15 +95,6 @@ public class BindFunction implements AnalysisRuleFactory {
                 })
             )
         );
-    }
-
-    private boolean isChanged(List originList, List newList) {
-        for (int i = 0; i < originList.size(); i++) {
-            if (originList.get(i) != newList.get(i)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private <E extends Expression> List<E> bind(List<E> exprList) {
