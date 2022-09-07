@@ -202,354 +202,29 @@ public:
     template <typename T>
     void sort_column(const ColumnVector<T>& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
-        int new_limit = limit_;
         if (!_should_inline_value(perms)) {
-            auto comparator = [&](const size_t a, const size_t b) {
-                return CompareHelper<T>::compare(column.get_data()[a], column.get_data()[b],
-                                                 nulls_direction_);
-            };
-
-            auto sort_comparator = [&](const size_t a, const size_t b) {
-                return CompareHelper<T>::compare(column.get_data()[a], column.get_data()[b],
-                                                 nulls_direction_) *
-                               direction_ <
-                       0;
-            };
-            auto do_sort = [&](size_t first_iter, size_t last_iter) {
-                auto begin = perms.begin() + first_iter;
-                auto end = perms.begin() + last_iter;
-
-                if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
-                    int n = limit_ - first_iter;
-                    std::partial_sort(begin, begin + n, end, sort_comparator);
-
-                    auto nth = perms[limit_ - 1];
-                    size_t equal_count = 0;
-                    for (auto iter = begin + n; iter < end; iter++) {
-                        if (comparator(*iter, nth) == 0) {
-                            std::iter_swap(iter, begin + n + equal_count);
-                            equal_count++;
-                        }
-                    }
-                    new_limit = limit_ + equal_count;
-                } else {
-                    pdqsort(begin, end, sort_comparator);
-                }
-            };
-
-            EqualRangeIterator iterator(flags, range.first, range.second);
-            while (iterator.next()) {
-                int range_begin = iterator.range_begin;
-                int range_end = iterator.range_end;
-
-                if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
-                    break;
-                }
-                if (LIKELY(range_end - range_begin > 1)) {
-                    do_sort(range_begin, range_end);
-                    if (!last_column) {
-                        flags[range_begin] = 0;
-                        for (int i = range_begin + 1; i < range_end; i++) {
-                            flags[i] &= comparator(perms[i - 1], perms[i]) == 0;
-                        }
-                    }
-                }
-            }
-            _shrink_to_fit(perms, flags, new_limit);
+            _sort_by_default(column, flags, perms, range, last_column);
         } else {
-            // create inlined permutation
-            PermutationForColumn<T> permutation_for_column(perms.size());
-            _create_permutation(column, permutation_for_column.data(), perms);
-            auto comparator = [&](const PermutationWithInlineValue<T>& a,
-                                  const PermutationWithInlineValue<T>& b) {
-                return CompareHelper<T>::compare(a.inline_value_, b.inline_value_,
-                                                 nulls_direction_);
-            };
-
-            auto sort_comparator = [&](const PermutationWithInlineValue<T>& a,
-                                       const PermutationWithInlineValue<T>& b) {
-                return CompareHelper<T>::compare(a.inline_value_, b.inline_value_,
-                                                 nulls_direction_) *
-                               direction_ <
-                       0;
-            };
-            auto do_sort = [&](size_t first_iter, size_t last_iter) {
-                auto begin = permutation_for_column.begin() + first_iter;
-                auto end = permutation_for_column.begin() + last_iter;
-
-                if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
-                    int n = limit_ - first_iter;
-                    std::partial_sort(begin, begin + n, end, sort_comparator);
-
-                    auto nth = permutation_for_column[limit_ - 1];
-                    size_t equal_count = 0;
-                    for (auto iter = begin + n; iter < end; iter++) {
-                        if (comparator(*iter, nth) == 0) {
-                            std::iter_swap(iter, begin + n + equal_count);
-                            equal_count++;
-                        }
-                    }
-                    new_limit = limit_ + equal_count;
-                } else {
-                    pdqsort(begin, end, sort_comparator);
-                }
-            };
-
-            EqualRangeIterator iterator(flags, range.first, range.second);
-            while (iterator.next()) {
-                int range_begin = iterator.range_begin;
-                int range_end = iterator.range_end;
-
-                if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
-                    break;
-                }
-                if (LIKELY(range_end - range_begin > 1)) {
-                    do_sort(range_begin, range_end);
-                    if (!last_column) {
-                        flags[range_begin] = 0;
-                        for (int i = range_begin + 1; i < range_end; i++) {
-                            flags[i] &= comparator(permutation_for_column[i - 1],
-                                                   permutation_for_column[i]) == 0;
-                        }
-                    }
-                }
-            }
-            _shrink_to_fit(permutation_for_column, perms, flags, new_limit);
-            // restore `perms` from `permutation_for_column`
-            _restore_permutation(permutation_for_column, perms.data());
+            _sort_by_inlined_permutation<T>(column, flags, perms, range, last_column);
         }
     }
 
     template <typename T>
     void sort_column(const ColumnDecimal<T>& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
-        int new_limit = limit_;
         if (!_should_inline_value(perms)) {
-            auto comparator = [&](const size_t a, const size_t b) {
-                return column.get_data()[a] > column.get_data()[b]
-                               ? 1
-                               : (column.get_data()[a] < column.get_data()[b] ? -1 : 0);
-            };
-
-            auto sort_comparator = [&](const size_t a, const size_t b) {
-                return comparator(a, b) * direction_ < 0;
-            };
-            auto do_sort = [&](size_t first_iter, size_t last_iter) {
-                auto begin = perms.begin() + first_iter;
-                auto end = perms.begin() + last_iter;
-
-                if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
-                    int n = limit_ - first_iter;
-                    std::partial_sort(begin, begin + n, end, sort_comparator);
-
-                    auto nth = perms[limit_ - 1];
-                    size_t equal_count = 0;
-                    for (auto iter = begin + n; iter < end; iter++) {
-                        if (comparator(*iter, nth) == 0) {
-                            std::iter_swap(iter, begin + n + equal_count);
-                            equal_count++;
-                        }
-                    }
-                    new_limit = limit_ + equal_count;
-                } else {
-                    pdqsort(begin, end, sort_comparator);
-                }
-            };
-
-            EqualRangeIterator iterator(flags, range.first, range.second);
-            while (iterator.next()) {
-                int range_begin = iterator.range_begin;
-                int range_end = iterator.range_end;
-
-                if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
-                    break;
-                }
-                if (LIKELY(range_end - range_begin > 1)) {
-                    do_sort(range_begin, range_end);
-                    if (!last_column) {
-                        flags[range_begin] = 0;
-                        for (int i = range_begin + 1; i < range_end; i++) {
-                            flags[i] &= comparator(perms[i - 1], perms[i]) == 0;
-                        }
-                    }
-                }
-            }
-            _shrink_to_fit(perms, flags, new_limit);
+            _sort_by_default(column, flags, perms, range, last_column);
         } else {
-            // create inlined permutation
-            PermutationForColumn<T> permutation_for_column(perms.size());
-            _create_permutation(column, permutation_for_column.data(), perms);
-            auto comparator = [&](const PermutationWithInlineValue<T>& a,
-                                  const PermutationWithInlineValue<T>& b) {
-                return a.inline_value_ > b.inline_value_
-                               ? 1
-                               : (a.inline_value_ < b.inline_value_ ? -1 : 0);
-            };
-
-            auto sort_comparator = [&](const PermutationWithInlineValue<T>& a,
-                                       const PermutationWithInlineValue<T>& b) {
-                return comparator(a, b) * direction_ < 0;
-            };
-            auto do_sort = [&](size_t first_iter, size_t last_iter) {
-                auto begin = permutation_for_column.begin() + first_iter;
-                auto end = permutation_for_column.begin() + last_iter;
-
-                if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
-                    int n = limit_ - first_iter;
-                    std::partial_sort(begin, begin + n, end, sort_comparator);
-
-                    auto nth = permutation_for_column[limit_ - 1];
-                    size_t equal_count = 0;
-                    for (auto iter = begin + n; iter < end; iter++) {
-                        if (comparator(*iter, nth) == 0) {
-                            std::iter_swap(iter, begin + n + equal_count);
-                            equal_count++;
-                        }
-                    }
-                    new_limit = limit_ + equal_count;
-                } else {
-                    pdqsort(begin, end, sort_comparator);
-                }
-            };
-
-            EqualRangeIterator iterator(flags, range.first, range.second);
-            while (iterator.next()) {
-                int range_begin = iterator.range_begin;
-                int range_end = iterator.range_end;
-
-                if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
-                    break;
-                }
-                if (LIKELY(range_end - range_begin > 1)) {
-                    do_sort(range_begin, range_end);
-                    if (!last_column) {
-                        flags[range_begin] = 0;
-                        for (int i = range_begin + 1; i < range_end; i++) {
-                            flags[i] &= comparator(permutation_for_column[i - 1],
-                                                   permutation_for_column[i]) == 0;
-                        }
-                    }
-                }
-            }
-            _shrink_to_fit(permutation_for_column, perms, flags, new_limit);
-            // restore `perms` from `permutation_for_column`
-            _restore_permutation(permutation_for_column, perms.data());
+            _sort_by_inlined_permutation<T>(column, flags, perms, range, last_column);
         }
     }
 
     void sort_column(const ColumnString& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
-        int new_limit = limit_;
         if (!_should_inline_value(perms)) {
-            auto comparator = [&](const size_t a, const size_t b) {
-                return column.compare_at(a, b, column, nulls_direction_);
-            };
-
-            auto sort_comparator = [&](const size_t a, const size_t b) {
-                return column.compare_at(a, b, column, nulls_direction_) * direction_ < 0;
-            };
-            auto do_sort = [&](size_t first_iter, size_t last_iter) {
-                auto begin = perms.begin() + first_iter;
-                auto end = perms.begin() + last_iter;
-
-                if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
-                    int n = limit_ - first_iter;
-                    std::partial_sort(begin, begin + n, end, sort_comparator);
-
-                    auto nth = perms[limit_ - 1];
-                    size_t equal_count = 0;
-                    for (auto iter = begin + n; iter < end; iter++) {
-                        if (comparator(*iter, nth) == 0) {
-                            std::iter_swap(iter, begin + n + equal_count);
-                            equal_count++;
-                        }
-                    }
-                    new_limit = limit_ + equal_count;
-                } else {
-                    pdqsort(begin, end, sort_comparator);
-                }
-            };
-
-            EqualRangeIterator iterator(flags, range.first, range.second);
-            while (iterator.next()) {
-                int range_begin = iterator.range_begin;
-                int range_end = iterator.range_end;
-
-                if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
-                    break;
-                }
-                if (LIKELY(range_end - range_begin > 1)) {
-                    do_sort(range_begin, range_end);
-                    if (!last_column) {
-                        flags[range_begin] = 0;
-                        for (int i = range_begin + 1; i < range_end; i++) {
-                            flags[i] &= comparator(perms[i - 1], perms[i]) == 0;
-                        }
-                    }
-                }
-            }
-            _shrink_to_fit(perms, flags, new_limit);
+            _sort_by_default(column, flags, perms, range, last_column);
         } else {
-            // create inlined permutation
-            PermutationForColumn<StringRef> permutation_for_column(perms.size());
-            _create_permutation(column, permutation_for_column.data(), perms);
-            auto comparator = [&](const PermutationWithInlineValue<StringRef>& a,
-                                  const PermutationWithInlineValue<StringRef>& b) {
-                return memcmp_small_allow_overflow15(a.inline_value_.data, a.inline_value_.size,
-                                                     b.inline_value_.data, b.inline_value_.size);
-            };
-
-            auto sort_comparator = [&](const PermutationWithInlineValue<StringRef>& a,
-                                       const PermutationWithInlineValue<StringRef>& b) {
-                return memcmp_small_allow_overflow15(a.inline_value_.data, a.inline_value_.size,
-                                                     b.inline_value_.data, b.inline_value_.size) *
-                               direction_ <
-                       0;
-            };
-            auto do_sort = [&](size_t first_iter, size_t last_iter) {
-                auto begin = permutation_for_column.begin() + first_iter;
-                auto end = permutation_for_column.begin() + last_iter;
-
-                if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
-                    int n = limit_ - first_iter;
-                    std::partial_sort(begin, begin + n, end, sort_comparator);
-
-                    auto nth = permutation_for_column[limit_ - 1];
-                    size_t equal_count = 0;
-                    for (auto iter = begin + n; iter < end; iter++) {
-                        if (comparator(*iter, nth) == 0) {
-                            std::iter_swap(iter, begin + n + equal_count);
-                            equal_count++;
-                        }
-                    }
-                    new_limit = limit_ + equal_count;
-                } else {
-                    pdqsort(begin, end, sort_comparator);
-                }
-            };
-
-            EqualRangeIterator iterator(flags, range.first, range.second);
-            while (iterator.next()) {
-                int range_begin = iterator.range_begin;
-                int range_end = iterator.range_end;
-
-                if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
-                    break;
-                }
-                if (LIKELY(range_end - range_begin > 1)) {
-                    do_sort(range_begin, range_end);
-                    if (!last_column) {
-                        flags[range_begin] = 0;
-                        for (int i = range_begin + 1; i < range_end; i++) {
-                            flags[i] &= comparator(permutation_for_column[i - 1],
-                                                   permutation_for_column[i]) == 0;
-                        }
-                    }
-                }
-            }
-            _shrink_to_fit(permutation_for_column, perms, flags, new_limit);
-            // restore `perms` from `permutation_for_column`
-            _restore_permutation(permutation_for_column, perms.data());
+            _sort_by_inlined_permutation<StringRef>(column, flags, perms, range, last_column);
         }
     }
 
@@ -567,9 +242,10 @@ public:
                 if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
                     break;
                 }
+                bool null_first = nulls_direction_ * direction_ < 0;
                 if (LIKELY(range_end - range_begin > 1)) {
-                    int range_split = -1;
-                    if (nulls_direction_) {
+                    int range_split = 0;
+                    if (null_first) {
                         range_split = std::partition(perms.begin() + range_begin,
                                                      perms.begin() + range_end,
                                                      [&](size_t row_id) -> bool {
@@ -586,7 +262,7 @@ public:
                     }
                     std::pair<size_t, size_t> is_null_range = {range_begin, range_split};
                     std::pair<size_t, size_t> not_null_range = {range_split, range_end};
-                    if (!nulls_direction_) {
+                    if (!null_first) {
                         std::swap(is_null_range, not_null_range);
                     }
 
@@ -647,6 +323,136 @@ private:
             }
             permutation_for_column[i].row_id_ = row_id;
         }
+    }
+
+    template <typename ColumnType>
+    void _sort_by_default(const ColumnType& column, EqualFlags& flags, IColumn::Permutation& perms,
+                          EqualRange& range, bool last_column) const {
+        int new_limit = limit_;
+        auto comparator = [&](const size_t a, const size_t b) {
+            if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+                auto value_a = column.get_data()[a];
+                auto value_b = column.get_data()[b];
+                return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);
+            } else {
+                return column.compare_at(a, b, column, nulls_direction_);
+            }
+        };
+
+        auto sort_comparator = [&](const size_t a, const size_t b) {
+            return comparator(a, b) * direction_ < 0;
+        };
+        auto do_sort = [&](size_t first_iter, size_t last_iter) {
+            auto begin = perms.begin() + first_iter;
+            auto end = perms.begin() + last_iter;
+
+            if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
+                int n = limit_ - first_iter;
+                std::partial_sort(begin, begin + n, end, sort_comparator);
+
+                auto nth = perms[limit_ - 1];
+                size_t equal_count = 0;
+                for (auto iter = begin + n; iter < end; iter++) {
+                    if (comparator(*iter, nth) == 0) {
+                        std::iter_swap(iter, begin + n + equal_count);
+                        equal_count++;
+                    }
+                }
+                new_limit = limit_ + equal_count;
+            } else {
+                pdqsort(begin, end, sort_comparator);
+            }
+        };
+
+        EqualRangeIterator iterator(flags, range.first, range.second);
+        while (iterator.next()) {
+            int range_begin = iterator.range_begin;
+            int range_end = iterator.range_end;
+
+            if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
+                break;
+            }
+            if (LIKELY(range_end - range_begin > 1)) {
+                do_sort(range_begin, range_end);
+                if (!last_column) {
+                    flags[range_begin] = 0;
+                    for (int i = range_begin + 1; i < range_end; i++) {
+                        flags[i] &= comparator(perms[i - 1], perms[i]) == 0;
+                    }
+                }
+            }
+        }
+        _shrink_to_fit(perms, flags, new_limit);
+    }
+
+    template <typename InlineType, typename ColumnType>
+    void _sort_by_inlined_permutation(const ColumnType& column, EqualFlags& flags,
+                                      IColumn::Permutation& perms, EqualRange& range,
+                                      bool last_column) const {
+        int new_limit = limit_;
+        // create inlined permutation
+        PermutationForColumn<InlineType> permutation_for_column(perms.size());
+        _create_permutation(column, permutation_for_column.data(), perms);
+        auto comparator = [&](const PermutationWithInlineValue<InlineType>& a,
+                              const PermutationWithInlineValue<InlineType>& b) {
+            if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+                return a.inline_value_ > b.inline_value_
+                               ? 1
+                               : (a.inline_value_ < b.inline_value_ ? -1 : 0);
+            } else {
+                return memcmp_small_allow_overflow15(a.inline_value_.data, a.inline_value_.size,
+                                                     b.inline_value_.data, b.inline_value_.size);
+            }
+        };
+
+        auto sort_comparator = [&](const PermutationWithInlineValue<InlineType>& a,
+                                   const PermutationWithInlineValue<InlineType>& b) {
+            return comparator(a, b) * direction_ < 0;
+        };
+        auto do_sort = [&](size_t first_iter, size_t last_iter) {
+            auto begin = permutation_for_column.begin() + first_iter;
+            auto end = permutation_for_column.begin() + last_iter;
+
+            if (UNLIKELY(limit_ > 0 && first_iter < limit_ && limit_ <= last_iter)) {
+                int n = limit_ - first_iter;
+                std::partial_sort(begin, begin + n, end, sort_comparator);
+
+                auto nth = permutation_for_column[limit_ - 1];
+                size_t equal_count = 0;
+                for (auto iter = begin + n; iter < end; iter++) {
+                    if (comparator(*iter, nth) == 0) {
+                        std::iter_swap(iter, begin + n + equal_count);
+                        equal_count++;
+                    }
+                }
+                new_limit = limit_ + equal_count;
+            } else {
+                pdqsort(begin, end, sort_comparator);
+            }
+        };
+
+        EqualRangeIterator iterator(flags, range.first, range.second);
+        while (iterator.next()) {
+            int range_begin = iterator.range_begin;
+            int range_end = iterator.range_end;
+
+            if (UNLIKELY(limit_ > 0 && range_begin > limit_)) {
+                break;
+            }
+            if (LIKELY(range_end - range_begin > 1)) {
+                do_sort(range_begin, range_end);
+                if (!last_column) {
+                    flags[range_begin] = 0;
+                    for (int i = range_begin + 1; i < range_end; i++) {
+                        flags[i] &= comparator(permutation_for_column[i - 1],
+                                               permutation_for_column[i]) == 0;
+                    }
+                }
+            }
+        }
+        _shrink_to_fit(permutation_for_column, perms, flags, new_limit);
+        // restore `perms` from `permutation_for_column`
+        _restore_permutation(permutation_for_column, perms.data());
     }
 
     template <typename T>
