@@ -79,12 +79,16 @@ public class ExpressionUtils {
         }
     }
 
-    public static Optional<Expression> andByOptional(List<Expression> expressions) {
+    public static Optional<Expression> optionalAnd(List<Expression> expressions) {
         if (expressions.isEmpty()) {
             return Optional.empty();
         } else {
             return Optional.of(ExpressionUtils.and(expressions));
         }
+    }
+
+    public static Optional<Expression> optionalAnd(Expression... expressions) {
+        return optionalAnd(Lists.newArrayList(expressions));
     }
 
     public static Expression and(List<Expression> expressions) {

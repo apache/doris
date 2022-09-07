@@ -42,7 +42,7 @@ public abstract class DistributionSpec {
     public GroupExpression addEnforcer(Group child) {
         // TODO:maybe we need to new a LogicalProperties or just do not set logical properties for this node.
         // If we don't set LogicalProperties explicitly, node will compute a applicable LogicalProperties for itself.
-        PhysicalDistribute distribution = new PhysicalDistribute(
+        PhysicalDistribute<GroupPlan> distribution = new PhysicalDistribute<>(
                 this,
                 child.getLogicalProperties(),
                 new GroupPlan(child));
