@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.Year;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
@@ -69,6 +70,12 @@ public class BindFunction implements AnalysisRuleFactory {
                    List<Expression> predicates = bind(filter.getExpressions());
                    return new LogicalFilter<>(predicates.get(0), filter.child());
                })
+            ),
+            RuleType.BINDING_HAVING_FUNCTION.build(
+                logicalHaving(logicalAggregate()).then(filter -> {
+                    List<Expression> predicates = bind(filter.getExpressions());
+                    return new LogicalHaving<>(predicates.get(0), filter.child());
+                })
             )
         );
     }

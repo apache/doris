@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -56,6 +57,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -132,7 +134,21 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return new LogicalSort<>(sortItemList, sort.child());
                 })
             ),
-
+            RuleType.BINDING_HAVING_SLOT.build(
+                logicalHaving(logicalAggregate()).thenApply(ctx -> {
+                    LogicalHaving<LogicalAggregate<GroupPlan>> having = ctx.root;
+                    LogicalAggregate<GroupPlan> aggregate = having.child();
+                    // We should deduplicate the slots, otherwise the binding process will fail due to the
+                    // ambiguous slots exist.
+                    Set<Slot> boundSlots = Stream.concat(Stream.of(aggregate), aggregate.children().stream())
+                            .flatMap(plan -> plan.getOutput().stream())
+                            .collect(Collectors.toSet());
+                    Expression boundPredicates = new SlotBinder(
+                            toScope(new ArrayList<>(boundSlots)), having, ctx.cascadesContext
+                    ).bind(having.getPredicates());
+                    return new LogicalHaving<>(boundPredicates, having.child());
+                })
+            ),
             RuleType.BINDING_NON_LEAF_LOGICAL_PLAN.build(
                 logicalPlan()
                         .when(plan -> plan.canBind() && !(plan instanceof LeafPlan))
