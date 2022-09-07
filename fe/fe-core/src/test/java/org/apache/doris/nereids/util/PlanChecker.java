@@ -241,4 +241,8 @@ public class PlanChecker {
     public static PlanChecker from(CascadesContext cascadesContext) {
         return new PlanChecker(cascadesContext);
     }
+
+    public static PlanChecker from(Plan initPlan) {
+        return new PlanChecker(MemoTestUtils.createCascadesContext(initPlan));
+    }
 }

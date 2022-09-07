@@ -25,6 +25,9 @@ import org.apache.doris.nereids.types.DataType;
 /** AggregateFunction. */
 public abstract class AggregateFunction extends BoundFunction {
 
+    /**
+     * indicate current function used in local stage or global stage.
+     */
     protected final boolean isLocal;
 
     public AggregateFunction(String name, Expression... arguments) {
@@ -36,12 +39,28 @@ public abstract class AggregateFunction extends BoundFunction {
         this.isLocal = isLocal;
     }
 
+    public boolean isLocal() {
+        return isLocal;
+    }
+
     public abstract DataType getIntermediateType();
 
+    /**
+     * When do two stage aggregate, the local stage's output type is different from the global.
+     * This method is used to get the local stage's output type.
+     */
     public abstract DataType getLocalDataType();
 
+    /**
+     * When do two stage aggregate, the local stage's output type is different from the global.
+     * This method is used to get the global stage's output type.
+     */
     public abstract DataType getGlobalDataType();
 
+    /**
+     * When do two stage aggregate, the local stage's output type is different from the global.
+     * This method is used to get the correct output according to the stage the function in.
+     */
     @Override
     public final DataType getDataType() throws UnboundException {
         return isLocal ? getLocalDataType() : getGlobalDataType();
