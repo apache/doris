@@ -134,6 +134,8 @@ protected:
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
+    RuntimeProfile::Counter* _brpc_send_timer;
+    RuntimeProfile::Counter* _brpc_wait_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
@@ -246,6 +248,7 @@ public:
 
 private:
     Status _wait_last_brpc() {
+        SCOPED_TIMER(_parent->_brpc_wait_timer);
         if (_closure == nullptr) return Status::OK();
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
