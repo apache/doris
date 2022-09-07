@@ -17,32 +17,23 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-/**
- * Common function for JoinCommute
- */
-public class JoinCommuteHelper {
+import java.util.List;
+import java.util.Optional;
 
-    enum SwapType {
-        BOTTOM_JOIN, ZIG_ZAG, ALL
+class JoinReorderCommon {
+    public enum Type {
+        INNER, OUTER
     }
 
-    private final boolean swapOuter;
-    private final SwapType swapType;
-
-    public JoinCommuteHelper(boolean swapOuter, SwapType swapType) {
-        this.swapOuter = swapOuter;
-        this.swapType = swapType;
-    }
-
-    public static boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
-        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
-    }
-
-    public static boolean check(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        return check(project.child());
+    public static Optional<Plan> project(List<NamedExpression> projectExprs, Plan plan) {
+        if (!projectExprs.isEmpty()) {
+            return Optional.of(new LogicalProject<>(projectExprs, plan));
+        } else {
+            return Optional.empty();
+        }
     }
 }

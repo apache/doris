@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
 import com.google.common.base.Preconditions;
@@ -29,6 +30,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -76,6 +78,14 @@ public class ExpressionUtils {
         }
     }
 
+    public static Optional<Expression> andByOptional(List<Expression> expressions) {
+        if (expressions.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(ExpressionUtils.and(expressions));
+        }
+    }
+
     public static Expression and(List<Expression> expressions) {
         return combine(And.class, expressions);
     }
@@ -119,5 +129,19 @@ public class ExpressionUtils {
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
                 .orElse(new BooleanLiteral(type == And.class));
+    }
+
+    /**
+     * Check whether lhs and rhs (both are List of SlotReference) are intersecting.
+     */
+    public static boolean isIntersecting(List<SlotReference> lhs, List<SlotReference> rhs) {
+        for (SlotReference lSlot : lhs) {
+            for (SlotReference rSlot : rhs) {
+                if (lSlot.equals(rSlot)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

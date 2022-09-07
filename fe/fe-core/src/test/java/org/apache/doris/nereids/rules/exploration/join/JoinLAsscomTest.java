@@ -84,7 +84,7 @@ public class JoinLAsscomTest {
                 Optional.of(topNonHashExpression), bottomJoin, scans.get(2));
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(topJoin);
-        Rule rule = new JoinLAsscom().build();
+        Rule rule = JoinLAsscom.INNER.build();
         List<Plan> transform = rule.transform(topJoin, cascadesContext);
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
