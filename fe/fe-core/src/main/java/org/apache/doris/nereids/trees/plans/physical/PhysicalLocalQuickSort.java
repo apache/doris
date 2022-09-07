@@ -73,12 +73,12 @@ public class PhysicalLocalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhy
     @Override
     public PhysicalLocalQuickSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalLocalQuickSort<>(orderKeys, logicalProperties, children.get(0));
+        return new PhysicalLocalQuickSort<>(orderKeys, getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalLocalQuickSort<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalLocalQuickSort<>(orderKeys, groupExpression, logicalProperties, child());
+        return new PhysicalLocalQuickSort<>(orderKeys, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -89,7 +89,7 @@ public class PhysicalLocalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhy
     @Override
     public PhysicalLocalQuickSort<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalLocalQuickSort<>(orderKeys, Optional.empty(),
-                logicalProperties, physicalProperties, child());
+                getLogicalProperties(), physicalProperties, child());
     }
 
     @Override

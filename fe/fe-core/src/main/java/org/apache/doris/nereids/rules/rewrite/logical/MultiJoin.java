@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -121,7 +120,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             Set<Slot> joinOutput = getJoinOutput(left, right);
             Optional<Expression> joinCond = conjuncts.stream()
                     .filter(expr -> {
-                        Set<Slot> exprInputSlots = SlotExtractor.extractSlot(expr);
+                        Set<Slot> exprInputSlots = expr.getInputSlots();
                         if (exprInputSlots.isEmpty()) {
                             return false;
                         }
@@ -166,7 +165,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     private Map<Boolean, List<Expression>> splitConjuncts(List<Expression> conjuncts, Set<Slot> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 // TODO: support non equal to conditions.
-                expr -> expr instanceof EqualTo && slots.containsAll(SlotExtractor.extractSlot(expr))));
+                expr -> expr instanceof EqualTo && slots.containsAll(expr.getInputSlots())));
     }
 
     private Set<Slot> getJoinOutput(Plan left, Plan right) {

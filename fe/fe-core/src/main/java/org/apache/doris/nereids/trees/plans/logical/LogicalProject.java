@@ -116,7 +116,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalProject<>(projects, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override

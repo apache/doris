@@ -166,8 +166,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<AggregateFunction> aggregateFunctionList = outputExpressionList.stream()
                 .filter(o -> o.anyMatch(AggregateFunction.class::isInstance))
                 .peek(o -> aggFunctionOutput.add(o.toSlot()))
-                .map(o -> o.<List<AggregateFunction>>collect(AggregateFunction.class::isInstance))
-                .flatMap(List::stream)
+                .map(o -> o.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance))
+                .flatMap(Set::stream)
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateFunctionList.stream()
                 .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
@@ -383,7 +383,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Expr> execEqConjuncts = hashJoin.getHashJoinConjuncts().stream()
                 .map(EqualTo.class::cast)
-                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
+                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 

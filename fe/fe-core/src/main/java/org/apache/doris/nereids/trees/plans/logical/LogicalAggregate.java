@@ -180,7 +180,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                disassembled, normalized, aggPhase, groupExpression, Optional.of(logicalProperties), children.get(0));
+                disassembled, normalized, aggPhase, groupExpression, Optional.of(getLogicalProperties()),
+                children.get(0));
     }
 
     @Override

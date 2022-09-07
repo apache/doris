@@ -34,6 +34,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -95,7 +96,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 }
             }
             for (NamedExpression originOutputExpr : originOutputExprs) {
-                List<AggregateFunction> aggregateFunctions
+                Set<AggregateFunction> aggregateFunctions
                         = originOutputExpr.collect(AggregateFunction.class::isInstance);
                 for (AggregateFunction aggregateFunction : aggregateFunctions) {
                     if (inputSubstitutionMap.containsKey(aggregateFunction)) {

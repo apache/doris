@@ -115,12 +115,12 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public PhysicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalTopN<>(orderKeys, limit, offset, logicalProperties, children.get(0));
+        return new PhysicalTopN<>(orderKeys, limit, offset, getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, child());
+        return new PhysicalTopN<>(orderKeys, limit, offset, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -131,7 +131,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public PhysicalTopN<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalTopN<>(orderKeys, limit, offset, Optional.empty(),
-                logicalProperties, physicalProperties, child());
+                getLogicalProperties(), physicalProperties, child());
     }
 
     @Override
