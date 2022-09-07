@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import java.util.List;
 
 /**
- * A physical relation that contains empty row.
  * e.g.
  * LogicalLimit(limit=0)   => LogicalEmptyRelation(projects=[limit.output()])
  */
