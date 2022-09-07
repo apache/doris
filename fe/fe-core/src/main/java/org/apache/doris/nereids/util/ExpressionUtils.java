@@ -132,14 +132,12 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether lhs and rhs (both are List of SlotReference) are intersecting.
+     * Check whether lhs and rhs are intersecting.
      */
-    public static boolean isIntersecting(List<SlotReference> lhs, List<SlotReference> rhs) {
-        for (SlotReference lSlot : lhs) {
-            for (SlotReference rSlot : rhs) {
-                if (lSlot.equals(rSlot)) {
-                    return true;
-                }
+    public static boolean isIntersecting(Set<SlotReference> lhs, List<SlotReference> rhs) {
+        for (SlotReference rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
             }
         }
         return false;

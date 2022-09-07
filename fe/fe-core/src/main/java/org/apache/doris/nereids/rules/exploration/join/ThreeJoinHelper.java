@@ -103,7 +103,7 @@ abstract class ThreeJoinHelper {
         // Join C = B + A for above example.
         // TODO: also need for otherJoinCondition
         for (Expression topJoinOnClauseConjunct : topJoin.getHashJoinConjuncts()) {
-            List<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
+            Set<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
             if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutput) && ExpressionUtils.isIntersecting(
                     topJoinUsedSlot, bOutput) && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutput)) {
                 return false;
@@ -113,7 +113,7 @@ abstract class ThreeJoinHelper {
         Set<Slot> newBottomJoinSlots = new HashSet<>(aOutput);
         newBottomJoinSlots.addAll(cOutput);
         for (Expression hashConjunct : allHashJoinConjuncts) {
-            List<SlotReference> slots = hashConjunct.collect(SlotReference.class::isInstance);
+            Set<SlotReference> slots = hashConjunct.collect(SlotReference.class::isInstance);
             if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomHashJoinConjuncts.add(hashConjunct);
             } else {
@@ -121,7 +121,7 @@ abstract class ThreeJoinHelper {
             }
         }
         for (Expression nonHashConjunct : allNonHashJoinConjuncts) {
-            List<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
+            Set<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
             if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomNonHashJoinConjuncts.add(nonHashConjunct);
             } else {
@@ -153,7 +153,7 @@ abstract class ThreeJoinHelper {
         HashSet<SlotReference> topJoinOutputSlotsSet = new HashSet<>(topJoinChild);
 
         for (NamedExpression projectExpr : allProjects) {
-            List<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
+            Set<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
             if (topJoinOutputSlotsSet.containsAll(usedSlotRefs)) {
                 newTopJoinChildProjectExprs.add(projectExpr);
             } else {

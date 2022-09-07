@@ -74,7 +74,7 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         // TODO: Does nonHashOnCondition also need to be considered.
         Set<SlotReference> onUsedSlotRef = bottomJoin.getHashJoinConjuncts().stream()
                 .flatMap(expr -> {
-                    List<SlotReference> usedSlotRefs = expr.collect(SlotReference.class::isInstance);
+                    Set<SlotReference> usedSlotRefs = expr.collect(SlotReference.class::isInstance);
                     return usedSlotRefs.stream();
                 }).filter(Utils.getOutputSlotReference(bottomJoin)::contains).collect(Collectors.toSet());
         boolean addRightProject = !newRightProjectExprs.isEmpty();
