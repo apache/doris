@@ -22,7 +22,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -75,6 +74,8 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+
+    private static final int DEFAULT_AGGREGATE_RATIO = 1000;
 
     private final GroupExpression groupExpression;
 
@@ -280,15 +281,20 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
-        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
+        // List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
-        Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
-        long resultSetCount = groupByExpressions.stream()
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .filter(childSlotToColumnStats::containsKey)
-                .map(childSlotToColumnStats::get)
-                .map(ColumnStats::getNdv)
-                .reduce(1L, (a, b) -> a * b);
+        // Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
+        // long resultSetCount = groupByExpressions.stream()
+        //         .flatMap(expr -> expr.getInputSlots().stream())
+        //         .filter(childSlotToColumnStats::containsKey)
+        //         .map(childSlotToColumnStats::get)
+        //         .map(ColumnStats::getNdv)
+        //         .reduce(1L, (a, b) -> a * b);
+        long resultSetCount = childStats.getRowCount() / DEFAULT_AGGREGATE_RATIO;
+        if (resultSetCount <= 0) {
+            resultSetCount = 1L;
+        }
 
         Map<Slot, ColumnStats> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
