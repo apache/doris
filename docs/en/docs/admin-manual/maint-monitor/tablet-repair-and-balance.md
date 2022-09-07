@@ -216,8 +216,6 @@ At the same time, in order to ensure the weight of the initial priority, we stip
 
 Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
 
-> Note 1: The `clone_worker_count` parameter of BE will affect the speed of replica balancing. In the case of low disk pressure, you can speed up replica balancing by adjusting this parameter.
-
 ### BeLoad
 
 The main idea of balancing is to create a replica of some fragments on low-load nodes, and then delete the replicas of these fragments on high-load nodes. At the same time, because of the existence of different storage media, there may or may not exist one or two storage media on different BE nodes in the same cluster. We require that fragments of storage medium A be stored in storage medium A as far as possible after equalization. So we divide the BE nodes of the cluster according to the storage medium. Then load balancing scheduling is carried out for different BE node sets of storage media.
@@ -641,6 +639,13 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 	* Default value: false
 	* Importance:
 
+The following adjustable parameters are all configurable parameters in be.conf.
+
+* clone\_worker\_count
+
+     * Description: Affects the speed of copy equalization. In the case of low disk pressure, you can speed up replica balancing by adjusting this parameter.
+     * Default: 3
+     * Importance: Medium
 ### Unadjustable parameters
 
 The following parameters do not support modification for the time being, just for illustration.
