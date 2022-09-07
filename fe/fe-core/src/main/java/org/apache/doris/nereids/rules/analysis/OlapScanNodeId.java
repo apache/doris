@@ -27,24 +27,26 @@ import java.util.Objects;
  */
 public class OlapScanNodeId extends Id<OlapScanNodeId> {
 
-    private static final IdGenerator<OlapScanNodeId> GENERATOR = new IdGenerator<OlapScanNodeId>() {
-        @Override
-        public OlapScanNodeId getNextId() {
-            return new OlapScanNodeId(nextId++);
-        }
-
-        @Override
-        public OlapScanNodeId getMaxId() {
-            return new OlapScanNodeId(nextId++);
-        }
-    };
-
     public OlapScanNodeId(int id) {
         super(id);
     }
 
-    public static OlapScanNodeId getId() {
-        return GENERATOR.getNextId();
+    /**
+     * create generator
+     * @return generator
+     */
+    public static IdGenerator<OlapScanNodeId> createGenerator() {
+        return new IdGenerator<OlapScanNodeId>() {
+            @Override
+            public OlapScanNodeId getNextId() {
+                return new OlapScanNodeId(nextId++);
+            }
+
+            @Override
+            public OlapScanNodeId getMaxId() {
+                return new OlapScanNodeId(nextId++);
+            }
+        };
     }
 
     @Override

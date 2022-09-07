@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.analysis.OlapScanNodeId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -39,9 +38,6 @@ import java.util.Optional;
  * Logical OlapScan.
  */
 public class LogicalOlapScan extends LogicalRelation {
-
-    public final OlapScanNodeId id;
-
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final boolean partitionPruned;
@@ -51,12 +47,12 @@ public class LogicalOlapScan extends LogicalRelation {
     }
 
     public LogicalOlapScan(OlapTable table, List<String> qualifier) {
-        this(OlapScanNodeId.getId(), table, qualifier, Optional.empty(), Optional.empty(),
+        this(table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false);
     }
 
     public LogicalOlapScan(Table table, List<String> qualifier) {
-        this(OlapScanNodeId.getId(), table, qualifier, Optional.empty(), Optional.empty(),
+        this(table, qualifier, Optional.empty(), Optional.empty(),
                 ((OlapTable) table).getPartitionIds(), false);
     }
 
@@ -66,7 +62,7 @@ public class LogicalOlapScan extends LogicalRelation {
      * @param table Doris table
      * @param qualifier table name qualifier
      */
-    public LogicalOlapScan(OlapScanNodeId id, Table table, List<String> qualifier,
+    public LogicalOlapScan(Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIdList,
             boolean partitionPruned) {
@@ -78,7 +74,6 @@ public class LogicalOlapScan extends LogicalRelation {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
         this.partitionPruned = partitionPruned;
-        this.id = id;
     }
 
     @Override
@@ -103,23 +98,23 @@ public class LogicalOlapScan extends LogicalRelation {
         if (o == null || getClass() != o.getClass() || !super.equals(o)) {
             return false;
         }
-        return id == ((LogicalOlapScan) o).id;
+        return true;
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
                 partitionPruned);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(logicalPropertiesSupplier.get()),
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(logicalPropertiesSupplier.get()),
                 selectedPartitionId, true);
     }
 

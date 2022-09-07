@@ -62,14 +62,14 @@ public class PhysicalOlapScan extends PhysicalRelation {
     }
 
     /**
-     * used at some testcases.
+     * used at testOlapPrune
      */
     @VisibleForTesting
     public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
-        this.id = OlapScanNodeId.getId();
+        this.id = OlapScanNodeId.createGenerator().getNextId();
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = selectedTabletIds;

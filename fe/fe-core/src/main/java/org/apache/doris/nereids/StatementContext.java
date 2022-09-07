@@ -18,6 +18,8 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.rules.analysis.OlapScanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -25,6 +27,7 @@ import org.apache.doris.qe.OriginStatement;
  * Statement context for nereids
  */
 public class StatementContext {
+    public final IdGenerator<OlapScanNodeId> generator = OlapScanNodeId.createGenerator();
     private final ConnectContext connectContext;
     private final OriginStatement originStatement;
 
