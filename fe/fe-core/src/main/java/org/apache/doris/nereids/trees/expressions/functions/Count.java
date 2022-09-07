@@ -37,8 +37,18 @@ public class Count extends AggregateFunction {
         this.isStar = true;
     }
 
+    private Count(boolean isLocal) {
+        super("count", isLocal);
+        this.isStar = true;
+    }
+
     public Count(Expression child) {
         super("count", child);
+        this.isStar = false;
+    }
+
+    private Count(Expression child, boolean isLocal) {
+        super("count", isLocal, child);
         this.isStar = false;
     }
 
@@ -47,8 +57,13 @@ public class Count extends AggregateFunction {
     }
 
     @Override
-    public DataType getDataType() {
+    public DataType getGlobalDataType() {
         return BigIntType.INSTANCE;
+    }
+
+    @Override
+    public DataType getLocalDataType() {
+        return getGlobalDataType();
     }
 
     @Override
@@ -57,12 +72,21 @@ public class Count extends AggregateFunction {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Count withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
         if (children.size() == 0) {
             return new Count();
         }
         return new Count(children.get(0));
+    }
+
+    @Override
+    public Count withLocal(boolean isLocal) {
+        Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
+        if (children.size() == 0) {
+            return new Count(isLocal);
+        }
+        return new Count(children.get(0), isLocal);
     }
 
     @Override

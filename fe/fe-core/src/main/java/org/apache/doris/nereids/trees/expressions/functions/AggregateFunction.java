@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -24,24 +25,32 @@ import org.apache.doris.nereids.types.DataType;
 /** AggregateFunction. */
 public abstract class AggregateFunction extends BoundFunction {
 
-    private DataType intermediate;
+    protected final boolean isLocal;
 
     public AggregateFunction(String name, Expression... arguments) {
+        this(name, false, arguments);
+    }
+
+    public AggregateFunction(String name, boolean isLocal, Expression... arguments) {
         super(name, arguments);
+        this.isLocal = isLocal;
     }
 
     public abstract DataType getIntermediateType();
+
+    public abstract DataType getLocalDataType();
+
+    public abstract DataType getGlobalDataType();
+
+    @Override
+    public final DataType getDataType() throws UnboundException {
+        return isLocal ? getLocalDataType() : getGlobalDataType();
+    }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAggregateFunction(this, context);
     }
 
-    public DataType getIntermediate() {
-        return intermediate;
-    }
-
-    public void setIntermediate(DataType intermediate) {
-        this.intermediate = intermediate;
-    }
+    public abstract AggregateFunction withLocal(boolean isLocal);
 }

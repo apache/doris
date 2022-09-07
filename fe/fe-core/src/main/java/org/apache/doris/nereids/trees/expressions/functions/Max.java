@@ -32,9 +32,18 @@ public class Max extends AggregateFunction implements UnaryExpression {
         super("max", child);
     }
 
+    private Max(Expression child, boolean isLocal) {
+        super("max", isLocal, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getGlobalDataType() {
         return child().getDataType();
+    }
+
+    @Override
+    public DataType getLocalDataType() {
+        return getGlobalDataType();
     }
 
     @Override
@@ -43,9 +52,14 @@ public class Max extends AggregateFunction implements UnaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Max withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(children.get(0));
+        return new Max(children.get(0), isLocal);
+    }
+
+    @Override
+    public Max withLocal(boolean isLocal) {
+        return new Max(child(), isLocal);
     }
 
     @Override

@@ -32,9 +32,18 @@ public class Min extends AggregateFunction implements UnaryExpression {
         super("min", child);
     }
 
+    private Min(Expression child, boolean isLocal) {
+        super("min", isLocal, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getGlobalDataType() {
         return child().getDataType();
+    }
+
+    @Override
+    public DataType getLocalDataType() {
+        return getGlobalDataType();
     }
 
     @Override
@@ -43,9 +52,14 @@ public class Min extends AggregateFunction implements UnaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Min withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Min(children.get(0));
+        return new Min(children.get(0), isLocal);
+    }
+
+    @Override
+    public Min withLocal(boolean isLocal) {
+        return new Min(child(), isLocal);
     }
 
     @Override

@@ -1431,7 +1431,7 @@ public class FunctionCallExpr extends Expr {
         // TODO: Supports type conversion to match the type of the function's parameters
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
-            Type childType = getChild(0).type.getMaxResolutionType();
+            Type childType = getChild(0).type;
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();

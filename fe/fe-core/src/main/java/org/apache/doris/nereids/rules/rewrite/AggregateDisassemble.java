@@ -101,7 +101,8 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     if (inputSubstitutionMap.containsKey(aggregateFunction)) {
                         continue;
                     }
-                    NamedExpression localOutputExpr = new Alias(aggregateFunction, aggregateFunction.toSql());
+                    NamedExpression localOutputExpr
+                            = new Alias(aggregateFunction.withLocal(true), aggregateFunction.toSql());
                     Expression substitutionValue = aggregateFunction.withChildren(
                             Lists.newArrayList(localOutputExpr.toSlot()));
                     inputSubstitutionMap.put(aggregateFunction, substitutionValue);

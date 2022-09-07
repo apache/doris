@@ -20,13 +20,17 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.TypeCollection;
 
@@ -47,8 +51,12 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
         super("avg", child);
     }
 
+    private Avg(Expression child, boolean isLocal) {
+        super("avg", isLocal, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getGlobalDataType() {
         if (child().getDataType() instanceof DecimalType) {
             return child().getDataType();
         } else if (child().getDataType().isDate()) {
@@ -61,14 +69,37 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
+    public DataType getLocalDataType() {
+        DataType dataType = child().getDataType();
+        if (dataType instanceof LargeIntType) {
+            return dataType;
+        } else if (dataType instanceof DecimalType) {
+            // TODO: precision + 10
+            return dataType;
+        } else if (dataType instanceof IntegralType) {
+            return BigIntType.INSTANCE;
+        } else if (dataType instanceof FractionalType) {
+            // TODO: precision + 10
+            return DoubleType.INSTANCE;
+        } else {
+            throw new IllegalStateException("Unsupported sum type: " + dataType);
+        }
+    }
+
+    @Override
     public boolean nullable() {
         return child().nullable();
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Avg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(children.get(0));
+        return new Avg(children.get(0), isLocal);
+    }
+
+    @Override
+    public Avg withLocal(boolean isLocal) {
+        return new Avg(child(), isLocal);
     }
 
     @Override
