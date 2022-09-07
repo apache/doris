@@ -336,12 +336,12 @@ suite("test_window_function") {
              order by a, wjj"""
 
     // test_query_last_value
-    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3})
-             as wj from baseall  order by ${k1}, wj"""
-    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2})
+                 as wj from baseall  order by ${k1}, wj"""
+    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
     qt_last_value4"""select a, max(d) as wjj from 
