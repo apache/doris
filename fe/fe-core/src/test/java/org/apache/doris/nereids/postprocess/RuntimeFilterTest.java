@@ -41,7 +41,7 @@ public class RuntimeFilterTest extends SSBTestBase {
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
         connectContext.getSessionVariable().setEnableNereidsRuntimeFilter(true);
-        connectContext.getSessionVariable().setRuntimeFilterType(15);
+        connectContext.getSessionVariable().setRuntimeFilterType(8);
     }
 
     @Test
@@ -173,7 +173,46 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + "        on t1.p_partkey = t2.lo_partkey\n"
                 + "        order by t1.lo_custkey, t1.p_partkey, t2.s_suppkey, t2.c_custkey, t2.lo_orderkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 4);
+        Assertions.assertTrue(filters.size() == 5
+                && checkRuntimeFilterExpr(filters.get(0), "lo_partkey", "p_partkey")
+                && checkRuntimeFilterExpr(filters.get(1), "lo_partkey", "lo_partkey")
+                && checkRuntimeFilterExpr(filters.get(2), "lo_partkey", "p_partkey")
+                && checkRuntimeFilterExpr(filters.get(3), "c_region", "s_region")
+                && checkRuntimeFilterExpr(filters.get(4), "lo_custkey", "c_custkey"));
+
+    }
+
+    @Test
+    public void testPushDownThroughJoin() throws AnalysisException {
+        String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
+                + " on lo_orderdate = d_datekey) a"
+                + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
+                + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
+                + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertTrue(filters.size() == 7
+                && checkRuntimeFilterExpr(filters.get(0), "lo_custkey", "c_custkey")
+                && checkRuntimeFilterExpr(filters.get(1), "lo_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(3), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(4), "lo_custkey", "s_suppkey")
+                && checkRuntimeFilterExpr(filters.get(5), "s_suppkey", "c_custkey")
+                && checkRuntimeFilterExpr(filters.get(6), "lo_custkey", "c_custkey"));
+    }
+
+    @Test
+    public void testPushDownThroughUnsupportedJoinType() throws AnalysisException {
+        String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
+                + " on lo_orderdate = d_datekey) a"
+                + " inner join (select c_custkey from customer left outer join supplier on c_custkey = s_suppkey) b"
+                + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
+                + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertTrue(filters.size() == 4
+                && checkRuntimeFilterExpr(filters.get(0), "lo_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(1), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(2), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(3), "lo_custkey", "c_custkey"));
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {

@@ -17,14 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -111,26 +109,5 @@ public class RuntimeFilter {
 
     public void setFinalized() {
         this.finalized = true;
-    }
-
-    /**
-     * runtime filter target
-     */
-    public static class RuntimeFilterTarget {
-        SlotReference expr;
-
-        public RuntimeFilterTarget(SlotReference expr) {
-            this.expr = expr;
-        }
-
-        public org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget toLegacyRuntimeFilterTarget(
-                OlapScanNode scanNode, SlotRef targetSlotRef, boolean isLocal) {
-            return new org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget(scanNode,
-                    targetSlotRef, true, isLocal);
-        }
-
-        public SlotReference getExpr() {
-            return expr;
-        }
     }
 }
