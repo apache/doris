@@ -175,7 +175,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 } catch (Exception e) {
                     // ignore
                 }
-                if (!left.getDataType().isDateType() && arithmetic.getTimeUnit().isDateTimeUnit()) {
+                if (!left.getDataType().isDateType() && !arithmetic.getTimeUnit().isDateTimeUnit()) {
                     left = arithmetic.left().castTo(DateType.INSTANCE);
                 }
             }
