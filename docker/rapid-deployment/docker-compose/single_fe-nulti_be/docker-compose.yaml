@@ -1,0 +1,76 @@
+version: '3'
+services:
+  docker-fe:
+    image: "FE-Docker-Image" # E.g "apache/doris:1.1.2-rc06-jdk8-fe"
+    container_name: "doris-fe"
+    tty: true
+    hostname: "fe"
+    restart: always
+    ports:
+      - 8030:8030
+      - 9030:9030
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.2
+  docker-be-01:
+    image: "BE-Docker-Image" # E.g "apache/doris:1.1.2-rc06-jdk8-be"
+    container_name: "doris-be-01"
+    tty: true
+    hostname: "be-01"
+    restart: always
+    ports:
+      - 8041:8040
+      - 9001:9000
+      - 9051:9050
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.3
+  docker-be-02:
+    image: "BE-Docker-Image" # E.g "apache/doris:1.1.2-rc06-jdk8-be"
+    container_name: "doris-be-02"
+    tty: true
+    hostname: "be-02"
+    restart: always
+    ports:
+      - 8042:8040
+      - 9002:9000
+      - 9052:9050
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.4
+  docker-be-03:
+    image: "BE-Docker-Image" # E.g "apache/doris:1.1.2-rc06-jdk8-be"
+    container_name: "doris-be-03"
+    tty: true
+    hostname: "be-03"
+    restart: always
+    ports:
+      - 8043:8040
+      - 9003:9000
+      - 9053:9050
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.5
+  # 请看注意事项！
+  register:
+    image: "Register-Image" # E.g "apache/doris:single_fe-nulti_be-register"
+    container_name: "doris-register"
+    hostname: "register"
+    privileged: true
+    command: ["sh","-c","/root/register.sh"]
+    depends_on:
+      - docker-fe
+      - docker-be-01
+      - docker-be-02
+      - docker-be-03
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.6
+networks:
+  doris_net:
+    ipam:
+      config:
+        - subnet: 172.20.80.0/16

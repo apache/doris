@@ -1,0 +1,47 @@
+version: '3'
+services:
+  docker-fe:
+    image: "FE-Docker-Image" # E.g "apache/doris:1.1.2-rc06-jdk8-fe"
+    container_name: "doris-fe"
+    tty: true
+    hostname: "fe"
+    restart: always
+    ports:
+      - 8030:8030
+      - 9030:9030
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.2
+  docker-be:
+    image: "BE-Docker-Image" # E.g "apache/doris:1.1.2-rc06-jdk8-be"
+    container_name: "doris-be"
+    tty: true
+    hostname: "be"
+    restart: always
+    ports:
+      - 8041:8040
+      - 9001:9000
+      - 9051:9050
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.3
+  register:
+    image: "Register-Image" # E.g "apache/doris:single_fe-single_be-register"
+    container_name: "doris-register"
+    hostname: "register"
+    privileged: true
+    command: ["sh","-c","/root/register.sh"]
+    depends_on:
+      - docker-fe
+      - docker-be-01
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.4
+networks:
+  doris_net:
+    ipam:
+      config:
+        - subnet: 172.20.80.0/16
