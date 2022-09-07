@@ -443,11 +443,14 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         return HashUtil::zlib_crc_hash(v, 2, seed);
     case TYPE_INT:
     case TYPE_DATEV2:
+    case TYPE_DECIMAL32:
         return HashUtil::zlib_crc_hash(v, 4, seed);
     case TYPE_BIGINT:
     case TYPE_DATETIMEV2:
+    case TYPE_DECIMAL64:
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_LARGEINT:
+    case TYPE_DECIMAL128:
         return HashUtil::zlib_crc_hash(v, 16, seed);
     case TYPE_FLOAT:
         return HashUtil::zlib_crc_hash(v, 4, seed);
@@ -468,13 +471,6 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
         return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
     }
-
-    case TYPE_DECIMAL32:
-        return HashUtil::zlib_crc_hash(v, 4, seed);
-    case TYPE_DECIMAL64:
-        return HashUtil::zlib_crc_hash(v, 8, seed);
-    case TYPE_DECIMAL128:
-        return HashUtil::zlib_crc_hash(v, 16, seed);
     default:
         DCHECK(false) << "invalid type: " << type;
         return 0;

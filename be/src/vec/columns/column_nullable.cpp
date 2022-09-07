@@ -75,7 +75,7 @@ void ColumnNullable::update_crcs_with_value(std::vector<uint32_t>& hashes,
     auto s = hashes.size();
     DCHECK(s == size());
     auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(real_null_data), s) == s) {
+    if (!has_null()) {
         nested_column->update_crcs_with_value(hashes, type, nullptr);
     } else {
         for (int i = 0; i < s; ++i) {
