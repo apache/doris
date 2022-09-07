@@ -432,16 +432,6 @@ DECIMAL_VALUE
     : DECIMAL_DIGITS {isValidDecimal()}?
     ;
 
-FLOAT_LITERAL
-    : DIGIT+ EXPONENT? 'F'
-    | DECIMAL_DIGITS EXPONENT? 'F' {isValidDecimal()}?
-    ;
-
-DOUBLE_LITERAL
-    : DIGIT+ EXPONENT? 'D'
-    | DECIMAL_DIGITS EXPONENT? 'D' {isValidDecimal()}?
-    ;
-
 BIGDECIMAL_LITERAL
     : DIGIT+ EXPONENT? 'BD'
     | DECIMAL_DIGITS EXPONENT? 'BD' {isValidDecimal()}?

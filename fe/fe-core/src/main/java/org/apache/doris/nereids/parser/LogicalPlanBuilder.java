@@ -27,6 +27,7 @@ import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
@@ -112,6 +113,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -144,6 +146,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -961,5 +964,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public List<Expression> withInList(PredicateContext ctx) {
         return ctx.expression().stream().map(this::getExpression).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public DecimalLiteral visitDecimalLiteral(DecimalLiteralContext ctx) {
+        return new DecimalLiteral(new BigDecimal(ctx.getText()));
     }
 }
