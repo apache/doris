@@ -442,8 +442,10 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_SMALLINT:
         return HashUtil::zlib_crc_hash(v, 2, seed);
     case TYPE_INT:
+    case TYPE_DATEV2:
         return HashUtil::zlib_crc_hash(v, 4, seed);
     case TYPE_BIGINT:
+    case TYPE_DATETIMEV2:
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_LARGEINT:
         return HashUtil::zlib_crc_hash(v, 16, seed);
@@ -456,21 +458,6 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         const DateTimeValue* date_val = (const DateTimeValue*)v;
         char buf[64];
         int len = date_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, len, seed);
-    }
-    case TYPE_DATEV2: {
-        const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>* date_v2_val =
-                (const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)v;
-        char buf[64];
-        int len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, len, seed);
-    }
-
-    case TYPE_DATETIMEV2: {
-        const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>* date_v2_val =
-                (const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*)v;
-        char buf[64];
-        int len = date_v2_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
     }
 
