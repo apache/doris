@@ -71,17 +71,17 @@ public class PlanEqualsTest {
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                true, false, AggPhase.GLOBAL, child);
+                true, false, true, AggPhase.GLOBAL, child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, true, AggPhase.GLOBAL, child);
+                false, true, true, AggPhase.GLOBAL, child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, false, AggPhase.LOCAL, child);
+                false, false, true, AggPhase.LOCAL, child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -178,20 +178,20 @@ public class PlanEqualsTest {
         List<NamedExpression> outputExpressionList = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalAggregate<Plan> actual = new PhysicalAggregate<>(Lists.newArrayList(), outputExpressionList,
-                Lists.newArrayList(), AggPhase.LOCAL, true, logicalProperties, child);
+                Lists.newArrayList(), AggPhase.LOCAL, true, true, logicalProperties, child);
 
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalAggregate<Plan> expected = new PhysicalAggregate<>(Lists.newArrayList(),
                 outputExpressionList1,
-                Lists.newArrayList(), AggPhase.LOCAL, true, logicalProperties, child);
+                Lists.newArrayList(), AggPhase.LOCAL, true, true, logicalProperties, child);
         Assertions.assertEquals(expected, actual);
 
         List<NamedExpression> outputExpressionList2 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalAggregate<Plan> unexpected = new PhysicalAggregate<>(Lists.newArrayList(),
                 outputExpressionList2,
-                Lists.newArrayList(), AggPhase.LOCAL, false, logicalProperties, child);
+                Lists.newArrayList(), AggPhase.LOCAL, false, true, logicalProperties, child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

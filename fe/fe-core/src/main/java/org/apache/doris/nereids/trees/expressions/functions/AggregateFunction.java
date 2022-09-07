@@ -27,12 +27,23 @@ import org.apache.doris.nereids.types.DataType;
 public abstract class AggregateFunction extends BoundFunction {
 
     private DataType intermediate;
+    private final boolean isDistinct;
 
     public AggregateFunction(String name, Expression... arguments) {
         super(name, arguments);
+        isDistinct = false;
+    }
+
+    public AggregateFunction(String name, boolean isDistinct, Expression... arguments) {
+        super(name, arguments);
+        this.isDistinct = isDistinct;
     }
 
     public abstract DataType getIntermediateType();
+
+    public boolean isDistinct() {
+        return isDistinct;
+    }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
