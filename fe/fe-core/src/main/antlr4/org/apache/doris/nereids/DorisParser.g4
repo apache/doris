@@ -294,6 +294,7 @@ quotedIdentifier
 
 number
     : MINUS? INTEGER_VALUE            #integerLiteral
+    | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
 
