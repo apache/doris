@@ -187,11 +187,18 @@ public:
         return result;
     }
 
-    // `advanced = false` when current block finished
+    // there is two situation in copy_rows:
+    // 1...   `advanced = false` when current block finished, we should copy block before advance(iterator)
+    // If we iterator a block from start to end, _index_in_block=rows()-1, and _cur_batch_num=rows,
+    // so we should copy from (_index_in_block - _cur_batch_num + 1)
+
+    // 2...   `advanced = true` when current block not finished and we advanced to next block, now
+    // cur_batch_num = (pre_block iteraotr num) + 1, but actually pre_block iterator num is cur_batch_num -1
+    // so we have a ` if (advanced) start -- `
     void copy_rows(vectorized::Block* block, bool advanced = true) {
         vectorized::Block& src = _block;
         vectorized::Block& dst = *block;
-        if (_cur_batch_num == 0 || _index_in_block - _cur_batch_num < 0) {
+        if (_cur_batch_num == 0) {
             return;
         }
 
