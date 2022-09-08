@@ -85,7 +85,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         .map(SlotReference.class::cast)
                         .map(SlotReference::getExprId)
                         .collect(Collectors.toList());
-                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.AGGREGATE));
+                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.BUCKETED));
             case DISTINCT_GLOBAL:
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
@@ -151,7 +151,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             if (leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
                 DistributionSpecHash leftHash = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
                 List<ExprId> rightHashEqualSlots = JoinUtils.getOnClauseUsedSlots(hashJoin).second;
-                DistributionSpecHash rightHash = new DistributionSpecHash(rightHashEqualSlots, ShuffleType.JOIN);
+                DistributionSpecHash rightHash = new DistributionSpecHash(rightHashEqualSlots, ShuffleType.BUCKETED);
                 parentDistributionSpec = DistributionSpecHash.merge(leftHash, rightHash);
             }
             return new PhysicalProperties(parentDistributionSpec);
@@ -180,8 +180,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
             }
 
-            // shuffle
-            return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec, ShuffleType.JOIN));
+            // shuffle, if left child is natural mean current join is bucket shuffle join
+            // and remain natural for colocate join on upper join.
+            return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec,
+                    leftHashSpec.getShuffleType() == ShuffleType.NATURAL ? ShuffleType.NATURAL : ShuffleType.BUCKETED));
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);

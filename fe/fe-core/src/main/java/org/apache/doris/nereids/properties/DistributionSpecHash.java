@@ -168,15 +168,11 @@ public class DistributionSpecHash extends DistributionSpec {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        if (requiredHash.shuffleType == ShuffleType.JOIN || requiredHash.shuffleType == ShuffleType.BUCKET) {
-            return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
+            return false;
         }
 
-        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType == ShuffleType.NATURAL) {
-            return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
-        }
-
-        return false;
+        return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
     }
 
     private boolean containsSatisfy(List<ExprId> required) {
@@ -199,6 +195,11 @@ public class DistributionSpecHash extends DistributionSpec {
             }
         }
         return true;
+    }
+
+    public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
     @Override
@@ -234,24 +235,24 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
-        // for olap scan node and colocate join
-        NATURAL,
-        // for bucket shuffle join left
-        BUCKET,
-        // for add distribute node Explicitly
-        ENFORCE,
-        // for shuffle to Aggregate node
+        // require, need to satisfy the distribution spec by aggregation way.
         AGGREGATE,
-        // for Shuffle to Join node
-        JOIN
+        // require, must add a enforce on child node.
+        FORCE_SHUFFLE,
+        // output, for olap scan node and colocate join
+        NATURAL,
+        // output, for all join except colocate join
+        BUCKETED,
+        // output, all distribute enforce
+        ENFORCED,
         ;
 
-        public boolean couldEnforced() {
-            return this != NATURAL && this != BUCKET;
+        public boolean forbiddenEnforce() {
+            return this == NATURAL || this == BUCKETED;
         }
 
-        public boolean mustEnforced() {
-            return this == JOIN;
+        public boolean mustEnforce() {
+            return this == FORCE_SHUFFLE;
         }
     }
 }

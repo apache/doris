@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 
 import com.google.common.collect.Lists;
 
@@ -105,13 +106,18 @@ public class EnforceMissingPropertiesHelper {
     }
 
     private PhysicalProperties enforceDistribution(PhysicalProperties oldOutputProperty) {
-        PhysicalProperties newOutputProperty = new PhysicalProperties(
-                context.getRequiredProperties().getDistributionSpec());
-        GroupExpression enforcer =
-                context.getRequiredProperties().getDistributionSpec().addEnforcer(groupExpression.getOwnerGroup());
+        DistributionSpec outputDistributionSpec;
+        DistributionSpec requiredDistributionSpec = context.getRequiredProperties().getDistributionSpec();
+        if (requiredDistributionSpec instanceof DistributionSpecHash) {
+            DistributionSpecHash requiredDistributionSpecHash = (DistributionSpecHash) requiredDistributionSpec;
+            outputDistributionSpec = requiredDistributionSpecHash.withShuffleType(ShuffleType.ENFORCED);
+        } else {
+            outputDistributionSpec = requiredDistributionSpec;
+        }
 
+        PhysicalProperties newOutputProperty = new PhysicalProperties(outputDistributionSpec);
+        GroupExpression enforcer = outputDistributionSpec.addEnforcer(groupExpression.getOwnerGroup());
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
-
         return newOutputProperty;
     }
 

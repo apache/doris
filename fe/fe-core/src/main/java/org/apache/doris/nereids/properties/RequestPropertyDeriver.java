@@ -138,15 +138,15 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             // bucket shuffle join
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.BUCKET)),
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.BUCKETED)),
                     PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.FORCE_SHUFFLE)));
             // shuffle join
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.FORCE_SHUFFLE)),
                     PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.FORCE_SHUFFLE)));
         }
 
         // for broadcast join

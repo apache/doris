@@ -104,8 +104,8 @@ public class RequestPropertyDeriverTest {
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.FORCE_SHUFFLE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.FORCE_SHUFFLE))
         ));
         Assertions.assertEquals(expected, actual);
     }
@@ -130,8 +130,8 @@ public class RequestPropertyDeriverTest {
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.FORCE_SHUFFLE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.FORCE_SHUFFLE))
         ));
         expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
         Assertions.assertEquals(expected, actual);

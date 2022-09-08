@@ -30,7 +30,7 @@ public class DistributionSpecTest {
         DistributionSpec replicated = DistributionSpecReplicated.INSTANCE;
         DistributionSpec any = DistributionSpecAny.INSTANCE;
         DistributionSpec gather = DistributionSpecGather.INSTANCE;
-        DistributionSpec hash = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.JOIN);
+        DistributionSpec hash = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.FORCE_SHUFFLE);
 
         Assertions.assertTrue(replicated.satisfy(any));
         Assertions.assertTrue(gather.satisfy(any));

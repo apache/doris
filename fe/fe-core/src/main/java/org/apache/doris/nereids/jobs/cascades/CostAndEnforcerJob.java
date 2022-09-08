@@ -206,33 +206,33 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     }
 
     private boolean enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
-        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
-                = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
-        PhysicalProperties requestedProperties = context.getRequiredProperties();
-
-        DistributionSpec requiredDistribution = requestedProperties.getDistributionSpec();
+        PhysicalProperties requiredProperties = context.getRequiredProperties();
+        DistributionSpec requiredDistribution = requiredProperties.getDistributionSpec();
         boolean mustEnforceDistribution = false;
         if (requiredDistribution instanceof DistributionSpecHash) {
-            DistributionSpecHash hash = (DistributionSpecHash) requiredDistribution;
-            if (!hash.getShuffleType().couldEnforced() && !outputProperty.getDistributionSpec().satisfy(hash)) {
+            DistributionSpecHash requiredHash = (DistributionSpecHash) requiredDistribution;
+            if (requiredHash.getShuffleType().forbiddenEnforce()
+                    && !outputProperty.getDistributionSpec().satisfy(requiredHash)) {
                 return false;
             }
-            mustEnforceDistribution = hash.getShuffleType().mustEnforced();
+            mustEnforceDistribution = requiredHash.getShuffleType().mustEnforce();
         }
 
-        if (!outputProperty.satisfy(requestedProperties) || mustEnforceDistribution) {
+        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
+                = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
+        if (!outputProperty.satisfy(requiredProperties) || mustEnforceDistribution) {
             PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
-                    .enforceProperty(outputProperty, requestedProperties, mustEnforceDistribution);
+                    .enforceProperty(outputProperty, requiredProperties, mustEnforceDistribution);
             curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();
 
             // enforcedProperty is superset of requiredProperty
-            if (!addEnforcedProperty.equals(requestedProperties) || mustEnforceDistribution) {
+            if (!addEnforcedProperty.equals(requiredProperties) || mustEnforceDistribution) {
                 recordPropertyAndCost(groupExpression.getOwnerGroup().getBestPlan(addEnforcedProperty),
-                        requestedProperties, requestedProperties, Lists.newArrayList(outputProperty));
+                        addEnforcedProperty, requiredProperties, Lists.newArrayList(outputProperty));
             }
         } else {
-            if (!outputProperty.equals(requestedProperties)) {
-                recordPropertyAndCost(groupExpression, outputProperty, requestedProperties, requestChildrenProperty);
+            if (!outputProperty.equals(requiredProperties)) {
+                recordPropertyAndCost(groupExpression, outputProperty, requiredProperties, requestChildrenProperty);
             }
         }
 

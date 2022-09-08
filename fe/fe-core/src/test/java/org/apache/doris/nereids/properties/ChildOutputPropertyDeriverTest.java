@@ -220,7 +220,7 @@ public class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.JOIN, actual.getShuffleType());
+        Assertions.assertEquals(ShuffleType.FORCE_SHUFFLE, actual.getShuffleType());
         // check merged
         Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
     }
