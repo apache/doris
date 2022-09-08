@@ -163,19 +163,20 @@ public class PlanChecker {
         return transform(cascadesContext.getMemo().getRoot(), rule);
     }
 
+    // Exploration Rule.
     public PlanChecker transform(Group group, Rule rule) {
         // copy groupExpressions can prevent ConcurrentModificationException
         for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
-            transform(logicalExpression, rule);
+            transformApply(logicalExpression, rule);
         }
 
         for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
-            transform(physicalExpression, rule);
+            transformApply(physicalExpression, rule);
         }
         return this;
     }
 
-    public PlanChecker transform(GroupExpression groupExpression, Rule rule) {
+    private void transformApply(GroupExpression groupExpression, Rule rule) {
         GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
 
         for (Plan before : matchResult) {
@@ -188,7 +189,6 @@ public class PlanChecker {
         for (Group childGroup : groupExpression.children()) {
             transform(childGroup, rule);
         }
-        return this;
     }
 
     public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
