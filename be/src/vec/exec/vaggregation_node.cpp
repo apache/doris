@@ -90,7 +90,16 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
           _build_timer(nullptr),
           _serialize_key_timer(nullptr),
           _exec_timer(nullptr),
-          _merge_timer(nullptr) {
+          _merge_timer(nullptr),
+          _expr_timer(nullptr),
+          _get_results_timer(nullptr),
+          _serialize_data_timer(nullptr),
+          _serialize_result_timer(nullptr),
+          _deserialize_data_timer(nullptr),
+          _hash_table_compute_timer(nullptr),
+          _streaming_agg_timer(nullptr),
+          _hash_table_size_counter(nullptr),
+          _hash_table_input_counter(nullptr) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -499,11 +508,14 @@ Status AggregationNode::close(RuntimeState* state) {
     VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
 
-    std::visit(
-            [&](auto&& agg_method) {
-                COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
-            },
-            _agg_data._aggregated_method_variant);
+    /// _hash_table_size_counter may be null if prepare failed.
+    if (_hash_table_size_counter) {
+        std::visit(
+                [&](auto&& agg_method) {
+                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
+                },
+                _agg_data._aggregated_method_variant);
+    }
 
     return ExecNode::close(state);
 }
