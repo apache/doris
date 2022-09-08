@@ -126,7 +126,6 @@ public class PlanChecker {
         return this;
     }
 
-
     public PlanChecker transform(PatternMatcher patternMatcher) {
         return transform(cascadesContext.getMemo().getRoot(), patternMatcher.toRule(RuleType.TEST_EXPLORATION));
     }
