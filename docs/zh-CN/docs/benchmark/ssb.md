@@ -117,20 +117,20 @@ enable_low_cardinality_optimize=true
 执行以下脚本下载并编译 [ssb-dbgen](https://github.com/electrum/ssb-dbgen.git) 工具。
 
 ```shell
-sh bin/build-ssb-dbgen.sh
+bash bin/build-ssb-dbgen.sh
 ```
 
-安装成功后，将在 `ssb-dbgen/` 目录下生成 `dbgen` 二进制文件。
+安装成功后，将在 `bin/ssb-dbgen/` 目录下生成 `dbgen` 二进制文件。
 
 ### 6.2 生成 SSB 测试集
 
 执行以下脚本生成 SSB 数据集：
 
 ```shell
-sh bin/gen-ssb-data.sh
+bash bin/gen-ssb-data.sh
 ```
 
-> 注1：通过 `sh bin/gen-ssb-data.sh -h` 查看脚本帮助，默认 scale factor 为 100（简称sf100），默认生成 10 个数据文件，即 `sh bin/gen-ssb-data.sh -s 100 -c 10`，耗时数分钟。
+> 注1：通过 `bash bin/gen-ssb-data.sh -h` 查看脚本帮助，默认 scale factor 为 100（简称sf100），默认生成 10 个数据文件，即 `bash bin/gen-ssb-data.sh -s 100 -c 10`，耗时数分钟。
 >
 > 注2：数据会以 `.tbl` 为后缀生成在  `bin/ssb-data/` 目录下。文件总大小约60GB。生成时间可能在数分钟到1小时不等，生成完成后会列出生成文件的信息。
 >
@@ -166,7 +166,7 @@ export DB="ssb"
 #### 6.3.2 执行以下脚本生成创建 SSB 表：
 
 ```shell
-sh bin/create-ssb-tables.sh
+bash bin/create-ssb-tables.sh
 ```
 或者复制 [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) 中的建表语句，在 Doris 中执行。
 复制 [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) 中的建表语句，在 Doris 中执行。
@@ -241,12 +241,14 @@ PROPERTIES (
 下面的脚本根据 `conf/doris-cluster.conf` 中的参数连接Doirs进行导入，单线程导入数据量较小的 4 张维度表（customer, part, supplier and date），并发导入 1 张事实表（lineorder），以及采用 'INSERT INTO ... SELECT ... ' 的方式导入宽表（lineorder_flat）。
 
 ```shell
-sh bin/load-ssb-data.sh
+bash bin/load-ssb-data.sh
 ```
 
-> 注1：通过 `sh bin/load-ssb-data.sh -h` 查看脚本帮助, 默认 5 线程并发导入 lineorder，即 `-c 5` 。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
-
+> 注1：通过 `bash bin/load-ssb-data.sh -h` 查看脚本帮助, 默认 5 线程并发导入 lineorder，即 `-c 5` 。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
+>
 > 注2：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
+>
+> 注3：导入customer, part, supplier, date 及 lineorder 表耗时389s，打平到 lineorder_flat 耗时740s.
 
 ### 6.5 检查导入数据
 
@@ -277,7 +279,7 @@ select count(*) from lineorder_flat;
 下面脚本根据 `conf/doris-cluster.conf` 中的参数连接Doris，执行查询前会先打印出各表的数据行数。
 
 ```shell
-sh bin/run-ssb-flat-queries.sh
+bash bin/run-ssb-flat-queries.sh
 ```
 
 #### 6.6.2 测试SQL

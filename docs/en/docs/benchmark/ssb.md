@@ -117,22 +117,22 @@ The scripts covered in the following documents are stored in `tools/ssb-tools/` 
 Execute the following script to download and compile the [ssb-dbgen](https://github.com/electrum/ssb-dbgen.git) tool.
 
 ```shell
-sh bin/build-ssb-dbgen.sh
+bash bin/build-ssb-dbgen.sh
 ````
 
-After successful installation, the `dbgen` binary will be generated in the `ssb-dbgen/` directory.
+After successful installation, the `dbgen` binary will be generated in the `bin/ssb-dbgen/` directory.
 
 ### 6.2 Generate SSB test set
 
 Execute the following script to generate the SSB dataset:
 
 ```shell
-sh bin/gen-ssb-data.sh
+bash bin/gen-ssb-data.sh
 ````
 
-> Note 1: See script help with `sh gen-ssb-data.sh -h`.The default scale factor is 100 (referred to as sf100 for short). By default, it takes several minutes to generate 10 data files, namely `sh bin/gen-SSB-data.sh -s 100 -c 10`.
+> Note 1: See script help with `bash gen-ssb-data.sh -h`.The default scale factor is 100 (referred to as sf100 for short). By default, it takes 6 minutes to generate 10 data files, namely `bash bin/gen-ssb-data.sh -s 100 -c 10`.
 >
-> Note 2: The data will be generated in the directory `bin/SSB-data/` with the suffix`. tbl`. The total file size is about 60GB. The generation time may vary from several minutes to one hour, and the information of the generated files will be listed after the generation is completed.
+> Note 2: The data will be generated in the directory `bin/ssb-data/` with the suffix`. tbl`. The total file size is about 60GB. The generation time may vary from several minutes to one hour, and the information of the generated files will be listed after the generation is completed.
 >
 > Note 3: `-s 100` indicates that the test set scale factor is 100, `-c 10` indicates that 10 concurrent threads generate data for the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file. Use the default parameters to test sf100, and `-s1000 -c100` to test sf1000.
 
@@ -166,7 +166,7 @@ export DB="ssb"
 #### 6.3.2 Execute the following script to generate and create the SSB table:
 
 ```shell
-sh bin/create-ssb-tables.sh
+bash bin/create-ssb-tables.sh
 ````
 
 Or copy the build table in [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) Statement, executed in Doris.
@@ -234,18 +234,19 @@ PROPERTIES (
 );
 ```
 
-> ### 6.4 Import data
->
-> The following script will connects Doirs to import according to the parameters in ` conf/Doris-cluster.conf`, including imports four dimension tables (customer, part, supplier and date) which has a small amount of data in single thread, simultaneously imports one fact table (lineorder), and imports a wide table (lineorder_flat) by' INSERT INTO ... SELECT ...'.
->
-> ```shell
-> sh bin/load-ssb-data.sh
-> ````
->
-> > Note 1: Check the script help through `sh bin/load-SSB-data.sh-h`, and by default, it will start 5 threads to import lineorder concurrently, that is `-c 5`. If more threads are started, the import speed can be accelerated, but additional memory overhead will be added.
->
-> > Note 2: For faster import speed, you can restart BE after adding `flush_thread_num_per_store=5` in be.conf. This configuration indicates the number of disk write threads for each data directory, and the default is 2. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, when the default is 2, the IO Util during the import process is about 12%, and when it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0) .
+### 6.4 Import data
 
+The following script will connects Doirs to import according to the parameters in ` conf/Doris-cluster.conf`, including imports four dimension tables (customer, part, supplier and date) which has a small amount of data in single thread, simultaneously imports one fact table (lineorder), and imports a wide table (lineorder_flat) by' INSERT INTO ... SELECT ...'.
+
+```shell
+bash bin/load-ssb-data.sh
+````
+
+> Note 1: Check the script help through `bash bin/load-ssb-data.sh-h`, and by default, it will start 5 threads to import lineorder concurrently, that is `-c 5`. If more threads are started, the import speed can be accelerated, but additional memory overhead will be added.
+>
+> Note 2: For faster import speed, you can restart BE after adding `flush_thread_num_per_store=5` in be.conf. This configuration indicates the number of disk write threads for each data directory, and the default is 2. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, when the default is 2, the IO Util during the import process is about 12%, and when it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0) .
+>
+> Note 3: It cost about 389s in loading customer, part, supplier, date and lineorder, and 740s in inserting into lineorder_flat.
 ### 6.5 Check imported data
 
 ```sql
@@ -275,7 +276,7 @@ The amount of data should be the same as the number of rows that generate the da
 The following script connects Doris according to the parameters in ` conf/Doris-cluster.conf`, and prints out the rows of each table before executing the query.
 
 ```shell
-sh bin/run-ssb-flat-queries.sh
+bash bin/run-ssb-flat-queries.sh
 ```
 
 #### 6.6.2 Test SQL
