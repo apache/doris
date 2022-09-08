@@ -18,6 +18,8 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -29,6 +31,8 @@ public class StatementContext {
     private final OriginStatement originStatement;
 
     private StatementBase parsedStatement;
+
+    private IdGenerator<RelationId> idGenerator = RelationId.createGenerator();
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
         this.connectContext = connectContext;
@@ -45,6 +49,10 @@ public class StatementContext {
 
     public StatementBase getParsedStatement() {
         return parsedStatement;
+    }
+
+    public RelationId getRelationId() {
+        return idGenerator.getNextId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -69,11 +70,11 @@ public class PushDownPredicateTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
+        rStudent = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student, ImmutableList.of(""));
 
-        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of(""));
+        rScore = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.score, ImmutableList.of(""));
 
-        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of(""));
+        rCourse = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.course, ImmutableList.of(""));
     }
 
     @Test

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -40,12 +41,14 @@ import java.util.Optional;
  */
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
+    public final RelationId id;
+
     protected final Table table;
     protected final List<String> qualifier;
     protected final List<Long> selectedPartitionIds;
 
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
-        this(type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
+    public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
+        this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -54,7 +57,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param table Doris table
      * @param qualifier qualified relation name
      */
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier,
+    public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds) {
         super(type, groupExpression, logicalProperties);
@@ -62,8 +65,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.selectedPartitionIds = ImmutableList.copyOf(
                 Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
+        this.id = id;
     }
 
+    @Override
     public Table getTable() {
         return table;
     }
