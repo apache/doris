@@ -289,10 +289,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         // TODO chenhao , calculated by cost
         result.setMinReservationBytes(0);
         result.setInitialReservationTotalClaims(0);
-        // todo: delete this
-        LOG.info("fragment to thrift: fragment\n{}, thrift\n{}",
-                this.getExplainString(org.apache.doris.thrift.TExplainLevel.VERBOSE),
-                result.toString());
         return result;
     }
 

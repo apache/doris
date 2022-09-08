@@ -17,8 +17,6 @@
 
 
 suite("rollup") {
-    // enable nereids and vectorized engine
-
     sql """
         CREATE TABLE `t1` (
           `k1` int(11) NULL,
