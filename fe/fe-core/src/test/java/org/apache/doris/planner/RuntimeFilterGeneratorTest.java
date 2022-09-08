@@ -101,7 +101,7 @@ public class RuntimeFilterGeneratorTest {
         rhsTableRef.analyze(analyzer);
 
         ArrayList<Expr> testJoinExprs = new ArrayList<>();
-        BinaryPredicate eqJoinConjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, rhsExpr, lhsExpr);
+        BinaryPredicate eqJoinConjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, lhsExpr, rhsExpr);
         testJoinExprs.add(eqJoinConjunct);
 
         hashJoinNode = new HashJoinNode(new PlanNodeId(2), lhsScanNode, rhsScanNode, tableRef, testJoinExprs,
