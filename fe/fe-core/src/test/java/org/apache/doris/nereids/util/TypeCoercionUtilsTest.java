@@ -110,8 +110,8 @@ public class TypeCoercionUtilsTest {
         Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(decimalType, nullType));
         Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(nullType, decimalType));
         Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(smallIntType, integerType));
-        Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(integerType, decimalType));
-        Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(decimalType, integerType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(integerType, decimalType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(decimalType, integerType));
         Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(integerType, integerType));
     }
 
