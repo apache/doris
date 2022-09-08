@@ -1120,9 +1120,7 @@ private:
                   which.is_float() || which.is_date_or_datetime() ||
                   which.is_date_v2_or_datetime_v2() || which.is_string_or_fixed_string();
         if (!ok) {
-            LOG(FATAL) << fmt::format(
-                    "Conversion from {} to {} to_type->get_name() is not supported",
-                    from_type->get_name(), to_type->get_name());
+            return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
         }
 
         return [type_index, precision, scale](FunctionContext* context, Block& block,
@@ -1168,6 +1166,21 @@ private:
         };
     }
 
+    WrapperType create_unsupport_wrapper(const String error_msg) const {
+        LOG(WARNING) << error_msg;
+        return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
+                          const ColumnNumbers& /*arguments*/,
+                          const size_t /*result*/, size_t /*input_rows_count*/) {
+            return Status::InvalidArgument(error_msg);
+        };
+    }
+
+    WrapperType create_unsupport_wrapper(const String from_type_name, const String to_type_name) const {
+        const String error_msg = fmt::format("Conversion from {} to {} is not supported",
+                                  from_type_name, to_type_name);
+        return create_unsupport_wrapper(error_msg);
+    }
+
     WrapperType create_array_wrapper(const DataTypePtr& from_type_untyped,
                                      const DataTypeArray& to_type) const {
         /// Conversion from String through parsing.
@@ -1178,8 +1191,8 @@ private:
         const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
 
         if (!from_type) {
-            LOG(FATAL) << "CAST AS Array can only be performed between same-dimensional Array, "
-                          "String types";
+            return create_unsupport_wrapper(
+                "CAST AS Array can only be performed between same-dimensional Array, String types");
         }
 
         DataTypePtr from_nested_type = from_type->get_nested_type();
@@ -1189,8 +1202,7 @@ private:
 
         if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
             !from_empty_array) {
-            LOG(FATAL)
-                    << "CAST AS Array can only be performed between same-dimensional array types";
+            return create_unsupport_wrapper("CAST AS Array can only be performed between same-dimensional array types");
         }
 
         const DataTypePtr& to_nested_type = to_type.get_nested_type();
@@ -1239,7 +1251,7 @@ private:
 
         if (from_type->only_null()) {
             if (!to_nested->is_nullable()) {
-                LOG(FATAL) << "Cannot convert NULL to a non-nullable type";
+                return create_unsupport_wrapper("Cannot convert NULL to a non-nullable type");
             }
 
             return [](FunctionContext* context, Block& block, const ColumnNumbers&,
@@ -1396,9 +1408,7 @@ private:
             break;
         }
 
-        LOG(FATAL) << fmt::format("Conversion from {} to {} is not supported",
-                                  from_type->get_name(), to_type->get_name());
-        return WrapperType {};
+        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 };
 
