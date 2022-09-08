@@ -19,7 +19,10 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -27,7 +30,8 @@ import com.google.common.base.Preconditions;
 import java.util.Objects;
 
 /**
- * varchar type literal
+ * Varchar type literal, in theory,
+ * the difference from StringLiteral is that VarcharLiteral keeps the length information.
  */
 public class VarcharLiteral extends Literal {
 
@@ -62,5 +66,29 @@ public class VarcharLiteral extends Literal {
     @Override
     public String toString() {
         return "'" + value + "'";
+    }
+
+    // Temporary way to process type coercion in TimestampArithmetic, should be replaced by TypeCoercion rule.
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (getDataType().equals(targetType)) {
+            return this;
+        }
+        if (targetType.isDateType()) {
+            return convertToDate(targetType);
+        } else if (targetType.isIntType()) {
+            return new IntegerLiteral(Integer.parseInt(value));
+        }
+        return this;
+    }
+
+    private DateLiteral convertToDate(DataType targetType) throws AnalysisException {
+        DateLiteral dateLiteral = null;
+        if (targetType.isDate()) {
+            dateLiteral = new DateLiteral(value);
+        } else if (targetType.isDateTime()) {
+            dateLiteral = new DateTimeLiteral(value);
+        }
+        return dateLiteral;
     }
 }
