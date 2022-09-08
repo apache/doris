@@ -168,7 +168,15 @@ public class DistributionSpecHash extends DistributionSpec {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+        if (requiredHash.shuffleType == ShuffleType.JOIN || requiredHash.shuffleType == ShuffleType.BUCKET) {
+            return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+        }
+
+        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType == ShuffleType.NATURAL) {
+            return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+        }
+
+        return false;
     }
 
     private boolean containsSatisfy(List<ExprId> required) {
@@ -228,11 +236,22 @@ public class DistributionSpecHash extends DistributionSpec {
     public enum ShuffleType {
         // for olap scan node and colocate join
         NATURAL,
+        // for bucket shuffle join left
+        BUCKET,
         // for add distribute node Explicitly
         ENFORCE,
         // for shuffle to Aggregate node
         AGGREGATE,
         // for Shuffle to Join node
         JOIN
+        ;
+
+        public boolean couldEnforced() {
+            return this != NATURAL && this != BUCKET;
+        }
+
+        public boolean mustEnforced() {
+            return this == JOIN;
+        }
     }
 }

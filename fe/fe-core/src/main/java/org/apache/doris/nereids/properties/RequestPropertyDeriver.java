@@ -129,7 +129,19 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-            // other shuffle join
+            // colocate join
+            addToRequestPropertyToChildren(
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.NATURAL)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.NATURAL)));
+            // bucket shuffle join
+            addToRequestPropertyToChildren(
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.BUCKET)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+            // shuffle join
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),

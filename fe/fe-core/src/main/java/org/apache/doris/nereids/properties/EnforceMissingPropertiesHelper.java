@@ -47,23 +47,24 @@ public class EnforceMissingPropertiesHelper {
     /**
      * Enforce missing property.
      */
-    public PhysicalProperties enforceProperty(PhysicalProperties output, PhysicalProperties request) {
+    public PhysicalProperties enforceProperty(PhysicalProperties output,
+            PhysicalProperties request, boolean mustEnforceDistribution) {
         boolean isSatisfyOrder = output.getOrderSpec().satisfy(request.getOrderSpec());
         boolean isSatisfyDistribution = output.getDistributionSpec().satisfy(request.getDistributionSpec());
 
         if (!isSatisfyDistribution && !isSatisfyOrder) {
             return enforceSortAndDistribution(output, request);
-        } else if (isSatisfyDistribution && isSatisfyOrder) {
-            return output;
-        } else if (!isSatisfyDistribution) {
+        } else if (!isSatisfyDistribution || mustEnforceDistribution) {
             if (!request.getOrderSpec().getOrderKeys().isEmpty()) {
                 // After redistribute data , original order request may be wrong.
                 return enforceDistributionButMeetSort(output, request);
             }
             return enforceDistribution(output);
-        } else {
+        } else if (!isSatisfyOrder) {
             // Order don't satisfy.
             return enforceLocalSort(output);
+        } else {
+            return output;
         }
     }
 

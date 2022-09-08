@@ -25,6 +25,8 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
@@ -131,8 +133,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
                 // Whether the child group was optimized for this requestChildProperty according to
                 // the result of returning.
-                Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt = childGroup.getLowestCostPlan(
-                        requestChildProperty);
+                Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt
+                        = childGroup.getLowestCostPlan(requestChildProperty);
 
                 if (!lowestCostPlanOpt.isPresent()) {
                     // prevChildIndex >= curChildIndex mean that it is the second time we come here.
@@ -147,8 +149,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     prevChildIndex = curChildIndex;
                     pushJob(clone());
                     double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
-                    JobContext jobContext = new JobContext(context.getCascadesContext(), requestChildProperty,
-                            newCostUpperBound);
+                    JobContext jobContext = new JobContext(context.getCascadesContext(),
+                            requestChildProperty, newCostUpperBound);
                     pushJob(new OptimizeGroupJob(childGroup, jobContext));
                     return;
                 }
@@ -184,14 +186,18 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 curTotalCost -= curNodeCost;
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
                 curTotalCost += curNodeCost;
-                // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
-                recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperty);
-                recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, requestChildrenProperty);
 
-                enforce(outputProperty, requestChildrenProperty);
+                // colocate join and bucket shuffle join cannot add enforce to satisfy required property.
+                if (enforce(outputProperty, requestChildrenProperty)) {
 
-                if (curTotalCost < context.getCostUpperBound()) {
-                    context.setCostUpperBound(curTotalCost);
+                    // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
+                    recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperty);
+                    recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY,
+                            requestChildrenProperty);
+
+                    if (curTotalCost < context.getCostUpperBound()) {
+                        context.setCostUpperBound(curTotalCost);
+                    }
                 }
             }
 
@@ -199,18 +205,28 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         }
     }
 
-    private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
+    private boolean enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
                 = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
-
         PhysicalProperties requestedProperties = context.getRequiredProperties();
-        if (!outputProperty.satisfy(requestedProperties)) {
-            PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper.enforceProperty(outputProperty,
-                    requestedProperties);
+
+        DistributionSpec requiredDistribution = requestedProperties.getDistributionSpec();
+        boolean mustEnforceDistribution = false;
+        if (requiredDistribution instanceof DistributionSpecHash) {
+            DistributionSpecHash hash = (DistributionSpecHash) requiredDistribution;
+            if (!hash.getShuffleType().couldEnforced() && !outputProperty.getDistributionSpec().satisfy(hash)) {
+                return false;
+            }
+            mustEnforceDistribution = hash.getShuffleType().mustEnforced();
+        }
+
+        if (!outputProperty.satisfy(requestedProperties) || mustEnforceDistribution) {
+            PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
+                    .enforceProperty(outputProperty, requestedProperties, mustEnforceDistribution);
             curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();
 
             // enforcedProperty is superset of requiredProperty
-            if (!addEnforcedProperty.equals(requestedProperties)) {
+            if (!addEnforcedProperty.equals(requestedProperties) || mustEnforceDistribution) {
                 recordPropertyAndCost(groupExpression.getOwnerGroup().getBestPlan(addEnforcedProperty),
                         requestedProperties, requestedProperties, Lists.newArrayList(outputProperty));
             }
@@ -219,6 +235,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 recordPropertyAndCost(groupExpression, outputProperty, requestedProperties, requestChildrenProperty);
             }
         }
+
+        return true;
     }
 
     private void recordPropertyAndCost(GroupExpression groupExpression,
