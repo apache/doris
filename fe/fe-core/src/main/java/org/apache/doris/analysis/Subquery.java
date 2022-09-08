@@ -109,7 +109,9 @@ public class Subquery extends Expr {
         ArrayList<Expr> stmtResultExprs = stmt.getResultExprs();
         if (stmtResultExprs.size() == 1) {
             type = stmtResultExprs.get(0).getType();
-            Preconditions.checkState(!type.isComplexType());
+            if (type.isComplexType()) {
+                throw new AnalysisException("A subquery should not return Array/Map/Struct type: " + toSql());
+            }
         } else {
             type = createStructTypeFromExprList();
         }
