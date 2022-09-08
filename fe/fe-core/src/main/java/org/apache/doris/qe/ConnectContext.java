@@ -79,6 +79,8 @@ public class ConnectContext {
     protected volatile MysqlCapability capability;
     // Indicate if this client is killed.
     protected volatile boolean isKilled;
+    // Default Order By Limit
+    protected volatile int defaultOrderByLimit = -1;
     // Db
     protected volatile String currentDb = "";
     protected volatile long currentDbId = -1;
@@ -474,6 +476,14 @@ public class ConnectContext {
     // Set kill flag to true;
     public void setKilled() {
         isKilled = true;
+    }
+
+    public int getDefaultOrderByLimit() {
+        return defaultOrderByLimit;
+    }
+
+    public void setDefaultOrderByLimit(int defaultOrderByLimit) {
+        this.defaultOrderByLimit = defaultOrderByLimit;
     }
 
     public void setQueryId(TUniqueId queryId) {
