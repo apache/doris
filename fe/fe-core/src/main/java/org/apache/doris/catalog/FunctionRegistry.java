@@ -84,7 +84,7 @@ public class FunctionRegistry {
     public FunctionBuilder findFunctionBuilder(String name, List<Expression> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
-        if (functionBuilders.isEmpty()) {
+        if (functionBuilders == null || functionBuilders.isEmpty()) {
             throw new AnalysisException("Can not found function '" + name + "'");
         }
 

@@ -106,11 +106,27 @@ public class FunctionRegistryTest implements PatternMatchSupported {
     }
 
     @Test
+    public void testAddFunction() {
+        FunctionRegistry functionRegistry = new FunctionRegistry() {
+            @Override
+            protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {
+                name2builders.put("foo", FunctionBuilder.resolve(ExtendFunction.class));
+            }
+        };
+
+        ImmutableList<Expression> arguments = ImmutableList.of(Literal.of(1));
+        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder("foo", arguments);
+        BoundFunction function = functionBuilder.build("foo", arguments);
+        Assertions.assertTrue(function.getClass().equals(ExtendFunction.class));
+        Assertions.assertEquals(arguments, function.getArguments());
+    }
+
+    @Test
     public void testOverrideDifferenceTypes() {
         FunctionRegistry functionRegistry = new FunctionRegistry() {
             @Override
             protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {
-                name2builders.put("abc", FunctionBuilder.resolve(Abc.class));
+                name2builders.put("abc", FunctionBuilder.resolve(AmbiguousFunction.class));
             }
         };
 
@@ -120,12 +136,18 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         });
     }
 
-    private static class Abc extends BoundFunction implements UnaryExpression {
-        public Abc(Expression a1) {
+    public static class ExtendFunction extends BoundFunction implements UnaryExpression {
+        public ExtendFunction(Expression a1) {
+            super("foo", a1);
+        }
+    }
+
+    public static class AmbiguousFunction extends BoundFunction implements UnaryExpression {
+        public AmbiguousFunction(Expression a1) {
             super("abc", a1);
         }
 
-        public Abc(Literal a1) {
+        public AmbiguousFunction(Literal a1) {
             super("abc", a1);
         }
     }
