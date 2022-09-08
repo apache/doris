@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -64,7 +65,7 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
 
         private final List<NamedExpression> outputExpressions;
         private final List<Expression> groupByExpressions;
-        private final Map<Expression, Expression> substitution = Maps.newHashMap();
+        private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
 
         Resolver(LogicalAggregate<? extends Plan> aggregate) {
@@ -159,7 +160,7 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
             substitution.put(expression, alias.toSlot());
         }
 
-        public Map<Expression, Expression> getSubstitution() {
+        public Map<Expression, Slot> getSubstitution() {
             return substitution;
         }
 

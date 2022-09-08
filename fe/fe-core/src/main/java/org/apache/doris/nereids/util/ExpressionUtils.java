@@ -202,18 +202,19 @@ public class ExpressionUtils {
      * b + c > 1
      * </pre>
      */
-    public static Expression replace(Expression expr, Map<Expression, Expression> replaceMap) {
+    public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
     }
 
-    private static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
+    private static class ExpressionReplacer
+            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
         private ExpressionReplacer() {
         }
 
         @Override
-        public Expression visit(Expression expr, Map<Expression, Expression> replaceMap) {
+        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
             if (replaceMap.containsKey(expr)) {
                 return replaceMap.get(expr);
             }

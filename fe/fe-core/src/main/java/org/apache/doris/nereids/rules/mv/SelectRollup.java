@@ -391,7 +391,7 @@ public class SelectRollup implements RewriteRuleFactory {
     private List<AggregateFunction> extractAggFunctionAndReplaceSlot(
             LogicalAggregate<?> agg,
             Optional<LogicalProject<?>> project) {
-        Optional<Map<Expression, Expression>> slotToProducerOpt = project.map(Project::getSlotToProducer);
+        Optional<Map<Slot, Expression>> slotToProducerOpt = project.map(Project::getSlotToProducer);
         return agg.getOutputExpressions().stream()
                 // extract aggregate functions.
                 .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
