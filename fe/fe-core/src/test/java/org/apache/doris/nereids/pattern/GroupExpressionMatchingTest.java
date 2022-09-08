@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -44,7 +45,7 @@ public class GroupExpressionMatchingTest {
     public void testLeafNode() {
         Pattern pattern = new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION);
 
-        Memo memo = new Memo(new UnboundRelation(Lists.newArrayList("test")));
+        Memo memo = new Memo(new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test")));
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
@@ -61,11 +62,11 @@ public class GroupExpressionMatchingTest {
         Pattern pattern = new Pattern<>(PlanType.LOGICAL_PROJECT,
                 new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION));
 
-        Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test"));
         LogicalProject root = new LogicalProject(Lists.newArrayList(), leaf);
         Memo memo = new Memo(root);
 
-        Plan anotherLeaf = new UnboundRelation(Lists.newArrayList("test2"));
+        Plan anotherLeaf = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
         GroupExpressionMatching groupExpressionMatching
@@ -90,11 +91,11 @@ public class GroupExpressionMatchingTest {
     public void testDepth2WithGroup() {
         Pattern pattern = new Pattern<>(PlanType.LOGICAL_PROJECT, Pattern.GROUP);
 
-        Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test"));
         LogicalProject root = new LogicalProject(Lists.newArrayList(), leaf);
         Memo memo = new Memo(root);
 
-        Plan anotherLeaf = new UnboundRelation(Lists.newArrayList("test2"));
+        Plan anotherLeaf = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
         GroupExpressionMatching groupExpressionMatching
@@ -114,7 +115,7 @@ public class GroupExpressionMatchingTest {
     public void testLeafAny() {
         Pattern pattern = Pattern.ANY;
 
-        Memo memo = new Memo(new UnboundRelation(Lists.newArrayList("test")));
+        Memo memo = new Memo(new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test")));
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
@@ -129,10 +130,10 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testAnyWithChild() {
         Plan root = new LogicalProject(Lists.newArrayList(),
-                new UnboundRelation(Lists.newArrayList("test")));
+                new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test")));
         Memo memo = new Memo(root);
 
-        Plan anotherLeaf = new UnboundRelation(ImmutableList.of("test2"));
+        Plan anotherLeaf = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
 
         GroupExpressionMatching groupExpressionMatching
@@ -151,8 +152,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testInnerLogicalJoinMatch() {
         Plan root = new LogicalJoin(JoinType.INNER_JOIN,
-                new UnboundRelation(ImmutableList.of("a")),
-                new UnboundRelation(ImmutableList.of("b"))
+                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("a")),
+                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("b"))
         );
 
         Memo memo = new Memo(root);
@@ -173,8 +174,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testInnerLogicalJoinMismatch() {
         Plan root = new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
-                new UnboundRelation(ImmutableList.of("a")),
-                new UnboundRelation(ImmutableList.of("b"))
+                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("a")),
+                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("b"))
         );
 
         Memo memo = new Memo(root);
@@ -190,8 +191,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testTopMatchButChildrenNotMatch() {
         Plan root = new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
-                new UnboundRelation(ImmutableList.of("a")),
-                new UnboundRelation(ImmutableList.of("b"))
+                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("a")),
+                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("b"))
         );
 
         Memo memo = new Memo(root);
@@ -212,9 +213,9 @@ public class GroupExpressionMatchingTest {
                         new UnboundSlot(Lists.newArrayList("b", "id"))),
                         new LogicalJoin(JoinType.INNER_JOIN,
                                 new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
-                                        new UnboundRelation(ImmutableList.of("a")),
-                                        new UnboundRelation(ImmutableList.of("b"))),
-                                new UnboundRelation(ImmutableList.of("c")))
+                                        new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("a")),
+                                        new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("b"))),
+                                new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("c")))
                 );
         Pattern p1 = patterns().logicalFilter(patterns().subTree(LogicalFilter.class, LogicalJoin.class)).pattern;
         Iterator<Plan> matchResult1 = match(root, p1);

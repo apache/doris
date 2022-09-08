@@ -56,7 +56,7 @@ public class PlanOutputTest {
     @Test
     public void testLazyComputeOutput() {
         // not throw exception when create new UnboundRelation
-        UnboundRelation relationPlan = new UnboundRelation(ImmutableList.of("a"));
+        UnboundRelation relationPlan = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("a"));
 
         try {
             // throw exception when getOutput

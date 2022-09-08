@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -36,8 +37,8 @@ public class JoinReorderTest implements PatternMatchSupported {
      */
     @Test
     public void testWithOuterJoin() {
-        UnboundRelation relation1 = new UnboundRelation(Lists.newArrayList("db", "table1"));
-        UnboundRelation relation2 = new UnboundRelation(Lists.newArrayList("db", "table2"));
+        UnboundRelation relation1 = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("db", "table1"));
+        UnboundRelation relation2 = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("db", "table2"));
         LogicalJoin outerJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, relation1, relation2);
         LogicalFilter logicalFilter = new LogicalFilter<>(new BooleanLiteral(false), outerJoin);
 

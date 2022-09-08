@@ -94,12 +94,12 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundRelation(nameParts, groupExpression, Optional.of(getLogicalProperties()));
+        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(nameParts, Optional.empty(), logicalProperties);
+        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties);
     }
 
     @Override

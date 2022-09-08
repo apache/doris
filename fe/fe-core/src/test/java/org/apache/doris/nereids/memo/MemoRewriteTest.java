@@ -60,7 +60,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void a2a() {
-        UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+        UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
         PlanChecker.from(connectContext, student)
                 .applyBottomUp(
                         unboundRelation().then(scan -> scan)
@@ -78,7 +78,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
     public void a2b() {
         LogicalOlapScan student = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
 
-        PlanChecker.from(connectContext, new UnboundRelation(ImmutableList.of("student")))
+        PlanChecker.from(connectContext, new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student")))
                 .applyBottomUp(
                         unboundRelation().then(scan -> student)
                 )
@@ -117,7 +117,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
         LogicalOlapScan student = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
         LogicalLimit<LogicalOlapScan> limit = new LogicalLimit<>(1, 0, student);
 
-        PlanChecker.from(connectContext, new UnboundRelation(ImmutableList.of("student")))
+        PlanChecker.from(connectContext, new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student")))
                 .applyBottomUp(
                         unboundRelation().then(unboundRelation -> limit.withChildren(student))
                 )
@@ -149,7 +149,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
     public void a2ba() {
         // invalid case
         Assertions.assertThrows(IllegalStateException.class, () -> {
-            UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+            UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
             LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, student);
 
             PlanChecker.from(connectContext, student)
@@ -174,7 +174,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
             }
 
             public A(List<String> nameParts, State state, Optional<GroupExpression> groupExpression) {
-                super(nameParts, groupExpression, Optional.empty());
+                super(RelationId.createGenerator().getNextId(), nameParts, groupExpression, Optional.empty());
                 this.state = state;
             }
 
@@ -232,7 +232,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      *
      *      limit(1)                             limit(1)                          limit(1)
      *         |                      ->           |                   ->             |                 ->    ...
-     * UnboundRelation(student)            UnboundRelation(student)         UnboundRelation(student)
+     * UnboundRelation(RelationId.createGenerator().getNextId(), student)            UnboundRelation(RelationId.createGenerator().getNextId(), student)         UnboundRelation(RelationId.createGenerator().getNextId(), student)
      *
      * you should split A into some states:
      * 1. A(not rewrite)
@@ -250,7 +250,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
     @Test()
     public void a2ab() {
         Assertions.assertThrows(IllegalStateException.class, () -> {
-            UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+            UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
             LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, student);
             LogicalOlapScan boundStudent = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
             CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, limit);
@@ -395,7 +395,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void ab2c() {
-        UnboundRelation relation = new UnboundRelation(ImmutableList.of("student"));
+        UnboundRelation relation = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
         LogicalLimit<UnboundRelation> limit10 = new LogicalLimit<>(10, 0, relation);
 
         LogicalOlapScan student = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
@@ -418,7 +418,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void ab2cd() {
-        UnboundRelation relation = new UnboundRelation(ImmutableList.of("student"));
+        UnboundRelation relation = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
         LogicalLimit<UnboundRelation> limit10 = new LogicalLimit<>(10, 0, relation);
 
         LogicalOlapScan student = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
@@ -502,7 +502,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
     @Test
     public void ab2ba() {
         Assertions.assertThrowsExactly(IllegalStateException.class, () -> {
-            UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+            UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
 
             LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, student);
             LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, limit5);
@@ -529,7 +529,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void ab2cde() {
-        UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+        UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
         LogicalLimit<UnboundRelation> limit3 = new LogicalLimit<>(3, 0, student);
 
         LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
@@ -561,7 +561,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void abc2bac() {
-        UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+        UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
 
         LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, student);
         LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, limit5);
@@ -600,7 +600,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void abc2bc() {
-        UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
+        UnboundRelation student = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("student"));
 
         LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, student);
         LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, limit5);
@@ -666,7 +666,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
 
     @Test
     public void testRewriteUnboundPlanToBound() {
-        UnboundRelation unboundTable = new UnboundRelation(ImmutableList.of("score"));
+        UnboundRelation unboundTable = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("score"));
         LogicalOlapScan boundTable = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.score);
 
         PlanChecker.from(connectContext, unboundTable)
@@ -688,7 +688,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
 
     @Test
     public void testRecomputeLogicalProperties() {
-        UnboundRelation unboundTable = new UnboundRelation(ImmutableList.of("score"));
+        UnboundRelation unboundTable = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("score"));
         LogicalLimit<UnboundRelation> unboundLimit = new LogicalLimit<>(1, 0, unboundTable);
 
         LogicalOlapScan boundTable = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.score);
@@ -853,7 +853,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void testRewriteMiddlePlans() {
-        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
+        UnboundRelation unboundRelation = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test"));
         LogicalProject insideProject = new LogicalProject<>(
                 ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 unboundRelation
@@ -910,7 +910,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      */
     @Test
     public void testEliminateRootWithChildPlanThreeLevels() {
-        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
+        UnboundRelation unboundRelation = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test"));
         LogicalProject<UnboundRelation> insideProject = new LogicalProject<>(
                 ImmutableList.of(new SlotReference("inside", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 unboundRelation
