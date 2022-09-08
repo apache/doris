@@ -69,7 +69,7 @@ Status PageReader::skip_page() {
     return Status::OK();
 }
 
-Status PageReader::get_page_date(Slice& slice) {
+Status PageReader::get_page_data(Slice& slice) {
     if (_offset == _next_header_offset) {
         return Status::InternalError("Should call next_page() to generate page header");
     }
