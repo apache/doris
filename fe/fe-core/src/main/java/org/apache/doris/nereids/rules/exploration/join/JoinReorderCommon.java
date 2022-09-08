@@ -26,7 +26,8 @@ import java.util.Optional;
 
 class JoinReorderCommon {
     public enum Type {
-        INNER, OUTER
+        INNER,
+        OUTER
     }
 
     public static Optional<Plan> project(List<NamedExpression> projectExprs, Plan plan) {

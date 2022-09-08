@@ -49,20 +49,22 @@ public class JoinCommute extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin().when(this::check).then(join -> {
-            LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
-                    join.getJoinType(),
-                    join.getHashJoinConjuncts(),
-                    join.getOtherJoinCondition(),
-                    join.right(), join.left(),
-                    join.getJoinReorderContext());
-            newJoin.getJoinReorderContext().setHasCommute(true);
-            if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
-                newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
-            }
+        return innerLogicalJoin()
+                .when(this::check)
+                .then(join -> {
+                    LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
+                            join.getJoinType(),
+                            join.getHashJoinConjuncts(),
+                            join.getOtherJoinCondition(),
+                            join.right(), join.left(),
+                            join.getJoinReorderContext());
+                    newJoin.getJoinReorderContext().setHasCommute(true);
+                    if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
+                        newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
+                    }
 
-            return JoinReorderCommon.project(new ArrayList<>(join.getOutput()), newJoin).get();
-        }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+                    return JoinReorderCommon.project(new ArrayList<>(join.getOutput()), newJoin).get();
+                }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 
     private boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
@@ -70,7 +72,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
             return false;
         }
 
-        return !join.getJoinReorderContext().isHasCommute() && !join.getJoinReorderContext().isHasExchange();
+        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
     }
 
     private boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
@@ -79,6 +81,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private boolean containJoin(GroupPlan groupPlan) {
+        // TODO: tmp way to judge containJoin
         List<SlotReference> output = Utils.getOutputSlotReference(groupPlan);
         return !output.stream().map(SlotReference::getQualifier).allMatch(output.get(0).getQualifier()::equals);
     }

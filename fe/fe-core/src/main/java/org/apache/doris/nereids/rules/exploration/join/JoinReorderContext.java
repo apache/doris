@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.exploration.join;
 
 /**
  * JoinReorderContext for Duplicate free.
@@ -63,7 +63,7 @@ public class JoinReorderContext {
         hasLeftAssociate = false;
     }
 
-    public boolean isHasCommute() {
+    public boolean hasCommute() {
         return hasCommute;
     }
 
@@ -71,7 +71,7 @@ public class JoinReorderContext {
         this.hasCommute = hasCommute;
     }
 
-    public boolean isHasLAsscom() {
+    public boolean hasLAsscom() {
         return hasLAsscom;
     }
 
@@ -79,7 +79,7 @@ public class JoinReorderContext {
         this.hasLAsscom = hasLAsscom;
     }
 
-    public boolean isHasExchange() {
+    public boolean hasExchange() {
         return hasExchange;
     }
 
@@ -87,7 +87,7 @@ public class JoinReorderContext {
         this.hasExchange = hasExchange;
     }
 
-    public boolean isHasRightAssociate() {
+    public boolean hasRightAssociate() {
         return hasRightAssociate;
     }
 
@@ -95,7 +95,7 @@ public class JoinReorderContext {
         this.hasRightAssociate = hasRightAssociate;
     }
 
-    public boolean isHasLeftAssociate() {
+    public boolean hasLeftAssociate() {
         return hasLeftAssociate;
     }
 
@@ -103,7 +103,7 @@ public class JoinReorderContext {
         this.hasLeftAssociate = hasLeftAssociate;
     }
 
-    public boolean isHasCommuteZigZag() {
+    public boolean hasCommuteZigZag() {
         return hasCommuteZigZag;
     }
 

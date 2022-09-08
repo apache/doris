@@ -111,14 +111,14 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
     public static boolean check(Type type, LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         if (type == Type.INNER) {
-            return !bottomJoin.getJoinReorderContext().isHasCommuteZigZag()
-                    && !topJoin.getJoinReorderContext().isHasLAsscom();
+            return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                    && !topJoin.getJoinReorderContext().hasLAsscom();
         } else {
             // hasCommute will cause to lack of OuterJoinAssocRule:Left
-            return !topJoin.getJoinReorderContext().isHasLeftAssociate()
-                    && !topJoin.getJoinReorderContext().isHasRightAssociate()
-                    && !topJoin.getJoinReorderContext().isHasExchange()
-                    && !bottomJoin.getJoinReorderContext().isHasCommute();
+            return !topJoin.getJoinReorderContext().hasLeftAssociate()
+                    && !topJoin.getJoinReorderContext().hasRightAssociate()
+                    && !topJoin.getJoinReorderContext().hasExchange()
+                    && !bottomJoin.getJoinReorderContext().hasCommute();
         }
     }
 }
