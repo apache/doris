@@ -44,15 +44,15 @@ suite("test_nereids_having") {
     """
 
 
-    order_qt_select "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
-    order_qt_select "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
-    order_qt_select "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
-    order_qt_select "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-    order_qt_select "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-    order_qt_select "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-    order_qt_select "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
-    order_qt_select "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
-    order_qt_select "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2) > 0";
-    order_qt_select "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
-    order_qt_select "SELECT a1 FROM t1 GROUP BY a1 HAVING COUNT(*) > 0";
+    order_qt_select "SELECT a1 AS value FROM t1 GROUP BY a1 HAVING a1 > 0 ORDER BY value";
+    order_qt_select "SELECT a1 AS value FROM t1 GROUP BY a1 HAVING value > 0 ORDER BY value";
+    order_qt_select "SELECT SUM(a2) AS value FROM t1 GROUP BY a1 HAVING a1 > 0 order by value";
+    order_qt_select "SELECT a1 AS value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0 order by value";
+    order_qt_select "SELECT a1 AS value, SUM(a2) FROM t1 GROUP BY a1 HAVING SUM(a2) > 0 order by value";
+    order_qt_select "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0 order by value";
+    order_qt_select "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0 order by value";
+    order_qt_select "SELECT a1 AS value, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0 order by value";
+    order_qt_select "SELECT a1 AS value, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2) > 0 order by value";
+    order_qt_select "SELECT a1 AS value, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0 order by value";
+    order_qt_select "SELECT a1 AS value FROM t1 GROUP BY a1 HAVING COUNT(*) > 0 order by value";
 }
