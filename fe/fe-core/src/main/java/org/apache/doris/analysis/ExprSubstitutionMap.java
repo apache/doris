@@ -294,6 +294,8 @@ public final class ExprSubstitutionMap {
      * and that all rhs exprs are analyzed.
      */
     private void verify() {
+        // This method is very very time consuming, especially when planning large complex query.
+        // So disable it by default.
         if (LOG.isDebugEnabled()) {
             for (int i = 0; i < lhs.size(); ++i) {
                 for (int j = i + 1; j < lhs.size(); ++j) {
