@@ -85,6 +85,8 @@ check_prerequest() {
 }
 
 check_prerequest "mysqlslap --version" "mysqlslap"
+check_prerequest "mysql --version" "mysql"
+check_prerequest "bc --version" "bc"
 
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD}
@@ -95,25 +97,57 @@ echo "USER: ${USER}"
 echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 
-pre_set() {
+run_sql() {
     echo "$@"
     mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@"
 }
 
-pre_set "set global enable_vectorized_engine=1;"
-pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=8G;"
-pre_set "set global batch_size=4096;"
 echo '============================================'
-pre_set "show variables;"
+echo "optimize some session variables before run, and then restore it after run."
+origin_enable_vectorized_engine=$(
+    set -e
+    run_sql 'select @@enable_vectorized_engine;' | sed -n '3p'
+)
+origin_parallel_fragment_exec_instance_num=$(
+    set -e
+    run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
+)
+origin_exec_mem_limit=$(
+    set -e
+    run_sql 'select @@exec_mem_limit;' | sed -n '3p'
+)
+origin_batch_size=$(
+    set -e
+    run_sql 'select @@batch_size;' | sed -n '3p'
+)
+run_sql "set global enable_vectorized_engine=1;"
+run_sql "set global parallel_fragment_exec_instance_num=8;"
+run_sql "set global exec_mem_limit=8G;"
+run_sql "set global batch_size=4096;"
 echo '============================================'
-pre_set "show table status;"
+run_sql "show variables;"
+echo '============================================'
+run_sql "show table status;"
 echo '============================================'
 
+sum=0
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
     # First run to prevent the affect of cold start
     mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D "${DB}" <"${QUERIES_DIR}/q${i}.sql" >/dev/null 2>&1
     # Then run 3 times and takes the average time
     res=$(mysqlslap -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" --create-schema="${DB}" --query="${QUERIES_DIR}/q${i}.sql" -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
     echo "q${i}: ${res}"
+    cost=$(echo "${res}" | cut -d' ' -f1)
+    sum=$(echo "${sum} + ${cost}" | bc)
 done
+echo "total time: ${sum} seconds"
+
+echo '============================================'
+echo "restore session variables"
+run_sql "set global enable_vectorized_engine=${origin_enable_vectorized_engine};"
+run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel_fragment_exec_instance_num};"
+run_sql "set global exec_mem_limit=${origin_exec_mem_limit};"
+run_sql "set global batch_size=${origin_batch_size};"
+echo '============================================'
+
+echo 'Done.'

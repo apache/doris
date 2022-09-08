@@ -117,7 +117,7 @@ enable_low_cardinality_optimize=true
 执行以下脚本下载并编译 [ssb-dbgen](https://github.com/electrum/ssb-dbgen.git) 工具。
 
 ```shell
-sh build-ssb-dbgen.sh
+sh bin/build-ssb-dbgen.sh
 ```
 
 安装成功后，将在 `ssb-dbgen/` 目录下生成 `dbgen` 二进制文件。
@@ -127,20 +127,20 @@ sh build-ssb-dbgen.sh
 执行以下脚本生成 SSB 数据集：
 
 ```shell
-sh gen-ssb-data.sh -s 100 -c 100
+sh bin/gen-ssb-data.sh
 ```
 
-> 注1：通过 `sh gen-ssb-data.sh -h` 查看脚本帮助。
+> 注1：通过 `sh bin/gen-ssb-data.sh -h` 查看脚本帮助，默认 scale factor 为 100（简称sf100），默认生成 10 个数据文件，即 `sh bin/gen-ssb-data.sh -s 100 -c 10`，耗时数分钟。
 >
-> 注2：数据会以 `.tbl` 为后缀生成在  `ssb-data/` 目录下。文件总大小约60GB。生成时间可能在数分钟到1小时不等。
+> 注2：数据会以 `.tbl` 为后缀生成在  `bin/ssb-data/` 目录下。文件总大小约60GB。生成时间可能在数分钟到1小时不等，生成完成后会列出生成文件的信息。
 >
-> 注3：`-s 100` 表示测试集大小系数为 100，`-c 100` 表示并发100个线程生成 lineorder 表的数据。`-c` 参数也决定了最终 lineorder 表的文件数量。参数越大，文件数越多，每个文件越小。
+> 注3：`-s 100` 表示测试集大小系数为 100，`-c 10` 表示并发10个线程生成 lineorder 表的数据。`-c` 参数也决定了最终 lineorder 表的文件数量。参数越大，文件数越多，每个文件越小。测试sf100用默认参数即可，测试sf1000用 `-s 1000 -c 100` 。
 
 在 `-s 100` 参数下，生成的数据集大小为：
 
 | Table     | Rows             | Size | File Number |
 | --------- | ---------------- | ---- | ----------- |
-| lineorder | 6亿（600037902） | 60GB | 100         |
+| lineorder | 6亿（600037902） | 60GB | 10          |
 | customer  | 300万（3000000） | 277M | 1           |
 | part      | 140万（1400000） | 116M | 1           |
 | supplier  | 20万（200000）   | 17M  | 1           |
@@ -148,38 +148,30 @@ sh gen-ssb-data.sh -s 100 -c 100
 
 ### 6.3 建表
 
-#### 6.3.1 准备 `doris-cluster.conf` 文件。
+#### 6.3.1 准备 `conf/doris-cluster.conf` 文件。
 
-在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
+在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `conf/doris-cluster.conf` 文件中。
 
-文件位置和 `load-ssb-dimension-data.sh` 平级。
-
-文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
+文件内容包括 FE 的 ip，HTTP 端口，用户名，密码（默认为空）以及待导入数据的 DB 名称：
 
 ```shell
-export FE_HOST="xxx"
+export FE_HOST="127.0.0.1"
 export FE_HTTP_PORT="8030"
 export FE_QUERY_PORT="9030"
 export USER="root"
-export PASSWORD='xxx'
+export PASSWORD=""
 export DB="ssb"
 ```
 
 #### 6.3.2 执行以下脚本生成创建 SSB 表：
 
 ```shell
-sh create-ssb-tables.sh
+sh bin/create-ssb-tables.sh
 ```
 或者复制 [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) 中的建表语句，在 Doris 中执行。
+复制 [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) 中的建表语句，在 Doris 中执行。
 
-#### 6.3.3 执行以下脚本生成创建 SSB flat 表：
-
-```shell
-sh create-ssb-flat-table.sh
-```
-或者复制 [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) 中的建表语句，在 Doris 中执行。
-
-下面是 `lineorder_flat` 表建表语句。在上面的 `create-ssb-flat-table.sh`  脚本中创建"lineorder_flat"表，并进行了默认分桶数（48个桶)。您可以删除该表，根据您的集群规模节点配置对这个分桶数进行调整，这样可以获取到更好的一个测试效果。
+下面是 `lineorder_flat` 表建表语句。在上面的 `bin/create-ssb-table.sh`  脚本中创建"lineorder_flat"表，并进行了默认分桶数（48个桶)。您可以删除该表，根据您的集群规模节点配置对这个分桶数进行调整，这样可以获取到更好的一个测试效果。
 
 ```sql
 CREATE TABLE `lineorder_flat` (
@@ -246,35 +238,15 @@ PROPERTIES (
 
 ### 6.4 导入数据
 
-#### 6.4.1 导入 4 张维度表数据
-
-因为这 4 张维表（customer, part, supplier and date）数据量较小，导入较简单，我们使用以下命令先导入这4表的数据：
+下面的脚本根据 `conf/doris-cluster.conf` 中的参数连接Doirs进行导入，单线程导入数据量较小的 4 张维度表（customer, part, supplier and date），并发导入 1 张事实表（lineorder），以及采用 'INSERT INTO ... SELECT ... ' 的方式导入宽表（lineorder_flat）。
 
 ```shell
-sh load-ssb-dimension-data.sh
+sh bin/load-ssb-data.sh
 ```
 
-#### 6.4.2 导入事实表 lineorder。
+> 注1：通过 `sh bin/load-ssb-data.sh -h` 查看脚本帮助, 默认 5 线程并发导入 lineorder，即 `-c 5` 。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
 
-通过以下命令导入 lineorder 表数据
-
-````shell
-sh load-ssb-fact-data.sh -c 5
-````
-
-`-c 5` 表示启动 5 个并发线程导入（默认为3）。在单 BE 节点情况下，由 `sh gen-ssb-data.sh -s 100 -c 100` 生成的 lineorder 数据，使用 `sh load-ssb-fact-data.sh -c 3` 的导入时间约为 10min。内存开销约为 5-6GB。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
-
-> 注：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
-
-#### 6.4.3 导入flat表
-
-通过以下命令导入 lineorder_flat 表数据：
-
-```shell
-sh load-ssb-flat-data.sh
-```
-
-> 注：flat 表数据采用 'INSERT INTO ... SELECT ... ' 的方式导入。
+> 注2：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
 
 ### 6.5 检查导入数据
 
@@ -300,7 +272,15 @@ select count(*) from lineorder_flat;
 
 ### 6.6 查询测试
 
-#### 6.6.1 测试SQL
+#### 6.6.1 测试脚本
+
+下面脚本根据 `conf/doris-cluster.conf` 中的参数连接Doris，执行查询前会先打印出各表的数据行数。
+
+```shell
+sh bin/run-ssb-flat-queries.sh
+```
+
+#### 6.6.2 测试SQL
 
 ```sql
 --Q1.1

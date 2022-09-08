@@ -117,7 +117,7 @@ The scripts covered in the following documents are stored in `tools/ssb-tools/` 
 Execute the following script to download and compile the [ssb-dbgen](https://github.com/electrum/ssb-dbgen.git) tool.
 
 ```shell
-sh build-ssb-dbgen.sh
+sh bin/build-ssb-dbgen.sh
 ````
 
 After successful installation, the `dbgen` binary will be generated in the `ssb-dbgen/` directory.
@@ -127,20 +127,20 @@ After successful installation, the `dbgen` binary will be generated in the `ssb-
 Execute the following script to generate the SSB dataset:
 
 ```shell
-sh gen-ssb-data.sh -s 100 -c 100
+sh bin/gen-ssb-data.sh
 ````
 
-> Note 1: See script help with `sh gen-ssb-data.sh -h`.
+> Note 1: See script help with `sh gen-ssb-data.sh -h`.The default scale factor is 100 (referred to as sf100 for short). By default, it takes several minutes to generate 10 data files, namely `sh bin/gen-SSB-data.sh -s 100 -c 10`.
 >
-> Note 2: The data will be generated in the `ssb-data/` directory with the suffix `.tbl`. The total file size is about 60GB. The generation time may vary from a few minutes to an hour.
+> Note 2: The data will be generated in the directory `bin/SSB-data/` with the suffix`. tbl`. The total file size is about 60GB. The generation time may vary from several minutes to one hour, and the information of the generated files will be listed after the generation is completed.
 >
-> Note 3: `-s 100` indicates that the test set size factor is 100, `-c 100` indicates that 100 concurrent threads generate data for the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file.
+> Note 3: `-s 100` indicates that the test set scale factor is 100, `-c 10` indicates that 10 concurrent threads generate data for the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file. Use the default parameters to test sf100, and `-s1000 -c100` to test sf1000.
 
 With the `-s 100` parameter, the resulting dataset size is:
 
 | Table     | Rows             | Size | File Number |
 | --------- | ---------------- | ---- | ----------- |
-| lineorder | 6亿（600037902） | 60GB | 100         |
+| lineorder | 6亿（600037902） | 60GB | 10         |
 | customer  | 300万（3000000） | 277M | 1           |
 | part      | 140万（1400000） | 116M | 1           |
 | supplier  | 20万（200000）   | 17M  | 1           |
@@ -148,40 +148,31 @@ With the `-s 100` parameter, the resulting dataset size is:
 
 ### 6.3 Create table
 
-#### 6.3.1 Prepare the `doris-cluster.conf` file.
+#### 6.3.1 Prepare the `conf/doris-cluster.conf` file.
 
-Before calling the import script, you need to write the FE's ip port and other information in the `doris-cluster.conf` file.
-
-File location and `load-ssb-dimension-data.sh` level.
+Before calling the import script, you need to write the FE's ip port and other information in the `conf/doris-cluster.conf` file.
 
 The contents of the file include FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
 
 ```shell
-export FE_HOST="xxx"
+export FE_HOST="127.0.0.1"
 export FE_HTTP_PORT="8030"
 export FE_QUERY_PORT="9030"
 export USER="root"
-export PASSWORD='xxx'
+export PASSWORD=""
 export DB="ssb"
 ````
 
 #### 6.3.2 Execute the following script to generate and create the SSB table:
 
 ```shell
-sh create-ssb-tables.sh
+sh bin/create-ssb-tables.sh
 ````
 
 Or copy the build table in [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) Statement, executed in Doris.
+copy [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) The table building statement in , executed in Doris.
 
-#### 6.3.3 Execute the following script to generate and create an SSB flat table:
-
-```shell
-sh create-ssb-flat-table.sh
-````
-
-Or copy [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) The table building statement in , executed in Doris.
-
-Below is the `lineorder_flat` table building statement. The "lineorder_flat" table is created in the above `create-ssb-flat-table.sh` script with the default number of buckets (48 buckets). You can delete this table and adjust the number of buckets according to your cluster size node configuration, so as to obtain a better test effect.
+Below is the `lineorder_flat` table building statement. The "lineorder_flat" table is created in the above `bin/create-ssb-flat-table.sh` script with the default number of buckets (48 buckets). You can delete this table and adjust the number of buckets according to your cluster size node configuration, so as to obtain a better test effect.
 
 ```sql
 CREATE TABLE `lineorder_flat` (
@@ -245,35 +236,15 @@ PROPERTIES (
 
 > ### 6.4 Import data
 >
-> #### 6.4.1 Import 4 dimension table data
->
-> Because the data volume of these four dimension tables (customer, part, supplier and date) is small, the import is relatively simple. We use the following command to import the data of these four tables first:
+> The following script will connects Doirs to import according to the parameters in ` conf/Doris-cluster.conf`, including imports four dimension tables (customer, part, supplier and date) which has a small amount of data in single thread, simultaneously imports one fact table (lineorder), and imports a wide table (lineorder_flat) by' INSERT INTO ... SELECT ...'.
 >
 > ```shell
-> sh load-ssb-dimension-data.sh
+> sh bin/load-ssb-data.sh
 > ````
 >
-> #### 6.4.2 Import fact table lineorder.
+> > Note 1: Check the script help through `sh bin/load-SSB-data.sh-h`, and by default, it will start 5 threads to import lineorder concurrently, that is `-c 5`. If more threads are started, the import speed can be accelerated, but additional memory overhead will be added.
 >
-> Import the lineorder table data by the following command
->
-> ````shell
-> sh load-ssb-fact-data.sh -c 5
-> ````
->
-> `-c 5` means start 5 concurrent thread imports (default is 3). In the case of a single BE node, the import time of the lineorder data generated by `sh gen-ssb-data.sh -s 100 -c 100` using `sh load-ssb-fact-data.sh -c 3` is about 10min. Memory overhead is about 5-6GB. If you start more threads, you can speed up the import, but it will add additional memory overhead.
->
-> > Note: For faster import speed, you can restart BE after adding `flush_thread_num_per_store=5` in be.conf. This configuration indicates the number of disk write threads for each data directory, and the default is 2. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, when the default is 2, the IO Util during the import process is about 12%, and when it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0) .
->
-> #### 6.4.3 Import flat table
->
-> Import the lineorder_flat table data with the following command:
->
-> ```shell
-> sh load-ssb-flat-data.sh
-> ````
->
-> > Note: Flat table data is imported in the way of 'INSERT INTO ... SELECT ... '.
+> > Note 2: For faster import speed, you can restart BE after adding `flush_thread_num_per_store=5` in be.conf. This configuration indicates the number of disk write threads for each data directory, and the default is 2. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, when the default is 2, the IO Util during the import process is about 12%, and when it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0) .
 
 ### 6.5 Check imported data
 
@@ -299,7 +270,15 @@ The amount of data should be the same as the number of rows that generate the da
 
 ### 6.6 Query test
 
-#### 6.6.1 Test SQL
+#### 6.6.1 Test script
+
+The following script connects Doris according to the parameters in ` conf/Doris-cluster.conf`, and prints out the rows of each table before executing the query.
+
+```shell
+sh bin/run-ssb-flat-queries.sh
+```
+
+#### 6.6.2 Test SQL
 
 ```sql
 --Q1.1
