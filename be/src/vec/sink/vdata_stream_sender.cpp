@@ -185,22 +185,6 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::add_row(Block* block, int row) {
-    if (_fragment_instance_id.lo == -1) {
-        return Status::OK();
-    }
-
-    if (_mutable_block.get() == nullptr) {
-        _mutable_block.reset(new MutableBlock(block->clone_empty()));
-    }
-    _mutable_block->add_row(block, row);
-
-    if (_mutable_block->rows() == _parent->state()->batch_size()) {
-        RETURN_IF_ERROR(send_current_block());
-    }
-    return Status::OK();
-}
-
 Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>& rows) {
     if (_fragment_instance_id.lo == -1) {
         return Status::OK();
