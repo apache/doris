@@ -1739,7 +1739,7 @@ public class RestoreJob extends AbstractJob {
                 if (committed && reserveDynamicPartitionEnable) {
                     if (DynamicPartitionUtil.isDynamicPartitionTable(tbl)) {
                         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTbl, false);
-                        Catalog.getCurrentCatalog().getDynamicPartitionScheduler().createOrUpdateRuntimeInfo(tbl.getId(),
+                        env.getCurrentCatalog().getDynamicPartitionScheduler().createOrUpdateRuntimeInfo(tbl.getId(),
                                 DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
                     }
                 }
