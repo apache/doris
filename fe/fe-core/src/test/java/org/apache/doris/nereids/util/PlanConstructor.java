@@ -96,7 +96,6 @@ public class PlanConstructor {
         return table;
     }
 
-
     // With OlapTable.
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
