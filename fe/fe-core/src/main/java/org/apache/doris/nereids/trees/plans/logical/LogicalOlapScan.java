@@ -70,7 +70,7 @@ public class LogicalOlapScan extends LogicalRelation {
             boolean partitionPruned, List<Long> candidateIndexIds, boolean rollupSelected) {
         super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties, selectedPartitionIdList);
-        // TODO: use CBO manner to select best index id, according to index's statistics info, e.g., row count.
+        // TODO: use CBO manner to select best index id, according to index's statistics info,
         //   revisit this after rollup and materialized view selection are fully supported.
         this.selectedIndexId = CollectionUtils.isEmpty(candidateIndexIds)
                 ? getTable().getBaseIndexId() : candidateIndexIds.get(0);
