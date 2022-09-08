@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+/**
+ * The function which consume zero or more arguments in a row and product one value.
+ */
 public abstract class ScalarFunction extends BoundFunction {
     public ScalarFunction(String name, Expression... arguments) {
         super(name, arguments);
