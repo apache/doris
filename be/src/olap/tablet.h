@@ -111,7 +111,6 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
-    int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
