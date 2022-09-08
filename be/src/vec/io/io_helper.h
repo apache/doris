@@ -123,7 +123,7 @@ inline void write_string_binary(const char* s, BufferWritable& buf) {
     write_string_binary(StringRef {s}, buf);
 }
 
-inline void write_json_binary(JsonField s, BufferWritable& buf) {
+inline void write_json_binary(JsonbField s, BufferWritable& buf) {
     write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
 }
 
@@ -205,13 +205,13 @@ inline void read_json_binary(StringRef& s, BufferReadable& buf,
     read_var_uint(size, buf);
 
     if (size > MAX_JSON_SIZE) {
-        throw Exception("Too large json size.", TStatusCode::VEC_EXCEPTION);
+        throw Exception("Too large jsonb size.", TStatusCode::VEC_EXCEPTION);
     }
 
     s = buf.read(size);
 }
 
-inline void read_json_binary(JsonField val, BufferReadable& buf,
+inline void read_json_binary(JsonbField val, BufferReadable& buf,
                              size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
     StringRef jrf = StringRef {val.get_value(), val.get_size()};
     read_json_binary(jrf, buf);

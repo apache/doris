@@ -73,7 +73,7 @@ public class ScalarType extends Type {
     // so the max available length is 2GB - 4
     public static final int MAX_STRING_LENGTH = 0x7fffffff - 4;
 
-    public static final int MAX_JSON_LENGTH = 0x7fffffff - 4;
+    public static final int MAX_JSONB_LENGTH = 0x7fffffff - 4;
 
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
@@ -156,8 +156,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case VARCHAR:
                 return createVarcharType();
-            case JSON:
-                return createJsonType();
+            case JSONB:
+                return createJsonbType();
             case STRING:
                 return createStringType();
             case HLL:
@@ -221,8 +221,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case "VARCHAR":
                 return createVarcharType();
-            case "JSON":
-                return createJsonType();
+            case "JSONB":
+                return createJsonbType();
             case "STRING":
             case "TEXT":
                 return createStringType();
@@ -474,10 +474,10 @@ public class ScalarType extends Type {
         return type;
     }
 
-    public static ScalarType createJsonType() {
+    public static ScalarType createJsonbType() {
         // length checked in analysis
-        ScalarType type = new ScalarType(PrimitiveType.JSON);
-        type.len = MAX_JSON_LENGTH;
+        ScalarType type = new ScalarType(PrimitiveType.JSONB);
+        type.len = MAX_JSONB_LENGTH;
         return type;
     }
 
@@ -526,8 +526,8 @@ public class ScalarType extends Type {
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
             return "TEXT";
-        } else if (type == PrimitiveType.JSON) {
-            return "JSON";
+        } else if (type == PrimitiveType.JSONB) {
+            return "JSONB";
         }
         return type.toString();
     }
@@ -598,8 +598,8 @@ public class ScalarType extends Type {
             case STRING:
                 stringBuilder.append("text");
                 break;
-            case JSON:
-                stringBuilder.append("json");
+            case JSONB:
+                stringBuilder.append("jsonb");
                 break;
             case ARRAY:
                 stringBuilder.append(type.toString().toLowerCase());
@@ -632,7 +632,7 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSON: {
+            case JSONB: {
                 scalarType.setLen(len);
                 break;
             }

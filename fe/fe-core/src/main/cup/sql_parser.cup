@@ -253,7 +253,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IMMEDIATE, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
-    KW_JOB, KW_JOIN, KW_JSON,
+    KW_JOB, KW_JOIN, KW_JSONB,
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
     KW_LOCAL, KW_LOCATION, KW_LOCK, KW_LOW_PRIORITY, KW_LATERAL,
@@ -4845,8 +4845,8 @@ type ::=
   {: RESULT = Type.QUANTILE_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
-  | KW_JSON
-  {: RESULT = ScalarType.createJsonType(); :}
+  | KW_JSONB
+  {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
@@ -5894,7 +5894,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
-    | KW_JSON:id
+    | KW_JSONB:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
     {: RESULT = id; :}

@@ -39,7 +39,7 @@ public:
     JsonbToJson() : os_(buffer_, OUT_BUF_SIZE) {}
 
     // get json string
-    const char* json(const JsonbValue* pval) {
+    const char* jsonb_to_string(const JsonbValue* pval) {
         os_.clear();
         os_.seekp(0);
 

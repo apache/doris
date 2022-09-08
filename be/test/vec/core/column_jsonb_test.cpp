@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column_json.h"
+#include "vec/columns/column_jsonb.h"
 
 #include <gtest/gtest.h>
 
@@ -28,21 +28,21 @@
 
 namespace doris::vectorized {
 
-JsonValue FromStdString(const std::string& str) {
+JsonBinaryValue FromStdString(const std::string& str) {
     char* ptr = const_cast<char*>(str.c_str());
     int len = str.size();
-    return JsonValue(ptr, len);
+    return JsonBinaryValue(ptr, len);
 }
 
-TEST(ColumnJsonTest, SingleValueTest) {
+TEST(ColumnJsonbTest, SingleValueTest) {
     auto off_column = ColumnVector<IColumn::Offset>::create();
-    auto data_column = ColumnJson::create();
+    auto data_column = ColumnJsonb::create();
 
     std::vector<IColumn::Offset> offs = {0};
     std::vector<std::string> vals = {"[\"val1\", \"val2\"]", "[false]",
                                      "{\"key1\": \"js6\", \"key2\": [\"val1\", \"val2\"]}"};
     for (size_t i = 0; i < vals.size(); i++) {
-        JsonValue v = FromStdString(vals[i]);
+        JsonBinaryValue v = FromStdString(vals[i]);
         off_column->insert_data((const char*)(v.size()), 0);
         if (i) {
             offs.push_back(offs[i - 1] + v.size());
@@ -54,7 +54,7 @@ TEST(ColumnJsonTest, SingleValueTest) {
         auto v = data_column->get_data_at(offs[i]);
         JsonbToJson toStr;
         std::string json_str =
-                toStr.json(JsonbDocument::createDocument(v.data, v.size)->getValue());
+                toStr.jsonb_to_string(JsonbDocument::createDocument(v.data, v.size)->getValue());
         EXPECT_EQ(vals[i], json_str);
     }
 }

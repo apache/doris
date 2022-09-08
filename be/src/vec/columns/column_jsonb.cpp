@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column_json.h"
+#include "vec/columns/column_jsonb.h"
 
 #include "util/jsonb_parser.h"
 #include "vec/columns/column_string.h"
@@ -28,8 +28,8 @@
 
 namespace doris::vectorized {
 
-MutableColumnPtr ColumnJson::clone_resized(size_t to_size) const {
-    auto res = ColumnJson::create();
+MutableColumnPtr ColumnJsonb::clone_resized(size_t to_size) const {
+    auto res = ColumnJsonb::create();
     if (to_size == 0) return res;
 
     size_t from_size = size();
@@ -63,13 +63,13 @@ MutableColumnPtr ColumnJson::clone_resized(size_t to_size) const {
     return res;
 }
 
-void ColumnJson::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnJsonb::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 
-    const ColumnJson& src_concrete = reinterpret_cast<const ColumnJson&>(src);
+    const ColumnJsonb& src_concrete = reinterpret_cast<const ColumnJsonb&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
-        LOG(FATAL) << "Parameter out of bound in IColumnJson::insert_range_from method.";
+        LOG(FATAL) << "Parameter out of bound in IColumnJsonb::insert_range_from method.";
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
@@ -92,21 +92,21 @@ void ColumnJson::insert_range_from(const IColumn& src, size_t start, size_t leng
     }
 }
 
-void ColumnJson::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                     const int* indices_end) {
+void ColumnJsonb::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                      const int* indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
         if (*x == -1) {
-            ColumnJson::insert_default();
+            ColumnJsonb::insert_default();
         } else {
-            ColumnJson::insert_from(src, *x);
+            ColumnJsonb::insert_from(src, *x);
         }
     }
 }
 
-ColumnPtr ColumnJson::filter(const Filter& filt, ssize_t result_size_hint) const {
-    if (offsets.size() == 0) return ColumnJson::create();
+ColumnPtr ColumnJsonb::filter(const Filter& filt, ssize_t result_size_hint) const {
+    if (offsets.size() == 0) return ColumnJsonb::create();
 
-    auto res = ColumnJson::create();
+    auto res = ColumnJsonb::create();
 
     Chars& res_chars = res->chars;
     Offsets& res_offsets = res->offsets;
@@ -115,7 +115,7 @@ ColumnPtr ColumnJson::filter(const Filter& filt, ssize_t result_size_hint) const
     return res;
 }
 
-ColumnPtr ColumnJson::permute(const Permutation& perm, size_t limit) const {
+ColumnPtr ColumnJsonb::permute(const Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
     if (limit == 0)
@@ -127,9 +127,9 @@ ColumnPtr ColumnJson::permute(const Permutation& perm, size_t limit) const {
         LOG(FATAL) << "Size of permutation is less than required.";
     }
 
-    if (limit == 0) return ColumnJson::create();
+    if (limit == 0) return ColumnJsonb::create();
 
-    auto res = ColumnJson::create();
+    auto res = ColumnJsonb::create();
 
     Chars& res_chars = res->chars;
     Offsets& res_offsets = res->offsets;
@@ -161,7 +161,8 @@ ColumnPtr ColumnJson::permute(const Permutation& perm, size_t limit) const {
     return res;
 }
 
-StringRef ColumnJson::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
+StringRef ColumnJsonb::serialize_value_into_arena(size_t n, Arena& arena,
+                                                  char const*& begin) const {
     IColumn::Offset json_size = size_at(n);
     size_t offset = offset_at(n);
 
@@ -175,7 +176,7 @@ StringRef ColumnJson::serialize_value_into_arena(size_t n, Arena& arena, char co
     return res;
 }
 
-const char* ColumnJson::deserialize_and_insert_from_arena(const char* pos) {
+const char* ColumnJsonb::deserialize_and_insert_from_arena(const char* pos) {
     const IColumn::Offset json_size = unaligned_load<size_t>(pos);
     pos += sizeof(json_size);
 
@@ -188,7 +189,7 @@ const char* ColumnJson::deserialize_and_insert_from_arena(const char* pos) {
     return pos + json_size;
 }
 
-size_t ColumnJson::get_max_row_byte_size() const {
+size_t ColumnJsonb::get_max_row_byte_size() const {
     size_t max_size = 0;
     size_t num_rows = offsets.size();
     for (size_t i = 0; i < num_rows; ++i) {
@@ -198,8 +199,8 @@ size_t ColumnJson::get_max_row_byte_size() const {
     return max_size + sizeof(uint32_t);
 }
 
-void ColumnJson::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                               size_t max_row_byte_size) const {
+void ColumnJsonb::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         uint32_t offset(offset_at(i));
         uint32_t string_size(size_at(i));
@@ -211,9 +212,9 @@ void ColumnJson::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
     }
 }
 
-void ColumnJson::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                             const uint8_t* null_map,
-                                             size_t max_row_byte_size) const {
+void ColumnJsonb::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                              const uint8_t* null_map,
+                                              size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             uint32_t offset(offset_at(i));
@@ -228,10 +229,10 @@ void ColumnJson::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_
 }
 
 template <typename Type>
-ColumnPtr ColumnJson::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    if (limit == 0) return ColumnJson::create();
+ColumnPtr ColumnJsonb::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
+    if (limit == 0) return ColumnJsonb::create();
 
-    auto res = ColumnJson::create();
+    auto res = ColumnJsonb::create();
 
     Chars& res_chars = res->chars;
     Offsets& res_offsets = res->offsets;
@@ -260,9 +261,9 @@ ColumnPtr ColumnJson::index_impl(const PaddedPODArray<Type>& indexes, size_t lim
 }
 
 template <bool positive>
-struct ColumnJson::less {
-    const ColumnJson& parent;
-    explicit less(const ColumnJson& parent_) : parent(parent_) {}
+struct ColumnJsonb::less {
+    const ColumnJsonb& parent;
+    explicit less(const ColumnJsonb& parent_) : parent(parent_) {}
     bool operator()(size_t lhs, size_t rhs) const {
         int res = memcmp_small_allow_overflow15(
                 parent.chars.data() + parent.offset_at(lhs), parent.size_at(lhs) - 1,
@@ -272,8 +273,8 @@ struct ColumnJson::less {
     }
 };
 
-void ColumnJson::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                 Permutation& res) const {
+void ColumnJsonb::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
+                                  Permutation& res) const {
     size_t s = offsets.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) res[i] = i;
@@ -293,13 +294,13 @@ void ColumnJson::get_permutation(bool reverse, size_t limit, int /*nan_direction
     }
 }
 
-ColumnPtr ColumnJson::replicate(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnJsonb::replicate(const Offsets& replicate_offsets) const {
     size_t col_size = size();
     if (col_size != replicate_offsets.size()) {
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
     }
 
-    auto res = ColumnJson::create();
+    auto res = ColumnJsonb::create();
 
     if (0 == col_size) return res;
 
@@ -332,11 +333,11 @@ ColumnPtr ColumnJson::replicate(const Offsets& replicate_offsets) const {
     return res;
 }
 
-void ColumnJson::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+void ColumnJsonb::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
     size_t col_size = size();
     if (0 == col_size) return;
 
-    auto& res = reinterpret_cast<ColumnJson&>(column);
+    auto& res = reinterpret_cast<ColumnJsonb&>(column);
 
     Chars& res_chars = res.chars;
     Offsets& res_offsets = res.offsets;
@@ -363,12 +364,12 @@ void ColumnJson::replicate(const uint32_t* counts, size_t target_size, IColumn& 
     }
 }
 
-void ColumnJson::reserve(size_t n) {
+void ColumnJsonb::reserve(size_t n) {
     offsets.reserve(n);
     chars.reserve(n);
 }
 
-void ColumnJson::resize(size_t n) {
+void ColumnJsonb::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
         offsets.resize(n);
@@ -377,7 +378,7 @@ void ColumnJson::resize(size_t n) {
     }
 }
 
-void ColumnJson::get_extremes(Field& min, Field& max) const {
+void ColumnJsonb::get_extremes(Field& min, Field& max) const {
     min = String();
     max = String();
 
@@ -401,7 +402,7 @@ void ColumnJson::get_extremes(Field& min, Field& max) const {
     get(max_idx, max);
 }
 
-void ColumnJson::protect() {
+void ColumnJsonb::protect() {
     get_chars().protect();
     get_offsets().protect();
 }

@@ -19,18 +19,18 @@
 
 #include <ostream>
 
-#include "vec/columns/column_json.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
-class DataTypeJson final : public IDataType {
+class DataTypeJsonb final : public IDataType {
 public:
-    using ColumnType = ColumnJson;
-    using FieldType = JsonField;
+    using ColumnType = ColumnJsonb;
+    using FieldType = JsonbField;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "JSON"; }
-    TypeIndex get_type_id() const override { return TypeIndex::JSON; }
+    const char* get_family_name() const override { return "JSONB"; }
+    TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
     char* serialize(const IColumn& column, char* buf) const override;
@@ -40,7 +40,7 @@ public:
 
     virtual Field get_default() const override {
         std::string default_json = "{}";
-        return JsonField(default_json.c_str(), default_json.size());
+        return JsonbField(default_json.c_str(), default_json.size());
     }
 
     bool equals(const IDataType& rhs) const override;

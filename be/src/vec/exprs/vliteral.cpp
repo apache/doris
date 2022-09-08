@@ -19,7 +19,7 @@
 
 #include <fmt/format.h>
 
-#include "runtime/json_value.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "util/jsonb_document.h"
 #include "util/string_parser.hpp"
@@ -126,11 +126,11 @@ void VLiteral::init(const TExprNode& node) {
             field = node.string_literal.value;
             break;
         }
-        case TYPE_JSON: {
-            DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
-            DCHECK(node.__isset.json_literal);
-            JsonValue value(node.json_literal.value);
-            field = JsonField(value.value(), value.size());
+        case TYPE_JSONB: {
+            DCHECK_EQ(node.node_type, TExprNodeType::JSONB_LITERAL);
+            DCHECK(node.__isset.jsonb_literal);
+            JsonBinaryValue value(node.jsonb_literal.value);
+            field = JsonbField(value.value(), value.size());
             break;
         }
         case TYPE_DECIMALV2: {
@@ -240,8 +240,8 @@ std::string VLiteral::debug_string() const {
                 out << ref;
                 break;
             }
-            case TYPE_JSON: {
-                JsonValue value(ref.data, ref.size);
+            case TYPE_JSONB: {
+                JsonBinaryValue value(ref.data, ref.size);
                 out << value.to_string();
                 break;
             }

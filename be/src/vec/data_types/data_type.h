@@ -304,7 +304,7 @@ struct WhichDataType {
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
 
-    bool is_json() const { return idx == TypeIndex::JSON; }
+    bool is_json() const { return idx == TypeIndex::JSONB; }
 
     bool is_uuid() const { return idx == TypeIndex::UUID; }
     bool is_array() const { return idx == TypeIndex::Array; }

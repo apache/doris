@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "data_type_json.h"
+#include "data_type_jsonb.h"
 
 #include "gen_cpp/data.pb.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_json.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/io/io_helper.h"
@@ -32,9 +32,9 @@ namespace doris::vectorized {
 
 template <typename Reader>
 static inline void read(IColumn& column, Reader&& reader) {
-    ColumnJson& column_json = assert_cast<ColumnJson&>(column);
-    ColumnJson::Chars& data = column_json.get_chars();
-    ColumnJson::Offsets& offsets = column_json.get_offsets();
+    ColumnJsonb& column_json = assert_cast<ColumnJsonb&>(column);
+    ColumnJsonb::Chars& data = column_json.get_chars();
+    ColumnJsonb::Offsets& offsets = column_json.get_offsets();
     size_t old_chars_size = data.size();
     size_t old_offsets_size = offsets.size();
     try {
@@ -51,43 +51,43 @@ static inline void read(IColumn& column, Reader&& reader) {
 std::string jsonb_to_string(const StringRef& s) {
     doris::JsonbToJson toStr;
     doris::JsonbValue* val = doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
-    return toStr.json(val);
+    return toStr.jsonb_to_string(val);
 }
 
-std::string DataTypeJson::to_string(const IColumn& column, size_t row_num) const {
+std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) const {
     const StringRef& s =
-            reinterpret_cast<const ColumnJson&>(*column.convert_to_full_column_if_const().get())
+            reinterpret_cast<const ColumnJsonb&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
     return jsonb_to_string(s);
 }
 
-void DataTypeJson::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                             class doris::vectorized::BufferWritable& ostr) const {
+void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
+                              class doris::vectorized::BufferWritable& ostr) const {
     const StringRef& s =
-            reinterpret_cast<const ColumnJson&>(*column.convert_to_full_column_if_const().get())
+            reinterpret_cast<const ColumnJsonb&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
     std::string str = jsonb_to_string(s);
     ostr.write(str.c_str(), str.size());
 }
 
-MutableColumnPtr DataTypeJson::create_column() const {
-    return ColumnJson::create();
+MutableColumnPtr DataTypeJsonb::create_column() const {
+    return ColumnJsonb::create();
 }
 
-bool DataTypeJson::equals(const IDataType& rhs) const {
+bool DataTypeJsonb::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-int64_t DataTypeJson::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeJsonb::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnJson&>(*ptr.get());
+    const auto& data_column = assert_cast<const ColumnJsonb&>(*ptr.get());
     return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
            data_column.get_chars().size();
 }
 
-char* DataTypeJson::serialize(const IColumn& column, char* buf) const {
+char* DataTypeJsonb::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnJson&>(*ptr.get());
+    const auto& data_column = assert_cast<const ColumnJsonb&>(*ptr.get());
 
     // row num
     *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
@@ -106,10 +106,10 @@ char* DataTypeJson::serialize(const IColumn& column, char* buf) const {
     return buf;
 }
 
-const char* DataTypeJson::deserialize(const char* buf, IColumn* column) const {
-    ColumnJson* column_json = assert_cast<ColumnJson*>(column);
-    ColumnJson::Chars& data = column_json->get_chars();
-    ColumnJson::Offsets& offsets = column_json->get_offsets();
+const char* DataTypeJsonb::deserialize(const char* buf, IColumn* column) const {
+    ColumnJsonb* column_json = assert_cast<ColumnJsonb*>(column);
+    ColumnJsonb::Chars& data = column_json->get_chars();
+    ColumnJsonb::Offsets& offsets = column_json->get_offsets();
 
     // row num
     uint32_t row_num = *reinterpret_cast<const IColumn::Offset*>(buf);

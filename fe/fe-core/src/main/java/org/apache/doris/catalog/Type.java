@@ -92,7 +92,7 @@ public abstract class Type {
     public static final ScalarType DECIMAL32 = DEFAULT_DECIMAL32;
     public static final ScalarType DECIMAL64 = DEFAULT_DECIMAL64;
     public static final ScalarType DECIMAL128 = DEFAULT_DECIMAL128;
-    public static final ScalarType JSON = new ScalarType(PrimitiveType.JSON);
+    public static final ScalarType JSONB = new ScalarType(PrimitiveType.JSONB);
     // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
     public static final ScalarType DEFAULT_VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType VARCHAR = ScalarType.createVarcharType(-1);
@@ -161,7 +161,7 @@ public abstract class Type {
         supportedTypes.add(TIME);
         supportedTypes.add(TIMEV2);
         supportedTypes.add(STRING);
-        supportedTypes.add(JSON);
+        supportedTypes.add(JSONB);
 
         arraySubTypes = Lists.newArrayList();
         arraySubTypes.add(BOOLEAN);
@@ -278,8 +278,8 @@ public abstract class Type {
         return isScalarType(PrimitiveType.VARCHAR);
     }
 
-    public boolean isJsonType() {
-        return isScalarType(PrimitiveType.JSON);
+    public boolean isJsonbType() {
+        return isScalarType(PrimitiveType.JSONB);
     }
 
     // only metric types have the following constraint:
@@ -691,8 +691,8 @@ public abstract class Type {
                 return Type.CHAR;
             case VARCHAR:
                 return Type.VARCHAR;
-            case JSON:
-                return Type.JSON;
+            case JSONB:
+                return Type.JSONB;
             case STRING:
                 return Type.STRING;
             case HLL:
@@ -1053,7 +1053,7 @@ public abstract class Type {
         compatibilityMatrix[BOOLEAN.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BOOLEAN.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BOOLEAN.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1082,7 +1082,7 @@ public abstract class Type {
         compatibilityMatrix[TINYINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[TINYINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TINYINT.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // SMALLINT
@@ -1107,7 +1107,7 @@ public abstract class Type {
         compatibilityMatrix[SMALLINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[SMALLINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[SMALLINT.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // INT
@@ -1135,7 +1135,7 @@ public abstract class Type {
         compatibilityMatrix[INT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[INT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[INT.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // BIGINT
@@ -1164,7 +1164,7 @@ public abstract class Type {
         compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BIGINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BIGINT.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // LARGEINT
@@ -1185,7 +1185,7 @@ public abstract class Type {
         compatibilityMatrix[LARGEINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[LARGEINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[LARGEINT.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // FLOAT
@@ -1205,7 +1205,7 @@ public abstract class Type {
         compatibilityMatrix[FLOAT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[FLOAT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[FLOAT.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DOUBLE
@@ -1221,7 +1221,7 @@ public abstract class Type {
         compatibilityMatrix[DOUBLE.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[DOUBLE.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DOUBLE.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DOUBLE;
@@ -1242,7 +1242,7 @@ public abstract class Type {
         compatibilityMatrix[DATE.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATE.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATEV2
@@ -1260,7 +1260,7 @@ public abstract class Type {
         compatibilityMatrix[DATEV2.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATEV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATEV2.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATEV2.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATEV2.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATETIME
@@ -1277,7 +1277,7 @@ public abstract class Type {
         compatibilityMatrix[DATETIME.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATETIME.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATETIMEV2
@@ -1294,7 +1294,7 @@ public abstract class Type {
         compatibilityMatrix[DATETIMEV2.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIMEV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIMEV2.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATETIMEV2.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIMEV2.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // We can convert some but not all string values to timestamps.
@@ -1311,7 +1311,7 @@ public abstract class Type {
         compatibilityMatrix[CHAR.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
-        compatibilityMatrix[CHAR.ordinal()][JSON.ordinal()] = PrimitiveType.CHAR;
+        compatibilityMatrix[CHAR.ordinal()][JSONB.ordinal()] = PrimitiveType.CHAR;
         compatibilityMatrix[CHAR.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // VARCHAR
@@ -1326,7 +1326,7 @@ public abstract class Type {
         compatibilityMatrix[VARCHAR.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
-        compatibilityMatrix[VARCHAR.ordinal()][JSON.ordinal()] = PrimitiveType.VARCHAR;
+        compatibilityMatrix[VARCHAR.ordinal()][JSONB.ordinal()] = PrimitiveType.VARCHAR;
         compatibilityMatrix[VARCHAR.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         //String
@@ -1340,23 +1340,23 @@ public abstract class Type {
         compatibilityMatrix[STRING.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][JSON.ordinal()] = PrimitiveType.STRING;
+        compatibilityMatrix[STRING.ordinal()][JSONB.ordinal()] = PrimitiveType.STRING;
 
-        //JSON
-        compatibilityMatrix[JSON.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
-        compatibilityMatrix[JSON.ordinal()][CHAR.ordinal()] = PrimitiveType.CHAR;
-        compatibilityMatrix[JSON.ordinal()][VARCHAR.ordinal()] = PrimitiveType.VARCHAR;
+        //JSONB
+        compatibilityMatrix[JSONB.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSONB.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
+        compatibilityMatrix[JSONB.ordinal()][CHAR.ordinal()] = PrimitiveType.CHAR;
+        compatibilityMatrix[JSONB.ordinal()][VARCHAR.ordinal()] = PrimitiveType.VARCHAR;
 
         // DECIMALV2
         compatibilityMatrix[DECIMALV2.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1366,7 +1366,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMALV2.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DECIMALV2.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMALV2.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1419,7 +1419,7 @@ public abstract class Type {
         compatibilityMatrix[HLL.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[HLL.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[HLL.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1430,7 +1430,7 @@ public abstract class Type {
         compatibilityMatrix[BITMAP.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[BITMAP.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BITMAP.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1439,7 +1439,7 @@ public abstract class Type {
         compatibilityMatrix[BITMAP.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         //QUANTILE_STATE
-        compatibilityMatrix[QUANTILE_STATE.ordinal()][JSON.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[QUANTILE_STATE.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1522,8 +1522,8 @@ public abstract class Type {
                 return DECIMAL128;
             case STRING:
                 return STRING;
-            case JSON:
-                return JSON;
+            case JSONB:
+                return JSONB;
             default:
                 return INVALID;
 
@@ -1553,16 +1553,16 @@ public abstract class Type {
                 || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.STRING)) {
             return Type.STRING;
         }
-        // TODO(wzy): support NUMERIC/CHAR cast to JSON
-        if (t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.JSON) {
-            return Type.JSON;
+        // TODO(wzy): support NUMERIC/CHAR cast to JSONB
+        if (t1ResultType == PrimitiveType.JSONB && t2ResultType == PrimitiveType.JSONB) {
+            return Type.JSONB;
         }
-        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.VARCHAR)
-                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.JSON)) {
+        if ((t1ResultType == PrimitiveType.JSONB && t2ResultType == PrimitiveType.VARCHAR)
+                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.JSONB)) {
             return Type.VARCHAR;
         }
-        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.STRING)
-                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.JSON)) {
+        if ((t1ResultType == PrimitiveType.JSONB && t2ResultType == PrimitiveType.STRING)
+                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.JSONB)) {
             return Type.STRING;
         }
 

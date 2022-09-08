@@ -804,9 +804,9 @@ CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
 CONF_Validator(string_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
-CONF_mInt32(json_type_length_soft_limit_bytes, "1048576");
+CONF_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
 
-CONF_Validator(json_type_length_soft_limit_bytes,
+CONF_Validator(jsonb_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
 // used for olap scanner to save memory, when the size of unused_object_pool

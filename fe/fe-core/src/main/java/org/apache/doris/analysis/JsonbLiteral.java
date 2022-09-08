@@ -22,7 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TJsonLiteral;
+import org.apache.doris.thrift.TJsonbLiteral;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
@@ -34,30 +34,30 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
-public class JsonLiteral extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(JsonLiteral.class);
+public class JsonbLiteral extends LiteralExpr {
+    private static final Logger LOG = LogManager.getLogger(JsonbLiteral.class);
     private JsonParser parser = new JsonParser();
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
 
-    public JsonLiteral() {
+    public JsonbLiteral() {
         super();
-        type = Type.JSON;
+        type = Type.JSONB;
     }
 
-    public JsonLiteral(String value) throws AnalysisException {
+    public JsonbLiteral(String value) throws AnalysisException {
         try {
             parser.parse(value);
         } catch (JsonSyntaxException e) {
-            throw new AnalysisException("Invalid json literal: " + e.getMessage());
+            throw new AnalysisException("Invalid jsonb literal: " + e.getMessage());
         }
         this.value = value;
-        type = Type.JSON;
+        type = Type.JSONB;
         analysisDone();
     }
 
-    protected JsonLiteral(JsonLiteral other) {
+    protected JsonbLiteral(JsonbLiteral other) {
         super(other);
         value = other.value;
     }
@@ -68,12 +68,12 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     public Expr clone() {
-        return new JsonLiteral(this);
+        return new JsonbLiteral(this);
     }
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        throw new RuntimeException("Not support comparison between JSON literals");
+        throw new RuntimeException("Not support comparison between JSONB literals");
     }
 
     public String getValue() {
@@ -92,8 +92,8 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.JSON_LITERAL;
-        msg.json_literal = new TJsonLiteral(getUnescapedValue());
+        msg.node_type = TExprNodeType.JSONB_LITERAL;
+        msg.jsonb_literal = new TJsonbLiteral(getUnescapedValue());
     }
 
     public String getUnescapedValue() {
@@ -108,12 +108,12 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     public long getLongValue() {
-        throw new RuntimeException("JSON value cannot be parsed as Long value");
+        throw new RuntimeException("JSONB value cannot be parsed as Long value");
     }
 
     @Override
     public double getDoubleValue() {
-        throw new RuntimeException("JSON value cannot be parsed as Double value");
+        throw new RuntimeException("JSONB value cannot be parsed as Double value");
     }
 
     @Override
@@ -123,7 +123,7 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        // code should not be readched, since JSON is analyzed as StringLiteral
+        // code should not be readched, since JSONB is analyzed as StringLiteral
         throw new AnalysisException("Unknown check type: " + targetType);
     }
 
@@ -138,8 +138,8 @@ public class JsonLiteral extends LiteralExpr {
         value = Text.readString(in);
     }
 
-    public static JsonLiteral read(DataInput in) throws IOException {
-        JsonLiteral literal = new JsonLiteral();
+    public static JsonbLiteral read(DataInput in) throws IOException {
+        JsonbLiteral literal = new JsonbLiteral();
         literal.readFields(in);
         return literal;
     }

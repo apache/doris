@@ -67,8 +67,8 @@ void read_binary(Array& x, BufferReadable& buf) {
             x.push_back(value);
             break;
         }
-        case Field::Types::JSON: {
-            JsonField value;
+        case Field::Types::JSONB: {
+            JsonbField value;
             doris::vectorized::read_json_binary(value, buf);
             x.push_back(value);
             break;
@@ -115,8 +115,8 @@ void write_binary(const Array& x, BufferWritable& buf) {
             doris::vectorized::write_string_binary(get<std::string>(*it), buf);
             break;
         }
-        case Field::Types::JSON: {
-            doris::vectorized::write_json_binary(get<JsonField>(*it), buf);
+        case Field::Types::JSONB: {
+            doris::vectorized::write_json_binary(get<JsonbField>(*it), buf);
             break;
         }
         case Field::Types::AggregateFunctionState: {

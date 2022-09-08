@@ -90,7 +90,7 @@ enum TPrimitiveType {
   DECIMAL32,
   DECIMAL64,
   DECIMAL128,
-  JSON,
+  JSONB,
 }
 
 enum TTypeNodeType {

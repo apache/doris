@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/json_value.h"
+#include "runtime/jsonb_value.h"
 
 #include <gtest/gtest.h>
 
@@ -27,15 +27,15 @@ using std::string;
 
 namespace doris {
 
-JsonValue FromStdString(const string& str) {
+JsonBinaryValue FromStdString(const string& str) {
     char* ptr = const_cast<char*>(str.c_str());
     int len = str.size();
-    return JsonValue(ptr, len);
+    return JsonBinaryValue(ptr, len);
 }
 
-TEST(JsonValueTest, TestValidation) {
+TEST(JsonBinaryValueTest, TestValidation) {
     JsonbErrType err;
-    JsonValue json_val;
+    JsonBinaryValue json_val;
 
     // single value not wrapped as an arrar or object is invalid
     std::vector<string> invalid_strs = {"", "1", "null", "false", "abc"};

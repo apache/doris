@@ -20,7 +20,7 @@
 #include <cassert>
 #include <cstring>
 
-#include "runtime/json_value.h"
+#include "runtime/jsonb_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
@@ -32,13 +32,13 @@
 #include "vec/core/field.h"
 
 namespace doris::vectorized {
-class ColumnJson final : public COWHelper<IColumn, ColumnJson> {
+class ColumnJsonb final : public COWHelper<IColumn, ColumnJsonb> {
 public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
 private:
-    friend class COWHelper<IColumn, ColumnJson>;
+    friend class COWHelper<IColumn, ColumnJsonb>;
 
     Offsets offsets;
 
@@ -54,14 +54,14 @@ private:
     template <bool positive>
     struct lessWithCollation;
 
-    ColumnJson() = default;
+    ColumnJsonb() = default;
 
-    ColumnJson(const ColumnJson& src)
+    ColumnJsonb(const ColumnJsonb& src)
             : offsets(src.offsets.begin(), src.offsets.end()),
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
-    const char* get_family_name() const override { return "JSON"; }
+    const char* get_family_name() const override { return "JSONB"; }
 
     size_t size() const override { return offsets.size(); }
 
@@ -82,7 +82,7 @@ public:
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        res.assign_json(&chars[offset_at(n)], size_at(n) - 1);
+        res.assign_jsonb(&chars[offset_at(n)], size_at(n) - 1);
     }
 
     StringRef get_data_at(size_t n) const override {
@@ -97,7 +97,7 @@ public:
 #endif
 
     void insert(const Field& x) override {
-        const JsonField& s = doris::vectorized::get<const JsonField&>(x);
+        const JsonbField& s = doris::vectorized::get<const JsonbField&>(x);
 
         const size_t old_size = chars.size();
         const size_t size_to_append = s.get_size() + 1;
@@ -115,12 +115,12 @@ public:
 #endif
 
     void insert_from(const IColumn& src_, size_t n) override {
-        const ColumnJson& src = assert_cast<const ColumnJson&>(src_);
+        const ColumnJsonb& src = assert_cast<const ColumnJsonb&>(src_);
         const size_t size_to_append =
                 src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
 
         if (size_to_append == 1) {
-            /// shortcut for empty json
+            /// shortcut for empty jsonb
             chars.push_back(0);
             offsets.push_back(chars.size());
         } else {
@@ -217,15 +217,15 @@ public:
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
     void insert_default() override {
-        JsonValue empty_json("{}");
-        insert_data(empty_json.value(), empty_json.size());
+        JsonBinaryValue empty_jsonb("{}");
+        insert_data(empty_jsonb.value(), empty_jsonb.size());
     }
 
     void insert_many_defaults(size_t length) override {
-        JsonValue empty_json("{}");
+        JsonBinaryValue empty_jsonb("{}");
         size_t new_size = 0;
         for (size_t i = 0; i < length; i++) {
-            new_size += empty_json.size() + 1;
+            new_size += empty_jsonb.size() + 1;
         }
 
         const size_t old_size = chars.size();
@@ -234,17 +234,17 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < length; i++) {
-            uint32_t len = empty_json.size();
-            if (len) memcpy(data + offset, empty_json.value(), len);
+            uint32_t len = empty_jsonb.size();
+            if (len) memcpy(data + offset, empty_jsonb.value(), len);
             data[offset + len] = 0;
-            offset += len + empty_json.size();
+            offset += len + empty_jsonb.size();
             offsets.push_back(offset);
         }
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
                    int /*nan_direction_hint*/) const override {
-        LOG(FATAL) << "Not support compraing between JSON value";
+        LOG(FATAL) << "Not support compraing between JSONB value";
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -255,7 +255,7 @@ public:
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnJson>(num_columns, selector);
+        return scatter_impl<ColumnJsonb>(num_columns, selector);
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -275,7 +275,7 @@ public:
     bool is_column_string() const override { return true; }
 
     bool structure_equals(const IColumn& rhs) const override {
-        return typeid(rhs) == typeid(ColumnJson);
+        return typeid(rhs) == typeid(ColumnJsonb);
     }
 
     Chars& get_chars() { return chars; }
@@ -293,7 +293,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnJson&>(rhs);
+        const auto& r = assert_cast<const ColumnJsonb&>(rhs);
         auto data = r.get_data_at(row);
 
         if (!self_row) {
@@ -321,10 +321,10 @@ public:
     }
 
     MutableColumnPtr get_shinked_column() const {
-        auto shrinked_column = ColumnJson::create();
+        auto shrinked_column = ColumnJsonb::create();
         for (int i = 0; i < size(); i++) {
             StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnJson*>(shrinked_column.get())
+            reinterpret_cast<ColumnJsonb*>(shrinked_column.get())
                     ->insert_data(str.data, strnlen(str.data, str.size));
         }
         return shrinked_column;

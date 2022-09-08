@@ -18,6 +18,11 @@
 #pragma once
 
 #include "olap/types.h"
+<<<<<<< HEAD
+=======
+#include "runtime/mem_pool.h"
+#include "vec/columns/column_jsonb.h"
+>>>>>>> a23caa7b3 (rename json to jsonb)
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"

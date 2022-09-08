@@ -248,8 +248,8 @@ public class StringLiteral extends LiteralExpr {
             StringLiteral stringLiteral = new StringLiteral(this);
             stringLiteral.setType(targetType);
             return stringLiteral;
-        } else if (targetType.isJsonType()) {
-            return new JsonLiteral(value);
+        } else if (targetType.isJsonbType()) {
+            return new JsonbLiteral(value);
         }
         return super.uncheckedCastTo(targetType);
     }

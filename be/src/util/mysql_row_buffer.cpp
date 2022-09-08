@@ -353,10 +353,11 @@ int MysqlRowBuffer::push_string(const char* str, int64_t length) {
     return 0;
 }
 
-int MysqlRowBuffer::push_json(const char* data, int64_t length) {
+int MysqlRowBuffer::push_json_string(const char* data, int64_t length) {
     JsonbToJson toStr;
 
-    std::string json_str = toStr.json(JsonbDocument::createDocument(data, length)->getValue());
+    std::string json_str =
+            toStr.jsonb_to_string(JsonbDocument::createDocument(data, length)->getValue());
 
     return push_string(json_str.c_str(), json_str.size());
 }

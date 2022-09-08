@@ -81,8 +81,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_VARCHAR;
     } else if (0 == upper_type_str.compare("STRING")) {
         type = OLAP_FIELD_TYPE_STRING;
-    } else if (0 == upper_type_str.compare("JSON")) {
-        type = OLAP_FIELD_TYPE_JSON;
+    } else if (0 == upper_type_str.compare("JSONB")) {
+        type = OLAP_FIELD_TYPE_JSONB;
     } else if (0 == upper_type_str.compare("BOOLEAN")) {
         type = OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
@@ -206,8 +206,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
 
-    case OLAP_FIELD_TYPE_JSON:
-        return "JSON";
+    case OLAP_FIELD_TYPE_JSONB:
+        return "JSONB";
 
     case OLAP_FIELD_TYPE_STRING:
         return "STRING";
@@ -306,8 +306,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_VARCHAR_MAX_LENGTH);
     case TPrimitiveType::STRING:
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
-    case TPrimitiveType::JSON:
-        return string_length + sizeof(OLAP_JSON_MAX_LENGTH);
+    case TPrimitiveType::JSONB:
+        return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::DECIMAL32:

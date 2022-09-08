@@ -49,7 +49,7 @@ public enum PrimitiveType {
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR),
-    JSON("JSON", 16, TPrimitiveType.JSON),
+    JSONB("JSONB", 16, TPrimitiveType.JSONB),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32),
@@ -115,7 +115,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DECIMAL128);
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
-        builder.put(NULL_TYPE, JSON);
+        builder.put(NULL_TYPE, JSONB);
         builder.put(NULL_TYPE, STRING);
         builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
         builder.put(NULL_TYPE, TIME);
@@ -138,7 +138,7 @@ public enum PrimitiveType {
         builder.put(BOOLEAN, DECIMAL64);
         builder.put(BOOLEAN, DECIMAL128);
         builder.put(BOOLEAN, VARCHAR);
-        builder.put(BOOLEAN, JSON);
+        builder.put(BOOLEAN, JSONB);
         builder.put(BOOLEAN, STRING);
         // Tinyint
         builder.put(TINYINT, BOOLEAN);
@@ -158,7 +158,7 @@ public enum PrimitiveType {
         builder.put(TINYINT, DECIMAL64);
         builder.put(TINYINT, DECIMAL128);
         builder.put(TINYINT, VARCHAR);
-        builder.put(TINYINT, JSON);
+        builder.put(TINYINT, JSONB);
         builder.put(TINYINT, STRING);
         // Smallint
         builder.put(SMALLINT, BOOLEAN);
@@ -178,7 +178,7 @@ public enum PrimitiveType {
         builder.put(SMALLINT, DECIMAL64);
         builder.put(SMALLINT, DECIMAL128);
         builder.put(SMALLINT, VARCHAR);
-        builder.put(SMALLINT, JSON);
+        builder.put(SMALLINT, JSONB);
         builder.put(SMALLINT, STRING);
         // Int
         builder.put(INT, BOOLEAN);
@@ -198,7 +198,7 @@ public enum PrimitiveType {
         builder.put(INT, DECIMAL64);
         builder.put(INT, DECIMAL128);
         builder.put(INT, VARCHAR);
-        builder.put(INT, JSON);
+        builder.put(INT, JSONB);
         builder.put(INT, STRING);
         // Bigint
         builder.put(BIGINT, BOOLEAN);
@@ -237,7 +237,7 @@ public enum PrimitiveType {
         builder.put(LARGEINT, DECIMAL64);
         builder.put(LARGEINT, DECIMAL128);
         builder.put(LARGEINT, VARCHAR);
-        builder.put(LARGEINT, JSON);
+        builder.put(LARGEINT, JSONB);
         builder.put(LARGEINT, STRING);
         // Float
         builder.put(FLOAT, BOOLEAN);
@@ -257,7 +257,7 @@ public enum PrimitiveType {
         builder.put(FLOAT, DECIMAL64);
         builder.put(FLOAT, DECIMAL128);
         builder.put(FLOAT, VARCHAR);
-        builder.put(FLOAT, JSON);
+        builder.put(FLOAT, JSONB);
         builder.put(FLOAT, STRING);
         // Double
         builder.put(DOUBLE, BOOLEAN);
@@ -277,7 +277,7 @@ public enum PrimitiveType {
         builder.put(DOUBLE, DECIMAL64);
         builder.put(DOUBLE, DECIMAL128);
         builder.put(DOUBLE, VARCHAR);
-        builder.put(DOUBLE, JSON);
+        builder.put(DOUBLE, JSONB);
         builder.put(DOUBLE, STRING);
         // Date
         builder.put(DATE, BOOLEAN);
@@ -297,7 +297,7 @@ public enum PrimitiveType {
         builder.put(DATE, DECIMAL64);
         builder.put(DATE, DECIMAL128);
         builder.put(DATE, VARCHAR);
-        builder.put(DATE, JSON);
+        builder.put(DATE, JSONB);
         builder.put(DATE, STRING);
         // Datetime
         builder.put(DATETIME, BOOLEAN);
@@ -317,7 +317,7 @@ public enum PrimitiveType {
         builder.put(DATETIME, DECIMAL64);
         builder.put(DATETIME, DECIMAL128);
         builder.put(DATETIME, VARCHAR);
-        builder.put(DATETIME, JSON);
+        builder.put(DATETIME, JSONB);
         builder.put(DATETIME, STRING);
         // DateV2
         builder.put(DATEV2, BOOLEAN);
@@ -338,7 +338,7 @@ public enum PrimitiveType {
         builder.put(DATEV2, DECIMAL128);
         builder.put(DATEV2, VARCHAR);
         builder.put(DATEV2, STRING);
-        builder.put(DATEV2, JSON);
+        builder.put(DATEV2, JSONB);
         // DatetimeV2
         builder.put(DATETIMEV2, BOOLEAN);
         builder.put(DATETIMEV2, TINYINT);
@@ -358,7 +358,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DECIMAL128);
         builder.put(DATETIMEV2, VARCHAR);
         builder.put(DATETIMEV2, STRING);
-        builder.put(DATETIMEV2, JSON);
+        builder.put(DATETIMEV2, JSONB);
         // Char
         builder.put(CHAR, BOOLEAN);
         builder.put(CHAR, TINYINT);
@@ -378,7 +378,7 @@ public enum PrimitiveType {
         builder.put(CHAR, DECIMAL64);
         builder.put(CHAR, DECIMAL128);
         builder.put(CHAR, VARCHAR);
-        builder.put(CHAR, JSON);
+        builder.put(CHAR, JSONB);
         builder.put(CHAR, STRING);
         // Varchar
         builder.put(VARCHAR, BOOLEAN);
@@ -398,7 +398,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMAL64);
         builder.put(VARCHAR, DECIMAL128);
         builder.put(VARCHAR, VARCHAR);
-        builder.put(VARCHAR, JSON);
+        builder.put(VARCHAR, JSONB);
         builder.put(VARCHAR, STRING);
 
         // Varchar
@@ -419,7 +419,7 @@ public enum PrimitiveType {
         builder.put(STRING, DECIMAL64);
         builder.put(STRING, DECIMAL128);
         builder.put(STRING, VARCHAR);
-        builder.put(STRING, JSON);
+        builder.put(STRING, JSONB);
         builder.put(STRING, STRING);
 
         // DecimalV2
@@ -436,7 +436,7 @@ public enum PrimitiveType {
         builder.put(DECIMALV2, DECIMAL64);
         builder.put(DECIMALV2, DECIMAL128);
         builder.put(DECIMALV2, VARCHAR);
-        builder.put(DECIMALV2, JSON);
+        builder.put(DECIMALV2, JSONB);
         builder.put(DECIMALV2, STRING);
 
         builder.put(DECIMAL32, BOOLEAN);
@@ -452,7 +452,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL32, DECIMAL64);
         builder.put(DECIMAL32, DECIMAL128);
         builder.put(DECIMAL32, VARCHAR);
-        builder.put(DECIMAL32, JSON);
+        builder.put(DECIMAL32, JSONB);
         builder.put(DECIMAL32, STRING);
 
         builder.put(DECIMAL64, BOOLEAN);
@@ -468,7 +468,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL64, DECIMAL64);
         builder.put(DECIMAL64, DECIMAL128);
         builder.put(DECIMAL64, VARCHAR);
-        builder.put(DECIMAL64, JSON);
+        builder.put(DECIMAL64, JSONB);
         builder.put(DECIMAL64, STRING);
 
         builder.put(DECIMAL128, BOOLEAN);
@@ -484,11 +484,11 @@ public enum PrimitiveType {
         builder.put(DECIMAL128, DECIMAL64);
         builder.put(DECIMAL128, DECIMAL128);
         builder.put(DECIMAL128, VARCHAR);
-        builder.put(DECIMAL128, JSON);
+        builder.put(DECIMAL128, JSONB);
         builder.put(DECIMAL128, STRING);
-        // JSON
-        builder.put(JSON, VARCHAR);
-        builder.put(JSON, STRING);
+        // JSONB
+        builder.put(JSONB, VARCHAR);
+        builder.put(JSONB, STRING);
 
         // HLL
         builder.put(HLL, HLL);
@@ -548,7 +548,7 @@ public enum PrimitiveType {
         supportedTypes.add(FLOAT);
         supportedTypes.add(DOUBLE);
         supportedTypes.add(VARCHAR);
-        supportedTypes.add(JSON);
+        supportedTypes.add(JSONB);
         supportedTypes.add(STRING);
         supportedTypes.add(HLL);
         supportedTypes.add(CHAR);
@@ -619,7 +619,7 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][CHAR.ordinal()] = CHAR;
         compatibilityMatrix[NULL_TYPE.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[NULL_TYPE.ordinal()][JSON.ordinal()] = JSON;
+        compatibilityMatrix[NULL_TYPE.ordinal()][JSONB.ordinal()] = JSONB;
         compatibilityMatrix[NULL_TYPE.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -644,7 +644,7 @@ public enum PrimitiveType {
         compatibilityMatrix[BOOLEAN.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[BOOLEAN.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -666,7 +666,7 @@ public enum PrimitiveType {
         compatibilityMatrix[TINYINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[TINYINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[TINYINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -687,7 +687,7 @@ public enum PrimitiveType {
         compatibilityMatrix[SMALLINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[SMALLINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[SMALLINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -707,7 +707,7 @@ public enum PrimitiveType {
         compatibilityMatrix[INT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[INT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[INT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -726,7 +726,7 @@ public enum PrimitiveType {
         compatibilityMatrix[BIGINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[BIGINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[BIGINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -744,7 +744,7 @@ public enum PrimitiveType {
         compatibilityMatrix[LARGEINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[LARGEINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -761,7 +761,7 @@ public enum PrimitiveType {
         compatibilityMatrix[FLOAT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[FLOAT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[FLOAT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -777,7 +777,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DOUBLE.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[DOUBLE.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -793,7 +793,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DATE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[DATE.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
@@ -819,7 +819,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DATETIME.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
         compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][JSON.ordinal()] = INVALID_TYPE;
+        compatibilityMatrix[DATETIME.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
@@ -842,7 +842,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[CHAR.ordinal()][CHAR.ordinal()] = CHAR;
         compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[CHAR.ordinal()][JSON.ordinal()] = CHAR;
+        compatibilityMatrix[CHAR.ordinal()][JSONB.ordinal()] = CHAR;
         compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
@@ -853,7 +853,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[VARCHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
         compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[VARCHAR.ordinal()][JSON.ordinal()] = VARCHAR;
+        compatibilityMatrix[VARCHAR.ordinal()][JSONB.ordinal()] = VARCHAR;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
@@ -866,14 +866,14 @@ public enum PrimitiveType {
         compatibilityMatrix[STRING.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][JSON.ordinal()] = STRING;
+        compatibilityMatrix[STRING.ordinal()][JSONB.ordinal()] = STRING;
         compatibilityMatrix[STRING.ordinal()][TIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
 
-        compatibilityMatrix[JSON.ordinal()][JSON.ordinal()] = JSON;
-        compatibilityMatrix[JSON.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[JSON.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[JSON.ordinal()][CHAR.ordinal()] = CHAR;
+        compatibilityMatrix[JSONB.ordinal()][JSONB.ordinal()] = JSONB;
+        compatibilityMatrix[JSONB.ordinal()][STRING.ordinal()] = STRING;
+        compatibilityMatrix[JSONB.ordinal()][VARCHAR.ordinal()] = VARCHAR;
+        compatibilityMatrix[JSONB.ordinal()][CHAR.ordinal()] = CHAR;
 
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL32.ordinal()] = DECIMALV2;
@@ -993,8 +993,8 @@ public enum PrimitiveType {
                 return TIMEV2;
             case VARCHAR:
                 return VARCHAR;
-            case JSON:
-                return JSON;
+            case JSONB:
+                return JSONB;
             case STRING:
                 return STRING;
             case CHAR:
@@ -1117,8 +1117,8 @@ public enum PrimitiveType {
         return (this == VARCHAR || this == CHAR || this == HLL || this == STRING);
     }
 
-    public boolean isJsonType() {
-        return this == JSON;
+    public boolean isJsonbType() {
+        return this == JSONB;
     }
 
     public boolean isCharFamily() {
@@ -1168,8 +1168,8 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
             case STRING:
                 return MysqlColType.MYSQL_TYPE_BLOB;
-            case JSON:
-                return MysqlColType.MYSQL_TYPE_JSON;
+            case JSONB:
+                return MysqlColType.MYSQL_TYPE_JSONB;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

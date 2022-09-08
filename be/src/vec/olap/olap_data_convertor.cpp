@@ -78,7 +78,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128>>();
     }
-    case FieldType::OLAP_FIELD_TYPE_JSON: {
+    case FieldType::OLAP_FIELD_TYPE_JSONB: {
         return std::make_unique<OlapColumnDataConvertorJson>();
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
@@ -675,21 +675,21 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorJson::get_data_at(siz
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorJson::convert_to_olap() {
     assert(_typed_column.column);
-    const vectorized::ColumnJson* column_json = nullptr;
+    const vectorized::ColumnJsonb* column_json = nullptr;
     if (_nullmap) {
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_json = assert_cast<const vectorized::ColumnJson*>(
+        column_json = assert_cast<const vectorized::ColumnJsonb*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_json = assert_cast<const vectorized::ColumnJson*>(_typed_column.column.get());
+        column_json = assert_cast<const vectorized::ColumnJsonb*>(_typed_column.column.get());
     }
 
     assert(column_json);
 
     const char* char_data = (const char*)(column_json->get_chars().data());
-    const ColumnJson::Offset* offset_cur = column_json->get_offsets().data() + _row_pos;
-    const ColumnJson::Offset* offset_end = offset_cur + _num_rows;
+    const ColumnJsonb::Offset* offset_cur = column_json->get_offsets().data() + _row_pos;
+    const ColumnJsonb::Offset* offset_end = offset_cur + _num_rows;
 
     Slice* slice = _slice.data();
     size_t string_offset = *(offset_cur - 1);

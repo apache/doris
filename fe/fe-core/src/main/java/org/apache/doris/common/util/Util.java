@@ -74,7 +74,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
-        TYPE_STRING_MAP.put(PrimitiveType.JSON, "json");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "jsonb");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d,%d)");

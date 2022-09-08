@@ -521,7 +521,7 @@ public class Function implements Writable {
             case QUANTILE_STATE:
             case STRING:
                 return "string_val";
-            case JSON:
+            case JSONB:
                 return "json_val";
             case DATE:
             case DATETIME:
@@ -573,7 +573,7 @@ public class Function implements Writable {
             case QUANTILE_STATE:
             case STRING:
                 return "StringVal";
-            case JSON:
+            case JSONB:
                 return "JsonVal";
             case DATE:
             case DATETIME:

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/json_value.h"
+#include "runtime/jsonb_value.h"
 
 #include <cstring>
 
@@ -23,14 +23,13 @@
 
 namespace doris {
 
-JsonbErrType JsonValue::from_json_str(const char* s, int length) {
+JsonbErrType JsonBinaryValue::from_json_str(const char* s, int length) {
     JsonbErrType error = JsonbErrType::E_NONE;
     if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
-        // TODO(wzy): document must be an object or an array,
-        // rune, pure-string, numeirc are valid JSON but get parse error here
-        // should return error gracefully to client
-        LOG(FATAL) << "invalid json value: " << JsonbErrMsg::getErrMsg(error);
+        ptr = nullptr;
+        len = 0;
+        return error;
     }
     ptr = parser.getWriter().getOutput()->getBuffer();
     len = (unsigned)parser.getWriter().getOutput()->getSize();
@@ -38,12 +37,12 @@ JsonbErrType JsonValue::from_json_str(const char* s, int length) {
     return error;
 }
 
-std::string JsonValue::to_string() const {
+std::string JsonBinaryValue::to_string() const {
     JsonbToJson toStr;
-    return toStr.json(JsonbDocument::createDocument(ptr, len)->getValue());
+    return toStr.jsonb_to_string(JsonbDocument::createDocument(ptr, len)->getValue());
 }
 
-std::ostream& operator<<(std::ostream& os, const JsonValue& json_value) {
+std::ostream& operator<<(std::ostream& os, const JsonBinaryValue& json_value) {
     return os << json_value.to_string();
 }
 } // namespace doris

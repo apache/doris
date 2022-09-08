@@ -74,7 +74,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     MysqlRowBuffer _buffer;
     int buf_ret = 0;
 
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSON) {
+    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSONB) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -107,19 +107,19 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     buf_ret = _buffer.push_string(string_val.data, string_val.size);
                 }
             }
-            if constexpr (type == TYPE_JSON) {
+            if constexpr (type == TYPE_JSONB) {
                 const auto json_val = column->get_data_at(i);
 
                 if (json_val.data == nullptr) {
                     if (json_val.size == 0) {
                         // 0x01 is a magic num, not useful actually, just for present ""
                         char* tmp_val = reinterpret_cast<char*>(0x01);
-                        buf_ret = _buffer.push_json(tmp_val, json_val.size);
+                        buf_ret = _buffer.push_json_string(tmp_val, json_val.size);
                     } else {
                         buf_ret = _buffer.push_null();
                     }
                 } else {
-                    buf_ret = _buffer.push_json(json_val.data, json_val.size);
+                    buf_ret = _buffer.push_json_string(json_val.data, json_val.size);
                 }
             }
 
@@ -583,11 +583,11 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             }
             break;
         }
-        case TYPE_JSON: {
+        case TYPE_JSONB: {
             if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_JSON, true>(column_ptr, result);
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, true>(column_ptr, result);
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_JSON, false>(column_ptr, result);
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, false>(column_ptr, result);
             }
             break;
         }

@@ -553,7 +553,7 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_STRING> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_JSON> {
+struct CppTypeTraits<OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
 template <>
@@ -1566,9 +1566,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
     static int cmp(const void* left, const void* right) {
-        LOG(WARNING) << "can not compare JSON values";
+        LOG(WARNING) << "can not compare JSONB values";
         return -1; // always update ?
     }
 
@@ -1576,9 +1576,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
                               const int scale) {
         auto jdoc = JsonbDocument::createDocument(scan_key.c_str(), scan_key.size());
         size_t value_len = jdoc->numPackedBytes();
-        if (value_len > config::json_type_length_soft_limit_bytes) {
+        if (value_len > config::jsonb_type_length_soft_limit_bytes) {
             LOG(WARNING) << "the len of value json is too long, len=" << value_len
-                         << ", max_len=" << config::json_type_length_soft_limit_bytes;
+                         << ", max_len=" << config::jsonb_type_length_soft_limit_bytes;
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
@@ -1592,13 +1592,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
                                MemPool* mem_pool, size_t variable_len = 0) {
         JsonbToJson toStr;
         switch (src_type->type()) {
-        // TODO(wzy): JSON should support all numerics
+        // TODO(wzy): JSONB should support all numerics
         case OLAP_FIELD_TYPE_CHAR:
         case OLAP_FIELD_TYPE_VARCHAR:
         case OLAP_FIELD_TYPE_STRING: {
             auto s = src_type->to_string(src);
-            std::string result =
-                    toStr.json(JsonbDocument::createDocument(s.c_str(), s.size())->getValue());
+            std::string result = toStr.jsonb_to_string(
+                    JsonbDocument::createDocument(s.c_str(), s.size())->getValue());
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
@@ -1617,7 +1617,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
 
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = OLAP_JSON_MAX_LENGTH; // 2G
+        slice->size = OLAP_JSONB_MAX_LENGTH; // 2G
     }
 };
 

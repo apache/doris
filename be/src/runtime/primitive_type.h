@@ -20,7 +20,6 @@
 #include <string>
 
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/column_json.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 
@@ -28,11 +27,13 @@ namespace doris {
 
 namespace vectorized {
 class ColumnString;
-}
+class ColumnJsonb;
+} // namespace vectorized
 
 class DateTimeValue;
 class DecimalV2Value;
 struct StringValue;
+struct JsonBinaryValue;
 
 enum PrimitiveType {
     INVALID_TYPE = 0,
@@ -69,6 +70,10 @@ enum PrimitiveType {
     TYPE_DECIMAL32,      /* 28 */
     TYPE_DECIMAL64,      /* 29 */
     TYPE_DECIMAL128,     /* 30 */
+<<<<<<< HEAD
+=======
+    TYPE_JSONB           /* 31 */
+>>>>>>> a23caa7b3 (rename json to jsonb)
 };
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
@@ -211,9 +216,9 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
 };
 
 template <>
-struct PrimitiveTypeTraits<TYPE_JSON> {
-    using CppType = JsonValue;
-    using ColumnType = vectorized::ColumnJson;
+struct PrimitiveTypeTraits<TYPE_JSONB> {
+    using CppType = JsonBinaryValue;
+    using ColumnType = vectorized::ColumnJsonb;
 };
 
 // only for adapt get_predicate_column_ptr

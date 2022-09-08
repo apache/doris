@@ -89,11 +89,11 @@ struct AggregateFunctionStateData {
     }
 };
 
-class JsonField {
+class JsonbField {
 public:
-    JsonField() = default;
+    JsonbField() = default;
 
-    JsonField(const char* ptr, uint32_t len) : size(len) {
+    JsonbField(const char* ptr, uint32_t len) : size(len) {
         data = new char[size];
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
@@ -101,7 +101,7 @@ public:
         memcpy(data, ptr, size);
     }
 
-    JsonField(const JsonField& x) : size(x.size) {
+    JsonbField(const JsonbField& x) : size(x.size) {
         data = new char[size];
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
@@ -109,12 +109,12 @@ public:
         memcpy(data, x.data, size);
     }
 
-    JsonField(JsonField&& x) : data(x.data), size(x.size) {
+    JsonbField(JsonbField&& x) : data(x.data), size(x.size) {
         x.data = nullptr;
         x.size = 0;
     }
 
-    JsonField& operator=(const JsonField& x) {
+    JsonbField& operator=(const JsonbField& x) {
         data = new char[size];
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
@@ -123,7 +123,7 @@ public:
         return *this;
     }
 
-    JsonField& operator=(JsonField&& x) {
+    JsonbField& operator=(JsonbField&& x) {
         data = x.data;
         size = x.size;
         x.data = nullptr;
@@ -131,7 +131,7 @@ public:
         return *this;
     }
 
-    ~JsonField() {
+    ~JsonbField() {
         if (data) {
             delete[] data;
         }
@@ -140,36 +140,36 @@ public:
     const char* get_value() const { return data; }
     const uint32_t get_size() const { return size; }
 
-    bool operator<(const JsonField& r) const {
-        LOG(FATAL) << "comparing between JsonField is not supported";
+    bool operator<(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
     }
-    bool operator<=(const JsonField& r) const {
-        LOG(FATAL) << "comparing between JsonField is not supported";
+    bool operator<=(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
     }
-    bool operator==(const JsonField& r) const {
-        LOG(FATAL) << "comparing between JsonField is not supported";
+    bool operator==(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
     }
-    bool operator>(const JsonField& r) const {
-        LOG(FATAL) << "comparing between JsonField is not supported";
+    bool operator>(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
     }
-    bool operator>=(const JsonField& r) const {
-        LOG(FATAL) << "comparing between JsonField is not supported";
+    bool operator>=(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
     }
-    bool operator!=(const JsonField& r) const {
-        LOG(FATAL) << "comparing between JsonField is not supported";
-    }
-
-    const JsonField& operator+=(const JsonField& r) {
-        LOG(FATAL) << "Not support plus opration on JsonField";
+    bool operator!=(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
     }
 
-    const JsonField& operator-=(const JsonField& r) {
-        LOG(FATAL) << "Not support minus opration on JsonField";
+    const JsonbField& operator+=(const JsonbField& r) {
+        LOG(FATAL) << "Not support plus opration on JsonbField";
+    }
+
+    const JsonbField& operator-=(const JsonbField& r) {
+        LOG(FATAL) << "Not support minus opration on JsonbField";
     }
 
 private:
-    char* data;
-    uint32_t size;
+    char* data = nullptr;
+    uint32_t size = 0;
 };
 
 template <typename T>
@@ -276,7 +276,7 @@ public:
             Decimal64 = 20,
             Decimal128 = 21,
             AggregateFunctionState = 22,
-            JSON = 23,
+            JSONB = 23,
         };
 
         static const int MIN_NON_POD = 16;
@@ -297,8 +297,8 @@ public:
                 return "Float64";
             case String:
                 return "String";
-            case JSON:
-                return "JSON";
+            case JSONB:
+                return "JSONB";
             case Array:
                 return "Array";
             case Tuple:
@@ -358,14 +358,14 @@ public:
         create(data, size);
     }
 
-    void assign_json(const char* data, size_t size) {
+    void assign_jsonb(const char* data, size_t size) {
         destroy();
-        create_json(data, size);
+        create_jsonb(data, size);
     }
 
-    void assign_json(const unsigned char* data, size_t size) {
+    void assign_jsonb(const unsigned char* data, size_t size) {
         destroy();
-        create_json(data, size);
+        create_jsonb(data, size);
     }
 
     Field& operator=(const Field& rhs) {
@@ -465,8 +465,8 @@ public:
             return get<Float64>() < rhs.get<Float64>();
         case Types::String:
             return get<String>() < rhs.get<String>();
-        case Types::JSON:
-            return get<JsonField>() < rhs.get<JsonField>();
+        case Types::JSONB:
+            return get<JsonbField>() < rhs.get<JsonbField>();
         case Types::Array:
             return get<Array>() < rhs.get<Array>();
         case Types::Tuple:
@@ -508,8 +508,8 @@ public:
             return get<Float64>() <= rhs.get<Float64>();
         case Types::String:
             return get<String>() <= rhs.get<String>();
-        case Types::JSON:
-            return get<JsonField>() <= rhs.get<JsonField>();
+        case Types::JSONB:
+            return get<JsonbField>() <= rhs.get<JsonbField>();
         case Types::Array:
             return get<Array>() <= rhs.get<Array>();
         case Types::Tuple:
@@ -543,8 +543,8 @@ public:
             return get<UInt64>() == rhs.get<UInt64>();
         case Types::String:
             return get<String>() == rhs.get<String>();
-        case Types::JSON:
-            return get<JsonField>() == rhs.get<JsonField>();
+        case Types::JSONB:
+            return get<JsonbField>() == rhs.get<JsonbField>();
         case Types::Array:
             return get<Array>() == rhs.get<Array>();
         case Types::Tuple:
@@ -572,7 +572,7 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonField, Array, Tuple, DecimalField<Decimal32>,
+                         Int128, Float64, String, JsonbField, Array, Tuple, DecimalField<Decimal32>,
                          DecimalField<Decimal64>, DecimalField<Decimal128>,
                          AggregateFunctionStateData>
             storage;
@@ -636,8 +636,8 @@ private:
         case Types::String:
             f(field.template get<String>());
             return;
-        case Types::JSON:
-            f(field.template get<JsonField>());
+        case Types::JSONB:
+            f(field.template get<JsonbField>());
             return;
         case Types::Array:
             f(field.template get<Array>());
@@ -688,14 +688,14 @@ private:
         create(reinterpret_cast<const char*>(data), size);
     }
 
-    void create_json(const char* data, size_t size) {
-        new (&storage) JsonField(data, size);
-        which = Types::JSON;
+    void create_jsonb(const char* data, size_t size) {
+        new (&storage) JsonbField(data, size);
+        which = Types::JSONB;
     }
 
-    void create_json(const unsigned char* data, size_t size) {
-        new (&storage) JsonField(reinterpret_cast<const char*>(data), size);
-        which = Types::JSON;
+    void create_jsonb(const unsigned char* data, size_t size) {
+        new (&storage) JsonbField(reinterpret_cast<const char*>(data), size);
+        which = Types::JSONB;
     }
 
     ALWAYS_INLINE void destroy() {
@@ -705,8 +705,8 @@ private:
         case Types::String:
             destroy<String>();
             break;
-        case Types::JSON:
-            destroy<JsonField>();
+        case Types::JSONB:
+            destroy<JsonbField>();
             break;
         case Types::Array:
             destroy<Array>();
@@ -763,8 +763,8 @@ struct Field::TypeToEnum<String> {
     static const Types::Which value = Types::String;
 };
 template <>
-struct Field::TypeToEnum<JsonField> {
-    static const Types::Which value = Types::JSON;
+struct Field::TypeToEnum<JsonbField> {
+    static const Types::Which value = Types::JSONB;
 };
 template <>
 struct Field::TypeToEnum<Array> {
@@ -820,8 +820,8 @@ struct Field::EnumToType<Field::Types::String> {
     using Type = String;
 };
 template <>
-struct Field::EnumToType<Field::Types::JSON> {
-    using Type = JsonField;
+struct Field::EnumToType<Field::Types::JSONB> {
+    using Type = JsonbField;
 };
 template <>
 struct Field::EnumToType<Field::Types::Array> {
@@ -984,8 +984,8 @@ struct NearestFieldTypeImpl<String> {
     using Type = String;
 };
 template <>
-struct NearestFieldTypeImpl<JsonField> {
-    using Type = JsonField;
+struct NearestFieldTypeImpl<JsonbField> {
+    using Type = JsonbField;
 };
 template <>
 struct NearestFieldTypeImpl<Array> {
