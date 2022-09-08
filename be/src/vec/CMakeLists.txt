@@ -218,6 +218,7 @@ set(VEC_FILES
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
+  runtime/vparquet_writer.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
   exec/file_arrow_scanner.cpp
