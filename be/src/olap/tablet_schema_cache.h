@@ -23,7 +23,6 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "common/config.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
