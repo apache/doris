@@ -270,4 +270,8 @@ public class PlanChecker {
     public static PlanChecker from(CascadesContext cascadesContext) {
         return new PlanChecker(cascadesContext);
     }
+
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
+    }
 }
