@@ -168,14 +168,6 @@ public class DistributionSpecHash extends DistributionSpec {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        // if (requiredHash.shuffleType == ShuffleType.JOIN) {
-        //     return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
-        // }
-        //
-        // if (!this.shuffleType.equals(requiredHash.shuffleType)) {
-        //     return false;
-        // }
-
         return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
     }
 
@@ -190,6 +182,9 @@ public class DistributionSpecHash extends DistributionSpec {
     }
 
     private boolean equalsSatisfy(List<ExprId> required) {
+        if (equivalenceExprIds.size() != required.size()) {
+            return false;
+        }
         for (int i = 0; i < required.size(); i++) {
             if (!equivalenceExprIds.get(i).contains(required.get(i))) {
                 return false;

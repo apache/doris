@@ -450,4 +450,35 @@ public class DistributionSpecHashTest {
         Assertions.assertTrue(aggregate.satisfy(enforce2));
         Assertions.assertTrue(natural.satisfy(enforce2));
     }
+
+    @Test
+    public void testHashEqualSatisfyWithDifferentLength() {
+        Map<ExprId, Integer> enforce1Map = Maps.newHashMap();
+        enforce1Map.put(new ExprId(0), 0);
+        enforce1Map.put(new ExprId(1), 1);
+        enforce1Map.put(new ExprId(2), 2);
+        DistributionSpecHash enforce1 = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(0), new ExprId(1), new ExprId(2)),
+                ShuffleType.ENFORCE,
+                0,
+                Sets.newHashSet(0L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(0)), Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
+                enforce1Map
+        );
+
+        Map<ExprId, Integer> enforce2Map = Maps.newHashMap();
+        enforce2Map.put(new ExprId(0), 0);
+        enforce2Map.put(new ExprId(1), 1);
+        DistributionSpecHash enforce2 = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(0), new ExprId(1)),
+                ShuffleType.ENFORCE,
+                1,
+                Sets.newHashSet(1L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(0)), Sets.newHashSet(new ExprId(1))),
+                enforce2Map
+        );
+
+        Assertions.assertFalse(enforce1.satisfy(enforce2));
+        Assertions.assertFalse(enforce2.satisfy(enforce1));
+    }
 }
