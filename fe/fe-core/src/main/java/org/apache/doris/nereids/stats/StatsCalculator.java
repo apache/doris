@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -82,6 +81,8 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+
+    private static final int DEFAULT_AGGREGATE_RATIO = 1000;
 
     private final GroupExpression groupExpression;
 
@@ -163,7 +164,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
-        return groupExpression.getCopyOfChildStats(0);
+        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
     }
 
     @Override
@@ -235,7 +236,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             Void context) {
-        return groupExpression.getCopyOfChildStats(0);
+        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
+    }
+
+    private StatsDeriveResult computeAssertNumRows(long desiredNumOfRows) {
+        StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
+        statsDeriveResult.updateRowCountByLimit(1);
+        return statsDeriveResult;
     }
 
     private StatsDeriveResult computeFilter(Filter filter) {
@@ -301,22 +308,21 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
-        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
+        // List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
-        Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
-        long resultSetCount = 1;
-        for (Expression groupByExpression : groupByExpressions) {
-            Set<Slot> slots = groupByExpression.getInputSlots();
-            // TODO: Support more complex group expr.
-            //       For example:
-            //              select max(col1+col3) from t1 group by col1+col3;
-            if (slots.size() != 1) {
-                continue;
-            }
-            Slot slotReference = slots.iterator().next();
-            ColumnStats columnStats = childSlotToColumnStats.get(slotReference);
-            resultSetCount *= columnStats.getNdv();
+        // Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
+        // long resultSetCount = groupByExpressions.stream()
+        //         .flatMap(expr -> expr.getInputSlots().stream())
+        //         .filter(childSlotToColumnStats::containsKey)
+        //         .map(childSlotToColumnStats::get)
+        //         .map(ColumnStats::getNdv)
+        //         .reduce(1L, (a, b) -> a * b);
+        long resultSetCount = childStats.getRowCount() / DEFAULT_AGGREGATE_RATIO;
+        if (resultSetCount <= 0) {
+            resultSetCount = 1L;
         }
+
         Map<Slot, ColumnStats> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
