@@ -520,7 +520,6 @@ public:
             auto& res_offset = res->get_offsets();
             res_offset.resize(input_rows_count);
             for (size_t i = 0; i < input_rows_count; ++i) {
-                res_data.push_back('\0');
                 res_offset[i] = res_data.size();
             }
             block.get_by_position(result).column =
