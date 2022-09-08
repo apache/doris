@@ -506,7 +506,7 @@ public:
 
 struct IteratorRowRef {
     std::shared_ptr<Block> block;
-    int16_t row_pos;
+    int row_pos;
     bool is_same;
 
     template <typename T>

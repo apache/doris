@@ -19,6 +19,7 @@
 #include <queue>
 #include <utility>
 
+#include "common/status.h"
 #include "olap/iterators.h"
 #include "olap/schema.h"
 #include "vec/core/block.h"
@@ -214,7 +215,7 @@ public:
         _cur_batch_num = 0;
     }
 
-    void copy_rowrefs(BlockView* view, bool advanced = true) {
+    void copy_rows(BlockView* view, bool advanced = true) {
         if (_cur_batch_num == 0) {
             return;
         }
@@ -222,7 +223,7 @@ public:
         DCHECK(start >= 0);
 
         for (size_t i = 0; i < _cur_batch_num; ++i) {
-            view->push_back({_block, static_cast<int16_t>(start + i), false});
+            view->push_back({_block, static_cast<int>(start + i), false});
         }
 
         _cur_batch_num = 0;
@@ -369,8 +370,9 @@ public:
 
     Status init(const StorageReadOptions& opts) override;
 
-    Status next_batch(Block* block) override;
-    Status next_block_view(BlockView* block_view) override;
+    Status next_batch(Block* block) override { return _next_batch(block); }
+    Status next_block_view(BlockView* block_view) override { return _next_batch(block_view); }
+
     bool support_return_data_by_ref() override { return true; }
 
     const Schema& schema() const override { return *_schema; }
@@ -382,6 +384,71 @@ public:
     }
 
 private:
+    int _get_size(Block* block) { return block->rows(); }
+    int _get_size(BlockView* block_view) { return block_view->size(); }
+
+    template <typename T>
+    Status _next_batch(T* block) {
+        if (UNLIKELY(_record_rowids)) {
+            _block_row_locations.resize(_block_row_max);
+        }
+        size_t row_idx = 0;
+        VMergeIteratorContext* pre_ctx = nullptr;
+        while (_get_size(block) < _block_row_max) {
+            if (_merge_heap.empty()) {
+                break;
+            }
+
+            auto ctx = _merge_heap.top();
+            _merge_heap.pop();
+
+            if (!ctx->need_skip()) {
+                ctx->add_cur_batch();
+                if (pre_ctx != ctx) {
+                    if (pre_ctx) {
+                        pre_ctx->copy_rows(block);
+                    }
+                    pre_ctx = ctx;
+                }
+                if (UNLIKELY(_record_rowids)) {
+                    _block_row_locations[row_idx] = ctx->current_row_location();
+                }
+                row_idx++;
+                if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
+                    // current block finished, ctx not advance
+                    // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
+                    ctx->copy_rows(block, false);
+                    pre_ctx = nullptr;
+                }
+            } else if (_merged_rows != nullptr) {
+                (*_merged_rows)++;
+                // need skip cur row, so flush rows in pre_ctx
+                if (pre_ctx) {
+                    pre_ctx->copy_rows(block);
+                    pre_ctx = nullptr;
+                }
+            }
+
+            RETURN_IF_ERROR(ctx->advance());
+            if (ctx->valid()) {
+                _merge_heap.push(ctx);
+            } else {
+                // Release ctx earlier to reduce resource consumed
+                delete ctx;
+            }
+        }
+        if (!_merge_heap.empty()) {
+            return Status::OK();
+        }
+        // Still last batch needs to be processed
+
+        if (UNLIKELY(_record_rowids)) {
+            _block_row_locations.resize(row_idx);
+        }
+
+        return Status::EndOfFile("no more data in segment");
+    }
+
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIterator*> _origin_iters;
 
@@ -430,128 +497,6 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
 
     return Status::OK();
-}
-
-Status VMergeIterator::next_batch(Block* block) {
-    if (UNLIKELY(_record_rowids)) {
-        _block_row_locations.resize(_block_row_max);
-    }
-    size_t row_idx = 0;
-    VMergeIteratorContext* pre_ctx = nullptr;
-    while (block->rows() < _block_row_max) {
-        if (_merge_heap.empty()) {
-            break;
-        }
-
-        auto ctx = _merge_heap.top();
-        _merge_heap.pop();
-
-        if (!ctx->need_skip()) {
-            ctx->add_cur_batch();
-            if (pre_ctx != ctx) {
-                if (pre_ctx) {
-                    pre_ctx->copy_rows(block);
-                }
-                pre_ctx = ctx;
-            }
-            if (UNLIKELY(_record_rowids)) {
-                _block_row_locations[row_idx] = ctx->current_row_location();
-            }
-            row_idx++;
-            if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
-                // current block finished, ctx not advance
-                // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                ctx->copy_rows(block, false);
-                pre_ctx = nullptr;
-            }
-        } else if (_merged_rows != nullptr) {
-            (*_merged_rows)++;
-            // need skip cur row, so flush rows in pre_ctx
-            if (pre_ctx) {
-                pre_ctx->copy_rows(block);
-                pre_ctx = nullptr;
-            }
-        }
-
-        RETURN_IF_ERROR(ctx->advance());
-        if (ctx->valid()) {
-            _merge_heap.push(ctx);
-        } else {
-            // Release ctx earlier to reduce resource consumed
-            delete ctx;
-        }
-    }
-    if (!_merge_heap.empty()) {
-        return Status::OK();
-    }
-    // Still last batch needs to be processed
-
-    if (UNLIKELY(_record_rowids)) {
-        _block_row_locations.resize(row_idx);
-    }
-
-    return Status::EndOfFile("no more data in segment");
-}
-
-Status VMergeIterator::next_block_view(BlockView* block_view) {
-    if (UNLIKELY(_record_rowids)) {
-        _block_row_locations.resize(_block_row_max);
-    }
-    size_t row_idx = 0;
-    VMergeIteratorContext* pre_ctx = nullptr;
-    while (block_view->size() < _block_row_max) {
-        if (_merge_heap.empty()) {
-            break;
-        }
-
-        auto ctx = _merge_heap.top();
-        _merge_heap.pop();
-
-        if (!ctx->need_skip()) {
-            ctx->add_cur_batch();
-            if (pre_ctx != ctx) {
-                if (pre_ctx) {
-                    pre_ctx->copy_rowrefs(block_view);
-                }
-                pre_ctx = ctx;
-            }
-            if (UNLIKELY(_record_rowids)) {
-                _block_row_locations[row_idx] = ctx->current_row_location();
-            }
-            row_idx++;
-            if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
-                // current block finished, ctx not advance
-                // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                ctx->copy_rowrefs(block_view, false);
-                pre_ctx = nullptr;
-            }
-        } else if (_merged_rows != nullptr) {
-            (*_merged_rows)++;
-            // need skip cur row, so flush rows in pre_ctx
-            if (pre_ctx) {
-                pre_ctx->copy_rowrefs(block_view);
-                pre_ctx = nullptr;
-            }
-        }
-
-        RETURN_IF_ERROR(ctx->advance());
-        if (ctx->valid()) {
-            _merge_heap.push(ctx);
-        } else {
-            // Release ctx earlier to reduce resource consumed
-            delete ctx;
-        }
-    }
-    if (!_merge_heap.empty()) {
-        return Status::OK();
-    }
-    // Still last batch needs to be processed
-
-    if (UNLIKELY(_record_rowids)) {
-        _block_row_locations.resize(row_idx);
-    }
-
-    return Status::EndOfFile("no more data in segment");
 }
 
 // VUnionIterator will read data from input iterator one by one.

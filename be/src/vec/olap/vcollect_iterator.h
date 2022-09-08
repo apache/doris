@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #ifdef USE_LIBCPP
 #include <queue>
 #else
@@ -152,6 +153,42 @@ private:
         Status _next_by_ref(IteratorRowRef* ref);
         Status _refresh_current_row_by_ref();
 
+        bool _is_empty() {
+            if (_get_data_by_ref) {
+                return _block_view.empty();
+            } else {
+                return _block->rows() == 0;
+            }
+        }
+
+        bool _current_valid() {
+            if (_get_data_by_ref) {
+                return _current < _block_view.size();
+            } else {
+                return _ref.row_pos < _block->rows();
+            }
+        }
+
+        void _reset() {
+            if (_get_data_by_ref) {
+                _block_view.clear();
+                _ref.reset();
+                _current = 0;
+            } else {
+                _ref.is_same = false;
+                _ref.row_pos = 0;
+                _block->clear_column_data();
+            }
+        }
+
+        Status _refresh() {
+            if (_get_data_by_ref) {
+                return _rs_reader->next_block_view(&_block_view);
+            } else {
+                return _rs_reader->next_block(_block.get());
+            }
+        }
+
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
         std::shared_ptr<Block> _block;
@@ -159,7 +196,7 @@ private:
         int _current;
         BlockView _block_view;
         std::vector<RowLocation> _block_row_locations;
-        bool _get_data_by_ref;
+        bool _get_data_by_ref = false;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)

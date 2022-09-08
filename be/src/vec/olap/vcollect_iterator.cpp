@@ -188,16 +188,11 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
                                                  TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _get_data_by_ref =
-            _rs_reader->support_return_data_by_ref() && config::enable_storage_vectorization;
-    if (!_get_data_by_ref) {
-        _block = std::make_shared<Block>(_schema.create_block(
-                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
-    }
 }
 
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
-    _get_data_by_ref &= get_data_by_ref;
+    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref() &&
+                       config::enable_storage_vectorization;
     if (!_get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
@@ -216,75 +211,42 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::_refresh_current_row() {
-    if (_get_data_by_ref) {
-        return _refresh_current_row_by_ref();
-    }
-
     do {
-        if (_block->rows() != 0 && _ref.row_pos < _block->rows()) {
+        if (!_is_empty() && _current_valid()) {
             return Status::OK();
         } else {
-            _ref.is_same = false;
-            _ref.row_pos = 0;
-            _block->clear_column_data();
-            auto res = _rs_reader->next_block(_block.get());
+            _reset();
+            auto res = _refresh();
             if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
                 return res;
             }
-            if (res.precise_code() == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
+            if (res.precise_code() == OLAP_ERR_DATA_EOF && _is_empty()) {
                 break;
             }
 
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
-                DCHECK_EQ(_block_row_locations.size(), _block->rows());
             }
         }
-    } while (_block->rows() != 0);
+    } while (!_is_empty());
     _ref.row_pos = -1;
-    return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
-}
-
-Status VCollectIterator::Level0Iterator::_refresh_current_row_by_ref() {
-    do {
-        if (_block_view.size() != 0 && _current < _block_view.size()) {
-            return Status::OK();
-        } else {
-            _block_view.clear();
-            _ref.reset();
-            _current = 0;
-            auto res = _rs_reader->next_block_view(&_block_view);
-            if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
-                return res;
-            }
-            if (res.precise_code() == OLAP_ERR_DATA_EOF && _block_view.empty()) {
-                break;
-            }
-            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-                RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
-                DCHECK_EQ(_block_row_locations.size(), _block_view.size());
-            }
-        }
-    } while (!_block_view.empty());
     _current = -1;
     return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
 }
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     if (_get_data_by_ref) {
-        return _next_by_ref(ref);
+        _current++;
+    } else {
+        _ref.row_pos++;
     }
 
-    _ref.row_pos++;
     RETURN_NOT_OK(_refresh_current_row());
-    *ref = _ref;
-    return Status::OK();
-}
 
-Status VCollectIterator::Level0Iterator::_next_by_ref(IteratorRowRef* ref) {
-    _current++;
-    RETURN_NOT_OK(_refresh_current_row());
-    _ref = _block_view[_current];
+    if (_get_data_by_ref) {
+        _ref = _block_view[_current];
+    }
+
     *ref = _ref;
     return Status::OK();
 }
