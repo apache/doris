@@ -100,7 +100,11 @@ public class StmtExecutionAction extends RestBaseController {
 
         ConnectContext.get().changeDefaultCatalog(ns);
         ConnectContext.get().setDatabase(getFullDbName(dbName));
-        return executeQuery(authInfo, stmtRequestBody.is_sync, stmtRequestBody.limit, stmtRequestBody);
+
+        String streamHeader = request.getHeader("X-Doris-Stream");
+        boolean isStream = !("false".equalsIgnoreCase(streamHeader));
+        return executeQuery(authInfo, stmtRequestBody.is_sync, stmtRequestBody.limit, stmtRequestBody,
+                            response, isStream);
     }
 
 
@@ -138,16 +142,19 @@ public class StmtExecutionAction extends RestBaseController {
      * @param stmtRequestBody
      * @return
      */
-    @NotNull
     private ResponseEntity executeQuery(ActionAuthorizationInfo authInfo, boolean isSync, long limit,
-            StmtRequestBody stmtRequestBody) {
+            StmtRequestBody stmtRequestBody, HttpServletResponse response, boolean isStream) {
         StatementSubmitter.StmtContext stmtCtx = new StatementSubmitter.StmtContext(stmtRequestBody.stmt,
-                authInfo.fullUserName, authInfo.password, limit);
+                authInfo.fullUserName, authInfo.password, limit, isStream, response);
         Future<ExecutionResultSet> future = stmtSubmitter.submit(stmtCtx);
 
         if (isSync) {
             try {
                 ExecutionResultSet resultSet = future.get();
+                // if use stream response, we not need to response an object.
+                if (isStream) {
+                    return null;
+                }
                 return ResponseEntityBuilder.ok(resultSet.getResult());
             } catch (InterruptedException e) {
                 LOG.warn("failed to execute stmt", e);
