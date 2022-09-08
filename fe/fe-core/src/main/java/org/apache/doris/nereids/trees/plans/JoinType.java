@@ -113,13 +113,11 @@ public enum JoinType {
     }
 
     public final boolean isRemainLeftJoin() {
-        return this == LEFT_OUTER_JOIN || this == LEFT_SEMI_JOIN || this == LEFT_ANTI_JOIN
-                || this == INNER_JOIN || this == CROSS_JOIN || this == FULL_OUTER_JOIN;
+        return this != RIGHT_SEMI_JOIN && this != RIGHT_ANTI_JOIN;
     }
 
     public final boolean isRemainRightJoin() {
-        return this == RIGHT_OUTER_JOIN || this == RIGHT_SEMI_JOIN || this == RIGHT_ANTI_JOIN
-                || this == INNER_JOIN || this == CROSS_JOIN || this == FULL_OUTER_JOIN;
+        return this != LEFT_SEMI_JOIN && this != LEFT_ANTI_JOIN;
     }
 
     public final boolean isSwapJoinType() {
