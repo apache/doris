@@ -35,7 +35,7 @@ import java.util.List;
 /**
  * substring function.
  */
-public class Substring extends BoundFunction implements TernaryExpression, ImplicitCastInputTypes {
+public class Substring extends ScalarFunction implements TernaryExpression, ImplicitCastInputTypes {
 
     // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
