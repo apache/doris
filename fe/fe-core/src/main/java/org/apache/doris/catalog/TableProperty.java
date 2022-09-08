@@ -118,10 +118,12 @@ public class TableProperty implements Writable {
      *
      * @return this for chained
      */
-    public TableProperty resetPropertiesForRestore() {
+    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable) {
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
-            properties.put(DynamicPartitionProperty.ENABLE, "false");
+            if (!reserveDynamicPartitionEnable) {
+                properties.put(DynamicPartitionProperty.ENABLE, "false");
+            }
             executeBuildDynamicProperty();
         }
         return this;

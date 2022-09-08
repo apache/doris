@@ -42,7 +42,7 @@ public class ShowRestoreStmt extends ShowStmt {
             .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")
             .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime").add("SnapshotFinishedTime")
             .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("Progress")
-            .add("TaskErrMsg").add("Status").add("Timeout")
+            .add("TaskErrMsg").add("Status").add("Timeout").add("ReserveDynamicPartitionEnable")
             .build();
 
     private String dbName;

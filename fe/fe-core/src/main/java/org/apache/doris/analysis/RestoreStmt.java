@@ -37,12 +37,14 @@ public class RestoreStmt extends AbstractBackupStmt {
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
     private int metaVersion = -1;
     private boolean reserveReplica = false;
+    private boolean reserveDynamicPartitionEnable = false;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
                        Map<String, String> properties) {
@@ -67,6 +69,10 @@ public class RestoreStmt extends AbstractBackupStmt {
 
     public boolean reserveReplica() {
         return reserveReplica;
+    }
+
+    public boolean reserveDynamicPartitionEnable() {
+        return reserveDynamicPartitionEnable;
     }
 
     @Override
@@ -123,6 +129,19 @@ public class RestoreStmt extends AbstractBackupStmt {
                         "Invalid reserve_replica value: " + copiedProperties.get(PROP_RESERVE_REPLICA));
             }
             copiedProperties.remove(PROP_RESERVE_REPLICA);
+        }
+        // reserve dynamic partition enable
+        if (copiedProperties.containsKey(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE)) {
+            if (copiedProperties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE).equalsIgnoreCase("true")) {
+                reserveDynamicPartitionEnable = true;
+            } else if (copiedProperties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE).equalsIgnoreCase("false")) {
+                reserveDynamicPartitionEnable = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve dynamic partition enable value: "
+                        + copiedProperties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
+            }
+            copiedProperties.remove(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE);
         }
         // backup timestamp
         if (copiedProperties.containsKey(PROP_BACKUP_TIMESTAMP)) {
