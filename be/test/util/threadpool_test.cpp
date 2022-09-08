@@ -893,4 +893,46 @@ TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
     EXPECT_EQ(0, _pool->num_threads());
 }
 
+TEST_F(ThreadPoolTest, TestThreadTokenSerial) {
+    std::unique_ptr<ThreadPool> thread_pool;
+    ThreadPoolBuilder("my_pool")
+            .set_min_threads(0)
+            .set_max_threads(1)
+            .set_max_queue_size(10)
+            .set_idle_timeout(std::chrono::milliseconds(2000))
+            .build(&thread_pool);
+
+    std::unique_ptr<ThreadPoolToken> token1 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL, 2);
+    token1->submit_func(std::bind(&MyFunc, 0, 1));
+    std::cout << "after submit 1" << std::endl;
+    token1->wait();
+    ASSERT_EQ(0, token1->num_tasks());
+    for (int i = 0; i < 10; i++) {
+        token1->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 1" << std::endl;
+    token1->wait();
+    ASSERT_EQ(0, token1->num_tasks());
+}
+
+TEST_F(ThreadPoolTest, TestThreadTokenConcurrent) {
+    std::unique_ptr<ThreadPool> thread_pool;
+    ThreadPoolBuilder("my_pool")
+            .set_min_threads(0)
+            .set_max_threads(1)
+            .set_max_queue_size(10)
+            .set_idle_timeout(std::chrono::milliseconds(2000))
+            .build(&thread_pool);
+
+    std::unique_ptr<ThreadPoolToken> token1 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
+    for (int i = 0; i < 10; i++) {
+        token1->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 1" << std::endl;
+    token1->wait();
+    ASSERT_EQ(0, token1->num_tasks());
+}
+
 } // namespace doris
