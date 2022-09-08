@@ -21,7 +21,6 @@
 #pragma once
 
 #include "vec/common/cow.h"
-#include "vec/common/exception.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -127,10 +126,6 @@ public:
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
     virtual StringRef get_data_at(size_t n) const = 0;
-
-    /// Like getData, but has special behavior for columns that contain variable-length strings.
-    /// Returns zero-ending memory chunk (i.e. its size is 1 byte longer).
-    virtual StringRef get_data_at_with_terminating_zero(size_t n) const { return get_data_at(n); }
 
     /// If column stores integers, it returns n-th element transformed to UInt64 using static_cast.
     /// If column stores floating point numbers, bits of n-th elements are copied to lower bits of UInt64, the remaining bits are zeros.

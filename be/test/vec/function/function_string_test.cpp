@@ -700,9 +700,9 @@ TEST(function_string_test, function_aes_encrypt_test) {
             int cipher_len = strlen(src[i]) + 16;
             char p[cipher_len];
 
-            int outlen = EncryptionUtil::encrypt(AES_128_ECB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 NULL, true, (unsigned char*)p);
+            int outlen = EncryptionUtil::encrypt(
+                    EncryptionMode::AES_128_ECB, (unsigned char*)src[i], strlen(src[i]),
+                    (unsigned char*)key, strlen(key), nullptr, 0, true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
@@ -733,9 +733,10 @@ TEST(function_string_test, function_aes_encrypt_test) {
             init_vec.reset(new char[iv_len]);
             std::memset(init_vec.get(), 0, strlen(iv) + 1);
             memcpy(init_vec.get(), iv, strlen(iv));
-            int outlen = EncryptionUtil::encrypt(AES_256_ECB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 init_vec.get(), true, (unsigned char*)p);
+            int outlen =
+                    EncryptionUtil::encrypt(EncryptionMode::AES_256_ECB, (unsigned char*)src[i],
+                                            strlen(src[i]), (unsigned char*)key, strlen(key),
+                                            init_vec.get(), strlen(iv), true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
@@ -766,9 +767,9 @@ TEST(function_string_test, function_aes_decrypt_test) {
             int cipher_len = strlen(src[i]) + 16;
             char p[cipher_len];
 
-            int outlen = EncryptionUtil::encrypt(AES_128_ECB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 NULL, true, (unsigned char*)p);
+            int outlen = EncryptionUtil::encrypt(
+                    EncryptionMode::AES_128_ECB, (unsigned char*)src[i], strlen(src[i]),
+                    (unsigned char*)key, strlen(key), nullptr, 0, true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
@@ -798,9 +799,10 @@ TEST(function_string_test, function_aes_decrypt_test) {
             init_vec.reset(new char[iv_len]);
             std::memset(init_vec.get(), 0, strlen(iv) + 1);
             memcpy(init_vec.get(), iv, strlen(iv));
-            int outlen = EncryptionUtil::encrypt(AES_128_OFB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 init_vec.get(), true, (unsigned char*)p);
+            int outlen =
+                    EncryptionUtil::encrypt(EncryptionMode::AES_128_OFB, (unsigned char*)src[i],
+                                            strlen(src[i]), (unsigned char*)key, strlen(key),
+                                            init_vec.get(), strlen(iv), true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
         DataSet data_set = {
@@ -828,9 +830,9 @@ TEST(function_string_test, function_sm4_encrypt_test) {
             int cipher_len = strlen(src[i]) + 16;
             char p[cipher_len];
 
-            int outlen = EncryptionUtil::encrypt(SM4_128_ECB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 NULL, true, (unsigned char*)p);
+            int outlen = EncryptionUtil::encrypt(
+                    EncryptionMode::SM4_128_ECB, (unsigned char*)src[i], strlen(src[i]),
+                    (unsigned char*)key, strlen(key), nullptr, 0, true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
@@ -863,9 +865,10 @@ TEST(function_string_test, function_sm4_encrypt_test) {
             init_vec.reset(new char[iv_len]);
             std::memset(init_vec.get(), 0, strlen(iv) + 1);
             memcpy(init_vec.get(), iv, strlen(iv));
-            int outlen = EncryptionUtil::encrypt(SM4_128_CTR, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 init_vec.get(), true, (unsigned char*)p);
+            int outlen =
+                    EncryptionUtil::encrypt(EncryptionMode::SM4_128_CTR, (unsigned char*)src[i],
+                                            strlen(src[i]), (unsigned char*)key, strlen(key),
+                                            init_vec.get(), strlen(iv), true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
@@ -896,9 +899,9 @@ TEST(function_string_test, function_sm4_decrypt_test) {
             int cipher_len = strlen(src[i]) + 16;
             char p[cipher_len];
 
-            int outlen = EncryptionUtil::encrypt(SM4_128_ECB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 NULL, true, (unsigned char*)p);
+            int outlen = EncryptionUtil::encrypt(
+                    EncryptionMode::SM4_128_ECB, (unsigned char*)src[i], strlen(src[i]),
+                    (unsigned char*)key, strlen(key), nullptr, 0, true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
@@ -930,9 +933,10 @@ TEST(function_string_test, function_sm4_decrypt_test) {
             init_vec.reset(new char[iv_len]);
             std::memset(init_vec.get(), 0, strlen(iv) + 1);
             memcpy(init_vec.get(), iv, strlen(iv));
-            int outlen = EncryptionUtil::encrypt(SM4_128_OFB, (unsigned char*)src[i],
-                                                 strlen(src[i]), (unsigned char*)key, strlen(key),
-                                                 init_vec.get(), true, (unsigned char*)p);
+            int outlen =
+                    EncryptionUtil::encrypt(EncryptionMode::SM4_128_OFB, (unsigned char*)src[i],
+                                            strlen(src[i]), (unsigned char*)key, strlen(key),
+                                            init_vec.get(), strlen(iv), true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 

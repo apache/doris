@@ -23,7 +23,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
 
@@ -66,10 +65,6 @@ public:
     void get(size_t, Field& res) const override { data->get(0, res); }
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
-
-    StringRef get_data_at_with_terminating_zero(size_t) const override {
-        return data->get_data_at_with_terminating_zero(0);
-    }
 
     UInt64 get64(size_t) const override { return data->get64(0); }
 

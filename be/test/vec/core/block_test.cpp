@@ -145,7 +145,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         }
         EXPECT_EQ(column2->get_int(i), k2++);
         EXPECT_EQ(column3->get_float64(i), k3);
-        EXPECT_STREQ(column4->get_data_at(i).data, std::to_string(k1).c_str());
+        EXPECT_EQ(column4->get_data_at(i).to_string(), std::to_string(k1));
         auto decimal_field =
                 column5->operator[](i).get<vectorized::DecimalField<vectorized::Decimal128>>();
         DecimalV2Value decimalv2_num(std::to_string(k3));
