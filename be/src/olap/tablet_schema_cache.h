@@ -60,12 +60,12 @@ private:
      * @brief recycle when TabletSchemaSPtr use_count equals 1.
      */
     void _recycle() {
+        int64_t tablet_schema_cache_recycle_interval = 86400; // s, one day
         for (;;) {
-            std::this_thread::sleep_for(
-                    std::chrono::seconds(config::tablet_schema_cache_recycle_interval));
+            std::this_thread::sleep_for(std::chrono::seconds(tablet_schema_cache_recycle_interval));
             std::lock_guard guard(_mtx);
             for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
-                if (iter->second.use_count() == 1) {
+                if (iter->second.unique()) {
                     iter = _cache.erase(iter);
                 } else {
                     ++iter;
