@@ -105,6 +105,7 @@ public enum RuleType {
     OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
     SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
     LOGICAL_LIMIT_TO_LOGICAL_EMPTY_RELATION_RULE(RuleTypeClass.REWRITE),
+    SWAP_LIMIT_PROJECT(RuleTypeClass.REWRITE),
 
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
