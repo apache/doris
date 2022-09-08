@@ -54,8 +54,9 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     /**
      * Constructor for PhysicalRelation.
      */
-    public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties) {
+    public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties) {
         super(type, groupExpression, logicalProperties, physicalProperties);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
         this.id = id;
