@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -41,20 +42,24 @@ import java.util.Optional;
  * Represent a relation plan node that has not been bound.
  */
 public class UnboundRelation extends LogicalLeaf implements Unbound {
+
+    public final RelationId id;
+
     private final List<String> nameParts;
 
-    public UnboundRelation(List<String> nameParts) {
-        this(nameParts, Optional.empty(), Optional.empty());
+    public UnboundRelation(RelationId id, List<String> nameParts) {
+        this(id, nameParts, Optional.empty(), Optional.empty());
     }
 
-    public UnboundRelation(List<String> nameParts, Optional<GroupExpression> groupExpression,
+    public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
+        this.id = id;
     }
 
-    public UnboundRelation(TableIdentifier identifier) {
-        this(identifier, Optional.empty(), Optional.empty());
+    public UnboundRelation(RelationId id, TableIdentifier identifier) {
+        this(id, identifier, Optional.empty(), Optional.empty());
     }
 
     /**
@@ -62,7 +67,7 @@ public class UnboundRelation extends LogicalLeaf implements Unbound {
      *
      * @param identifier relation identifier
      */
-    public UnboundRelation(TableIdentifier identifier, Optional<GroupExpression> groupExpression,
+    public UnboundRelation(RelationId id, TableIdentifier identifier, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = Lists.newArrayList();
@@ -70,6 +75,7 @@ public class UnboundRelation extends LogicalLeaf implements Unbound {
             nameParts.add(identifier.getDatabaseName().get());
         }
         nameParts.add(identifier.getTableName());
+        this.id = id;
     }
 
     public List<String> getNameParts() {

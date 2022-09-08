@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
@@ -119,6 +120,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -158,6 +160,8 @@ import java.util.stream.Collectors;
  * Build a logical plan tree with unbounded nodes.
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
+
+    private final IdGenerator<RelationId> idGenerator = RelationId.createGenerator();
 
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -249,9 +253,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
         if (null == ctx.tableAlias().strictIdentifier()) {
-            return new UnboundRelation(tableId);
+            return new UnboundRelation(idGenerator.getNextId(), tableId);
         }
-        return withTableAlias(new UnboundRelation(tableId), ctx.tableAlias());
+        return withTableAlias(new UnboundRelation(idGenerator.getNextId(), tableId), ctx.tableAlias());
     }
 
     @Override
