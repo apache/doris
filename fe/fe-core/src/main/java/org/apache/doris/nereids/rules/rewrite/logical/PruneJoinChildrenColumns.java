@@ -81,7 +81,7 @@ public class PruneJoinChildrenColumns
             leftInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.left().getOutput()));
         }
         if (rightInputs.isEmpty()) {
-            rightInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.left().getOutput()));
+            rightInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.right().getOutput()));
         }
 
         Plan leftPlan = joinPlan.left();
