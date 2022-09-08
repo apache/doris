@@ -136,7 +136,6 @@ private:
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
     }
 
-
 private:
     RuntimeState* _state;
     VScanNode* _parent;
