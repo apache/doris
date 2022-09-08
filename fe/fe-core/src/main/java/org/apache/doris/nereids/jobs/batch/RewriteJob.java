@@ -31,7 +31,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.SingleSidePredicate;
 import org.apache.doris.nereids.rules.rewrite.logical.SwapFilterAndProject;
 
 import com.google.common.collect.ImmutableList;
@@ -71,7 +70,6 @@ public class RewriteJob extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
                 .add(bottomUpBatch(ImmutableList.of(new LogicalLimitZeroToLogicalEmptyRelation())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
-                .add(topDownBatch(ImmutableList.of(new SingleSidePredicate())))
                 .build();
 
         rulesJob.addAll(jobs);

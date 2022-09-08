@@ -97,6 +97,7 @@ public class SingleSidePredicateTest extends TestWithFeService implements Patter
     public void testSimpleCase() {
         PlanChecker.from(connectContext)
                 .analyze("SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2")
+                .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new SingleSidePredicate())
                 .matches(
                         logicalProject(
@@ -116,6 +117,7 @@ public class SingleSidePredicateTest extends TestWithFeService implements Patter
     public void testSubQueryCase() {
         PlanChecker.from(connectContext)
                 .analyze("SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2")
+                .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new SingleSidePredicate())
                 .matches(
                         logicalProject(
@@ -138,7 +140,8 @@ public class SingleSidePredicateTest extends TestWithFeService implements Patter
     @Test
     public void testAggNodeCase() {
         PlanChecker.from(connectContext)
-                .analyze("SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10")
+                .analyze("SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE = T1.SCORE + 10")
+                .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new SingleSidePredicate())
                 .matches(
                         logicalProject(
@@ -159,7 +162,8 @@ public class SingleSidePredicateTest extends TestWithFeService implements Patter
     @Test
     public void testSortNodeCase() {
         PlanChecker.from(connectContext)
-                .analyze("SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10")
+                .analyze("SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE = T1.SCORE + 10")
+                .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new SingleSidePredicate())
                 .matches(
                         logicalProject(

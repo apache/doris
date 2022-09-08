@@ -23,12 +23,14 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -59,14 +61,15 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
      *                                                     olapScan(t1)        olapScan(t2)
      *TODO: now t1.a + t2.a = t1.b is not in hashJoinConjuncts. The rule will not handle it.
      */
-    List<List<Expression>> exprsOfJoinRelation = Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
-
-    Map<Expression, Alias> exprMap = Maps.newHashMap();
-
     @Override
     public Rule build() {
         return logicalJoin()
+                .when(join -> join.getHashJoinConjuncts().stream().anyMatch(expr ->
+                        expr.children().stream().anyMatch(expr1 -> !(expr1 instanceof Slot))))
                 .then(join -> {
+                    List<List<Expression>> exprsOfJoinRelation =
+                            Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
+                    Map<Expression, Alias> exprMap = Maps.newHashMap();
                     Plan left = join.left();
                     join.getHashJoinConjuncts().forEach(conjunct -> {
                         Preconditions.checkArgument(conjunct instanceof EqualTo);
@@ -77,17 +80,19 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
                         Arrays.stream(exprs).sequential().forEach(expr ->
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.hashCode())));
                     });
-                    LogicalJoin join1 = join.withHashJoinConjuncts(join.getHashJoinConjuncts()
+                    LogicalJoin<Plan, Plan> join1 = join.withHashJoinConjuncts(join.getHashJoinConjuncts()
                             .stream().map(equalTo -> equalTo.withChildren(equalTo.children()
                                     .stream().map(expr -> exprMap.get(expr).toSlot())
                                     .collect(Collectors.toList())))
                             .collect(Collectors.toList()));
-                    return join1.withChildren(join.children().stream().map(
-                            plan -> {
-                                Iterator<List<Expression>> iter = exprsOfJoinRelation.iterator();
-                                return new LogicalProject<>(iter.next().stream().map(expr -> exprMap.get(expr))
-                                        .collect(Collectors.toList()), plan);
-                            }).collect(Collectors.toList()));
+                    Iterator<List<Expression>> iter = exprsOfJoinRelation.iterator();
+                    return join1.withChildren(join1.children().stream().map(
+                            plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
+                                    .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
+                                            .collect(Collectors.toList()))
+                                    .addAll(plan.getOutput())
+                                    .build(), plan))
+                            .collect(Collectors.toList()));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
 

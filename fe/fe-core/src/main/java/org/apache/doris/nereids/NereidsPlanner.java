@@ -26,6 +26,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.RewriteJob;
+import org.apache.doris.nereids.jobs.batch.SingleSidePredicateJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -137,6 +138,7 @@ public class NereidsPlanner extends Planner {
      */
     private void rewrite() {
         new RewriteJob(cascadesContext).execute();
+        new SingleSidePredicateJob(cascadesContext).execute();
     }
 
     private void deriveStats() {
