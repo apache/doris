@@ -168,6 +168,7 @@ public class LogicalOlapScan extends LogicalRelation {
 
     @VisibleForTesting
     public Optional<String> getSelectRollupName() {
-        return rollupSelected ? Optional.of(((OlapTable) table).getIndexNameById(selectedIndexId)) : Optional.empty();
+        return rollupSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
+                : Optional.empty();
     }
 }

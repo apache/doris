@@ -150,17 +150,33 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
         PlanChecker.from(connectContext)
                 .analyze(" select k2, sum(v1) from t group by k2")
                 .applyTopDown(new SelectRollup())
-                .matches(logicalOlapScan().when(scan -> "r1".equals(scan.getSelectRollupName().get())
-                ));
+                .matches(logicalOlapScan().when(scan -> "r1".equals(scan.getSelectRollupName().get())));
     }
 
     @Test
-    public void testNonMatching() {
+    public void testMatchingBase() {
         PlanChecker.from(connectContext)
-                .analyze(" select k3, sum(v1) from t group by k3")
+                .analyze(" select k1, sum(v1) from t group by k1")
                 .applyTopDown(new SelectRollup())
-                .matches(logicalOlapScan().when(scan -> "t".equals(scan.getSelectRollupName().get())
-                ));
+                .matches(logicalOlapScan().when(scan -> "t".equals(scan.getSelectRollupName().get())));
+    }
+
+    @Test
+    void testAggFilterScan() {
+        PlanChecker.from(connectContext)
+                .analyze("select k2, sum(v1) from t where k3=0 group by k2")
+                .applyTopDown(new SelectRollup())
+                .matches(logicalOlapScan().when(scan -> "r2".equals(scan.getSelectRollupName().get())));
+    }
+
+    @Test
+    void testTranslate() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult(
+                        " select k2, sum(v1) from t group by k2",
+                        planner -> {
+                        }
+                );
     }
 
     @Disabled
@@ -173,24 +189,6 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                         planner -> {
                         })
         ;
-    }
-
-    @Test
-    void testAggFilterScan() {
-        PlanChecker.from(connectContext)
-                .analyze("select k2, sum(v1) from t where k3=0 group by k2")
-                .applyTopDown(new SelectRollup())
-                .matches(logicalOlapScan().when(scan -> "r3".equals(scan.getSelectRollupName().get())));
-    }
-
-    @Test
-    void testTranslate() {
-        PlanChecker.from(connectContext)
-                .checkPlannerResult(
-                        " select k2, sum(v1) from t group by k2",
-                        planner -> {
-                        }
-                );
     }
 
     @Disabled

@@ -90,11 +90,15 @@ public class SelectRollup implements RewriteRuleFactory {
                         .then(agg -> {
                             LogicalFilter<LogicalOlapScan> filter = agg.child();
                             LogicalOlapScan scan = filter.child();
+                            ImmutableSet<Slot> requiredSlots = ImmutableSet.<Slot>builder()
+                                    .addAll(agg.getInputSlots())
+                                    .addAll(filter.getInputSlots())
+                                    .build();
                             return agg.withChildren(filter.withChildren(
                                     scan.withCandidateIndexIds(
                                             selectCandidateRollupIds(
                                                     scan,
-                                                    agg.getInputSlots(),
+                                                    requiredSlots,
                                                     filter.getConjuncts(),
                                                     extractAggFunctionAndReplaceSlot(agg, Optional.empty())
                                             )
@@ -113,8 +117,7 @@ public class SelectRollup implements RewriteRuleFactory {
                                             scan.withCandidateIndexIds(
                                                     selectCandidateRollupIds(
                                                             scan,
-                                                            // todo: replace slot produced by project?
-                                                            agg.getInputSlots(),
+                                                            project.getInputSlots(),
                                                             ImmutableList.of(),
                                                             extractAggFunctionAndReplaceSlot(agg,
                                                                     Optional.of(project))
@@ -152,7 +155,7 @@ public class SelectRollup implements RewriteRuleFactory {
                             return agg.withChildren(filter.withChildren(project.withChildren(
                                     scan.withCandidateIndexIds(selectCandidateRollupIds(
                                                     scan,
-                                                    agg.getInputSlots(),
+                                                    project.getInputSlots(),
                                                     ImmutableList.of(),
                                                     extractAggFunctionAndReplaceSlot(agg, Optional.of(project))
                                             )
