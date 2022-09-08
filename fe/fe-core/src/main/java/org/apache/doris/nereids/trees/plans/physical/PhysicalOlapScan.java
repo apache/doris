@@ -109,7 +109,8 @@ public class PhysicalOlapScan extends PhysicalRelation {
             return false;
         }
         PhysicalOlapScan that = (PhysicalOlapScan) o;
-        return selectedIndexId == that.selectedIndexId
+        return Objects.equals(id, that.id)
+                && selectedIndexId == that.selectedIndexId
                 && Objects.equals(selectedTabletIds, that.selectedTabletIds)
                 && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
                 && Objects.equals(olapTable, that.olapTable);

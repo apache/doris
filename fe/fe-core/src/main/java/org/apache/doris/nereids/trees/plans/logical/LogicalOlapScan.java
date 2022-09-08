@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -99,7 +100,7 @@ public class LogicalOlapScan extends LogicalRelation {
         if (o == null || getClass() != o.getClass() || !super.equals(o)) {
             return false;
         }
-        return true;
+        return Objects.equals(id, ((LogicalOlapScan) o).id);
     }
 
     @Override

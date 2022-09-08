@@ -86,7 +86,8 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
             return false;
         }
         LogicalRelation that = (LogicalRelation) o;
-        return Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
+        return Objects.equals(id, that.id)
+                && Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
     }
 
     @Override
