@@ -176,7 +176,7 @@ struct ArrayAggregateImpl {
 
     template <typename Element>
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets& offsets) {
+                             const ColumnArray::Offsets64& offsets) {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ResultType = ArrayAggregateResult<Element, operation>;
         using ColVecResultType = ColumnVectorOrDecimal<ResultType>;

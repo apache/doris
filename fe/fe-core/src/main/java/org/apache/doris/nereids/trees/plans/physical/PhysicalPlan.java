@@ -25,4 +25,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
  */
 public interface PhysicalPlan extends Plan {
     PhysicalProperties getPhysicalProperties();
+
+    PhysicalPlan withPhysicalProperties(PhysicalProperties physicalProperties);
 }

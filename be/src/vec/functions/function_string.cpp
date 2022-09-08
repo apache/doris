@@ -629,6 +629,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRight>();
     factory.register_function<FunctionNullOrEmpty>();
     factory.register_function<FunctionStringConcat>();
+    factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
     factory.register_function<FunctionStringRepeat>();

@@ -336,12 +336,12 @@ suite("test_window_function") {
              order by a, wjj"""
 
     // test_query_last_value
-    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3})
-             as wj from baseall  order by ${k1}, wj"""
-    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2})
+                 as wj from baseall  order by ${k1}, wj"""
+    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
     qt_last_value4"""select a, max(d) as wjj from 
@@ -492,7 +492,7 @@ suite("test_window_function") {
         }
     }
 
-    sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="60000"); """
+    sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="300000"); """
 
     qt_window_hang2"""select A.${k1}, A.wj - B.dyk + 1 as num from 
         (select ${k1}, wj from ${line} as W1) as A join 

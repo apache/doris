@@ -381,7 +381,7 @@ timeout = 1000s 等于 10G / 10M/s
 - step3：创建导入任务
 
   ```shell
-  curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8000/api/bj_sales/store_sales/_stream_load
+  curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
   ```
 
 ## 常见问题

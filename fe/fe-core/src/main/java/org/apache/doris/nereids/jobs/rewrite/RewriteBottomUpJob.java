@@ -43,7 +43,6 @@ public class RewriteBottomUpJob extends Job {
     private final List<Rule> rules;
     private final boolean childrenOptimized;
 
-
     public RewriteBottomUpJob(Group group, JobContext context, List<RuleFactory> factories) {
         this(group, factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())
@@ -66,9 +65,9 @@ public class RewriteBottomUpJob extends Job {
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
-            pushTask(new RewriteBottomUpJob(group, rules, context, true));
+            pushJob(new RewriteBottomUpJob(group, rules, context, true));
             for (Group childGroup : logicalExpression.children()) {
-                pushTask(new RewriteBottomUpJob(childGroup, rules, context, false));
+                pushJob(new RewriteBottomUpJob(childGroup, rules, context, false));
             }
             return;
         }
@@ -87,7 +86,7 @@ public class RewriteBottomUpJob extends Job {
                             .getMemo()
                             .copyIn(after, group, rule.isRewrite());
                     if (result.generateNewExpression) {
-                        pushTask(new RewriteBottomUpJob(group, rules, context, false));
+                        pushJob(new RewriteBottomUpJob(group, rules, context, false));
                         return;
                     }
                 }

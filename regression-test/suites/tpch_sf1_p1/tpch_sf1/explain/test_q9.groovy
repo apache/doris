@@ -62,7 +62,7 @@ suite("test_explain_tpch_sf_1_q9") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 23> <slot 20> `nation` ASC, <slot 24> <slot 21> `o_year` DESC") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 22> sum(`amount`))\n" + 
+				"  |  output: sum(<slot 22> sum(<slot 73> * (1 - <slot 74>) - <slot 81> * <slot 75>))\n" + 
 				"  |  group by: <slot 20> `nation`, <slot 21> `o_year`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 

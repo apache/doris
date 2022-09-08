@@ -111,7 +111,7 @@ public class NereidsPlanner extends Planner {
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
 
-        // cost-based optimize and explode plan space
+        // cost-based optimize and explore plan space
         optimize();
 
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
@@ -181,11 +181,9 @@ public class NereidsPlanner extends Planner {
         if (!(plan instanceof PhysicalPlan)) {
             throw new AnalysisException("generate logical plan");
         }
-        PhysicalPlan physicalPlan = (PhysicalPlan) plan;
 
         // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
-
-        return physicalPlan;
+        return ((PhysicalPlan) plan).withPhysicalProperties(physicalProperties);
     }
 
     @Override

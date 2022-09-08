@@ -111,7 +111,8 @@ ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) con
     Chars& res_chars = res->chars;
     Offsets& res_offsets = res->offsets;
 
-    filter_arrays_impl<UInt8>(chars, offsets, res_chars, res_offsets, filt, result_size_hint);
+    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filt,
+                                      result_size_hint);
     return res;
 }
 

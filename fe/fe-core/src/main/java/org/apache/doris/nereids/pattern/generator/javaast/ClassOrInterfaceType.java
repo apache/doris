@@ -22,7 +22,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-
 /** java class or interface's type. */
 public class ClassOrInterfaceType implements JavaAstNode {
     public final List<IdentifyTypeArgumentsPair> identifyTypeArguments;

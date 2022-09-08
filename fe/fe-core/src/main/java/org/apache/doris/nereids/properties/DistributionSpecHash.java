@@ -18,11 +18,20 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.util.Utils;
 
-import java.util.HashSet;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import java.util.BitSet;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 
 /**
@@ -31,60 +40,157 @@ import java.util.Objects;
 @Developing
 public class DistributionSpecHash extends DistributionSpec {
 
-    private final List<SlotReference> shuffledColumns;
+    private final List<ExprId> orderedShuffledColumns;
 
     private final ShuffleType shuffleType;
 
-    public DistributionSpecHash(List<SlotReference> shuffledColumns, ShuffleType shuffleType) {
-        // Preconditions.checkState(!shuffledColumns.isEmpty());
-        this.shuffledColumns = shuffledColumns;
-        this.shuffleType = shuffleType;
+    // below two attributes use for colocate join
+    private final long tableId;
+
+    private final Set<Long> partitionIds;
+
+    // use for satisfied judge
+    private final List<Set<ExprId>> equivalenceExprIds;
+
+    private final Map<ExprId, Integer> exprIdToEquivalenceSet;
+
+    /**
+     * Use for no need set table related attributes.
+     */
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
+        this(orderedShuffledColumns, shuffleType, -1L, Collections.emptySet());
     }
 
-    public List<SlotReference> getShuffledColumns() {
-        return shuffledColumns;
+    /**
+     * Use for merge two shuffle columns.
+     */
+    public DistributionSpecHash(List<ExprId> leftColumns, List<ExprId> rightColumns, ShuffleType shuffleType) {
+        this(leftColumns, shuffleType, -1L, Collections.emptySet());
+        Objects.requireNonNull(rightColumns);
+        Preconditions.checkArgument(leftColumns.size() == rightColumns.size());
+        for (int i = 0; i < rightColumns.size(); i++) {
+            exprIdToEquivalenceSet.put(rightColumns.get(i), i);
+            equivalenceExprIds.get(i).add(rightColumns.get(i));
+        }
+    }
+
+    /**
+     * Normal constructor.
+     */
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
+            long tableId, Set<Long> partitionIds) {
+        this.orderedShuffledColumns = Objects.requireNonNull(orderedShuffledColumns);
+        this.shuffleType = Objects.requireNonNull(shuffleType);
+        this.tableId = tableId;
+        this.partitionIds = Objects.requireNonNull(partitionIds);
+        this.equivalenceExprIds = Lists.newArrayList();
+        this.exprIdToEquivalenceSet = Maps.newHashMap();
+        orderedShuffledColumns.forEach(id -> {
+            exprIdToEquivalenceSet.put(id, equivalenceExprIds.size());
+            equivalenceExprIds.add(Sets.newHashSet(id));
+        });
+    }
+
+    /**
+     * Used in merge outside and put result into it.
+     */
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
+            Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds, Map<ExprId, Integer> exprIdToEquivalenceSet) {
+        this.orderedShuffledColumns = Objects.requireNonNull(orderedShuffledColumns);
+        this.shuffleType = Objects.requireNonNull(shuffleType);
+        this.tableId = tableId;
+        this.partitionIds = Objects.requireNonNull(partitionIds);
+        this.equivalenceExprIds = Objects.requireNonNull(equivalenceExprIds);
+        this.exprIdToEquivalenceSet = Objects.requireNonNull(exprIdToEquivalenceSet);
+    }
+
+    static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right, ShuffleType shuffleType) {
+        List<ExprId> orderedShuffledColumns = left.getOrderedShuffledColumns();
+        List<Set<ExprId>> equivalenceExprIds = Lists.newArrayListWithCapacity(orderedShuffledColumns.size());
+        for (int i = 0; i < orderedShuffledColumns.size(); i++) {
+            Set<ExprId> equivalenceExprId = Sets.newHashSet();
+            equivalenceExprId.addAll(left.getEquivalenceExprIds().get(i));
+            equivalenceExprId.addAll(right.getEquivalenceExprIds().get(i));
+            equivalenceExprIds.add(equivalenceExprId);
+        }
+        Map<ExprId, Integer> exprIdToEquivalenceSet = Maps.newHashMap();
+        exprIdToEquivalenceSet.putAll(left.getExprIdToEquivalenceSet());
+        exprIdToEquivalenceSet.putAll(right.getExprIdToEquivalenceSet());
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType,
+                left.getTableId(), left.getPartitionIds(), equivalenceExprIds, exprIdToEquivalenceSet);
+    }
+
+    static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right) {
+        return merge(left, right, left.getShuffleType());
+    }
+
+    public List<ExprId> getOrderedShuffledColumns() {
+        return orderedShuffledColumns;
     }
 
     public ShuffleType getShuffleType() {
         return shuffleType;
     }
 
+    public long getTableId() {
+        return tableId;
+    }
+
+    public Set<Long> getPartitionIds() {
+        return partitionIds;
+    }
+
+    public List<Set<ExprId>> getEquivalenceExprIds() {
+        return equivalenceExprIds;
+    }
+
+    public Map<ExprId, Integer> getExprIdToEquivalenceSet() {
+        return exprIdToEquivalenceSet;
+    }
+
     @Override
-    public boolean satisfy(DistributionSpec other) {
-        if (other instanceof DistributionSpecAny) {
+    public boolean satisfy(DistributionSpec required) {
+        if (required instanceof DistributionSpecAny) {
             return true;
         }
 
-        if (!(other instanceof DistributionSpecHash)) {
+        if (!(required instanceof DistributionSpecHash)) {
             return false;
         }
 
-        DistributionSpecHash spec = (DistributionSpecHash) other;
+        DistributionSpecHash requiredHash = (DistributionSpecHash) required;
 
-        if (shuffledColumns.size() > spec.shuffledColumns.size()) {
+        if (this.orderedShuffledColumns.size() > requiredHash.orderedShuffledColumns.size()) {
             return false;
         }
 
-        // TODO: need consider following logic whether is right, and maybe need consider more.
-        // TODO: consider Agg.
-        // Current shuffleType is LOCAL/AGG, allow if current is contained by other
-        if (shuffleType == ShuffleType.LOCAL || spec.shuffleType == ShuffleType.AGG) {
-            return new HashSet<>(spec.shuffledColumns).containsAll(shuffledColumns);
+        if (requiredHash.shuffleType == ShuffleType.AGGREGATE) {
+            return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        if (shuffleType == ShuffleType.AGG && spec.shuffleType == ShuffleType.JOIN) {
-            return shuffledColumns.size() == spec.shuffledColumns.size()
-                    && shuffledColumns.equals(spec.shuffledColumns);
-        } else if (shuffleType == ShuffleType.JOIN && spec.shuffleType == ShuffleType.AGG) {
-            return new HashSet<>(spec.shuffledColumns).containsAll(shuffledColumns);
-        }
+        return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+    }
 
-        if (!shuffleType.equals(spec.shuffleType)) {
+    private boolean containsSatisfy(List<ExprId> required) {
+        BitSet containsBit = new BitSet(orderedShuffledColumns.size());
+        required.forEach(e -> {
+            if (exprIdToEquivalenceSet.containsKey(e)) {
+                containsBit.set(exprIdToEquivalenceSet.get(e));
+            }
+        });
+        return containsBit.nextClearBit(0) >= orderedShuffledColumns.size();
+    }
+
+    private boolean equalsSatisfy(List<ExprId> required) {
+        if (equivalenceExprIds.size() != required.size()) {
             return false;
         }
-
-        return shuffledColumns.size() == spec.shuffledColumns.size()
-                && shuffledColumns.equals(spec.shuffledColumns);
+        for (int i = 0; i < required.size(); i++) {
+            if (!equivalenceExprIds.get(i).contains(required.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -93,26 +199,40 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
-        return shuffledColumns.equals(that.shuffledColumns)
-                && shuffleType.equals(that.shuffleType);
-        // && propertyInfo.equals(that.propertyInfo)
+        return tableId == that.tableId && orderedShuffledColumns.equals(that.orderedShuffledColumns)
+                && shuffleType == that.shuffleType && partitionIds.equals(that.partitionIds)
+                && equivalenceExprIds.equals(that.equivalenceExprIds)
+                && exprIdToEquivalenceSet.equals(that.exprIdToEquivalenceSet);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(shuffledColumns, shuffleType);
+        return Objects.hash(orderedShuffledColumns, shuffleType, tableId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("DistributionSpecHash",
+                "orderedShuffledColumns", orderedShuffledColumns,
+                "shuffleType", shuffleType,
+                "tableId", tableId,
+                "partitionIds", partitionIds,
+                "equivalenceExprIds", equivalenceExprIds,
+                "exprIdToEquivalenceSet", exprIdToEquivalenceSet);
     }
 
     /**
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
-        LOCAL,
-        BUCKET,
-        // Shuffle Aggregation
-        AGG,
-        // Shuffle Join
-        JOIN,
-        ENFORCE
+        // for olap scan node and colocate join
+        NATURAL,
+        // for add distribute node Explicitly
+        ENFORCE,
+        // for shuffle to Aggregate node
+        AGGREGATE,
+        // for Shuffle to Join node
+        JOIN
     }
 }

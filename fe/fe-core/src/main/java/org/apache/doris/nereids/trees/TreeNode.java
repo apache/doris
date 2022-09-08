@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees;
 
-
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -76,12 +76,28 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * Collect the nodes that satisfied the predicate.
      */
     default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
-        ImmutableList.Builder<TreeNode<NODE_TYPE>> result = ImmutableList.builder();
+        ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
         foreach(node -> {
             if (predicate.test(node)) {
                 result.add(node);
             }
         });
         return (T) result.build();
+    }
+
+    /**
+     * iterate top down and test predicate if contains any instance of the classes
+     * @param types classes array
+     * @return true if it has any instance of the types
+     */
+    default boolean containsType(Class...types) {
+        return anyMatch(node -> {
+            for (Class type : types) {
+                if (type.isInstance(node)) {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 }

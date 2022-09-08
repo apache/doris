@@ -125,8 +125,9 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
         } else {
             return Status::InternalError("Failed to get download cache thread token");
         }
-        if (!future.get().ok()) {
-            return future.get();
+        auto st = future.get();
+        if (!st.ok()) {
+            return st;
         }
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));

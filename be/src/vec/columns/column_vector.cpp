@@ -106,6 +106,12 @@ void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
+void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                               const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
 struct ColumnVector<T>::less {
     const Self& parent;
     int nan_direction_hint;
@@ -226,7 +232,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);

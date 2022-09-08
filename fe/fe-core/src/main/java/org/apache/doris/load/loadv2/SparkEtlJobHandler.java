@@ -123,7 +123,10 @@ public class SparkEtlJobHandler {
             throw new LoadException(e.getMessage());
         }
 
-        SparkLauncher launcher = new SparkLauncher();
+        Map<String, String> envParams = resource.getEnvConfigsWithoutPrefix();
+        LOG.info("submit etl job,env:{}", envParams);
+
+        SparkLauncher launcher = new SparkLauncher(envParams);
         // master      |  deployMode
         // ------------|-------------
         // yarn        |  cluster
@@ -195,7 +198,19 @@ public class SparkEtlJobHandler {
             // command: yarn --config configDir application -status appId
             String yarnStatusCmd = String.format(YARN_STATUS_CMD, yarnClient, configDir, appId);
             LOG.info(yarnStatusCmd);
-            String[] envp = { "LC_ALL=" + Config.locale };
+
+            Map<String, String> envParams = resource.getEnvConfigsWithoutPrefix();
+            int envNums = envParams.size() + 1;
+            String[] envp = new String[envNums];
+            int idx = 0;
+            envp[idx++] = "LC_ALL=" + Config.locale;
+            if (envParams.size() > 0) {
+                for (Map.Entry<String, String> entry : envParams.entrySet()) {
+                    String envItem = entry.getKey() + "=" + entry.getValue();
+                    envp[idx++] = envItem;
+                }
+            }
+            LOG.info("getEtlJobStatus,appId:{}, loadJobId:{}, env:{},resource:{}", appId, loadJobId, envp, resource);
             CommandResult result = Util.executeCommand(yarnStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
             if (result.getReturnCode() != 0) {
                 String stderr = result.getStderr();
@@ -284,7 +299,18 @@ public class SparkEtlJobHandler {
             // command: yarn --config configDir application -kill appId
             String yarnKillCmd = String.format(YARN_KILL_CMD, yarnClient, configDir, appId);
             LOG.info(yarnKillCmd);
-            String[] envp = { "LC_ALL=" + Config.locale };
+            Map<String, String> envParams = resource.getEnvConfigsWithoutPrefix();
+            int envNums = envParams.size() + 1;
+            String[] envp = new String[envNums];
+            int idx = 0;
+            envp[idx++] = "LC_ALL=" + Config.locale;
+            if (envParams.size() > 0) {
+                for (Map.Entry<String, String> entry : envParams.entrySet()) {
+                    String envItem = entry.getKey() + "=" + entry.getValue();
+                    envp[idx++] = envItem;
+                }
+            }
+            LOG.info("killEtlJob, env:{}", envp);
             CommandResult result = Util.executeCommand(yarnKillCmd, envp, EXEC_CMD_TIMEOUT_MS);
             LOG.info("yarn application -kill {}, output: {}", appId, result.getStdout());
             if (result.getReturnCode() != 0) {

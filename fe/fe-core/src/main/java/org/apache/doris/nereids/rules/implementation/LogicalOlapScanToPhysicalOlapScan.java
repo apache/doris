@@ -26,12 +26,14 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
@@ -61,16 +63,18 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
 
             List<SlotReference> output = Utils.getOutputSlotReference(olapScan);
-            List<SlotReference> hashColumns = Lists.newArrayList();
+            List<ExprId> hashColumns = Lists.newArrayList();
             List<Column> schemaColumns = olapScan.getTable().getFullSchema();
             for (int i = 0; i < schemaColumns.size(); i++) {
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
                     if (schemaColumns.get(i).equals(column)) {
-                        hashColumns.add(output.get(i));
+                        hashColumns.add(output.get(i).getExprId());
                     }
                 }
             }
-            return new DistributionSpecHash(hashColumns, ShuffleType.LOCAL);
+            // TODO: need to consider colocate and dynamic partition and partition number
+            return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL,
+                    olapScan.getTable().getId(), Sets.newHashSet(olapScan.getTable().getPartitionIds()));
         } else {
             // RandomDistributionInfo
             return DistributionSpecAny.INSTANCE;

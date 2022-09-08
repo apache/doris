@@ -78,7 +78,7 @@ void FileCacheManager::clean_timeout_file_not_in_mem(const std::string& cache_pa
             std::list<std::string> done_names;
             for (Path cache_file_name : cache_file_names) {
                 std::string filename = cache_file_name.native();
-                if (ends_with(filename, CACHE_DONE_FILE_SUFFIX)) {
+                if (!ends_with(filename, CACHE_DONE_FILE_SUFFIX)) {
                     cache_names[filename] = true;
                     continue;
                 }

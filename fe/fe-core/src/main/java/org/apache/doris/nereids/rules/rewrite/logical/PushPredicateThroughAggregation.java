@@ -27,14 +27,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
 
 import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 
 /**
  * Push the predicate in the LogicalFilter to the aggregate child.
@@ -78,7 +76,7 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
             ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
-                Set<Slot> conjunctSlots = SlotExtractor.extractSlot(conjunct);
+                Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 if (groupBySlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {

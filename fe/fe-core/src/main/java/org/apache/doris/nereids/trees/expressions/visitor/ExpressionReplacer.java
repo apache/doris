@@ -25,11 +25,11 @@ import java.util.Map;
  * replace expr nodes by substitutionMap
  */
 public class ExpressionReplacer
-        extends DefaultExpressionRewriter<Map<Expression, Expression>> {
+        extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
     public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
     @Override
-    public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
+    public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> substitutionMap) {
         if (substitutionMap.containsKey(expr)) {
             return substitutionMap.get(expr);
         }

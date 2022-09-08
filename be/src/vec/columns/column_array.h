@@ -67,7 +67,7 @@ public:
     }
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
-    using ColumnOffsets = ColumnVector<Offset>;
+    using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
@@ -83,6 +83,8 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
@@ -118,11 +120,11 @@ public:
     IColumn& get_offsets_column() { return *offsets; }
     const IColumn& get_offsets_column() const { return *offsets; }
 
-    Offsets& ALWAYS_INLINE get_offsets() {
+    Offsets64& ALWAYS_INLINE get_offsets() {
         return assert_cast<ColumnOffsets&>(*offsets).get_data();
     }
 
-    const Offsets& ALWAYS_INLINE get_offsets() const {
+    const Offsets64& ALWAYS_INLINE get_offsets() const {
         return assert_cast<const ColumnOffsets&>(*offsets).get_data();
     }
 

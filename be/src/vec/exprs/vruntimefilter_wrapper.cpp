@@ -21,7 +21,6 @@
 
 #include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_set.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/simple_function_factory.h"

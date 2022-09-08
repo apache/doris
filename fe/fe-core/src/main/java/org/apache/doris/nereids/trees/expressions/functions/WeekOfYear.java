@@ -34,7 +34,7 @@ import java.util.List;
 /**
  * weekOfYear function
  */
-public class WeekOfYear  extends BoundFunction implements UnaryExpression, ImplicitCastInputTypes {
+public class WeekOfYear extends BoundFunction implements UnaryExpression, ImplicitCastInputTypes {
 
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
             new TypeCollection(DateTimeType.INSTANCE)
@@ -49,9 +49,10 @@ public class WeekOfYear  extends BoundFunction implements UnaryExpression, Impli
         return IntegerType.INSTANCE;
     }
 
+    // Follow the return type of origin definition in the FunctionSet.
     @Override
     public boolean nullable() {
-        return child().nullable();
+        return true;
     }
 
     @Override

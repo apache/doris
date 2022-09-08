@@ -51,9 +51,10 @@ public class Year extends BoundFunction implements UnaryExpression, ImplicitCast
         return IntegerType.INSTANCE;
     }
 
+    // Follow the return type of origin definition in the FunctionSet.
     @Override
     public boolean nullable() {
-        return child().nullable();
+        return true;
     }
 
     @Override
