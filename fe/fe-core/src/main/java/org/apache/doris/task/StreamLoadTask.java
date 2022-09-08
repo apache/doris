@@ -289,7 +289,6 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetTimezone()) {
             timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
         }
-
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
         } else {
