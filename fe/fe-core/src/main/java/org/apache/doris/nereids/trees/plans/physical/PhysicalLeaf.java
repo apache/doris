@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all physical plan that have no child.
@@ -40,7 +41,7 @@ public abstract class PhysicalLeaf extends AbstractPhysicalPlan implements LeafP
     }
 
     public PhysicalLeaf(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties) {
+            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties) {
         super(type, groupExpression, logicalProperties, physicalProperties);
     }
 }

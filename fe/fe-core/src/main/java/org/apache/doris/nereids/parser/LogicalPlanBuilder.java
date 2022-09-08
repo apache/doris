@@ -72,6 +72,7 @@ import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -117,7 +118,9 @@ import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -216,9 +219,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRegularQuerySpecification(RegularQuerySpecificationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: support one row relation
             if (ctx.fromClause() == null) {
-                throw new ParseException("Unsupported one row relation", ctx);
+                return withOneRowRelation(ctx.selectClause());
             }
 
             LogicalPlan relation = visitFromClause(ctx.fromClause());
@@ -588,7 +590,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitIntegerLiteral(IntegerLiteralContext ctx) {
         BigInteger bigInt = new BigInteger(ctx.getText());
-        if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+        if (BigInteger.valueOf(bigInt.byteValue()).equals(bigInt)) {
+            return new TinyIntLiteral(bigInt.byteValue());
+        } else if (BigInteger.valueOf(bigInt.shortValue()).equals(bigInt)) {
+            return new SmallIntLiteral(bigInt.shortValue());
+        } else if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
             return new IntegerLiteral(bigInt.intValue());
         } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
             return new BigIntLiteral(bigInt.longValueExact());
@@ -605,7 +611,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(str -> str.substring(1, str.length() - 1))
                 .reduce((s1, s2) -> s1 + s2)
                 .orElse("");
-        return new StringLiteral(s);
+        return new VarcharLiteral(s);
     }
 
     @Override
@@ -746,6 +752,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             return new LogicalLimit<>(limit, offset, input);
+        });
+    }
+
+    private UnboundOneRowRelation withOneRowRelation(SelectClauseContext selectCtx) {
+        return ParserUtils.withOrigin(selectCtx, () -> {
+            List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
+            return new UnboundOneRowRelation(projects);
         });
     }
 

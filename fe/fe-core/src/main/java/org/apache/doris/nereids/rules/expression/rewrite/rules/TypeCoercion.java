@@ -34,7 +34,6 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -141,21 +140,16 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     private Expression visitImplicitCastInputTypes(Expression expr, ExpressionRewriteContext ctx) {
         ImplicitCastInputTypes implicitCastInputTypes = (ImplicitCastInputTypes) expr;
         List<Expression> newChildren = Lists.newArrayListWithCapacity(expr.arity());
-        AtomicInteger changed = new AtomicInteger(0);
+        boolean changed = false;
         for (int i = 0; i < implicitCastInputTypes.expectedInputTypes().size(); i++) {
-            newChildren.add(implicitCast(expr.child(i), implicitCastInputTypes.expectedInputTypes().get(i), ctx)
-                    .map(e -> {
-                        changed.incrementAndGet();
-                        return e;
-                    })
-                    .orElse(expr.child(0))
-            );
+            AbstractDataType expectedType = implicitCastInputTypes.expectedInputTypes().get(i);
+            Optional<Expression> castResult = implicitCast(expr.child(i), expectedType, ctx);
+            if (castResult.isPresent()) {
+                changed = true;
+            }
+            newChildren.add(castResult.orElse(expr.child(i)));
         }
-        if (changed.get() != 0) {
-            return expr.withChildren(newChildren);
-        } else {
-            return expr;
-        }
+        return changed ? expr.withChildren(newChildren) : expr;
     }
 
     /**

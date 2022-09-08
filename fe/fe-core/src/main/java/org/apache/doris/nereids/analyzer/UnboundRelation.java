@@ -40,7 +40,7 @@ import java.util.Optional;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeaf implements Unbound {
+public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {
@@ -103,7 +103,9 @@ public class UnboundRelation extends LogicalLeaf implements Unbound {
 
     @Override
     public String toString() {
-        return "UnboundRelation" + "(" + StringUtils.join(nameParts, ".") + ")";
+        return Utils.toSqlString("UnboundRelation",
+                "nameParts", StringUtils.join(nameParts, ".")
+        );
     }
 
     @Override
@@ -133,6 +135,6 @@ public class UnboundRelation extends LogicalLeaf implements Unbound {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), nameParts);
+        return Objects.hash(nameParts);
     }
 }

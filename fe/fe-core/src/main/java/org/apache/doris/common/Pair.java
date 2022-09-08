@@ -47,6 +47,14 @@ public class Pair<F, S> {
         return new Pair<>(first, second);
     }
 
+    public F key() {
+        return first;
+    }
+
+    public S value() {
+        return second;
+    }
+
     /**
      * A pair is equal if both parts are equal().
      */

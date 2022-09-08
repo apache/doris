@@ -17,23 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.Relation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
- * Common interface for logical/physical scan.
+ * Common interface for logical/physical empty relation.
+ *
+ * e.g.
+ * select * from tbl limit 0
  */
-public interface Scan extends Relation {
-    List<Expression> getExpressions();
-
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
-    }
+public interface EmptyRelation {
+    List<NamedExpression> getProjects();
 }
