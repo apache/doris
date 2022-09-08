@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all physical plan that have one child.
@@ -43,7 +44,7 @@ public abstract class PhysicalUnary<CHILD_TYPE extends Plan>
     }
 
     public PhysicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, CHILD_TYPE child) {
+            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, physicalProperties, child);
     }
 }

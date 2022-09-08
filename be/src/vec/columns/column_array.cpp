@@ -390,10 +390,10 @@ ColumnPtr ColumnArray::filter_string(const Filter& filt, ssize_t result_size_hin
     }
 
     Offset64 prev_src_offset = 0;
-    Offset prev_src_string_offset = 0;
+    IColumn::Offset prev_src_string_offset = 0;
 
     Offset64 prev_res_offset = 0;
-    Offset prev_res_string_offset = 0;
+    IColumn::Offset prev_res_string_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         /// Number of rows in the array.
@@ -500,7 +500,7 @@ void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_beg
     }
 }
 
-ColumnPtr ColumnArray::replicate(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
     if (replicate_offsets.empty()) return clone_empty();
 
     // keep ColumnUInt8 for ColumnNullable::null_map
@@ -531,7 +531,7 @@ void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn&
         return;
     }
 
-    Offsets replicate_offsets(col_size);
+    IColumn::Offsets replicate_offsets(col_size);
     size_t cur_offset = 0;
     for (size_t i = 0; i < col_size; ++i) {
         cur_offset += counts[i];
@@ -557,7 +557,7 @@ void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn&
 }
 
 template <typename T>
-ColumnPtr ColumnArray::replicate_number(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     if (col_size != replicate_offsets.size())
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
@@ -579,7 +579,7 @@ ColumnPtr ColumnArray::replicate_number(const Offsets& replicate_offsets) const 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
-    Offset prev_replicate_offset = 0;
+    IColumn::Offset prev_replicate_offset = 0;
     Offset64 prev_data_offset = 0;
     Offset64 current_new_offset = 0;
 
@@ -605,7 +605,7 @@ ColumnPtr ColumnArray::replicate_number(const Offsets& replicate_offsets) const 
     return res;
 }
 
-ColumnPtr ColumnArray::replicate_string(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     if (col_size != replicate_offsets.size())
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
@@ -629,13 +629,13 @@ ColumnPtr ColumnArray::replicate_string(const Offsets& replicate_offsets) const 
     res_string_offsets.reserve(src_string_offsets.size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
-    Offset prev_replicate_offset = 0;
+    IColumn::Offset prev_replicate_offset = 0;
 
     Offset64 prev_src_offset = 0;
-    Offset prev_src_string_offset = 0;
+    IColumn::Offset prev_src_string_offset = 0;
 
     Offset64 current_res_offset = 0;
-    Offset current_res_string_offset = 0;
+    IColumn::Offset current_res_string_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
         /// How many times to replicate the array.
@@ -679,7 +679,7 @@ ColumnPtr ColumnArray::replicate_string(const Offsets& replicate_offsets) const 
     return res;
 }
 
-ColumnPtr ColumnArray::replicate_const(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnArray::replicate_const(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     if (col_size != replicate_offsets.size())
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
@@ -692,7 +692,7 @@ ColumnPtr ColumnArray::replicate_const(const Offsets& replicate_offsets) const {
     auto& res_offsets = res_column_offsets->get_data();
     res_offsets.reserve(replicate_offsets.back());
 
-    Offset prev_replicate_offset = 0;
+    IColumn::Offset prev_replicate_offset = 0;
     Offset64 prev_data_offset = 0;
     Offset64 current_new_offset = 0;
 
@@ -713,7 +713,7 @@ ColumnPtr ColumnArray::replicate_const(const Offsets& replicate_offsets) const {
                                std::move(res_column_offsets));
 }
 
-ColumnPtr ColumnArray::replicate_generic(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     if (col_size != replicate_offsets.size())
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
@@ -734,7 +734,7 @@ ColumnPtr ColumnArray::replicate_generic(const Offsets& replicate_offsets) const
     return res;
 }
 
-ColumnPtr ColumnArray::replicate_nullable(const Offsets& replicate_offsets) const {
+ColumnPtr ColumnArray::replicate_nullable(const IColumn::Offsets& replicate_offsets) const {
     const ColumnNullable& nullable = assert_cast<const ColumnNullable&>(*data);
 
     /// Make temporary arrays for each components of Nullable. Then replicate them independently and collect back to result.

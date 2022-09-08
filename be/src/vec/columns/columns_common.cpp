@@ -27,6 +27,7 @@
 
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
 
@@ -256,25 +257,25 @@ void filter_arrays_impl_only_data(const PaddedPODArray<T>& src_elems,
             const IColumn::Filter&, ssize_t);
 
 INSTANTIATE(UInt8, IColumn::Offset)
-INSTANTIATE(UInt8, IColumn::Offset64)
+INSTANTIATE(UInt8, ColumnArray::Offset64)
 INSTANTIATE(UInt16, IColumn::Offset)
-INSTANTIATE(UInt16, IColumn::Offset64)
+INSTANTIATE(UInt16, ColumnArray::Offset64)
 INSTANTIATE(UInt32, IColumn::Offset)
-INSTANTIATE(UInt32, IColumn::Offset64)
+INSTANTIATE(UInt32, ColumnArray::Offset64)
 INSTANTIATE(UInt64, IColumn::Offset)
-INSTANTIATE(UInt64, IColumn::Offset64)
+INSTANTIATE(UInt64, ColumnArray::Offset64)
 INSTANTIATE(Int8, IColumn::Offset)
-INSTANTIATE(Int8, IColumn::Offset64)
+INSTANTIATE(Int8, ColumnArray::Offset64)
 INSTANTIATE(Int16, IColumn::Offset)
-INSTANTIATE(Int16, IColumn::Offset64)
+INSTANTIATE(Int16, ColumnArray::Offset64)
 INSTANTIATE(Int32, IColumn::Offset)
-INSTANTIATE(Int32, IColumn::Offset64)
+INSTANTIATE(Int32, ColumnArray::Offset64)
 INSTANTIATE(Int64, IColumn::Offset)
-INSTANTIATE(Int64, IColumn::Offset64)
+INSTANTIATE(Int64, ColumnArray::Offset64)
 INSTANTIATE(Float32, IColumn::Offset)
-INSTANTIATE(Float32, IColumn::Offset64)
+INSTANTIATE(Float32, ColumnArray::Offset64)
 INSTANTIATE(Float64, IColumn::Offset)
-INSTANTIATE(Float64, IColumn::Offset64)
+INSTANTIATE(Float64, ColumnArray::Offset64)
 
 #undef INSTANTIATE
 

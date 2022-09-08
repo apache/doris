@@ -23,7 +23,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
-import org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
@@ -145,10 +144,8 @@ public class PlanChecker {
 
     public PlanChecker transform(GroupExpression groupExpression, PatternMatcher patternMatcher) {
         GroupExpressionMatching matchResult = new GroupExpressionMatching(patternMatcher.pattern, groupExpression);
-        GroupExpressionIterator iterator = matchResult.iterator();
 
-        while (iterator.hasNext()) {
-            Plan before = iterator.next();
+        for (Plan before : matchResult) {
             Plan after = patternMatcher.matchedAction.apply(
                     new MatchingContext(before, patternMatcher.pattern, cascadesContext));
             if (before != after) {
@@ -158,6 +155,38 @@ public class PlanChecker {
 
         for (Group childGroup : groupExpression.children()) {
             transform(childGroup, patternMatcher);
+        }
+        return this;
+    }
+
+    public PlanChecker transform(Rule rule) {
+        return transform(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    public PlanChecker transform(Group group, Rule rule) {
+        // copy groupExpressions can prevent ConcurrentModificationException
+        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
+            transform(logicalExpression, rule);
+        }
+
+        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
+            transform(physicalExpression, rule);
+        }
+        return this;
+    }
+
+    public PlanChecker transform(GroupExpression groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+
+        for (Plan before : matchResult) {
+            Plan after = rule.transform(before, cascadesContext).get(0);
+            if (before != after) {
+                cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+            }
+        }
+
+        for (Group childGroup : groupExpression.children()) {
+            transform(childGroup, rule);
         }
         return this;
     }

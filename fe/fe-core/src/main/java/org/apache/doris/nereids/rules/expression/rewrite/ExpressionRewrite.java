@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -42,6 +43,10 @@ import java.util.stream.Collectors;
 public class ExpressionRewrite implements RewriteRuleFactory {
     private final ExpressionRuleExecutor rewriter;
 
+    public ExpressionRewrite(ExpressionRewriteRule... rules) {
+        this.rewriter = new ExpressionRuleExecutor(ImmutableList.copyOf(rules));
+    }
+
     public ExpressionRewrite(ExpressionRuleExecutor rewriter) {
         this.rewriter = Objects.requireNonNull(rewriter, "rewriter is null");
     }
@@ -49,10 +54,34 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
+                new OneRowRelationExpressionRewrite().build(),
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
                 new FilterExpressionRewrite().build(),
                 new JoinExpressionRewrite().build());
+    }
+
+    private class OneRowRelationExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalOneRowRelation().then(oneRowRelation -> {
+                List<NamedExpression> projects = oneRowRelation.getProjects();
+                List<NamedExpression> newProjects = projects
+                        .stream()
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr))
+                        .collect(Collectors.toList());
+                // TODO:
+                // trick logic: currently XxxRelation in GroupExpression always difference to each other,
+                // so this rule must check the expression whether is changed to prevent dead loop because
+                // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
+                // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
+                // GroupExpression by id
+                if (projects.equals(newProjects)) {
+                    return oneRowRelation;
+                }
+                return new LogicalOneRowRelation(newProjects);
+            }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
+        }
     }
 
     private class ProjectExpressionRewrite extends OneRewriteRuleFactory {

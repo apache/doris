@@ -1579,7 +1579,7 @@ Translated with www.DeepL.com/Translator (free version)
 ### `enable_quick_compaction`
 * Type: bool
 * Description: enable quick compaction,It is mainly used in the scenario of frequent import of small amount of data. The problem of -235 can be effectively avoided by merging the imported versions in time through the mechanism of rapid compaction. The definition of small amount of data is currently defined according to the number of rows
-* Default: false
+* Default: true
 
 ### `quick_compaction_max_rows`
 * Type: int32
