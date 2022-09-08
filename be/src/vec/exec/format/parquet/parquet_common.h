@@ -113,7 +113,7 @@ public:
 
     virtual Status skip_values(size_t num_values) = 0;
 
-    virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+    virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) {
         return Status::NotSupported("set_dict is not supported");
     }
 
@@ -159,7 +159,7 @@ public:
 
     Status skip_values(size_t num_values) override;
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) override;
+    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
     void set_data(Slice* data) override;
 
@@ -344,7 +344,7 @@ public:
 
     void set_data(Slice* data) override;
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) override;
+    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
 protected:
     template <typename DecimalPrimitiveType>
