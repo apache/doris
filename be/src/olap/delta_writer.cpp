@@ -325,6 +325,7 @@ OLAPStatus DeltaWriter::cancel() {
     if (!_is_init || _is_cancelled) {
         return OLAP_SUCCESS;
     }
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     _mem_table.reset();
     if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
