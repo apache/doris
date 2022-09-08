@@ -20,6 +20,7 @@
 #include "io/broker_reader.h"
 #include "io/broker_writer.h"
 #include "io/buffered_reader.h"
+#include "io/hdfs_file_reader.h"
 #include "io/hdfs_reader_writer.h"
 #include "io/local_file_reader.h"
 #include "io/local_file_writer.h"
@@ -183,6 +184,31 @@ doris::Status doris::FileFactory::create_file_reader(doris::ExecEnv* env, Runtim
     FileReader* file_reader_ptr;
     RETURN_IF_ERROR(_new_file_reader(env, profile, params, range, file_reader_ptr));
     file_reader.reset(file_reader_ptr);
+
+    return Status::OK();
+}
+
+doris::Status doris::FileFactory::create_file_reader(const TFileScanRangeParams& params,
+                                                     const TFileRangeDesc& range,
+                                                     std::unique_ptr<FileReader>& file_reader) {
+    doris::TFileType::type type = params.file_type;
+
+    switch (type) {
+    case TFileType::FILE_LOCAL: {
+        file_reader.reset(new LocalFileReader(range.path, range.start_offset));
+        break;
+    }
+    case TFileType::FILE_S3: {
+        file_reader.reset(new S3Reader(params.properties, range.path, range.start_offset));
+        break;
+    }
+    case TFileType::FILE_HDFS: {
+        file_reader.reset(new HdfsFileReader(params.hdfs_params, range.path, range.start_offset));
+        break;
+    }
+    default:
+        return Status::InternalError("UnSupport File Reader Type: " + std::to_string(type));
+    }
 
     return Status::OK();
 }

@@ -17,11 +17,9 @@
 #pragma once
 #include <common/status.h>
 
-#include "exprs/expr_context.h"
-#include "io/file_reader.h"
+#include "io/buffered_reader.h"
 #include "vec/core/block.h"
 #include "vparquet_column_reader.h"
-#include "vparquet_file_metadata.h"
 #include "vparquet_reader.h"
 
 namespace doris::vectorized {
@@ -31,10 +29,11 @@ struct RowRange;
 
 class RowGroupReader {
 public:
-    RowGroupReader(doris::FileReader* file_reader,
-                   const std::vector<ParquetReadColumn>& read_columns, const int32_t _row_group_id,
-                   tparquet::RowGroup& row_group, cctz::time_zone* ctz);
-    ~RowGroupReader();
+    RowGroupReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                   const TFileRangeDesc& range, const std::vector<ParquetReadColumn>& read_columns,
+                   const int32_t _row_group_id, tparquet::RowGroup& row_group,
+                   cctz::time_zone* ctz);
+    ~RowGroupReader() = default;
     Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges);
     Status next_batch(Block* block, size_t batch_size, bool* _batch_eof);
 
@@ -42,8 +41,12 @@ private:
     Status _init_column_readers(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges);
 
 private:
-    doris::FileReader* _file_reader;
+    RuntimeProfile* _profile;
+    const TFileScanRangeParams& _scan_params;
+    const TFileRangeDesc& _scan_range;
     std::unordered_map<int32_t, std::unique_ptr<ParquetColumnReader>> _column_readers;
+    std::vector<std::unique_ptr<BufferedReader>> _buffered_file_reader;
+    int _file_reader_idx = 0;
     const std::vector<ParquetReadColumn>& _read_columns;
     const int32_t _row_group_id;
     tparquet::RowGroup& _row_group_meta;

@@ -58,6 +58,10 @@ public:
                                      const TFileRangeDesc& range,
                                      std::shared_ptr<FileReader>& file_reader);
 
+    static Status create_file_reader(const TFileScanRangeParams& params,
+                                     const TFileRangeDesc& range,
+                                     std::unique_ptr<FileReader>& file_reader);
+
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:

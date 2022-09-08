@@ -147,6 +147,7 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
                                          BackendOptions::get_localhost(), _namenode, _path,
                                          hdfsGetLastError());
         }
+        _current_offset = position;
     }
 
     *bytes_read = hdfsRead(_hdfs_fs, _hdfs_file, out, nbytes);
@@ -191,6 +192,7 @@ Status HdfsFileReader::seek(int64_t position) {
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
                                      BackendOptions::get_localhost(), position, hdfsGetLastError());
     }
+    _current_offset = position;
     return Status::OK();
 }
 

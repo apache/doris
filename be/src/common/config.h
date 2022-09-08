@@ -809,6 +809,8 @@ CONF_Int32(object_pool_buffer_size, "100");
 CONF_Int32(parquet_reader_max_buffer_size, "50");
 CONF_Bool(parquet_predicate_push_down, "true");
 CONF_Int32(parquet_header_max_size, "8388608");
+CONF_Int32(parquet_file_buffer_size, "2097152");
+CONF_Int32(parquet_group_pooled_reader, "100");
 CONF_Bool(parquet_reader_using_internal, "false");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter

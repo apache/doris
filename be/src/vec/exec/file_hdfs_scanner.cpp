@@ -17,8 +17,6 @@
 
 #include "file_hdfs_scanner.h"
 
-#include "io/file_factory.h"
-
 namespace doris::vectorized {
 
 ParquetFileHdfsScanner::ParquetFileHdfsScanner(RuntimeState* state, RuntimeProfile* profile,
@@ -67,12 +65,9 @@ Status ParquetFileHdfsScanner::_get_next_reader() {
         return Status::OK();
     }
     const TFileRangeDesc& range = _ranges[_next_range++];
-    std::unique_ptr<FileReader> file_reader;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
-                                                    file_reader));
-    _reader.reset(new ParquetReader(
-            file_reader.release(), _file_slot_descs.size(), _state->query_options().batch_size,
-            range.start_offset, range.size, const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+    _reader.reset(new ParquetReader(_profile, _params, range, _file_slot_descs.size(),
+                                    _state->query_options().batch_size,
+                                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
     auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
     Status status =
             _reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());

@@ -23,8 +23,6 @@
 
 namespace doris::vectorized {
 
-static constexpr size_t initPageHeaderSize = 128;
-
 PageReader::PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length)
         : _reader(reader), _start_offset(offset), _end_offset(offset + length) {}
 
@@ -38,7 +36,7 @@ Status PageReader::next_page_header() {
 
     const uint8_t* page_header_buf = nullptr;
     size_t max_size = _end_offset - _offset;
-    size_t header_size = std::min(initPageHeaderSize, max_size);
+    size_t header_size = 128;
     uint32_t real_header_size = 0;
     while (true) {
         header_size = std::min(header_size, max_size);

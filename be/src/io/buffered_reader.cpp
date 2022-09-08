@@ -189,14 +189,6 @@ BufferedFileStreamReader::BufferedFileStreamReader(FileReader* file, uint64_t of
                                                    uint64_t length)
         : _file(file), _file_start_offset(offset), _file_end_offset(offset + length) {}
 
-Status BufferedFileStreamReader::seek(uint64_t position) {
-    if (_file_position != position) {
-        RETURN_IF_ERROR(_file->seek(position));
-        _file_position = position;
-    }
-    return Status::OK();
-}
-
 Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset,
                                             size_t* bytes_to_read) {
     if (offset < _file_start_offset) {
@@ -228,10 +220,17 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     }
     _buf_start_offset = offset;
     int64_t to_read = end_offset - _buf_end_offset;
-    RETURN_IF_ERROR(seek(_buf_end_offset));
-    bool eof = false;
     int64_t buf_remaining = _buf_end_offset - _buf_start_offset;
-    RETURN_IF_ERROR(_file->read(_buf.get() + buf_remaining, to_read, &to_read, &eof));
+    int64_t has_read = 0;
+    while (has_read < to_read) {
+        int64_t loop_read = 0;
+        RETURN_IF_ERROR(_file->readat(_buf_end_offset + has_read, to_read - has_read, &loop_read,
+                                      _buf.get() + buf_remaining + has_read));
+        has_read += loop_read;
+    }
+    if (has_read != to_read) {
+        return Status::Corruption("Try to read {} bytes, but received {} bytes", to_read, has_read);
+    }
     *bytes_to_read = buf_remaining + to_read;
     _buf_end_offset += to_read;
     *buf = _buf.get();

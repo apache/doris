@@ -26,7 +26,6 @@
 #include "common/status.h"
 #include "exprs/expr_context.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
@@ -65,8 +64,9 @@ private:
 
 class ParquetReader {
 public:
-    ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file, size_t batch_size,
-                  int64_t range_start_offset, int64_t range_size, cctz::time_zone* ctz);
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, int32_t num_of_columns_from_file, size_t batch_size,
+                  cctz::time_zone* ctz);
 
     ~ParquetReader();
 
@@ -78,8 +78,6 @@ public:
 
     // std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
-
-    int64_t size() const { return _file_reader->size(); }
 
 private:
     bool _next_row_group_reader();
@@ -109,14 +107,14 @@ private:
                             bool& need_filter);
 
 private:
-    FileReader* _file_reader;
+    RuntimeProfile* _profile;
+    const TFileScanRangeParams& _scan_params;
+    const TFileRangeDesc& _scan_range;
     std::shared_ptr<FileMetaData> _file_metadata;
     tparquet::FileMetaData* _t_metadata;
     std::unique_ptr<PageIndex> _page_index;
-    std::list<std::shared_ptr<RowGroupReader>> _row_group_readers;
-    std::shared_ptr<RowGroupReader> _current_group_reader;
+    std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
-    int32_t _current_row_group_id;
     //        std::shared_ptr<Statistics> _statistics;
     const int32_t _num_of_columns_from_file;
     std::map<std::string, int> _map_column; // column-name <---> column-index
@@ -130,6 +128,7 @@ private:
     int64_t _range_size;
     cctz::time_zone* _ctz;
     std::vector<RowRange> _skipped_row_ranges;
+    std::unique_ptr<BufferedReader> _file_reader;
 
     const TupleDescriptor* _tuple_desc; // get all slot info
 };

@@ -17,25 +17,25 @@
 
 #include "vparquet_group_reader.h"
 
+#include "io/file_factory.h"
 #include "parquet_pred_cmp.h"
 #include "schema_desc.h"
 #include "vparquet_column_reader.h"
 
 namespace doris::vectorized {
 
-RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
+RowGroupReader::RowGroupReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                               const TFileRangeDesc& range,
                                const std::vector<ParquetReadColumn>& read_columns,
                                const int32_t row_group_id, tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz)
-        : _file_reader(file_reader),
+        : _profile(profile),
+          _scan_params(params),
+          _scan_range(range),
           _read_columns(read_columns),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
           _ctz(ctz) {}
-
-RowGroupReader::~RowGroupReader() {
-    _column_readers.clear();
-}
 
 Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges) {
     VLOG_DEBUG << "Row group id: " << _row_group_id;
@@ -50,7 +50,20 @@ Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
         TypeDescriptor col_type = slot_desc->type();
         auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
         std::unique_ptr<ParquetColumnReader> reader;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
+        FileReader* buff_reader;
+        if (_buffered_file_reader.size() < config::parquet_group_pooled_reader) {
+            std::unique_ptr<FileReader> file_reader;
+            FileFactory::create_file_reader(_scan_params, _scan_range, file_reader);
+            std::unique_ptr<BufferedReader> buff_ptr(new BufferedReader(
+                    _profile, file_reader.release(), config::parquet_file_buffer_size));
+            buff_reader = buff_ptr.get();
+            RETURN_IF_ERROR(buff_reader->open());
+            _buffered_file_reader.emplace_back(std::move(buff_ptr));
+        } else {
+            buff_reader =
+                    _buffered_file_reader[_file_reader_idx++ % _buffered_file_reader.size()].get();
+        }
+        RETURN_IF_ERROR(ParquetColumnReader::create(buff_reader, field, read_col, _row_group_meta,
                                                     row_ranges, _ctz, reader));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group reader failed";

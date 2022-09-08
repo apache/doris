@@ -17,23 +17,22 @@
 
 #include "vparquet_reader.h"
 
+#include "io/buffered_reader.h"
+#include "io/file_factory.h"
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
-ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
-                             size_t batch_size, int64_t range_start_offset, int64_t range_size,
-                             cctz::time_zone* ctz)
-        : _num_of_columns_from_file(num_of_columns_from_file),
+ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                             const TFileRangeDesc& range, int32_t num_of_columns_from_file,
+                             size_t batch_size, cctz::time_zone* ctz)
+        : _profile(profile),
+          _scan_params(params),
+          _scan_range(range),
+          _num_of_columns_from_file(num_of_columns_from_file),
           _batch_size(batch_size),
-          _range_start_offset(range_start_offset),
-          _range_size(range_size),
-          _ctz(ctz) {
-    DCHECK(range_start_offset < range_size);
-    _file_reader = file_reader;
-    _total_groups = 0;
-    _current_row_group_id = 0;
-    //        _statistics = std::make_shared<Statistics>();
-}
+          _range_start_offset(range.start_offset),
+          _range_size(range.size),
+          _ctz(ctz) {}
 
 ParquetReader::~ParquetReader() {
     close();
@@ -43,24 +42,24 @@ void ParquetReader::close() {
     for (auto& conjuncts : _slot_conjuncts) {
         conjuncts.second.clear();
     }
-    _row_group_readers.clear();
     _read_row_groups.clear();
     _skipped_row_ranges.clear();
     _slot_conjuncts.clear();
-    _file_reader->close();
-    delete _file_reader;
 }
 
 Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
                                   const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                   std::vector<ExprContext*>& conjunct_ctxs,
                                   const std::string& timezone) {
-    _file_reader->open();
     _tuple_desc = tuple_desc;
     if (_tuple_desc->slots().size() == 0) {
         return Status::EndOfFile("No Parquet column need load");
     }
-    RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
+    std::unique_ptr<FileReader> file_reader;
+    FileFactory::create_file_reader(_scan_params, _scan_range, file_reader);
+    _file_reader.reset(new BufferedReader(_profile, file_reader.release(), 1024));
+    RETURN_IF_ERROR(_file_reader->open());
+    RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
     _t_metadata = &_file_metadata->to_thrift_metadata();
     _total_groups = _file_metadata->num_row_groups();
     if (_total_groups == 0) {
@@ -100,46 +99,39 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
 }
 
 Status ParquetReader::read_next_batch(Block* block, bool* eof) {
-    int32_t num_of_readers = _row_group_readers.size();
-    DCHECK(num_of_readers <= _read_row_groups.size());
-    if (_read_row_groups.empty()) {
+    if (_current_group_reader == nullptr) {
         *eof = true;
         return Status::OK();
     }
     bool _batch_eof = false;
     RETURN_IF_ERROR(_current_group_reader->next_batch(block, _batch_size, &_batch_eof));
     if (_batch_eof) {
+        _current_group_reader = nullptr;
         if (!_next_row_group_reader()) {
             *eof = true;
-        } else {
-            _read_row_groups.pop_front();
         }
     }
     return Status::OK();
 }
 
 bool ParquetReader::_next_row_group_reader() {
-    if (_row_group_readers.empty()) {
+    if (_read_row_groups.empty()) {
         return false;
     }
-    _current_group_reader = _row_group_readers.front();
-    _row_group_readers.pop_front();
+    int32_t row_group_id = _read_row_groups.front();
+    _read_row_groups.pop_front();
+    auto& row_group = _t_metadata->row_groups[row_group_id];
+    RETURN_IF_ERROR(_process_page_index(row_group));
+    _current_group_reader.reset(new RowGroupReader(_profile, _scan_params, _scan_range,
+                                                   _read_columns, row_group_id, row_group, _ctz));
+    // todo: can filter row with candidate ranges rather than skipped ranges
+    RETURN_IF_ERROR(_current_group_reader->init(_file_metadata->schema(), _skipped_row_ranges));
     return true;
 }
 
 Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& conjunct_ctxs) {
     _init_conjuncts(conjunct_ctxs);
     RETURN_IF_ERROR(_filter_row_groups());
-    for (auto row_group_id : _read_row_groups) {
-        auto& row_group = _t_metadata->row_groups[row_group_id];
-        RETURN_IF_ERROR(_process_page_index(row_group));
-        std::shared_ptr<RowGroupReader> row_group_reader;
-        row_group_reader.reset(
-                new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
-        // todo: can filter row with candidate ranges rather than skipped ranges
-        RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), _skipped_row_ranges));
-        _row_group_readers.emplace_back(row_group_reader);
-    }
     if (!_next_row_group_reader()) {
         return Status::EndOfFile("No next reader");
     }
@@ -312,6 +304,7 @@ Status ParquetReader::_process_dict_filter(bool* filter_group) {
 void ParquetReader::_init_bloom_filter() {}
 
 Status ParquetReader::_process_bloom_filter(bool* filter_group) {
+    // RETURN_IF_ERROR(_file_reader->seek(0));
     return Status();
 }
 

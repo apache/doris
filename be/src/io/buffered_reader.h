@@ -115,12 +115,9 @@ private:
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;
 
-    int64_t _file_position = -1;
     uint64_t _buf_start_offset = 0;
     uint64_t _buf_end_offset = 0;
     size_t _buf_size = 0;
-
-    Status seek(uint64_t position);
 };
 
 } // namespace doris
