@@ -849,7 +849,6 @@ public final class AggregateInfo extends AggregateInfoBase {
                 materializedSlots.add(i - groupingExprNum);
             }
         }
-        outputTupleDesc.computeStatAndMemLayout();
 
         ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
         Preconditions.checkState(intermediateSlots.size() == outputSlots.size());
