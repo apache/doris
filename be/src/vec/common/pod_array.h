@@ -215,24 +215,14 @@ protected:
 #endif
 
 public:
-    bool empty() const {
-        return c_end == c_start;
-    }
-    size_t size() const {
-        return (c_end - c_start) / ELEMENT_SIZE;
-    }
-    size_t capacity() const {
-        return (c_end_of_storage - c_start) / ELEMENT_SIZE;
-    }
+    bool empty() const { return c_end == c_start; }
+    size_t size() const { return (c_end - c_start) / ELEMENT_SIZE; }
+    size_t capacity() const { return (c_end_of_storage - c_start) / ELEMENT_SIZE; }
 
     /// This method is safe to use only for information about memory usage.
-    size_t allocated_bytes() const {
-        return c_end_of_storage - c_start + pad_right + pad_left;
-    }
+    size_t allocated_bytes() const { return c_end_of_storage - c_start + pad_right + pad_left; }
 
-    void clear() {
-        c_end = c_start;
-    }
+    void clear() { c_end = c_start; }
 
     template <typename... TAllocatorParams>
     void reserve(size_t n, TAllocatorParams&&... allocator_params) {
@@ -252,9 +242,7 @@ public:
         reset_peak();
     }
 
-    const char* raw_data() const {
-        return c_start;
-    }
+    const char* raw_data() const { return c_start; }
 
     template <typename... TAllocatorParams>
     void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
@@ -280,9 +268,7 @@ public:
 #endif
     }
 
-    ~PODArrayBase() {
-        dealloc();
-    }
+    ~PODArrayBase() { dealloc(); }
 };
 
 template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_right_,
@@ -634,9 +620,7 @@ public:
         this->reset_peak();
     }
 
-    void assign(const PODArray& from) {
-        assign(from.begin(), from.end());
-    }
+    void assign(const PODArray& from) { assign(from.begin(), from.end()); }
 
     bool operator==(const PODArray& other) const {
         if (this->size() != other.size()) return false;
@@ -654,9 +638,7 @@ public:
         return true;
     }
 
-    bool operator!=(const PODArray& other) const {
-        return !operator==(other);
-    }
+    bool operator!=(const PODArray& other) const { return !operator==(other); }
 };
 
 template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_right_>
