@@ -1602,7 +1602,7 @@ webserver默认工作线程数
 ### `enable_quick_compaction`
 * 类型: bool
 * 描述: 是否开启quick_compaction,主要用在小数据量频繁导入的场景,通过快速compaction的机制及时合并导入版本可以有效避免-235的问题，小数据量的定义目前是根据行数来定义
-* 默认值: false
+* 默认值: true
 
 ### `quick_compaction_max_rows`
 * 类型: int32
