@@ -224,6 +224,17 @@ Status ArrayColumnVectorBatch::resize(size_t new_cap) {
     return Status::OK();
 }
 
+void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx,
+                                              size_t size) {
+    DCHECK(size > 0);
+    size_t first_offset = *(_offsets->scalar_cell_ptr(start_idx));
+    segment_v2::ordinal_t first_ordinal = ordinals[0];
+    size_t i = 0;
+    while (++i < size) {
+        *(_offsets->scalar_cell_ptr(start_idx + i)) = first_offset + (ordinals[i] - first_ordinal);
+    }
+}
+
 void ArrayColumnVectorBatch::get_offset_by_length(size_t start_idx, size_t size) {
     DCHECK(start_idx >= 0);
     DCHECK(start_idx + size < _offsets->capacity());

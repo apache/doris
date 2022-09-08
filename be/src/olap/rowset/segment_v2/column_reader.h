@@ -381,7 +381,7 @@ public:
                           vectorized::MutableColumnPtr& dst) override;
 
     Status seek_to_first() override {
-        RETURN_IF_ERROR(_length_iterator->seek_to_first());
+        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
         RETURN_IF_ERROR(_item_iterator->seek_to_first()); // lazy???
         if (_array_reader->is_nullable()) {
             RETURN_IF_ERROR(_null_iterator->seek_to_first());
@@ -392,19 +392,17 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
-        return _length_iterator->get_current_ordinal();
+        return _offset_iterator->get_current_ordinal();
     }
 
 private:
     ColumnReader* _array_reader;
-    std::unique_ptr<FileColumnIterator> _length_iterator;
+    std::unique_ptr<FileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
     std::unique_ptr<ColumnVectorBatch> _length_batch;
 
     Status _seek_by_offsets(ordinal_t ord);
-    Status _seek_by_length(ordinal_t ord);
-
     Status _caculate_offsets(ssize_t start, vectorized::MutableColumnPtr& offsets,
                              size_t* num_items);
 };

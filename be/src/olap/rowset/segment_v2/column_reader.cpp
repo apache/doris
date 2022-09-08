@@ -387,7 +387,7 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
                                                  ColumnIterator* item_iterator,
                                                  ColumnIterator* null_iterator)
         : _array_reader(reader) {
-    _length_iterator.reset(offset_reader);
+    _offset_iterator.reset(offset_reader);
     _item_iterator.reset(item_iterator);
     if (_array_reader->is_nullable()) {
         _null_iterator.reset(null_iterator);
@@ -395,7 +395,7 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
 }
 
 Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_length_iterator->init(opts));
+    RETURN_IF_ERROR(_offset_iterator->init(opts));
     RETURN_IF_ERROR(_item_iterator->init(opts));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
@@ -410,18 +410,33 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     ColumnBlock* array_block = dst->column_block();
     auto* array_batch = static_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
 
-    // 1. read n offsets
+    // 1. read n+1 offsets
+    array_batch->offsets()->resize(*n + 1);
     ColumnBlock offset_block(array_batch->offsets(), nullptr);
-    ColumnBlockView offset_view(&offset_block,
-                                dst->current_offset() + 1); // offset应该比collection的游标多1
+    ColumnBlockView offset_view(&offset_block);
     bool offset_has_null = false;
-    RETURN_IF_ERROR(_length_iterator->next_batch(n, &offset_view, &offset_has_null));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &offset_view, &offset_has_null));
     DCHECK(!offset_has_null);
 
     if (*n == 0) {
         return Status::OK();
     }
-    array_batch->get_offset_by_length(dst->current_offset(), *n);
+
+    if (_offset_iterator->get_current_page()->has_remaining()) {
+        // peek read one more to get the last array's length
+        size_t i = 1;
+        bool offsets_has_null = false;
+        ordinal_t save = _offset_iterator->get_current_ordinal();
+        RETURN_IF_ERROR(_offset_iterator->next_batch(&i, &offset_view, &offsets_has_null));
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(save));
+    } else {
+        *(reinterpret_cast<ordinal_t*>(offset_view.data())) =
+                _offset_iterator->get_current_page()->next_array_item_ordinal;
+    }
+
+    size_t start_offset = dst->current_offset();
+    auto* ordinals = reinterpret_cast<ordinal_t*>(offset_block.data());
+    array_batch->put_item_ordinal(ordinals, start_offset, *n + 1);
 
     // 2. read null
     if (_array_reader->is_nullable()) {
@@ -439,7 +454,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     }
 
     // read item
-    size_t item_size = array_batch->get_item_size(dst->current_offset(), *n);
+    // size_t item_size = array_batch->get_item_size(dst->current_offset(), *n + 1);
+    size_t item_size = ordinals[*n] - ordinals[0];
     if (item_size >= 0) {
         bool item_has_null = false;
         ColumnVectorBatch* item_vector_batch = array_batch->elements();
@@ -474,90 +490,46 @@ Status ArrayFileColumnIterator::_seek_by_offsets(ordinal_t ord) {
     // peek offset
     size_t this_read = 1;
     bool has_null = false;
-    RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-    RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(ord));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(&this_read, &ordinal_view, &has_null));
+    RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
 
     auto* ordinals = reinterpret_cast<uint64_t*>(_length_batch->data());
     RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(ordinals[0]));
     return Status::OK();
 }
 
-Status ArrayFileColumnIterator::_seek_by_length(ordinal_t ord) {
-    RETURN_IF_ERROR(_length_iterator->seek_to_page_start());
-    if (_length_iterator->get_current_ordinal() == ord) {
-        RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(
-                _length_iterator->get_current_page()->first_array_item_ordinal));
-    } else {
-        ordinal_t start_offset_in_this_page =
-                _length_iterator->get_current_page()->first_array_item_ordinal;
-        ColumnBlock ordinal_block(_length_batch.get(), nullptr);
-        ordinal_t size_to_read = ord - _length_iterator->get_current_ordinal();
-        bool has_null = false;
-        ordinal_t item_ordinal = start_offset_in_this_page;
-        while (size_to_read > 0) {
-            size_t this_read = _length_batch->capacity() < size_to_read ? _length_batch->capacity()
-                                                                        : size_to_read;
-            ColumnBlockView ordinal_view(&ordinal_block);
-            RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-            auto* ordinals = reinterpret_cast<uint64_t*>(_length_batch->data());
-            for (int i = 0; i < this_read; ++i) {
-                item_ordinal += ordinals[i];
-            }
-            size_to_read -= this_read;
-        }
-        RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(item_ordinal));
-    }
-    return Status::OK();
-}
-
 Status ArrayFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
-    RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(ord));
+    RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
     }
-    if (_length_iterator->get_current_page()->next_array_item_ordinal > 0) {
-        RETURN_IF_ERROR(_seek_by_offsets(ord));
-    } else {
-        // for compability
-        RETURN_IF_ERROR(_seek_by_length(ord));
-    }
-    return Status::OK();
+    return _seek_by_offsets(ord);
 }
 
 Status ArrayFileColumnIterator::_caculate_offsets(ssize_t start,
                                                   vectorized::MutableColumnPtr& offsets,
                                                   size_t* num_items) {
     auto& column_offsets = static_cast<vectorized::ColumnArray::ColumnOffsets&>(*offsets);
-    if (_length_iterator->get_current_page()->next_array_item_ordinal > 0) {
-        // use offsets info
-        if (_length_iterator->get_current_page()->has_remaining()) {
-            // peek read one more to get the last array's length
-            size_t i = 1;
-            bool offsets_has_null = false;
-            ordinal_t save = _length_iterator->get_current_ordinal();
-            auto column_offsets_ptr = column_offsets.assume_mutable();
-            RETURN_IF_ERROR(
-                    _length_iterator->next_batch(&i, column_offsets_ptr, &offsets_has_null));
-            RETURN_IF_ERROR(_length_iterator->seek_to_ordinal(save));
-        } else {
-            column_offsets.insert(_length_iterator->get_current_page()->next_array_item_ordinal);
-        }
-
-        auto& offsets_data = column_offsets.get_data();
-        *num_items = offsets_data.back() - offsets_data[start];
-        // caculate real offsets
-        for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
-            offsets_data[i] = offsets_data[i - 1] + (offsets_data[i + 1] - offsets_data[i]);
-        }
-        column_offsets.pop_back(1);
+    // use offsets info
+    if (_offset_iterator->get_current_page()->has_remaining()) {
+        // peek read one more to get the last array's length
+        size_t i = 1;
+        bool offsets_has_null = false;
+        ordinal_t save = _offset_iterator->get_current_ordinal();
+        auto column_offsets_ptr = column_offsets.assume_mutable();
+        RETURN_IF_ERROR(_offset_iterator->next_batch(&i, column_offsets_ptr, &offsets_has_null));
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(save));
     } else {
-        // for compability
-        auto& offsets_data = column_offsets.get_data();
-        for (ssize_t i = start; i < offsets_data.size(); ++i) {
-            offsets_data[i] += offsets_data[i - 1]; // -1 is ok
-        }
-        *num_items = offsets_data.back() - offsets_data[start - 1];
+        column_offsets.insert(_offset_iterator->get_current_page()->next_array_item_ordinal);
     }
+
+    auto& offsets_data = column_offsets.get_data();
+    *num_items = offsets_data.back() - offsets_data[start];
+    // caculate real offsets
+    for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
+        offsets_data[i] = offsets_data[i - 1] + (offsets_data[i + 1] - offsets_data[i]);
+    }
+    column_offsets.pop_back(1);
     return Status::OK();
 }
 
@@ -570,7 +542,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     bool offsets_has_null = false;
     auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
     ssize_t start = column_offsets_ptr->size();
-    RETURN_IF_ERROR(_length_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
     if (*n == 0) {
         return Status::OK();
     }
