@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class PushDownNotSlotReferenceExpressionOfOnClauseTest extends TestWithFeService implements PatternMatchSupported {
+public class SingleSidePredicateTest extends TestWithFeService implements PatternMatchSupported {
     private final List<String> testSql = ImmutableList.of(
             "SELECT * FROM T1 JOIN T2 ON T1.ID + 1 = T2.ID + 2 AND T1.ID + 1 > 2",
             "SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2",

@@ -21,24 +21,20 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Arithmetic;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,86 +44,55 @@ import java.util.stream.Collectors;
  * push down expression which is not slot reference
  */
 public class SingleSidePredicate extends OneRewriteRuleFactory {
-
-    /**
-     * key : slotReference of a arithmetic expression
-     * value : {
-     *     key : arithmetic expression
-     *     value : aliased arithmetic expression
-     * }
-     */
-    private final Map<SlotReference, Map<Expression, Expression>> SlotReferenceToExpressionMap = new HashMap<>();
-
-    /**
+    /*
      * rewrite example:
-     *join(t1.a + 1 = t2.b + 2 and t1.a > 2)        join(c = d and c > 2)
-     *          │                                             │
-     *          ├─olapScan(t1)                                ├────project(t1.a + 1 as c)
-     *          │                               ====>         │       │
-     *          └─olapScan(t2)                                │       └─olapScan(t1)
-     *                                                        │
-     *                                                        └────project(t2.b + 2 as d)
-     *                                                                │
-     *                                                                └─olapScan(t2)
+     *       join(t1.a + 1 = t2.b + 2)                            join(c = d)
+     *             /       \                                         /    \
+     *            /         \                                       /      \
+     *           /           \             ====>                   /        \
+     *          /             \                                   /          \
+     *  olapScan(t1)     olapScan(t2)            project(t1.a + 1 as c)  project(t2.b + 2 as d)
+     *                                                        |                   |
+     *                                                        |                   |
+     *                                                        |                   |
+     *                                                        |                   |
+     *                                                     olapScan(t1)        olapScan(t2)
+     *TODO: now t1.a + t2.a = t1.b is not in hashJoinConjuncts. The rule will not handle it.
      */
+    List<List<Expression>> exprsOfJoinRelation = Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
+
+    Map<Expression, Alias> exprMap = Maps.newHashMap();
+
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getJoinType() == JoinType.INNER_JOIN)
                 .then(join -> {
-                    join.getHashJoinConjuncts().forEach(conjuncts -> conjuncts.accept(
-                            new TreeCollectVisitor(),
-                            SlotReferenceToExpressionMap));
-
-                    List<Plan> children = join.children().stream()
-                            .map(GroupPlan.class::cast)
-                            .map(p -> {
-                                List<NamedExpression> slots = p.getOutput()
-                                                .stream()
-                                                .filter(SlotReference.class::isInstance)
-                                                .filter(ref -> SlotReferenceToExpressionMap.containsKey(ref))
-                                                .map(ref -> SlotReferenceToExpressionMap.get(ref).values())
-                                                .flatMap(Collection::stream)
-                                                .map(NamedExpression.class::cast)
-                                                .collect(Collectors.toList());
-                                return new LogicalProject<>(slots, p);
-                            })
-                            .collect(Collectors.toList());
-
-                    LogicalJoin<Plan, Plan> joinAddProjects = (LogicalJoin<Plan, Plan>) join.withChildren(children);
-
-                    return joinAddProjects
-                            .withHashJoinConjuncts(join.getHashJoinConjuncts().stream().map(conjuncts -> conjuncts.accept(
-                                    new TreeReplaceVisitor(),
-                                    SlotReferenceToExpressionMap.values().stream()
-                                            .reduce(new HashMap<>(), (map1, map2) -> {
-                                                map1.putAll(map2);
-                                                return map1;
-                                            })
-                            )).collect(Collectors.toList()));
+                    Plan left = join.left();
+                    join.getHashJoinConjuncts().forEach(conjunct -> {
+                        Preconditions.checkArgument(conjunct instanceof EqualTo);
+                        Expression[] exprs = conjunct.children().toArray(new Expression[0]);
+                        int tag = checkIfSwap(exprs[0], left);
+                        exprsOfJoinRelation.get(0).add(exprs[tag]);
+                        exprsOfJoinRelation.get(1).add(exprs[tag ^ 1]);
+                        Arrays.stream(exprs).sequential().forEach(expr ->
+                                exprMap.put(expr, new Alias(expr, "expr_" + expr.hashCode())));
+                    });
+                    LogicalJoin join1 = join.withHashJoinConjuncts(join.getHashJoinConjuncts()
+                            .stream().map(equalTo -> equalTo.withChildren(equalTo.children()
+                                    .stream().map(expr -> exprMap.get(expr).toSlot())
+                                    .collect(Collectors.toList())))
+                            .collect(Collectors.toList()));
+                    return join1.withChildren(join.children().stream().map(
+                            plan -> {
+                                Iterator<List<Expression>> iter = exprsOfJoinRelation.iterator();
+                                return new LogicalProject<>(iter.next().stream().map(expr -> exprMap.get(expr))
+                                        .collect(Collectors.toList()), plan);
+                            }).collect(Collectors.toList()));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
 
-    private static class TreeCollectVisitor extends DefaultExpressionRewriter<
-                    Map<SlotReference, Map<Expression, Expression>>> {
-
-        @Override
-        public Expression visitComparisonPredicate(ComparisonPredicate expr,
-                Map<SlotReference, Map<Expression, Expression>> context) {
-            Set<SlotReference> set = new HashSet<>(expr.collect(SlotReference.class::isInstance));
-            if (set.size() == 1) {
-                SlotReference ref = set.iterator().next();
-                context.computeIfAbsent(ref, key -> new HashMap<>()).put(expr, new Alias(expr, expr.toSql()));
-            }
-            return expr;
-        }
-    }
-
-    private static class TreeReplaceVisitor extends DefaultExpressionRewriter<Map<Expression, Expression>> {
-
-        @Override
-        public Expression visitArithmetic( arithmetic, Map<Expression, Expression> ctx) {
-            return ((Alias) ctx.get(arithmetic)).toSlot();
-        }
+    int checkIfSwap(Expression left, Plan joinLeft) {
+        Set<Expression> joinOut = ImmutableSet.copyOf(joinLeft.getOutput());
+        return left.anyMatch(expr -> (expr instanceof Slot) && joinOut.contains(expr)) ? 0 : 1;
     }
 }

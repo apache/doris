@@ -29,7 +29,7 @@ import org.apache.doris.nereids.jobs.batch.RewriteJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.PlanPostprocessors;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -117,7 +117,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
 
         // post-process physical plan out of memo, just for future use.
-        return postprocess(physicalPlan);
+        return postProcess(physicalPlan);
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
@@ -153,8 +153,8 @@ public class NereidsPlanner extends Planner {
         new OptimizeRulesJob(cascadesContext).execute();
     }
 
-    private PhysicalPlan postprocess(PhysicalPlan physicalPlan) {
-        return new PlanPostprocessors(cascadesContext).process(physicalPlan);
+    private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
+        return new PlanPostProcessors(cascadesContext).process(physicalPlan);
     }
 
     @Override
