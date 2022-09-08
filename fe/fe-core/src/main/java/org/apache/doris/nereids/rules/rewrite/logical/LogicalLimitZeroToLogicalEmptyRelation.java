@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.Relation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
- * Common interface for logical/physical scan.
+ * e.g.
+ * LogicalLimit(limit=0)   => LogicalEmptyRelation(projects=[limit.output()])
  */
-public interface Scan extends Relation {
-    List<Expression> getExpressions();
-
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
+public class LogicalLimitZeroToLogicalEmptyRelation extends OneRewriteRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalLimit()
+                .when(limit -> limit.getLimit() == 0)
+                .then(limit -> new LogicalEmptyRelation((List) limit.getOutput()))
+                .toRule(RuleType.LOGICAL_LIMIT_TO_LOGICAL_EMPTY_RELATION_RULE);
     }
 }

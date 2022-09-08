@@ -15,25 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+suite("empty_relation") {
+    // enable nereids and vectorized engine
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.Relation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+    test {
+        sql "select *, substring(s_name, 1, 2) from supplier limit 0"
+        result([])
+    }
 
-import java.util.Collections;
-import java.util.List;
-
-/**
- * Common interface for logical/physical scan.
- */
-public interface Scan extends Relation {
-    List<Expression> getExpressions();
-
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
+    explain {
+        sql "select *, substring(s_name, 1, 2) from supplier limit 0"
+        contains ":VEMPTYSET"
     }
 }

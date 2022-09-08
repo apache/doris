@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -25,11 +26,13 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
@@ -40,12 +43,14 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -79,6 +84,18 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias, C context) {
         return visit(alias, context);
+    }
+
+    public R visitUnboundOneRowRelation(UnboundOneRowRelation oneRowRelation, C context) {
+        return visit(oneRowRelation, context);
+    }
+
+    public R visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, C context) {
+        return visit(emptyRelation, context);
+    }
+
+    public R visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, C context) {
+        return visit(oneRowRelation, context);
     }
 
     public R visitUnboundRelation(UnboundRelation relation, C context) {
@@ -151,6 +168,14 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalScan(PhysicalRelation scan, C context) {
         return visit(scan, context);
+    }
+
+    public R visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, C context) {
+        return visit(emptyRelation, context);
+    }
+
+    public R visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, C context) {
+        return visit(oneRowRelation, context);
     }
 
     public R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {

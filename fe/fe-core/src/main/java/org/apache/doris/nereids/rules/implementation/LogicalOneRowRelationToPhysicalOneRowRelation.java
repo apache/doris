@@ -15,25 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.Relation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-
-import java.util.Collections;
-import java.util.List;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 
 /**
- * Common interface for logical/physical scan.
+ * Implementation rule that convert logical aggregation to physical hash aggregation.
  */
-public interface Scan extends Relation {
-    List<Expression> getExpressions();
-
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
+public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalOneRowRelation()
+                .then(relation -> new PhysicalOneRowRelation(relation.getProjects(), relation.getLogicalProperties()))
+                .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
     }
 }

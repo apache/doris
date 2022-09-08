@@ -15,25 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+suite("one_row_relation") {
+    // enable nereids and vectorized engine
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.Relation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-
-import java.util.Collections;
-import java.util.List;
-
-/**
- * Common interface for logical/physical scan.
- */
-public interface Scan extends Relation {
-    List<Expression> getExpressions();
-
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
+    test {
+        sql "select 100, 'abc', substring('abc', 1, 2), substring(substring('abcdefg', 4, 3), 1, 2)"
+        result([[100, "abc", "ab", "de"]])
     }
 }
