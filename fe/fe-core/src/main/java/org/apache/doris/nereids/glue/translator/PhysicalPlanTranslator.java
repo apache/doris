@@ -501,9 +501,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
         TupleDescriptor outputDescriptor = context.generateTupleDesc();
         Map<ExprId, SlotReference> slotReferenceMap = Maps.newHashMap();
-        hashJoin.getOutput().stream()
-                .map(SlotReference.class::cast)
-                .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
+
+        if (hashJoin.getOtherJoinCondition().isPresent()) {
+            //Remove this branch when BE bind other join conjuncts on input tuple ids.
+            //Currently BE bind other join conjuncts on intermediate tuple. This is not good.
+            Stream.concat(hashJoin.child(0).getOutput().stream(), hashJoin.child(1).getOutput().stream())
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
+        } else {
+            hashJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
+        }
         List<Expr> srcToOutput = Stream.concat(leftTuples.stream(), rightTuples.stream())
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
