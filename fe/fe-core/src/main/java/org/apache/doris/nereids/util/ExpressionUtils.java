@@ -136,6 +136,9 @@ public class ExpressionUtils {
                 .orElse(new BooleanLiteral(type == And.class));
     }
 
+    /**
+     * Check whether lhs and rhs are intersecting.
+     */
     public static boolean isIntersecting(Set<SlotReference> lhs, List<SlotReference> rhs) {
         for (SlotReference rh : rhs) {
             if (lhs.contains(rh)) {
