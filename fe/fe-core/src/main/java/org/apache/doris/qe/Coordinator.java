@@ -154,7 +154,7 @@ public class Coordinator {
 
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
-    
+
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
     // but, we execute `NOW()` distributed.
