@@ -551,8 +551,11 @@ public class SingleNodePlanner {
                     if (col == null) {
                         continue;
                     }
+
+                    String functionName = aggExpr.getFnName().getFunction();
+
                     if (col.isKey()) {
-                        if ((!aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX"))
+                        if ((!functionName.equalsIgnoreCase("MAX"))
                                 && (!aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN"))) {
                             returnColumnValidate = false;
                             turnOffReason = "the type of agg on StorageEngine's Key column should only be MAX or MIN."
@@ -561,56 +564,57 @@ public class SingleNodePlanner {
                         }
                     }
 
-                    if (aggExpr.getFnName().getFunction().equalsIgnoreCase("SUM")) {
+                    if (functionName.equalsIgnoreCase("SUM")) {
                         if (col.getAggregationType() != AggregateType.SUM) {
                             turnOffReason = "Aggregate Operator not match: SUM <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")) {
+                    } else if (functionName.equalsIgnoreCase("MAX")) {
                         if ((!col.isKey()) && col.getAggregationType() != AggregateType.MAX) {
                             turnOffReason = "Aggregate Operator not match: MAX <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
+                    } else if (functionName.equalsIgnoreCase("MIN")) {
                         if ((!col.isKey()) && col.getAggregationType() != AggregateType.MIN) {
                             turnOffReason = "Aggregate Operator not match: MIN <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
+                    } else if (functionName.equalsIgnoreCase("HLL_UNION_AGG")) {
                         // do nothing
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_RAW_AGG")) {
+                    } else if (functionName.equalsIgnoreCase("HLL_RAW_AGG")) {
                         // do nothing
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
+                    } else if (functionName.equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT)) {
+                    } else if (functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT)) {
                         if ((!col.isKey())) {
                             turnOffReason = "BITMAP_UNION_INT function with non-key column: " + col.getName();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)
-                            || aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
+                    } else if (functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION)
+                            || functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)
+                            || functionName.equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_UNION_COUNT)) {
                         if (col.getAggregationType() != AggregateType.BITMAP_UNION) {
                             turnOffReason =
                                     "Aggregate Operator not match: BITMAP_UNION <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
+                    } else if (functionName.equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
                         if (col.getAggregationType() != AggregateType.QUANTILE_UNION) {
                             turnOffReason =
                                     "Aggregate Operator not match: QUANTILE_UNION <---> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
+                    } else if (functionName.equalsIgnoreCase("multi_distinct_count")) {
                         // count(distinct k1), count(distinct k2) / count(distinct k1,k2) can turn on pre aggregation
                         if ((!col.isKey())) {
                             turnOffReason = "Multi count or sum distinct with non-key column: " + col.getName();
@@ -618,7 +622,7 @@ public class SingleNodePlanner {
                             break;
                         }
                     } else {
-                        turnOffReason = "Invalid Aggregate Operator: " + aggExpr.getFnName().getFunction();
+                        turnOffReason = "Invalid Aggregate Operator: " + functionName;
                         returnColumnValidate = false;
                         break;
                     }
