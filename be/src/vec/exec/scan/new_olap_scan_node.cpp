@@ -187,67 +187,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-bool NewOlapScanNode::_should_push_down_binary_predicate(
-        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-        int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker) {
-    if (!fn_checker(fn_call->fn().name.function_name)) {
-        return false;
-    }
-
-    const auto& children = fn_call->children();
-    DCHECK(children.size() == 2);
-    for (size_t i = 0; i < children.size(); i++) {
-        if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
-            // not a slot ref(column)
-            continue;
-        }
-        if (!children[1 - i]->is_constant()) {
-            // only handle constant value
-            return false;
-        } else {
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
-                *slot_ref_child = i;
-                *constant_val = const_column->get_data_at(0);
-            } else {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-bool NewOlapScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprContext* expr_ctx,
-                                                     bool is_not_in) {
-    if (pred->is_not_in() != is_not_in) {
-        return false;
-    }
-    InState* state = reinterpret_cast<InState*>(
-            expr_ctx->fn_context(pred->fn_context_index())
-                    ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    HybridSetBase* set = state->hybrid_set.get();
-
-    // if there are too many elements in InPredicate, exceed the limit,
-    // we will not push any condition of this column to storage engine.
-    // because too many conditions pushed down to storage engine may even
-    // slow down the query process.
-    // ATTN: This is just an experience value. You may need to try
-    // different thresholds to improve performance.
-    if (set->size() > _max_pushdown_conditions_per_column) {
-        VLOG_NOTICE << "Predicate value num " << set->size() << " exceed limit "
-                    << _max_pushdown_conditions_per_column;
-        return false;
-    }
-    return true;
-}
-
-bool NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                        VExprContext* expr_ctx,
-                                                        StringVal* constant_str,
-                                                        doris_udf::FunctionContext** fn_ctx) {
+PushDownType NewOlapScanNode::_should_push_down_function_filter(
+        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringVal* constant_str,
+        doris_udf::FunctionContext** fn_ctx) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
-        return false;
+        return PushDownType::UNACCEPTABLE;
     }
 
     const auto& children = fn_call->children();
@@ -261,19 +206,19 @@ bool NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_cal
         }
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
-            return false;
+            return PushDownType::UNACCEPTABLE;
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
             if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
                         children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
-                return false;
+                return PushDownType::UNACCEPTABLE;
             }
         }
     }
     *fn_ctx = func_cxt;
-    return true;
+    return PushDownType::ACCEPTABLE;
 }
 
 // PlanFragmentExecutor will call this method to set scan range

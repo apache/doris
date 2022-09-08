@@ -73,6 +73,8 @@ public:
     const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
 
+    enum class PushDownType { UNACCEPTABLE, ACCEPTABLE, PARTIAL_ACCEPTABLE };
+
 protected:
     // Different data sources register different profiles by implementing this method
     virtual Status _init_profile();
@@ -105,21 +107,24 @@ protected:
     //      2. in/not in predicate
     //      3. function predicate
     //  TODO: these interfaces should be change to become more common.
-    virtual bool _should_push_down_binary_predicate(
+    virtual PushDownType _should_push_down_binary_predicate(
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker) {
-        return false;
+            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
+
+    virtual PushDownType _should_push_down_in_predicate(VInPredicate* in_pred,
+                                                        VExprContext* expr_ctx, bool is_not_in);
+
+    virtual PushDownType _should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                           VExprContext* expr_ctx,
+                                                           StringVal* constant_str,
+                                                           doris_udf::FunctionContext** fn_ctx) {
+        return PushDownType::UNACCEPTABLE;
     }
 
-    virtual bool _should_push_down_in_predicate(VInPredicate* in_pred, VExprContext* expr_ctx,
-                                                bool is_not_in) {
-        return false;
-    }
+    virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
-    virtual bool _should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                   VExprContext* expr_ctx, StringVal* constant_str,
-                                                   doris_udf::FunctionContext** fn_ctx) {
-        return false;
+    virtual PushDownType _should_push_down_is_null_predicate() {
+        return PushDownType::UNACCEPTABLE;
     }
 
     // Return true if it is a key column.
@@ -233,13 +238,13 @@ private:
 
     Status _normalize_conjuncts();
     VExpr* _normalize_predicate(VExpr* conjunct_expr_root);
-    void _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, bool* push_down);
+    void _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-                                   bool* push_down);
+                                   PushDownType* pdt);
 
     Status _normalize_function_filters(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-                                       bool* push_down);
+                                       PushDownType* pdt);
 
     bool _is_predicate_acting_on_slot(VExpr* expr,
                                       const std::function<bool(const std::vector<VExpr*>&,
@@ -249,21 +254,21 @@ private:
     template <PrimitiveType T>
     Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                           SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                          bool* push_down);
+                                          PushDownType* pdt);
     template <PrimitiveType T>
     Status _normalize_not_in_and_not_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  bool* push_down);
+                                                  PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                             bool* push_down);
+                                             PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                        bool* push_down);
+                                        PushDownType* pdt);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
