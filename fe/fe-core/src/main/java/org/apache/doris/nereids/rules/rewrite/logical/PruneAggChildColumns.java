@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -56,7 +57,7 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
         return RuleType.COLUMN_PRUNE_AGGREGATION_CHILD.build(logicalAggregate().then(agg -> {
             List<Slot> childOutput = agg.child().getOutput();
             if (isAggregateWithConstant(agg)) {
-                Slot slot = selectMinimumColumn(childOutput);
+                Slot slot = ExpressionUtils.selectMinimumColumn(childOutput);
                 if (childOutput.size() == 1 && childOutput.get(0).equals(slot)) {
                     return agg;
                 }
@@ -85,18 +86,5 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
             }
         }
         return true;
-    }
-
-    private Slot selectMinimumColumn(List<Slot> outputList) {
-        Slot minSlot = null;
-        for (Slot slot : outputList) {
-            if (minSlot == null) {
-                minSlot = slot;
-            } else {
-                int slotDataTypeWidth = slot.getDataType().width();
-                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
-            }
-        }
-        return minSlot;
     }
 }
