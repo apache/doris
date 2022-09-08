@@ -315,6 +315,11 @@ int main(int argc, char** argv) {
     }
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+    // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
+    // not backed by physical pages and do not contribute towards memory consumption.
+    if (doris::config::tc_enable_aggressive_memory_decommit) {
+        MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
+    }
     // Change the total TCMalloc thread cache size if necessary.
     if (!MallocExtension::instance()->SetNumericProperty(
                 "tcmalloc.max_total_thread_cache_bytes",
