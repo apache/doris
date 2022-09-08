@@ -1,0 +1,41 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Choose a base image
+# E.g FROM openjdk:8u342-jdk
+FROM openjdk
+
+# Replace according to your needs
+# E.g ARG package_url=./
+ARG package_url=Local binary package path, concatenated with package_name to get the complete directory
+
+# E.g ARG package_name=apache-doris-1.1.1-bin-x86.tar.gz
+ARG package_name=binary package filename
+
+# E.g ARG package_path=apache-doris-1.1.1-bin-x86
+ARG package_path=File directory name after decompression
+
+# Set environment variables
+ENV PATH="/usr/local/apache-doris/be/bin:/usr/local/apache-doris/apache_hdfs_broker/bin:$PATH"
+
+# Deploy software
+RUN curl -o /usr/local/apache-doris.tar.gz $package_url && \
+    tar -zxvf /usr/local/apache-doris.tar.gz -C /usr/local/ && \
+    mv /usr/local/$package_path /usr/local/apache-doris && \
+    rm -rf /usr/local/$package_name /usr/local/apache-doris/fe /usr/local/apache-doris/udf
+
+CMD ["bash"]
