@@ -115,7 +115,7 @@ Status BrokerReader::open() {
     // TODO(cmy): The file size is no longer got from openReader() method.
     // But leave the code here for compatibility.
     // This will be removed later.
-    if (response.->__isset.size) {
+    if (response->__isset.size) {
         _file_size = response->size;
     }
 

@@ -442,13 +442,16 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
+            ArrayList<Expr> aggFnExprList = new ArrayList<>();
             for (SelectListItem item : selectList.getItems()) {
-                if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
+                aggFnExprList.clear();
+                getAggregateFnExpr(item.getExpr(), aggFnExprList);
+                for (Expr aggFnExpr : aggFnExprList) {
                     for (Expr expr : groupByClause.getGroupingExprs()) {
-                        if (item.getExpr().contains(expr)) {
-                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
-                                    + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
-                                    + " instead.");
+                        if (aggFnExpr.contains(expr)) {
+                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select "
+                                    + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
+                                    + "please use union instead.");
                         }
                     }
                 }
@@ -1892,7 +1895,7 @@ public class SelectStmt extends QueryStmt {
     private boolean checkGroupingFn(Expr expr) {
         if (expr instanceof GroupingFunctionCallExpr) {
             return true;
-        } else if (expr.getChildren() != null && expr.getChildren().size() > 0) {
+        } else if (expr.getChildren() != null) {
             for (Expr child : expr.getChildren()) {
                 if (checkGroupingFn(child)) {
                     return true;
@@ -1900,6 +1903,16 @@ public class SelectStmt extends QueryStmt {
             }
         }
         return false;
+    }
+
+    private void getAggregateFnExpr(Expr expr, ArrayList<Expr> aggFnExprList) {
+        if (expr instanceof FunctionCallExpr && expr.fn instanceof AggregateFunction) {
+            aggFnExprList.add(expr);
+        } else if (expr.getChildren() != null) {
+            for (Expr child : expr.getChildren()) {
+                getAggregateFnExpr(child, aggFnExprList);
+            }
+        }
     }
 
     @Override
