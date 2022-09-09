@@ -856,6 +856,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                     if (tablet_meta_info.storage_policy.empty()) {
                         tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
+                        tablet->get_max_version_schema(wrlock)->set_is_in_memory(
+                                tablet_meta_info.is_in_memory);
                     } else {
                         LOG(INFO) << "set tablet cooldown resource "
                                   << tablet_meta_info.storage_policy;

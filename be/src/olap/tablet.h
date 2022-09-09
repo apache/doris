@@ -19,7 +19,9 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -283,6 +285,8 @@ public:
     }
 
     TabletSchemaSPtr tablet_schema() const override;
+
+    TabletSchemaSPtr get_max_version_schema(std::lock_guard<std::shared_mutex>&);
 
     // Find the related rowset with specified version and return its tablet schema
     TabletSchemaSPtr tablet_schema(Version version) const {
