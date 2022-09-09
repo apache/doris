@@ -254,12 +254,7 @@ public:
 
     void reset_cur_batch() { _cur_batch_num = 0; }
 
-    bool is_cur_block_finished() {
-        if (_index_in_block == _block->rows() - 1) {
-            return true;
-        }
-        return false;
-    }
+    bool is_cur_block_finished() { return _index_in_block == _block->rows() - 1; }
 
 private:
     // Load next block into _block
@@ -320,7 +315,7 @@ Status VMergeIteratorContext::_load_next_block() {
             _block = nullptr;
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
-            if (it->use_count() <= 1) {
+            if (it->use_count() == 1) {
                 block_reset(*it);
                 _block = *it;
                 _block_list.erase(it);
