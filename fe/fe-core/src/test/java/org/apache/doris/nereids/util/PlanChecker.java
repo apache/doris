@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
@@ -31,7 +35,9 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.Lists;
@@ -258,6 +264,15 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        consumer.accept(nereidsPlanner);
+        return this;
+    }
+
     public static PlanChecker from(ConnectContext connectContext) {
         return new PlanChecker(connectContext);
     }
@@ -273,5 +288,9 @@ public class PlanChecker {
 
     public CascadesContext getCascadesContext() {
         return cascadesContext;
+    }
+
+    public Plan getPlan() {
+        return cascadesContext.getMemo().copyOut();
     }
 }
