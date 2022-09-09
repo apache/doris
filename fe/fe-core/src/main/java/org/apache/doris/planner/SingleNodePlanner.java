@@ -236,7 +236,7 @@ public class SingleNodePlanner {
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
-        if (newDefaultOrderByLimit == -1){
+        if (newDefaultOrderByLimit == -1) {
             if (analyzer.getContext().getSessionVariable().defaultOrderByLimit <= -1) {
                 newDefaultOrderByLimit = Long.MAX_VALUE;
             } else {
