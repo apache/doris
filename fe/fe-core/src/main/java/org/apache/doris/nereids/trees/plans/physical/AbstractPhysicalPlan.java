@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all concrete physical plan.
@@ -54,9 +55,9 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     }
 
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Plan... children) {
+            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties, Plan... children) {
         super(type, groupExpression, Optional.of(logicalProperties), children);
-        this.physicalProperties = physicalProperties;
+        this.physicalProperties = physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
     }
 
     public PhysicalProperties getPhysicalProperties() {

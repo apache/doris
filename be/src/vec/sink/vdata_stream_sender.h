@@ -214,7 +214,6 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false);
 
-    Status add_row(Block* block, int row);
     Status add_rows(Block* block, const std::vector<int>& row);
 
     Status send_current_block(bool eos = false);
@@ -255,8 +254,10 @@ private:
         brpc::Join(call_id);
         if (cntl->Failed()) {
             std::string err = fmt::format(
-                    "failed to send brpc batch, error={}, error_text={}, client: {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost());
+                    "failed to send brpc batch, error={}, error_text={}, client: {}, "
+                    "latency = {}",
+                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
+                    cntl->latency_us());
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }

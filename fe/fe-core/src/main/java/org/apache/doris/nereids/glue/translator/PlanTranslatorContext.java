@@ -136,10 +136,10 @@ public class PlanTranslatorContext {
      */
     public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-        Column column = slotReference.getColumn();
+        Optional<Column> column = slotReference.getColumn();
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        if (column != null) {
-            slotDescriptor.setColumn(column);
+        if (column.isPresent()) {
+            slotDescriptor.setColumn(column.get());
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);

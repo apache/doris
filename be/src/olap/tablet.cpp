@@ -1386,7 +1386,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     if (enable_consecutive_missing_check) {
         if (cversion.second < max_version.second) {
             if (_last_missed_version == cversion.second + 1) {
-                if (_last_missed_time_s - MonotonicSeconds() >= 60) {
+                if (MonotonicSeconds() - _last_missed_time_s >= 60) {
                     // version missed for over 60 seconds
                     tablet_info->__set_version_miss(true);
                     _last_missed_version = -1;

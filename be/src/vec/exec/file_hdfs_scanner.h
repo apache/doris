@@ -48,7 +48,7 @@ protected:
     void _init_profiles(RuntimeProfile* profile) override;
 
 private:
-    Status _get_next_reader(int _next_range);
+    Status _get_next_reader();
 
 private:
     std::shared_ptr<ParquetReader> _reader;

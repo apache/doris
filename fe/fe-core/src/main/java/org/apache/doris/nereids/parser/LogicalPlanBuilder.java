@@ -27,6 +27,7 @@ import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -112,12 +114,15 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -144,6 +149,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -216,9 +222,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRegularQuerySpecification(RegularQuerySpecificationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: support one row relation
             if (ctx.fromClause() == null) {
-                throw new ParseException("Unsupported one row relation", ctx);
+                return withOneRowRelation(ctx.selectClause());
             }
 
             LogicalPlan relation = visitFromClause(ctx.fromClause());
@@ -588,7 +593,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitIntegerLiteral(IntegerLiteralContext ctx) {
         BigInteger bigInt = new BigInteger(ctx.getText());
-        if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+        if (BigInteger.valueOf(bigInt.byteValue()).equals(bigInt)) {
+            return new TinyIntLiteral(bigInt.byteValue());
+        } else if (BigInteger.valueOf(bigInt.shortValue()).equals(bigInt)) {
+            return new SmallIntLiteral(bigInt.shortValue());
+        } else if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
             return new IntegerLiteral(bigInt.intValue());
         } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
             return new BigIntLiteral(bigInt.longValueExact());
@@ -605,7 +614,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(str -> str.substring(1, str.length() - 1))
                 .reduce((s1, s2) -> s1 + s2)
                 .orElse("");
-        return new StringLiteral(s);
+        return new VarcharLiteral(s);
     }
 
     @Override
@@ -746,6 +755,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             return new LogicalLimit<>(limit, offset, input);
+        });
+    }
+
+    private UnboundOneRowRelation withOneRowRelation(SelectClauseContext selectCtx) {
+        return ParserUtils.withOrigin(selectCtx, () -> {
+            List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
+            return new UnboundOneRowRelation(projects);
         });
     }
 
@@ -961,5 +977,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public List<Expression> withInList(PredicateContext ctx) {
         return ctx.expression().stream().map(this::getExpression).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public DecimalLiteral visitDecimalLiteral(DecimalLiteralContext ctx) {
+        return new DecimalLiteral(new BigDecimal(ctx.getText()));
     }
 }

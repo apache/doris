@@ -48,6 +48,10 @@ namespace doris::vectorized {
 class Arena;
 class Field;
 
+class ColumnSorter;
+using EqualFlags = std::vector<uint8_t>;
+using EqualRange = std::pair<int, int>;
+
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
 private:
@@ -59,7 +63,18 @@ private:
     /// If you want to copy column for modification, look at 'mutate' method.
     virtual MutablePtr clone() const = 0;
 
+protected:
+    // 64bit offsets now only Array type used, so we make it protected
+    // to avoid use IColumn::Offset64 directly.
+    // please use ColumnArray::Offset64 instead if we need.
+    using Offset64 = UInt64;
+    using Offsets64 = PaddedPODArray<Offset64>;
+
 public:
+    // 32bit offsets for string
+    using Offset = UInt32;
+    using Offsets = PaddedPODArray<Offset>;
+
     /// Name of a Column. It is used in info messages.
     virtual std::string get_name() const { return get_family_name(); }
 
@@ -361,14 +376,6 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const = 0;
 
-    // 32bit offsets for string
-    using Offset = UInt32;
-    using Offsets = PaddedPODArray<Offset>;
-
-    // 64bit offsets for array
-    using Offset64 = UInt64;
-    using Offsets64 = PaddedPODArray<Offset64>;
-
     /** Copies each element according offsets parameter.
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
       * It is necessary in ARRAY JOIN operation.
@@ -525,6 +532,10 @@ public:
     virtual bool can_be_inside_nullable() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
+
+    virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                             IColumn::Permutation& perms, EqualRange& range,
+                             bool last_column) const;
 
     virtual ~IColumn() = default;
     IColumn() = default;

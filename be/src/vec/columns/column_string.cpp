@@ -25,6 +25,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -422,6 +423,12 @@ void ColumnString::get_extremes(Field& min, Field& max) const {
 
     get(min_idx, min);
     get(max_idx, max);
+}
+
+void ColumnString::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                               IColumn::Permutation& perms, EqualRange& range,
+                               bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnString&>(*this), flags, perms, range, last_column);
 }
 
 void ColumnString::protect() {

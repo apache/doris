@@ -15,13 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.processor.post;
+suite("empty_relation") {
+    // enable nereids and vectorized engine
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+    test {
+        sql "select *, substring(s_name, 1, 2) from supplier limit 0"
+        result([])
+    }
 
-/**
- * PlanPostprocessor: a PlanVisitor to rewrite PhysicalPlan to new PhysicalPlan.
- */
-public class PlanPostprocessor extends DefaultPlanRewriter<CascadesContext> {
+    explain {
+        sql "select *, substring(s_name, 1, 2) from supplier limit 0"
+        contains ":VEMPTYSET"
+    }
 }

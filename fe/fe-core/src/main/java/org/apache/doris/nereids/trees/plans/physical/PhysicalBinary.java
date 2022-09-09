@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all physical plan that have two children.
@@ -47,8 +48,8 @@ public abstract class PhysicalBinary<
     }
 
     public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, physicalProperties, leftChild, rightChild);
     }
 }

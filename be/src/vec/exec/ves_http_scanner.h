@@ -30,7 +30,6 @@ public:
                    bool doc_value_mode)
             : EsHttpScanner(state, profile, tuple_id, properties, conjunct_ctxs, counter,
                             doc_value_mode) {};
-    ~VEsHttpScanner();
 
     Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, MemPool* tuple_pool,
                     bool* eof, const std::map<std::string, std::string>& docvalue_context);

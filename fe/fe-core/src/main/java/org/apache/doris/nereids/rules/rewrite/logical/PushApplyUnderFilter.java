@@ -22,14 +22,15 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Exchange apply and filter.
@@ -63,17 +64,10 @@ public class PushApplyUnderFilter extends OneRewriteRuleFactory {
                 return apply;
             }
 
-            if (unCorrelatedPredicate.isEmpty()) {
-                return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                        Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)),
-                        apply.left(), filter.child());
-            } else {
-                LogicalFilter<GroupPlan> newFilter = new LogicalFilter<>(
-                        ExpressionUtils.and(unCorrelatedPredicate), filter.child());
-                return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
-                        Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)),
-                        apply.left(), newFilter);
-            }
+            Plan child = PlanUtils.filterOrSelf(unCorrelatedPredicate, filter.child());
+            return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+                    ExpressionUtils.optionalAnd(correlatedPredicate),
+                    apply.left(), child);
         }).toRule(RuleType.PUSH_APPLY_UNDER_FILTER);
     }
 }

@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
@@ -52,11 +53,13 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -69,6 +72,7 @@ import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
@@ -76,6 +80,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.planner.UnionNode;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -225,6 +230,56 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         currentFragment.setPlanRoot(aggregationNode);
         return currentFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, PlanTranslatorContext context) {
+        List<Slot> output = emptyRelation.getOutput();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(output, null, context);
+        for (int i = 0; i < output.size(); i++) {
+            SlotDescriptor slotDescriptor = tupleDescriptor.getSlots().get(i);
+            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
+
+            Slot slot = output.get(i);
+            SlotRef slotRef = context.findSlotRef(slot.getExprId());
+            slotRef.setLabel(slot.getName());
+        }
+
+        ArrayList<TupleId> tupleIds = new ArrayList();
+        tupleIds.add(tupleDescriptor.getId());
+        EmptySetNode emptySetNode = new EmptySetNode(context.nextPlanNodeId(), tupleIds);
+
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), emptySetNode,
+                DataPartition.UNPARTITIONED);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation,
+            PlanTranslatorContext context) {
+        List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
+        TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
+
+        List<Expr> legacyExprs = oneRowRelation.getProjects()
+                .stream()
+                .map(expr -> ExpressionTranslator.translate(expr, context))
+                .collect(Collectors.toList());
+
+        for (int i = 0; i < legacyExprs.size(); i++) {
+            SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
+            Expr expr = legacyExprs.get(i);
+            slotDescriptor.setSourceExpr(expr);
+            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
+        }
+
+        UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
+        unionNode.addConstExprList(legacyExprs);
+        unionNode.finalizeForNereids(oneRowTuple, oneRowTuple.getSlots());
+
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), unionNode, DataPartition.UNPARTITIONED);
+        context.addPlanFragment(planFragment);
+        return planFragment;
     }
 
     @Override

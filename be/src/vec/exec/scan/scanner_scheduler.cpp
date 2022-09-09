@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
+#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
@@ -165,9 +166,8 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
-    // TODO: rethink mem tracker and span
-    // START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
-    //                    "ScannerScheduler::_scanner_scan");
+    INIT_AND_SCOPE_REENTRANT_SPAN_IF(ctx->state()->enable_profile(), ctx->state()->get_tracer(),
+                                     ctx->scan_span(), "VScanner::scan");
     SCOPED_ATTACH_TASK(scanner->runtime_state());
 
     Thread::set_self_name("_scanner_scan");

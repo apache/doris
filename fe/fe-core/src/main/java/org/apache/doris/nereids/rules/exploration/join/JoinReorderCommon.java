@@ -17,32 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-/**
- * Common function for JoinCommute
- */
-public class JoinCommuteHelper {
-
-    enum SwapType {
-        BOTTOM_JOIN, ZIG_ZAG, ALL
-    }
-
-    private final boolean swapOuter;
-    private final SwapType swapType;
-
-    public JoinCommuteHelper(boolean swapOuter, SwapType swapType) {
-        this.swapOuter = swapOuter;
-        this.swapType = swapType;
-    }
-
-    public static boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
-        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
-    }
-
-    public static boolean check(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        return check(project.child());
+class JoinReorderCommon {
+    public enum Type {
+        INNER,
+        OUTER
     }
 }

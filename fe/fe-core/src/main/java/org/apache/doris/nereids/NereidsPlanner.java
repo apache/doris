@@ -113,7 +113,7 @@ public class NereidsPlanner extends Planner {
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
 
-        // cost-based optimize and explode plan space
+        // cost-based optimize and explore plan space
         optimize();
 
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);

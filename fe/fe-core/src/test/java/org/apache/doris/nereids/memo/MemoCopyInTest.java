@@ -20,11 +20,13 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -58,10 +60,11 @@ public class MemoCopyInTest implements PatternMatchSupported {
                 .transform(
                         // swap join's children
                         logicalJoin(logicalOlapScan(), logicalOlapScan()).then(joinBA ->
-                                new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left())
+                                new LogicalProject<>(Lists.newArrayList(joinBA.getOutput()),
+                                        new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left()))
                         ))
-                .checkGroupNum(5)
-                .checkGroupExpressionNum(6)
+                .checkGroupNum(6)
+                .checkGroupExpressionNum(7)
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(1, root.getLogicalExpressions().size());
@@ -69,7 +72,8 @@ public class MemoCopyInTest implements PatternMatchSupported {
                     Assertions.assertEquals(2, joinABC.child(0).getLogicalExpressions().size());
                     Assertions.assertEquals(1, joinABC.child(1).getLogicalExpressions().size());
                     GroupExpression joinAB = joinABC.child(0).getLogicalExpressions().get(0);
-                    GroupExpression joinBA = joinABC.child(0).getLogicalExpressions().get(1);
+                    GroupExpression project = joinABC.child(0).getLogicalExpressions().get(1);
+                    GroupExpression joinBA = project.child(0).getLogicalExpression();
                     Assertions.assertTrue(joinAB.getPlan() instanceof LogicalJoin);
                     Assertions.assertTrue(joinBA.getPlan() instanceof LogicalJoin);
                 });

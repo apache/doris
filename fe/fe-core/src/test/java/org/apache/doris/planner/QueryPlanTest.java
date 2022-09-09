@@ -2167,4 +2167,27 @@ public class QueryPlanTest extends TestWithFeService {
                 + "KeyColumns[1] (starts from zero) is k3, "
                 + "but corresponding column is k2 in the previous columns declaration."));
     }
+
+    @Test
+    public void testPreaggregationOfOrthogonalBitmapUDAF() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.bitmap_tb (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` int(11) NULL COMMENT \"\",\n"
+                + "  `id3` bitmap bitmap_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`,`id2`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+
+        String queryBaseTableStr = "explain select id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
+        String explainString1 = getSQLPlanOrErrorMsg(queryBaseTableStr);
+        Assert.assertTrue(explainString1.contains("PREAGGREGATION: ON"));
+
+        String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
+        String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
+        Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
+    }
 }

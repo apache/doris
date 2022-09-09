@@ -38,19 +38,15 @@ public class PlanPostProcessors {
 
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
-        for (PlanPostprocessor processor : getProcessors()) {
+        for (PlanPostProcessor processor : getProcessors()) {
             resultPlan = (PhysicalPlan) physicalPlan.accept(processor, cascadesContext);
         }
         return resultPlan;
     }
 
-    /**
-     * generate processors
-     * @return processors
-     */
-    public List<PlanPostprocessor> getProcessors() {
+    public List<PlanPostProcessor> getProcessors() {
         // add processor if we need
-        Builder<PlanPostprocessor> builder = ImmutableList.builder();
+        Builder<PlanPostProcessor> builder = ImmutableList.builder();
         if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
             builder.add(cascadesContext.getRuntimeFilterGenerator());
         }

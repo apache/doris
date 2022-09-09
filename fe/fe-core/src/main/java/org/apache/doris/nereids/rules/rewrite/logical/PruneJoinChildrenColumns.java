@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -75,6 +76,13 @@ public class PruneJoinChildrenColumns
                 .filter(r -> exprIds.contains(r.getExprId())).collect(Collectors.toList());
         List<NamedExpression> rightInputs = joinPlan.right().getOutput().stream()
                 .filter(r -> exprIds.contains(r.getExprId())).collect(Collectors.toList());
+
+        if (leftInputs.isEmpty()) {
+            leftInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.left().getOutput()));
+        }
+        if (rightInputs.isEmpty()) {
+            rightInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.right().getOutput()));
+        }
 
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();

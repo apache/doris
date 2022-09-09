@@ -27,21 +27,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Merge the correlated predicate and agg in the filter under apply.
  * And keep the unCorrelated predicate under agg.
- *
+ * <p>
  * Use the correlated column as the group by column of agg,
  * the output column is the correlated column and the input column.
- *
+ * <p>
  * before:
  *              apply
  *          /              \
@@ -73,12 +73,6 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
                 return apply;
             }
 
-            LogicalFilter<GroupPlan> newUnCorrelatedFilter = null;
-            if (!unCorrelatedPredicate.isEmpty()) {
-                newUnCorrelatedFilter = new LogicalFilter<>(ExpressionUtils.and(unCorrelatedPredicate),
-                        filter.child());
-            }
-
             List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
             List<Expression> newGroupby = Utils.getCorrelatedSlots(correlatedPredicate,
                     apply.getCorrelationSlot());
@@ -86,10 +80,10 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
             newAggOutput.addAll(newGroupby.stream().map(NamedExpression.class::cast).collect(Collectors.toList()));
             LogicalAggregate newAgg = new LogicalAggregate<>(
                     newGroupby, newAggOutput,
-                    newUnCorrelatedFilter == null ? filter.child() : newUnCorrelatedFilter);
+                    PlanUtils.filterOrSelf(unCorrelatedPredicate, filter.child()));
             return new LogicalApply<>(apply.getCorrelationSlot(),
                     apply.getSubqueryExpr(),
-                    Optional.ofNullable(ExpressionUtils.and(correlatedPredicate)),
+                    ExpressionUtils.optionalAnd(correlatedPredicate),
                     apply.left(), newAgg);
         }).toRule(RuleType.APPLY_PULL_FILTER_ON_AGG);
     }

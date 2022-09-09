@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
@@ -74,7 +75,7 @@ public class DeriveStatsJobTest {
         }
         StatsDeriveResult statistics = cascadesContext.getMemo().getRoot().getStatistics();
         Assertions.assertNotNull(statistics);
-        Assertions.assertEquals(10, statistics.getRowCount());
+        Assertions.assertEquals(1, statistics.getRowCount());
     }
 
     private LogicalOlapScan constructOlapSCan() {
@@ -100,7 +101,7 @@ public class DeriveStatsJobTest {
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        return new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
+        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), table1, Collections.emptyList()).withLogicalProperties(
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
     }
 

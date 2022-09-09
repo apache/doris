@@ -153,16 +153,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     true);
         } else if (not.child() instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) not.child();
-            BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.NE,
+            return new BinaryPredicate(Operator.NE,
                     equalTo.child(0).accept(this, context),
                     equalTo.child(1).accept(this, context));
-            return binaryPredicate;
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
-                    not.child(0).accept(this, context),
-                    null);
+                    not.child(0).accept(this, context), null);
         }
     }
 
@@ -265,10 +263,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
-        ArithmeticExpr arithmeticExpr = new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
+        return new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
                 binaryArithmetic.child(1).accept(this, context));
-        return arithmeticExpr;
     }
 
     @Override

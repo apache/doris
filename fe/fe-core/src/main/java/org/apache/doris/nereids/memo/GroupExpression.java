@@ -18,13 +18,12 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.Relation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -208,11 +207,10 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        // if the plan is UnboundRelation or LogicalRelation or PhysicalRelation, this == that should be true,
-        // when if one relation appear in plan more than once,
-        // we cannot distinguish them throw equals function, since equals function cannot use output info.
-        if (plan instanceof UnboundRelation || plan instanceof LogicalRelation || plan instanceof PhysicalRelation) {
-            return false;
+        // FIXME: Doris not support temporary materialization, so we should not merge same
+        //        scan relation plan. We should add id for XxxRelation and compare by id.
+        if (plan instanceof Relation) {
+            return !(plan instanceof UnboundRelation) && plan.equals(that.plan);
         }
         return children.equals(that.children) && plan.equals(that.plan)
                 && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());

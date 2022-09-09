@@ -176,13 +176,13 @@ public class ExpressionRewriteTest {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
 
         // deduplicate
-        assertRewrite("CAST(1 AS int)", "1");
-        assertRewrite("CAST('str' AS string)", "'str'");
-        assertRewrite("CAST(CAST(1 AS int) AS int)", "1");
+        assertRewrite("CAST(1 AS tinyint)", "1");
+        assertRewrite("CAST('str' AS varchar)", "'str'");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS tinyint)", "1");
 
         // deduplicate inside
-        assertRewrite("CAST(CAST('str' AS string) AS double)", "CAST('str' AS double)");
-        assertRewrite("CAST(CAST(1 AS int) AS double)", "CAST(1 AS double)");
+        assertRewrite("CAST(CAST('str' AS varchar) AS double)", "CAST('str' AS double)");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS double)", "CAST(1 AS double)");
     }
 
     private void assertRewrite(String expression, String expected) {

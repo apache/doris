@@ -25,6 +25,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -44,6 +45,11 @@ std::string IColumn::dump_structure() const {
 
 void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
+}
+
+void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                          IColumn::Permutation& perms, EqualRange& range, bool last_column) const {
+    sorter->sort_column(static_cast<const IColumn&>(*this), flags, perms, range, last_column);
 }
 
 bool is_column_nullable(const IColumn& column) {

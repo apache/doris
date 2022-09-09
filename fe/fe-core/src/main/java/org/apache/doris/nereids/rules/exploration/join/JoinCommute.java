@@ -17,54 +17,73 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommuteHelper.SwapType;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Join Commute
  */
-@Developing
 public class JoinCommute extends OneExplorationRuleFactory {
 
-    public static final JoinCommute SWAP_OUTER_COMMUTE_BOTTOM_JOIN = new JoinCommute(true, SwapType.BOTTOM_JOIN);
-    public static final JoinCommute SWAP_OUTER_SWAP_ZIG_ZAG = new JoinCommute(true, SwapType.ZIG_ZAG);
+    public static final JoinCommute OUTER_LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP);
+    public static final JoinCommute OUTER_ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG);
+    public static final JoinCommute OUTER_BUSHY = new JoinCommute(SwapType.BUSHY);
 
-    private final boolean swapOuter;
     private final SwapType swapType;
 
-    public JoinCommute(boolean swapOuter) {
-        this.swapOuter = swapOuter;
-        this.swapType = SwapType.ALL;
+    public JoinCommute(SwapType swapType) {
+        this.swapType = swapType;
     }
 
-    public JoinCommute(boolean swapOuter, SwapType swapType) {
-        this.swapOuter = swapOuter;
-        this.swapType = swapType;
+    enum SwapType {
+        LEFT_DEEP, ZIG_ZAG, BUSHY
     }
 
     @Override
     public Rule build() {
-        return innerLogicalJoin().when(JoinCommuteHelper::check).then(join -> {
-            // TODO: add project for mapping column output.
-            // List<NamedExpression> newOutput = new ArrayList<>(join.getOutput());
-            LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
-                    join.getJoinType(),
-                    join.getHashJoinConjuncts(),
-                    join.getOtherJoinCondition(),
-                    join.right(), join.left(),
-                    join.getJoinReorderContext());
-            newJoin.getJoinReorderContext().setHasCommute(true);
-            // if (swapType == SwapType.ZIG_ZAG && !isBottomJoin(join)) {
-            //     newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
-            // }
+        return innerLogicalJoin()
+                .when(this::check)
+                .then(join -> {
+                    LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
+                            join.getJoinType(),
+                            join.getHashJoinConjuncts(),
+                            join.getOtherJoinCondition(),
+                            join.right(), join.left(),
+                            join.getJoinReorderContext());
+                    newJoin.getJoinReorderContext().setHasCommute(true);
+                    if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
+                        newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
+                    }
 
-            // LogicalProject<LogicalJoin> project = new LogicalProject<>(newOutput, newJoin);
-            return newJoin;
-        }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+                    return PlanUtils.project(new ArrayList<>(join.getOutput()), newJoin).get();
+                }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+    }
+
+    private boolean check(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (swapType == SwapType.LEFT_DEEP && isNotBottomJoin(join)) {
+            return false;
+        }
+
+        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
+    }
+
+    private boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
+        // TODO: tmp way to judge bottomJoin
+        return containJoin(join.left()) || containJoin(join.right());
+    }
+
+    private boolean containJoin(GroupPlan groupPlan) {
+        // TODO: tmp way to judge containJoin
+        List<SlotReference> output = Utils.getOutputSlotReference(groupPlan);
+        return !output.stream().map(SlotReference::getQualifier).allMatch(output.get(0).getQualifier()::equals);
     }
 }

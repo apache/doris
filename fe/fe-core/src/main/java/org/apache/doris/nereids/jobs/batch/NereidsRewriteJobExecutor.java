@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.LogicalLimitZeroToLogicalEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
@@ -67,6 +68,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
+                .add(bottomUpBatch(ImmutableList.of(new LogicalLimitZeroToLogicalEmptyRelation())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
                 .build();
 

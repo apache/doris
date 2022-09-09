@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -104,12 +105,12 @@ public class RewriteTopDownJobTest {
     private static class LogicalBoundRelation extends LogicalRelation {
 
         public LogicalBoundRelation(Table table, List<String> qualifier) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
+            super(RelationId.createGenerator().getNextId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
         }
 
         public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+            super(RelationId.createGenerator().getNextId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
                     groupExpression, logicalProperties, Collections.emptyList());
         }
 
