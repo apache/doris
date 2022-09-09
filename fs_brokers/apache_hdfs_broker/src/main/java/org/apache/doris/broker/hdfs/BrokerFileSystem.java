@@ -31,20 +31,23 @@ public class BrokerFileSystem {
     private ReentrantLock lock;
     private FileSystemIdentity identity;
     private FileSystem dfsFileSystem;
-    private long accessTimestamp;
+    private long lastAccessTimestamp;
+    private long createTimestamp;
     private UUID fileSystemId;
 
     public BrokerFileSystem(FileSystemIdentity identity) {
         this.identity = identity;
         this.lock = new ReentrantLock();
         this.dfsFileSystem = null;
-        this.accessTimestamp = System.currentTimeMillis();
+        this.lastAccessTimestamp = System.currentTimeMillis();
+        this.createTimestamp = System.currentTimeMillis();
         this.fileSystemId = UUID.randomUUID();
     }
 
     public synchronized void setFileSystem(FileSystem fileSystem) {
         this.dfsFileSystem = fileSystem;
-        this.accessTimestamp = System.currentTimeMillis();
+        this.lastAccessTimestamp = System.currentTimeMillis();
+        this.createTimestamp = System.currentTimeMillis();
     }
 
     public void closeFileSystem() {
@@ -65,7 +68,12 @@ public class BrokerFileSystem {
     }
 
     public FileSystem getDFSFileSystem() {
+        this.lastAccessTimestamp = System.currentTimeMillis();
         return dfsFileSystem;
+    }
+
+    public void updateLastUpdateAccessTime() {
+        this.lastAccessTimestamp = System.currentTimeMillis();
     }
 
     public FileSystemIdentity getIdentity() {
@@ -76,8 +84,12 @@ public class BrokerFileSystem {
         return lock;
     }
 
-    public boolean isExpired(long expirationIntervalSecs) {
-        return System.currentTimeMillis() - accessTimestamp > expirationIntervalSecs * 1000;
+    public boolean isExpiredByLastAccessTime(long expirationIntervalSecs) {
+        return System.currentTimeMillis() - lastAccessTimestamp > expirationIntervalSecs * 1000;
+    }
+
+    public boolean isExpiredByCreateTime(long expirationIntervalSecs) {
+        return System.currentTimeMillis() - createTimestamp > expirationIntervalSecs * 1000;
     }
 
     @Override

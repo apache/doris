@@ -58,7 +58,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class FileSystemManager {
 
@@ -848,13 +847,21 @@ public class FileSystemManager {
         return readLength;
     }
 
+    /**
+     *   In view of the different expiration mechanisms of different authentication modes，
+     *   there are two ways to determine whether BrokerFileSystem has expired:
+     *   1. For the authentication mode of Kerberos and S3 aksk, use the createTime to determine whether it expires
+     *   2. For other authentication modes, the lastAccessTime is used to determine whether it has expired
+     */
     private BrokerFileSystem updateCachedFileSystem(FileSystemIdentity fileSystemIdentity, Map<String, String> properties) {
         BrokerFileSystem brokerFileSystem;
         if (cachedFileSystem.containsKey(fileSystemIdentity)) {
             brokerFileSystem = cachedFileSystem.get(fileSystemIdentity);
-            if (brokerFileSystem.isExpired(BrokerConfig.client_expire_seconds)) {
-                logger.info("file system " + brokerFileSystem + " is expired, update it.");
-                if (properties.containsKey(KERBEROS_KEYTAB) && properties.containsKey(KERBEROS_PRINCIPAL)) {
+            if ((properties.containsKey(KERBEROS_KEYTAB) && properties.containsKey(KERBEROS_PRINCIPAL))
+                || (properties.containsKey(FS_KS3_ACCESS_KEY) && properties.containsKey(FS_KS3_SECRET_KEY))
+                || (properties.containsKey(FS_S3A_ACCESS_KEY) && properties.containsKey(FS_S3A_SECRET_KEY))) {
+                if (brokerFileSystem.isExpiredByCreateTime(BrokerConfig.client_expire_seconds)) {
+                    logger.info("file system " + brokerFileSystem + " is expired, update it.");
                     try {
                         Configuration conf = new HdfsConfiguration();
                         conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, AUTHENTICATION_KERBEROS);
@@ -862,25 +869,26 @@ public class FileSystemManager {
                             preparePrincipal(properties.get(KERBEROS_PRINCIPAL)), properties.get(KERBEROS_KEYTAB));
                         // update FileSystem TGT
                         ugi.checkTGTAndReloginFromKeytab();
-                        return brokerFileSystem;
                     } catch (Exception e) {
                         logger.error("errors while checkTGTAndReloginFromKeytab: ", e);
                     }
-                } else {
-                    brokerFileSystem.getLock().lock();
-                    try {
-                        brokerFileSystem.closeFileSystem();
-                        brokerFileSystem.getLock().unlock();
-                    } catch (Throwable t) {
-                        logger.error("errors while close file system: ", t);
-                    }
                 }
-            } else {
-                return brokerFileSystem;
+            } else if (brokerFileSystem.isExpiredByLastAccessTime(BrokerConfig.client_expire_seconds)) {
+                brokerFileSystem.getLock().lock();
+                try {
+                    logger.info("file system " + brokerFileSystem + " is expired, update it.");
+                    brokerFileSystem.closeFileSystem();
+                    brokerFileSystem.getLock().unlock();
+                } catch (Throwable t) {
+                    logger.error("errors while close file system: ", t);
+                }
+                brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
+                cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
             }
+        } else {
+            brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
+            cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
         }
-        brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
-        cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
         return brokerFileSystem;
     }
 }
