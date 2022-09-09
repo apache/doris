@@ -145,7 +145,7 @@ public class Version {
     System.out.println("doris_build_version_major: " + DORIS_BUILD_VERSION_MAJOR);
     System.out.println("doris_build_version_minor: " + DORIS_BUILD_VERSION_MINOR);
     System.out.println("doris_build_version_patch: " + DORIS_BUILD_VERSION_PATCH);
-    System.out.println("build_version_rc_version: " + DORIS_BUILD_VERSION_RC_VERSION);
+    System.out.println("doris_build_version_rc_version: " + DORIS_BUILD_VERSION_RC_VERSION);
 
     System.out.println("doris_build_version: " + DORIS_BUILD_VERSION);
     System.out.println("doris_build_hash: " + DORIS_BUILD_HASH);
