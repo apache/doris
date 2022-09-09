@@ -18,7 +18,7 @@
 
 suite("rollup") {
     sql """
-        CREATE TABLE `t1` (
+        CREATE TABLE `rollup_t1` (
           `k1` int(11) NULL,
           `k2` int(11) NULL,
           `k3` int(11) NULL,
@@ -35,7 +35,7 @@ suite("rollup") {
         );
     """
 
-    sql "ALTER TABLE t1 ADD ROLLUP r1(k2, v1)"
+    sql "ALTER TABLE rollup_t1 ADD ROLLUP r1(k2, v1)"
 
 
     def getJobRollupState = { tableName ->
@@ -45,7 +45,7 @@ suite("rollup") {
 
     int max_try_secs = 60
     while (max_try_secs--) {
-        String res = getJobRollupState("t1")
+        String res = getJobRollupState("rollup_t1")
         if (res == "FINISHED") {
             break
         } else {
@@ -58,26 +58,26 @@ suite("rollup") {
     }
     Thread.sleep(200)
 
-    sql "insert into t1 values(1, 2, 3, 4)"
-    sql "insert into t1 values(1, 2, 3, 2)"
-    sql "insert into t1 values(2, 3, 4, 1)"
-    sql "insert into t1 values(2, 3, 4, 3)"
+    sql "insert into rollup_t1 values(1, 2, 3, 4)"
+    sql "insert into rollup_t1 values(1, 2, 3, 2)"
+    sql "insert into rollup_t1 values(2, 3, 4, 1)"
+    sql "insert into rollup_t1 values(2, 3, 4, 3)"
 
     sql "set enable_vectorized_engine=true"
 
     sql "set enable_nereids_planner=true"
 
     explain {
-        sql("select k2, sum(v1) from t1 group by k2")
-        contains("t1(r1)")
+        sql("select k2, sum(v1) from rollup_t1 group by k2")
+        contains("rollup_t1(r1)")
     }
 
     explain {
-        sql("select k1, sum(v1) from t1 group by k1")
-        contains("t1(t1)")
+        sql("select k1, sum(v1) from rollup_t1 group by k1")
+        contains("rollup_t1(rollup_t1)")
     }
 
-    order_qt_rollup1 "select k2, sum(v1) from t1 group by k2"
+    order_qt_rollup1 "select k2, sum(v1) from rollup_t1 group by k2"
 
-    order_qt_rollup2 "select k1, sum(v1) from t1 group by k1"
+    order_qt_rollup2 "select k1, sum(v1) from rollup_t1 group by k1"
 }
