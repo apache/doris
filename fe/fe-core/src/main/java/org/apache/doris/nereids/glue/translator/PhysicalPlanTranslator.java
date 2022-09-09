@@ -500,26 +500,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
         List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
         TupleDescriptor outputDescriptor = context.generateTupleDesc();
-        Map<ExprId, SlotReference> slotReferenceMap = Maps.newHashMap();
+        Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
 
-        if (hashJoin.getOtherJoinCondition().isPresent()) {
-            //Remove this branch when BE bind other join conjuncts on input tuple ids.
-            //Currently BE bind other join conjuncts on intermediate tuple. This is not good.
-            Stream.concat(hashJoin.child(0).getOutput().stream(), hashJoin.child(1).getOutput().stream())
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
-        } else {
-            hashJoin.getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
-        }
+        Stream.concat(hashJoin.child(0).getOutput().stream(), hashJoin.child(1).getOutput().stream())
+                .map(SlotReference.class::cast)
+                .forEach(s -> context.createSlotDesc(outputDescriptor, s));
+
+        hashJoin.getOutput().stream()
+                .map(SlotReference.class::cast)
+                .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
         List<Expr> srcToOutput = Stream.concat(leftTuples.stream(), rightTuples.stream())
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
                 .map(sd -> context.findExprId(sd.getId()))
-                .map(slotReferenceMap::get)
+                .map(outputSlotReferenceMap::get)
                 .filter(Objects::nonNull)
-                .peek(s -> context.createSlotDesc(outputDescriptor, s))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
