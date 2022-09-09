@@ -211,7 +211,7 @@ public class GroupExpression {
         // FIXME: Doris not support temporary materialization, so we should not merge same
         //        scan relation plan. We should add id for XxxRelation and compare by id.
         if (plan instanceof Relation) {
-            if (!plan.getClass().isInstance(that.plan) {
+            if (!plan.getClass().isInstance(that.plan)) {
                 return false;
             }
             if (plan instanceof LogicalRelation) {
