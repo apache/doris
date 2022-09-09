@@ -19,6 +19,7 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.Relation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -216,6 +217,9 @@ public class GroupExpression {
             }
             if (plan instanceof LogicalRelation) {
                 return ((LogicalRelation) plan).getId().equals(((LogicalRelation) that.plan).getId());
+            }
+            if (plan instanceof UnboundRelation) {
+                return ((UnboundRelation) plan).getId().equals(((UnboundRelation) that.plan).getId());
             }
             return ((PhysicalRelation) plan).getId().equals(((PhysicalRelation) that.plan).getId());
         }
