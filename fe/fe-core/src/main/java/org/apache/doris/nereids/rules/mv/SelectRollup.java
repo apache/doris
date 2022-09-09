@@ -207,7 +207,7 @@ public class SelectRollup implements RewriteRuleFactory {
                         .containsAll(requiredColumnNames)
                 ).collect(Collectors.toList());
 
-        Map<Boolean, Set<String>> split = split(predicates, exprIdToName);
+        Map<Boolean, Set<String>> split = filterCanUsePrefixIndexAndSplitByEquality(predicates, exprIdToName);
         Set<String> equalColNames = split.getOrDefault(true, ImmutableSet.of());
         Set<String> nonEqualColNames = split.getOrDefault(false, ImmutableSet.of());
 
@@ -283,9 +283,11 @@ public class SelectRollup implements RewriteRuleFactory {
     ///////////////////////////////////////////////////////////////////////////
 
     /**
-     * Split conjuncts input equal-to and non-equal-to.
+     * Filter the input conjuncts those can use prefix and split into 2 groups: is equal-to or non-equal-to predicate
+     * when comparing the key column.
      */
-    private Map<Boolean, Set<String>> split(List<Expression> conjunct, Map<ExprId, String> exprIdToColName) {
+    private Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
+            List<Expression> conjunct, Map<ExprId, String> exprIdToColName) {
         return conjunct.stream()
                 .map(expr -> PredicateChecker.canUsePrefixIndex(expr, exprIdToColName))
                 .filter(result -> !result.equals(CheckResult.FAILURE))
