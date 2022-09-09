@@ -90,6 +90,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -463,18 +464,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // but BE need left child's output must be before right child's output.
         // So we need to swap the output order of left and right child if necessary.
         // TODO: revert this after Nereids could ensure the output order is correct.
-        TupleDescriptor leftChildOutputTupleDesc = leftPlanRoot.getOutputTupleDesc();
-        TupleDescriptor leftTuple =
-                leftChildOutputTupleDesc != null ? leftChildOutputTupleDesc : context.getTupleDesc(leftPlanRoot);
-        TupleDescriptor rightChildOutputTupleDesc = rightPlanRoot.getOutputTupleDesc();
-        TupleDescriptor rightTuple =
-                rightChildOutputTupleDesc != null ? rightChildOutputTupleDesc : context.getTupleDesc(rightPlanRoot);
+        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
+        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
         TupleDescriptor outputDescriptor = context.generateTupleDesc();
         Map<ExprId, SlotReference> slotReferenceMap = Maps.newHashMap();
         hashJoin.getOutput().stream()
                 .map(SlotReference.class::cast)
                 .forEach(s -> slotReferenceMap.put(s.getExprId(), s));
-        List<Expr> srcToOutput = Stream.concat(leftTuple.getSlots().stream(), rightTuple.getSlots().stream())
+        List<Expr> srcToOutput = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
                 .map(sd -> context.findExprId(sd.getId()))
                 .map(slotReferenceMap::get)
                 .filter(Objects::nonNull)
@@ -512,12 +511,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
         if (JoinUtils.shouldNestedLoopJoin(nestedLoopJoin)) {
-            CrossJoinNode crossJoinNode =
-                    new CrossJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot, null);
+            List<TupleDescriptor> leftTuples = context.getTupleDesc(leftFragmentPlanRoot);
+            List<TupleDescriptor> rightTuples = context.getTupleDesc(rightFragmentPlanRoot);
+            List<TupleId> tupleIds = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                    .map(TupleDescriptor::getId)
+                    .collect(Collectors.toList());
+
+            CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(),
+                    leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds);
             rightFragment.getPlanRoot().setCompactData(false);
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(crossJoinNode);
+
             return leftFragment;
         } else {
             throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");
@@ -650,9 +656,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment inputFragment = assertNumRows.child(0).accept(this, context);
         //create assertNode
-        PlanNode child = inputFragment.getPlanRoot();
         AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
-                child, ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
+                inputFragment.getPlanRoot(),
+                ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
         PlanFragment mergeFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
         mergeFragment.addPlanRoot(assertNumRowsNode);
         return mergeFragment;
