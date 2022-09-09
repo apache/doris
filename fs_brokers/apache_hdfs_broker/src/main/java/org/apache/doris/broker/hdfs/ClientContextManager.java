@@ -31,7 +31,7 @@ import org.apache.doris.thrift.TBrokerOperationStatusCode;
 public class ClientContextManager {
 
     private static Logger logger = Logger
-            .getLogger(ClientContextManager.class.getName());
+        .getLogger(ClientContextManager.class.getName());
     private ScheduledExecutorService executorService;
     private ConcurrentHashMap<String, ClientResourceContext> clientContexts;
     private ConcurrentHashMap<TBrokerFD, String> fdToClientMap;
@@ -48,10 +48,12 @@ public class ClientContextManager {
         if (!clientContexts.containsKey(clientId)) {
             clientContexts.putIfAbsent(clientId, new ClientResourceContext(clientId));
         }
+        ClientResourceContext clientContext = clientContexts.get(clientId);
+        clientContext.updateLastPingTime();
     }
 
     public synchronized void putNewOutputStream(String clientId, TBrokerFD fd, FSDataOutputStream fsDataOutputStream,
-            BrokerFileSystem brokerFileSystem) {
+                                                BrokerFileSystem brokerFileSystem) {
         if (!clientContexts.containsKey(clientId)) {
             clientContexts.putIfAbsent(clientId, new ClientResourceContext(clientId));
         }
@@ -61,7 +63,7 @@ public class ClientContextManager {
     }
 
     public synchronized void putNewInputStream(String clientId, TBrokerFD fd, FSDataInputStream fsDataInputStream,
-            BrokerFileSystem brokerFileSystem) {
+                                               BrokerFileSystem brokerFileSystem) {
         if (!clientContexts.containsKey(clientId)) {
             clientContexts.putIfAbsent(clientId, new ClientResourceContext(clientId));
         }
@@ -74,17 +76,18 @@ public class ClientContextManager {
         String clientId = fdToClientMap.get(fd);
         if (clientId == null) {
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
-                    "the fd is not owned by client {}", clientId);
+                "the fd is not owned by client {}", clientId);
         }
         ClientResourceContext clientContext = clientContexts.get(clientId);
-        return clientContext.getInputStream(fd);
+        FSDataInputStream fsDataInputStream = clientContext.getInputStream(fd);
+        return fsDataInputStream;
     }
 
     public synchronized FSDataOutputStream getFsDataOutputStream(TBrokerFD fd) {
         String clientId = fdToClientMap.get(fd);
         if (clientId == null) {
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
-                    "the fd is not owned by client {}", clientId);
+                "the fd is not owned by client {}", clientId);
         }
         ClientResourceContext clientContext = clientContexts.get(clientId);
         FSDataOutputStream fsDataOutputStream = clientContext.getOutputStream(fd);
@@ -137,8 +140,8 @@ public class ClientContextManager {
                         }
                         clientContexts.remove(clientContext.clientId);
                         logger.info("client [" + clientContext.clientId
-                                + "] is expired, remove it from contexts. last ping time is "
-                                + clientContext.lastPingTimestamp);
+                            + "] is expired, remove it from contexts. last ping time is "
+                            + clientContext.lastPingTimestamp);
                     }
                 }
             } finally {
@@ -155,10 +158,16 @@ public class ClientContextManager {
         public BrokerOutputStream(FSDataOutputStream outputStream, BrokerFileSystem brokerFileSystem) {
             this.outputStream = outputStream;
             this.brokerFileSystem = brokerFileSystem;
+            this.brokerFileSystem.updateLastUpdateAccessTime();
         }
 
         public FSDataOutputStream getOutputStream() {
+            this.brokerFileSystem.updateLastUpdateAccessTime();
             return outputStream;
+        }
+
+        public void updateLastUpdateAccessTime() {
+            this.brokerFileSystem.updateLastUpdateAccessTime();
         }
     }
 
@@ -170,10 +179,16 @@ public class ClientContextManager {
         public BrokerInputStream(FSDataInputStream inputStream, BrokerFileSystem brokerFileSystem) {
             this.inputStream = inputStream;
             this.brokerFileSystem = brokerFileSystem;
+            this.brokerFileSystem.updateLastUpdateAccessTime();
         }
 
         public FSDataInputStream getInputStream() {
+            this.brokerFileSystem.updateLastUpdateAccessTime();
             return inputStream;
+        }
+
+        public void updateLastUpdateAccessTime() {
+            this.brokerFileSystem.updateLastUpdateAccessTime();
         }
     }
 
@@ -213,6 +228,18 @@ public class ClientContextManager {
                 return brokerOutputStream.getOutputStream();
             }
             return null;
+        }
+
+        public void updateLastPingTime() {
+            this.lastPingTimestamp = System.currentTimeMillis();
+            // Should we also update the underline filesystem? maybe it is time cost
+            for (BrokerInputStream brokerInputStream : inputStreams.values()) {
+                brokerInputStream.updateLastUpdateAccessTime();
+            }
+
+            for (BrokerOutputStream brokerOutputStream : outputStreams.values()) {
+                brokerOutputStream.updateLastUpdateAccessTime();
+            }
         }
     }
 }
