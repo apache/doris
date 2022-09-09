@@ -19,10 +19,8 @@ suite("test_load_json_null_to_nullable", "p0") {
     // define a sql table
     def testTable = "tbl_test_json_load"
     def dbName = "test_query_db"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "USE $dbName"
     
-    def create_test_table = {testTablex, enable_vectorized_flag ->
+    def create_test_table = {enable_vectorized_flag ->
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
         } else {
@@ -32,7 +30,7 @@ suite("test_load_json_null_to_nullable", "p0") {
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` CHAR NULL COMMENT "",
-              `k2` CHAR NULL COMMENT ""
+              `v1` CHAR NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -59,7 +57,7 @@ suite("test_load_json_null_to_nullable", "p0") {
             set 'where', where_expr
             set 'fuzzy_parse', fuzzy_flag
             set 'column_separator', column_sep
-            set 'max_filter_ratio', 1 
+            set 'max_filter_ratio', '1'
             file file_name // import json file
             time 10000 // limit inflight 10s
 
@@ -72,7 +70,8 @@ suite("test_load_json_null_to_nullable", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows
+                             + json.NumberFilteredRows)
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
@@ -82,7 +81,7 @@ suite("test_load_json_null_to_nullable", "p0") {
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         
-        create_test_table.call(testTable, true)
+        create_test_table.call(true)
 
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
@@ -97,7 +96,7 @@ suite("test_load_json_null_to_nullable", "p0") {
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         
-        create_test_table.call(testTable, false)
+        create_test_table.call(false)
 
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
