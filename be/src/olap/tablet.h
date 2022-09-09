@@ -329,8 +329,10 @@ public:
     Status calc_delete_bitmap(RowsetId rowset_id,
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
                               const RowsetIdUnorderedSet* specified_rowset_ids,
-                              DeleteBitmapPtr delete_bitmap, bool check_pre_segments = false);
+                              DeleteBitmapPtr delete_bitmap, int64_t version,
+                              bool check_pre_segments = false);
 
+    Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
     RowsetIdUnorderedSet all_rs_id() const;
