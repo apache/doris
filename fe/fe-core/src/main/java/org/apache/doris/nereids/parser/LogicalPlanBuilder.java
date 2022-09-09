@@ -167,6 +167,7 @@ import java.util.stream.Collectors;
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
+    //TODO: we will move it to StatementContext
     private final IdGenerator<RelationId> idGenerator = RelationId.createGenerator();
 
     protected <T> T typedVisit(ParseTree ctx) {

@@ -100,24 +100,24 @@ public class LogicalOlapScan extends LogicalRelation {
         if (o == null || getClass() != o.getClass() || !super.equals(o)) {
             return false;
         }
-        return Objects.equals(id, ((LogicalOlapScan) o).id);
+        return Objects.equals(getId(), ((LogicalOlapScan) o).getId());
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(getId(), table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
+        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
                 partitionPruned);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(logicalPropertiesSupplier.get()),
-                selectedPartitionId, true);
+        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(),
+                Optional.of(logicalPropertiesSupplier.get()), selectedPartitionId, true);
     }
 
     @Override

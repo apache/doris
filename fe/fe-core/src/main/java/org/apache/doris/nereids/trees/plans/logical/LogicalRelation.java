@@ -41,11 +41,11 @@ import java.util.Optional;
  */
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
-    public final RelationId id;
-
     protected final Table table;
     protected final List<String> qualifier;
     protected final List<Long> selectedPartitionIds;
+
+    private final RelationId id;
 
     public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
@@ -86,13 +86,12 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
             return false;
         }
         LogicalRelation that = (LogicalRelation) o;
-        return Objects.equals(id, that.id)
-                && Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
+        return Objects.equals(id, that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(table.getId(), qualifier);
+        return Objects.hash(id);
     }
 
     @Override
@@ -131,4 +130,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         return selectedPartitionIds;
     }
 
+    public RelationId getId() {
+        return id;
+    }
 }

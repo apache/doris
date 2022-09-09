@@ -50,11 +50,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (nameParts.size()) {
                 case 1: { // table
                     // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, nameParts, ctx.root.id);
+                    return bindWithCurrentDb(ctx.cascadesContext, nameParts, ctx.root.getId());
                 }
                 case 2: { // db.table
                     // Use database name from table name parts.
-                    return bindWithDbNameFromNamePart(ctx.cascadesContext, nameParts, ctx.root.id);
+                    return bindWithDbNameFromNamePart(ctx.cascadesContext, nameParts, ctx.root.getId());
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");

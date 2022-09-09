@@ -43,7 +43,7 @@ import java.util.Optional;
  */
 public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
-    public final RelationId id;
+    private final RelationId id;
 
     private final List<String> nameParts;
 
@@ -142,5 +142,9 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
     @Override
     public int hashCode() {
         return Objects.hash(nameParts);
+    }
+
+    public RelationId getId() {
+        return id;
     }
 }

@@ -37,9 +37,9 @@ import java.util.Optional;
  */
 public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
 
-    public final RelationId id;
-
     protected final List<String> qualifier;
+
+    private final RelationId id;
 
     /**
      * Constructor for PhysicalRelation.
@@ -91,5 +91,9 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     @Override
     public List<Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    public RelationId getId() {
+        return id;
     }
 }
