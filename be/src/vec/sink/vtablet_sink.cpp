@@ -133,7 +133,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
                         fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple=[]");
+                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                       block.dump_data(i, 1));
                         return fmt::to_string(buf);
                     },
                     &stop_processing));
