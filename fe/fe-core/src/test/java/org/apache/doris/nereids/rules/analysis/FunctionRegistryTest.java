@@ -93,7 +93,6 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
                             Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition()).getValue());
-                            // default length is max int
                             Assertions.assertFalse(firstSubstring.getLength().isPresent());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
