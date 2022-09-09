@@ -177,7 +177,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 && checkRuntimeFilterExpr(filters.get(0), "lo_partkey", "p_partkey")
                 && checkRuntimeFilterExpr(filters.get(1), "lo_partkey", "lo_partkey")
                 && checkRuntimeFilterExpr(filters.get(2), "lo_partkey", "p_partkey")
-                && checkRuntimeFilterExpr(filters.get(3), "c_region", "s_region")
+                && checkRuntimeFilterExpr(filters.get(3), "s_region", "c_region")
                 && checkRuntimeFilterExpr(filters.get(4), "lo_custkey", "c_custkey"));
 
     }
@@ -191,13 +191,13 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 7
-                && checkRuntimeFilterExpr(filters.get(0), "lo_custkey", "c_custkey")
-                && checkRuntimeFilterExpr(filters.get(1), "lo_custkey", "lo_custkey")
-                && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
-                && checkRuntimeFilterExpr(filters.get(3), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(1), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(2), "lo_custkey", "c_custkey")
+                && checkRuntimeFilterExpr(filters.get(3), "lo_custkey", "c_custkey")
                 && checkRuntimeFilterExpr(filters.get(4), "lo_custkey", "s_suppkey")
-                && checkRuntimeFilterExpr(filters.get(5), "s_suppkey", "c_custkey")
-                && checkRuntimeFilterExpr(filters.get(6), "lo_custkey", "c_custkey"));
+                && checkRuntimeFilterExpr(filters.get(5), "lo_custkey", "s_suppkey")
+                && checkRuntimeFilterExpr(filters.get(6), "s_suppkey", "c_custkey"));
     }
 
     @Test
@@ -208,11 +208,12 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 4
-                && checkRuntimeFilterExpr(filters.get(0), "lo_custkey", "lo_custkey")
-                && checkRuntimeFilterExpr(filters.get(1), "c_custkey", "lo_custkey")
-                && checkRuntimeFilterExpr(filters.get(2), "d_datekey", "lo_orderdate")
-                && checkRuntimeFilterExpr(filters.get(3), "lo_custkey", "c_custkey"));
+        Assertions.assertTrue(filters.size() == 5
+                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(1), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(3), "lo_custkey", "lo_custkey")
+                && checkRuntimeFilterExpr(filters.get(4), "c_custkey", "lo_custkey"));
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {
