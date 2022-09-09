@@ -51,7 +51,7 @@ public class FeVersionInfoAction extends RestBaseController {
         feVersionInfo.put("dorisBuildVersionMajor", Version.DORIS_BUILD_VERSION_MAJOR);
         feVersionInfo.put("dorisBuildVersionMinor", Version.DORIS_BUILD_VERSION_MINOR);
         feVersionInfo.put("dorisBuildVersionPatch", Version.DORIS_BUILD_VERSION_PATCH);
-        feVersionInfo.put("dorisBuildVersionSuffix", Version.DORIS_BUILD_VERSION_RC_VERSION);
+        feVersionInfo.put("dorisBuildVersionRcVersion", Version.DORIS_BUILD_VERSION_RC_VERSION);
         feVersionInfo.put("dorisBuildVersion", Version.DORIS_BUILD_VERSION);
         feVersionInfo.put("dorisBuildHash", Version.DORIS_BUILD_HASH);
         feVersionInfo.put("dorisBuildShortHash", Version.DORIS_BUILD_SHORT_HASH);

@@ -44,7 +44,7 @@ void VersionAction::handle(HttpRequest* req) {
     version_info["dorisBuildVersionMajor"] = DORIS_BUILD_VERSION_MAJOR;
     version_info["dorisBuildVersionMinor"] = DORIS_BUILD_VERSION_MINOR;
     version_info["dorisBuildVersionPatch"] = DORIS_BUILD_VERSION_PATCH;
-    version_info["dorisBuildVersionSuffix"] = DORIS_BUILD_VERSION_RC_VERSION;
+    version_info["dorisBuildVersionRcVersion"] = DORIS_BUILD_VERSION_RC_VERSION;
     version_info["dorisBuildVersion"] = DORIS_BUILD_VERSION;
     version_info["dorisBuildHash"] = DORIS_BUILD_HASH;
     version_info["dorisBuildShortHash"] = DORIS_BUILD_SHORT_HASH;
