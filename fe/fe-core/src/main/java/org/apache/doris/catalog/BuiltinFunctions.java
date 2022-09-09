@@ -50,4 +50,8 @@ public class BuiltinFunctions implements FunctionHelper {
             agg(Min.class),
             agg(Sum.class)
     );
+
+    public static final BuiltinFunctions INSTANCE = new BuiltinFunctions();
+
+    private BuiltinFunctions() {}
 }

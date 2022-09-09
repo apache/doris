@@ -79,9 +79,8 @@ public class FunctionRegistry {
     }
 
     private void registerBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {
-        BuiltinFunctions builtinFunctions = new BuiltinFunctions();
-        FunctionHelper.addFunctions(name2Builders, builtinFunctions.scalarFunctions);
-        FunctionHelper.addFunctions(name2Builders, builtinFunctions.aggregateFunctions);
+        FunctionHelper.addFunctions(name2Builders, BuiltinFunctions.INSTANCE.scalarFunctions);
+        FunctionHelper.addFunctions(name2Builders, BuiltinFunctions.INSTANCE.aggregateFunctions);
     }
 
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
