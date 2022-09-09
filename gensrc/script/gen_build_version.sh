@@ -27,7 +27,13 @@
 
 set -eo pipefail
 
-build_version="trunk"
+build_version_prefix="doris"
+build_version_major=0
+build_version_minor=0
+build_version_patch=0
+build_version_rc_version="trunk"
+
+build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}-${build_version_rc_version}"
 
 unset LANG
 unset LC_CTYPE
@@ -121,6 +127,12 @@ package org.apache.doris.common;
 
 public class Version {
 
+  public static final String DORIS_BUILD_VERSION_PREFIX = "${build_version_prefix}";
+  public static final int DORIS_BUILD_VERSION_MAJOR = ${build_version_major};
+  public static final int DORIS_BUILD_VERSION_MINOR = ${build_version_minor};
+  public static final int DORIS_BUILD_VERSION_PATCH = ${build_version_patch};
+  public static final String DORIS_BUILD_VERSION_RC_VERSION = "${build_version_rc_version}";
+
   public static final String DORIS_BUILD_VERSION = "${build_version}";
   public static final String DORIS_BUILD_HASH = "${build_hash}";
   public static final String DORIS_BUILD_SHORT_HASH = "${build_short_hash}";
@@ -129,6 +141,12 @@ public class Version {
   public static final String DORIS_JAVA_COMPILE_VERSION = "${java_version_str}";
 
   public static void main(String[] args) {
+    System.out.println("doris_build_version_prefix: " + DORIS_BUILD_VERSION_PREFIX);
+    System.out.println("doris_build_version_major: " + DORIS_BUILD_VERSION_MAJOR);
+    System.out.println("doris_build_version_minor: " + DORIS_BUILD_VERSION_MINOR);
+    System.out.println("doris_build_version_patch: " + DORIS_BUILD_VERSION_PATCH);
+    System.out.println("build_version_rc_version: " + DORIS_BUILD_VERSION_RC_VERSION);
+
     System.out.println("doris_build_version: " + DORIS_BUILD_VERSION);
     System.out.println("doris_build_hash: " + DORIS_BUILD_HASH);
     System.out.println("doris_build_short_hash: " + DORIS_BUILD_SHORT_HASH);
@@ -169,13 +187,20 @@ cat >"${GEN_CPP_DIR}/version.h" <<EOF
 
 namespace doris {
 
-#define DORIS_BUILD_VERSION    "${build_version}"
-#define DORIS_BUILD_HASH       "${build_hash}"
-#define DORIS_BUILD_SHORT_HASH "${build_short_hash}"
-#define DORIS_BUILD_TIME       "${build_time}"
-#define DORIS_BUILD_INFO       "${build_info}"
+#define DORIS_BUILD_VERSION_PREFIX      "${build_version_prefix}";
+#define DORIS_BUILD_VERSION_MAJOR       ${build_version_major};
+#define DORIS_BUILD_VERSION_MINOR       ${build_version_minor};
+#define DORIS_BUILD_VERSION_PATCH       ${build_version_patch};
+#define DORIS_BUILD_VERSION_RC_VERSION  "${build_version_rc_version}";
+
+#define DORIS_BUILD_VERSION             "${build_version}"
+#define DORIS_BUILD_HASH                "${build_hash}"
+#define DORIS_BUILD_SHORT_HASH          "${build_short_hash}"
+#define DORIS_BUILD_TIME                "${build_time}"
+#define DORIS_BUILD_INFO                "${build_info}"
 
 } // namespace doris
 
 #endif
 EOF
+
