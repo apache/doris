@@ -18,6 +18,7 @@
 #pragma once
 
 #include "opentelemetry/trace/provider.h"
+#include "util/telemetry/open_telemetry_scop_wrapper.hpp"
 
 /// A trace represents the execution process of a single request in the system, span represents a
 /// logical operation unit with start time and execution duration in the system, and multiple spans
@@ -60,6 +61,12 @@ using OpentelemetryScope = opentelemetry::trace::Scope;
 #define START_AND_SCOPE_SPAN(tracer, span, name) \
     auto span = tracer->StartSpan(name);         \
     OpentelemetryScope scope {span};
+
+#define START_AND_SCOPE_SPAN_IF(enable, tracer, name) \
+    OpenTelemetryScopeWrapper(enable, tracer, name)
+
+#define INIT_AND_SCOPE_REENTRANT_SPAN_IF(enable, tracer, reentrant_span, name) \
+    OpenTelemetryScopeWrapper(enable, tracer, reentrant_span, name)
 
 namespace telemetry {
 
