@@ -155,8 +155,6 @@ public class Coordinator {
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
 
-    private final Set<Long> alreadySentBackendIds = Sets.newHashSet();
-
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
     // but, we execute `NOW()` distributed.
@@ -396,7 +394,6 @@ public class Coordinator {
             }
             this.exportFiles.clear();
             this.needCheckBackendExecStates.clear();
-            this.alreadySentBackendIds.clear();
         } finally {
             lock.unlock();
         }
@@ -748,9 +745,6 @@ public class Coordinator {
             } finally {
                 pair.first.scopedSpan.endSpan();
             }
-
-            // succeed to send the plan fragment, update the "alreadySentBackendIds"
-            alreadySentBackendIds.add(pair.first.beId);
         }
     }
 
@@ -2081,15 +2075,11 @@ public class Coordinator {
          * This information can be obtained from the cache of BE.
          */
         public void unsetFields() {
-            if (alreadySentBackendIds.contains(backend.getId())) {
-                this.rpcParams.unsetDescTbl();
-                this.rpcParams.unsetCoord();
-                this.rpcParams.unsetQueryGlobals();
-                this.rpcParams.unsetResourceInfo();
-                this.rpcParams.setIsSimplifiedParam(true);
-            } else {
-                this.rpcParams.setIsSimplifiedParam(false);
-            }
+            this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetCoord();
+            this.rpcParams.unsetQueryGlobals();
+            this.rpcParams.unsetResourceInfo();
+            this.rpcParams.setIsSimplifiedParam(true);
         }
 
         // update profile.
