@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
@@ -143,8 +142,20 @@ public class ExpressionUtils {
     /**
      * Check whether lhs and rhs are intersecting.
      */
-    public static boolean isIntersecting(Set<SlotReference> lhs, List<SlotReference> rhs) {
-        for (SlotReference rh : rhs) {
+    public static <T> boolean isIntersecting(Set<T> lhs, List<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check whether lhs and rhs are intersecting.
+     */
+    public static <T> boolean isIntersecting(Set<T> lhs, Set<T> rhs) {
+        for (T rh : rhs) {
             if (lhs.contains(rh)) {
                 return true;
             }
