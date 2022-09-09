@@ -61,48 +61,48 @@ struct EqualRangeIterator {
 
     EqualRangeIterator(const EqualFlags& flags) : EqualRangeIterator(flags, 0, flags.size()) {}
 
-    EqualRangeIterator(const EqualFlags& flags, int begin, int end) : flags_(flags), end_(end) {
+    EqualRangeIterator(const EqualFlags& flags, int begin, int end) : _flags(flags), _end(end) {
         range_begin = begin;
         range_end = end;
-        cur_range_begin_ = begin;
-        cur_range_end_ = end;
+        _cur_range_begin = begin;
+        _cur_range_end = end;
     }
 
     bool next() {
-        if (cur_range_begin_ >= end_) {
+        if (_cur_range_begin >= _end) {
             return false;
         }
 
-        // `flags_[i]=1` indicates that the i-th row is equal to the previous row, which means we
+        // `_flags[i]=1` indicates that the i-th row is equal to the previous row, which means we
         // should continue to sort this row according to current column. Using the first non-zero
         // value and first zero value after first non-zero value as two bounds, we can get an equal range here
-        if (!(cur_range_begin_ == 0) || !(flags_[cur_range_begin_] == 1)) {
-            cur_range_begin_ = simd::find_nonzero(flags_, cur_range_begin_ + 1);
-            if (cur_range_begin_ >= end_) {
+        if (!(_cur_range_begin == 0) || !(_flags[_cur_range_begin] == 1)) {
+            _cur_range_begin = simd::find_nonzero(_flags, _cur_range_begin + 1);
+            if (_cur_range_begin >= _end) {
                 return false;
             }
-            cur_range_begin_--;
+            _cur_range_begin--;
         }
 
-        cur_range_end_ = simd::find_zero(flags_, cur_range_begin_ + 1);
-        DCHECK(cur_range_end_ <= end_);
+        _cur_range_end = simd::find_zero(_flags, _cur_range_begin + 1);
+        DCHECK(_cur_range_end <= _end);
 
-        if (cur_range_begin_ >= cur_range_end_) {
+        if (_cur_range_begin >= _cur_range_end) {
             return false;
         }
 
-        range_begin = cur_range_begin_;
-        range_end = cur_range_end_;
-        cur_range_begin_ = cur_range_end_;
+        range_begin = _cur_range_begin;
+        range_end = _cur_range_end;
+        _cur_range_begin = _cur_range_end;
         return true;
     }
 
 private:
-    int cur_range_begin_;
-    int cur_range_end_;
+    int _cur_range_begin;
+    int _cur_range_end;
 
-    const EqualFlags& flags_;
-    const int end_;
+    const EqualFlags& _flags;
+    const int _end;
 };
 
 struct ColumnPartialSortingLess {
@@ -257,7 +257,7 @@ public:
                     if (not_null_range.first < not_null_range.second) {
                         flags[not_null_range.first] = 0;
                     }
-                    if (range_begin <= is_null_range.first && is_null_range.first < range_end) {
+                    if (is_null_range.first < is_null_range.second) {
                         std::fill(flags.begin() + is_null_range.first,
                                   flags.begin() + is_null_range.second, 1);
 
