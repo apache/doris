@@ -42,7 +42,7 @@ public class FunctionRegistry {
 
     public FunctionRegistry() {
         name2Builders = new ConcurrentHashMap<>();
-        addBuiltinFunctions(name2Builders);
+        registerBuiltinFunctions(name2Builders);
         afterRegisterBuiltinFunctions(name2Builders);
     }
 
@@ -78,7 +78,7 @@ public class FunctionRegistry {
         return candidateBuilders.get(0);
     }
 
-    private void addBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {
+    private void registerBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {
         BuiltinFunctions builtinFunctions = new BuiltinFunctions();
         FunctionHelper.addFunctions(name2Builders, builtinFunctions.scalarFunctions);
         FunctionHelper.addFunctions(name2Builders, builtinFunctions.aggregateFunctions);
