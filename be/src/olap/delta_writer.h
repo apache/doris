@@ -155,9 +155,6 @@ private:
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _parent_tracker;
 
-    // The counter of number of segment flushed already.
-    int64_t _segment_counter = 0;
-
     std::mutex _lock;
 
     // use in vectorized load
