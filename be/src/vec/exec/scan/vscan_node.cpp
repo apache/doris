@@ -51,6 +51,7 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 }
 
 Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    START_AND_SCOPE_SPAN_IF(state->enable_profile(), state->get_tracer(), "VScanNode::init");
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
 
@@ -88,7 +89,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
-    // START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
+    START_AND_SCOPE_SPAN_IF(state->enable_profile(), state->get_tracer(), "VScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -109,7 +110,8 @@ Status VScanNode::open(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    // INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VScanNode::get_next");
+    INIT_AND_SCOPE_REENTRANT_SPAN_IF(state->enable_profile(), state->get_tracer(), _get_next_span,
+                                     "VScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     if (state->is_cancelled()) {
@@ -279,10 +281,10 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
 }
 
 Status VScanNode::close(RuntimeState* state) {
+    START_AND_SCOPE_SPAN_IF(state->enable_profile(), state->get_tracer(), "VScanNode::close");
     if (is_closed()) {
         return Status::OK();
     }
-    // START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::close");
     if (_scanner_ctx.get()) {
         // stop and wait the scanner scheduler to be done
         // _scanner_ctx may not be created for some short circuit case.
