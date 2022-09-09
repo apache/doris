@@ -240,7 +240,7 @@ public class FileSystemManager {
                         e.getMessage());
             }
         }
-        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
             if (fileSystem.getDFSFileSystem() == null) {
@@ -394,7 +394,7 @@ public class FileSystemManager {
         String disableCache = properties.getOrDefault(FS_S3A_IMPL_DISABLE_CACHE, "true");
         String s3aUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, s3aUgi);
-        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
             if (fileSystem.getDFSFileSystem() == null) {
@@ -439,7 +439,7 @@ public class FileSystemManager {
         String host = KS3_SCHEME + "://" + endpoint + "/" + pathUri.getUri().getHost();
         String ks3aUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, ks3aUgi);
-        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
             if (fileSystem.getDFSFileSystem() == null) {
@@ -515,7 +515,7 @@ public class FileSystemManager {
                         e.getMessage());
             }
         }
-        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
             // create a new filesystem
@@ -848,28 +848,39 @@ public class FileSystemManager {
         return readLength;
     }
 
-    private BrokerFileSystem updateCachedFileSystem(FileSystemIdentity fileSystemIdentity) {
-        BrokerFileSystem brokerFileSystem = null;
+    private BrokerFileSystem updateCachedFileSystem(FileSystemIdentity fileSystemIdentity, Map<String, String> properties) {
+        BrokerFileSystem brokerFileSystem;
         if (cachedFileSystem.containsKey(fileSystemIdentity)) {
             brokerFileSystem = cachedFileSystem.get(fileSystemIdentity);
             if (brokerFileSystem.isExpired(BrokerConfig.client_expire_seconds)) {
-                logger.info("file system " + brokerFileSystem + " is expired, close and remove it");
-                brokerFileSystem.getLock().lock();
-                try {
-                    brokerFileSystem.closeFileSystem();
-                } catch (Throwable t) {
-                    logger.error("errors while close file system", t);
-                } finally {
-                    cachedFileSystem.remove(brokerFileSystem.getIdentity());
-                    brokerFileSystem.getLock().unlock();
-                    brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
-                    cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
+                logger.info("file system " + brokerFileSystem + " is expired, update it.");
+                if (properties.containsKey(KERBEROS_KEYTAB) && properties.containsKey(KERBEROS_PRINCIPAL)) {
+                    try {
+                        Configuration conf = new HdfsConfiguration();
+                        conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, AUTHENTICATION_KERBEROS);
+                        UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(
+                            preparePrincipal(properties.get(KERBEROS_PRINCIPAL)), properties.get(KERBEROS_KEYTAB));
+                        // update FileSystem TGT
+                        ugi.checkTGTAndReloginFromKeytab();
+                        return brokerFileSystem;
+                    } catch (Exception e) {
+                        logger.error("errors while checkTGTAndReloginFromKeytab: ", e);
+                    }
+                } else {
+                    brokerFileSystem.getLock().lock();
+                    try {
+                        brokerFileSystem.closeFileSystem();
+                        brokerFileSystem.getLock().unlock();
+                    } catch (Throwable t) {
+                        logger.error("errors while close file system: ", t);
+                    }
                 }
+            } else {
+                return brokerFileSystem;
             }
-        } else {
-            brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
-            cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
         }
+        brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
+        cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);
         return brokerFileSystem;
     }
 }
