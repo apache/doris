@@ -194,4 +194,26 @@ suite("test_array_insert", "load") {
         try_sql("DROP TABLE IF EXISTS ${testTable01}")
         try_sql("DROP TABLE IF EXISTS ${testTable02}")
     }
+
+    // case4: test the array_sort(collect_list()) result to insert and select
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable01}"
+        sql "DROP TABLE IF EXISTS ${testTable02}"
+
+        create_test_table01.call(testTable01)
+        create_test_table02.call(testTable02)
+        
+        sql """INSERT INTO ${testTable02} select k1, array_sort(collect_list(k2)),  array_sort(collect_list(k3)), array_sort(collect_list(k4)), 
+            array_sort(collect_list(k5)), array_sort(collect_list(k6)), array_sort(collect_list(k7)), array_sort(collect_list(k8)),
+            array_sort(collect_list(k9)), array_sort(collect_list(k10)), array_sort(collect_list(k11)), array_sort(collect_list(k12)),
+            array_sort(collect_list(k13)) from ${testTable01} group by k1;
+        """
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable02} order by k1"
+        qt_select "select array_avg(k2), array_avg(k3), array_avg(k4), array_avg(k9), array_avg(k10) from ${testTable02} order by k1"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable01}")
+        try_sql("DROP TABLE IF EXISTS ${testTable02}")
+    }
 }

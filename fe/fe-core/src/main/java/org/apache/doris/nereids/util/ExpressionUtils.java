@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
@@ -78,12 +79,16 @@ public class ExpressionUtils {
         }
     }
 
-    public static Optional<Expression> andByOptional(List<Expression> expressions) {
+    public static Optional<Expression> optionalAnd(List<Expression> expressions) {
         if (expressions.isEmpty()) {
             return Optional.empty();
         } else {
             return Optional.of(ExpressionUtils.and(expressions));
         }
+    }
+
+    public static Optional<Expression> optionalAnd(Expression... expressions) {
+        return optionalAnd(Lists.newArrayList(expressions));
     }
 
     public static Expression and(List<Expression> expressions) {
@@ -141,5 +146,21 @@ public class ExpressionUtils {
             }
         }
         return false;
+    }
+
+    /**
+     * Choose the minimum slot from input parameter.
+     */
+    public static Slot selectMinimumColumn(List<Slot> slots) {
+        Slot minSlot = null;
+        for (Slot slot : slots) {
+            if (minSlot == null) {
+                minSlot = slot;
+            } else {
+                int slotDataTypeWidth = slot.getDataType().width();
+                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
+            }
+        }
+        return minSlot;
     }
 }

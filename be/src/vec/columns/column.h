@@ -48,6 +48,10 @@ namespace doris::vectorized {
 class Arena;
 class Field;
 
+class ColumnSorter;
+using EqualFlags = std::vector<uint8_t>;
+using EqualRange = std::pair<int, int>;
+
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
 private:
@@ -528,6 +532,10 @@ public:
     virtual bool can_be_inside_nullable() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
+
+    virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                             IColumn::Permutation& perms, EqualRange& range,
+                             bool last_column) const;
 
     virtual ~IColumn() = default;
     IColumn() = default;

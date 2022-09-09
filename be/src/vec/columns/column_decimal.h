@@ -226,6 +226,9 @@ public:
         data[self_row] = T();
     }
 
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
     UInt32 get_scale() const { return scale; }
 
     T get_scale_multiplier() const;

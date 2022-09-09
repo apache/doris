@@ -265,6 +265,9 @@ public:
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     template <typename Type>

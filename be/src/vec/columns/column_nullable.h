@@ -305,6 +305,9 @@ public:
         get_nested_column().generate_hash_values_for_runtime_filter();
     }
 
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
 private:
     WrappedPtr nested_column;
     WrappedPtr null_map;

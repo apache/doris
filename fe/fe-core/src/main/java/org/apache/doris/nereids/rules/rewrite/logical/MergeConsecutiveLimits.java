@@ -42,9 +42,9 @@ public class MergeConsecutiveLimits extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalLimit(logicalLimit()).then(upperLimit -> {
-            LogicalLimit bottomLimit = upperLimit.child();
+            LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
             List<Plan> children = bottomLimit.children();
-            return new LogicalLimit(
+            return new LogicalLimit<>(
                     Math.min(upperLimit.getLimit(), bottomLimit.getLimit()),
                     bottomLimit.getOffset(),
                     children.get(0)
