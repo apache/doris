@@ -279,17 +279,21 @@ public final class ExprSubstitutionMap {
      * and that all rhs exprs are analyzed.
      */
     private void verify() {
-        for (int i = 0; i < lhs_.size(); ++i) {
-            for (int j = i + 1; j < lhs_.size(); ++j) {
-                if (lhs_.get(i).equals(lhs_.get(j))) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("verify: smap=" + this.debugString());
+        // This method is very very time consuming, especially when planning large complex query.
+        // So disable it by default.
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < lhs_.size(); ++i) {
+                for (int j = i + 1; j < lhs_.size(); ++j) {
+                    if (lhs_.get(i).equals(lhs_.get(j))) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("verify: smap=" + this.debugString());
+                        }
+                        // TODO(zc): partition by k1, order by k1, there is failed.
+                        // Preconditions.checkState(false);
                     }
-                    // TODO(zc): partition by k1, order by k1, there is failed.
-                    // Preconditions.checkState(false);
                 }
+                Preconditions.checkState(!checkAnalyzed_ || rhs_.get(i).isAnalyzed());
             }
-            Preconditions.checkState(!checkAnalyzed_ || rhs_.get(i).isAnalyzed());
         }
     }
 
