@@ -203,6 +203,7 @@ set(OLAP_TEST_FILES
     olap/tablet_cooldown_test.cpp
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
+    olap/segcompaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES

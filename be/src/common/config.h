@@ -301,6 +301,12 @@ CONF_mInt32(quick_compaction_max_threads, "10");
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
 
+// This config can be set to limit thread number in  smallcompaction thread pool.
+CONF_mInt32(quick_compaction_max_threads, "10");
+
+// This config can be set to limit thread number in  segcompaction thread pool.
+CONF_mInt32(seg_compaction_max_threads, "10");
+
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
@@ -864,6 +870,11 @@ CONF_String(be_node_role, "mix");
 // Hide webserver page for safety.
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
+CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
+CONF_Int32(segcompaction_threshold_segment_num, "10");
+
+CONF_Int32(segcompaction_small_threshold, "1000000");
 
 CONF_String(jvm_max_heap_size, "1024M");
 

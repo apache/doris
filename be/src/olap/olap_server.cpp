@@ -26,12 +26,14 @@
 #include <string>
 
 #include "agent/cgroups_mgr.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "io/cache/file_cache_manager.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "util/file_utils.h"
 #include "util/time.h"
@@ -83,6 +85,12 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::quick_compaction_max_threads)
             .set_max_threads(config::quick_compaction_max_threads)
             .build(&_quick_compaction_thread_pool);
+    if (config::enable_segcompaction && config::enable_storage_vectorization) {
+        ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                .set_min_threads(config::seg_compaction_max_threads)
+                .set_max_threads(config::seg_compaction_max_threads)
+                .build(&_seg_compaction_thread_pool);
+    }
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -683,6 +691,19 @@ Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
     }
     _quick_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_quick_compaction, this, tablet));
+    return Status::OK();
+}
+
+Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
+                                             SegCompactionCandidatesSharedPtr segments) {
+    writer->do_segcompaction(segments);
+    return Status::OK();
+}
+
+Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
+                                                 SegCompactionCandidatesSharedPtr segments) {
+    _seg_compaction_thread_pool->submit_func(
+            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
     return Status::OK();
 }
 
