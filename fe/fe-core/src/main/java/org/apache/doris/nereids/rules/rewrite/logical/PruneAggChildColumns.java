@@ -20,17 +20,15 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.SlotExtractor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Set;
@@ -59,16 +57,14 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
         return RuleType.COLUMN_PRUNE_AGGREGATION_CHILD.build(logicalAggregate().then(agg -> {
             List<Slot> childOutput = agg.child().getOutput();
             if (isAggregateWithConstant(agg)) {
-                Slot slot = selectMinimumColumn(childOutput);
+                Slot slot = ExpressionUtils.selectMinimumColumn(childOutput);
                 if (childOutput.size() == 1 && childOutput.get(0).equals(slot)) {
                     return agg;
                 }
                 return agg.withChildren(ImmutableList.of(new LogicalProject<>(ImmutableList.of(slot), agg.child())));
             }
-            List<Expression> slots = Lists.newArrayList();
-            slots.addAll(agg.getExpressions());
-            Set<Slot> outputs = SlotExtractor.extractSlot(slots);
-            List<NamedExpression> prunedOutputs = childOutput.stream().filter(outputs::contains)
+            Set<Slot> aggInputSlots = agg.getInputSlots();
+            List<NamedExpression> prunedOutputs = childOutput.stream().filter(aggInputSlots::contains)
                     .collect(Collectors.toList());
             if (prunedOutputs.size() == agg.child().getOutput().size()) {
                 return agg;
@@ -90,18 +86,5 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
             }
         }
         return true;
-    }
-
-    private Slot selectMinimumColumn(List<Slot> outputList) {
-        Slot minSlot = null;
-        for (Slot slot : outputList) {
-            if (minSlot == null) {
-                minSlot = slot;
-            } else {
-                int slotDataTypeWidth = slot.getDataType().width();
-                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
-            }
-        }
-        return minSlot;
     }
 }

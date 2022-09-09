@@ -45,9 +45,4 @@ public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPla
     }
 
     public abstract List<Slot> computeOutput();
-
-    @Override
-    public LogicalProperties computeLogicalProperties() {
-        return new LogicalProperties(() -> computeOutput());
-    }
 }

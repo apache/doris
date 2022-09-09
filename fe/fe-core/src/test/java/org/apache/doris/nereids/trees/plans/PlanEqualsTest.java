@@ -68,6 +68,21 @@ public class PlanEqualsTest {
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
                 child);
         Assertions.assertNotEquals(unexpected, actual);
+
+        unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                true, false, AggPhase.GLOBAL, child);
+        Assertions.assertNotEquals(unexpected, actual);
+
+        unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                false, true, AggPhase.GLOBAL, child);
+        Assertions.assertNotEquals(unexpected, actual);
+
+        unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                false, false, AggPhase.LOCAL, child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test

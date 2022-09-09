@@ -17,14 +17,10 @@
 
 package org.apache.doris.nereids.util;
 
-
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -112,47 +108,6 @@ public class MemoTestUtils {
             return ctx;
         } catch (Throwable t) {
             throw new IllegalStateException("can not create test connect context", t);
-        }
-    }
-
-    public static String printGroupTree(Memo memo) {
-        Group root = memo.getRoot();
-        StringBuilder builder = new StringBuilder();
-        printGroup(root, 0, true, builder);
-        return builder.toString();
-    }
-
-    private static void printGroup(Group group, int depth, boolean isLastGroup, StringBuilder builder) {
-        if (!group.getLogicalExpressions().isEmpty()) {
-            builder.append(getIdentStr(depth + 1))
-                    .append(group.getPhysicalExpressions().isEmpty() ? "+--" : "|--")
-                    .append("logicalExpressions:\n");
-            for (int i = 0; i < group.getLogicalExpressions().size(); i++) {
-                GroupExpression logicalExpression = group.getLogicalExpressions().get(i);
-                boolean isLastExpression = i + 1 == group.getLogicalExpressions().size();
-                printGroupExpression(logicalExpression, depth + 2, isLastExpression, builder);
-            }
-        }
-
-        if (!group.getPhysicalExpressions().isEmpty()) {
-            builder.append(getIdentStr(depth + 1)).append("+-- physicalExpressions:\n");
-            for (int i = 0; i < group.getPhysicalExpressions().size(); i++) {
-                GroupExpression logicalExpression = group.getPhysicalExpressions().get(i);
-                boolean isLastExpression = i + 1 == group.getPhysicalExpressions().size();
-                printGroupExpression(logicalExpression, depth + 2, isLastExpression, builder);
-            }
-        }
-    }
-
-    private static void printGroupExpression(GroupExpression groupExpression, int indent,
-            boolean isLastExpression, StringBuilder builder) {
-        builder.append(getIdentStr(indent))
-                .append(isLastExpression ? "+--" : "|--")
-                .append(groupExpression.getPlan().toString()).append("\n");
-        for (int i = 0; i < groupExpression.children().size(); i++) {
-            Group childGroup = groupExpression.children().get(i);
-            boolean isLastGroup = i + 1 == groupExpression.children().size();
-            printGroup(childGroup, indent + 1, isLastGroup, builder);
         }
     }
 

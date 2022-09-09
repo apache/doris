@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
@@ -217,7 +218,8 @@ public class AnalyzeStmt extends DdlStmt {
                             .filter(entity -> !baseSchema.contains(entity)).findFirst();
                     if (optional.isPresent()) {
                         String columnName = optional.get();
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                                columnName, FeNameFormat.getColumnNameRegex());
                     }
                 } finally {
                     table.readUnlock();

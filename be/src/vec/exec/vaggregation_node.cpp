@@ -90,7 +90,16 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
           _build_timer(nullptr),
           _serialize_key_timer(nullptr),
           _exec_timer(nullptr),
-          _merge_timer(nullptr) {
+          _merge_timer(nullptr),
+          _expr_timer(nullptr),
+          _get_results_timer(nullptr),
+          _serialize_data_timer(nullptr),
+          _serialize_result_timer(nullptr),
+          _deserialize_data_timer(nullptr),
+          _hash_table_compute_timer(nullptr),
+          _streaming_agg_timer(nullptr),
+          _hash_table_size_counter(nullptr),
+          _hash_table_input_counter(nullptr) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -283,7 +292,12 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
     _serialize_data_timer = ADD_TIMER(runtime_profile(), "SerializeDataTime");
+    _serialize_result_timer = ADD_TIMER(runtime_profile(), "SerializeResultTime");
     _deserialize_data_timer = ADD_TIMER(runtime_profile(), "DeserializeDataTime");
+    _hash_table_compute_timer = ADD_TIMER(runtime_profile(), "HashTableComputeTime");
+    _streaming_agg_timer = ADD_TIMER(runtime_profile(), "StreamingAggTime");
+    _hash_table_size_counter = ADD_COUNTER(runtime_profile(), "HashTableSize", TUnit::UNIT);
+    _hash_table_input_counter = ADD_COUNTER(runtime_profile(), "HashTableInputCount", TUnit::UNIT);
 
     _data_mem_tracker = std::make_unique<MemTracker>("AggregationNode:Data");
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
@@ -494,6 +508,15 @@ Status AggregationNode::close(RuntimeState* state) {
     VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
 
+    /// _hash_table_size_counter may be null if prepare failed.
+    if (_hash_table_size_counter) {
+        std::visit(
+                [&](auto&& agg_method) {
+                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
+                },
+                _agg_data._aggregated_method_variant);
+    }
+
     return ExecNode::close(state);
 }
 
@@ -559,6 +582,7 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
     // 1. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return NULL result
     //    level one aggregation node set `eos = true` return directly
+    SCOPED_TIMER(_serialize_result_timer);
     if (UNLIKELY(_children[0]->rows_returned() == 0)) {
         *eos = true;
         return Status::OK();
@@ -740,6 +764,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                                                const size_t num_rows) {
     std::visit(
             [&](auto&& agg_method) -> void {
+                SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
@@ -765,6 +790,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 }
 
                 /// For all rows.
+                COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                 for (size_t i = 0; i < num_rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
@@ -897,6 +923,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                 if (auto& hash_tbl = agg_method.data; hash_tbl.add_elem_size_overflow(rows)) {
                     // do not try to do agg, just init and serialize directly return the out_block
                     if (!_should_expand_preagg_hash_tables()) {
+                        SCOPED_TIMER(_streaming_agg_timer);
                         ret_flag = true;
 
                         // will serialize value data to string column
@@ -1089,6 +1116,7 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
 
 Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* state, Block* block,
                                                               bool* eos) {
+    SCOPED_TIMER(_serialize_result_timer);
     int key_size = _probe_expr_ctxs.size();
     int agg_size = _aggregate_evaluators.size();
     MutableColumns value_columns(agg_size);

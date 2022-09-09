@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.exploration.JoinReorderContext;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -32,6 +32,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
@@ -211,7 +212,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public List<Expression> getExpressions() {
-        return otherJoinCondition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
+        Builder<Expression> builder = new Builder<Expression>()
+                .addAll(hashJoinConjuncts);
+        otherJoinCondition.ifPresent(builder::add);
+        return builder.build();
     }
 
     public JoinReorderContext getJoinReorderContext() {
@@ -228,7 +232,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, groupExpression,
-                Optional.of(logicalProperties), left(), right(), joinReorderContext);
+                Optional.of(getLogicalProperties()), left(), right(), joinReorderContext);
     }
 
     @Override

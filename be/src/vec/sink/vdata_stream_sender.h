@@ -134,6 +134,8 @@ protected:
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
+    RuntimeProfile::Counter* _brpc_send_timer;
+    RuntimeProfile::Counter* _brpc_wait_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
@@ -212,7 +214,6 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false);
 
-    Status add_row(Block* block, int row);
     Status add_rows(Block* block, const std::vector<int>& row);
 
     Status send_current_block(bool eos = false);
@@ -246,14 +247,17 @@ public:
 
 private:
     Status _wait_last_brpc() {
+        SCOPED_TIMER(_parent->_brpc_wait_timer);
         if (_closure == nullptr) return Status::OK();
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
         if (cntl->Failed()) {
             std::string err = fmt::format(
-                    "failed to send brpc batch, error={}, error_text={}, client: {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost());
+                    "failed to send brpc batch, error={}, error_text={}, client: {}, "
+                    "latency = {}",
+                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
+                    cntl->latency_us());
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }

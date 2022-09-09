@@ -73,7 +73,7 @@ public:
     /// Initializes this object from the thrift tnode desc. The subclass should
     /// do any initialization that can fail in Init() rather than the ctor.
     /// If overridden in subclass, must first call superclass's Init().
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     // Sets up internal structures, etc., without doing any actual work.
     // Must be called prior to open(). Will only be called once in this

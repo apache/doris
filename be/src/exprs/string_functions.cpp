@@ -682,6 +682,15 @@ StringVal StringFunctions::concat_ws(FunctionContext* context, const StringVal& 
     return result;
 }
 
+StringVal StringFunctions::elt(FunctionContext* context, const IntVal& pos, int num_children,
+                               const StringVal* strs) {
+    if (pos.is_null || pos.val < 1 || num_children == 0 || pos.val > num_children) {
+        return StringVal::null();
+    }
+
+    return strs[pos.val - 1];
+}
+
 IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& str,
                                     const StringVal& str_set) {
     if (str.is_null || str_set.is_null) {

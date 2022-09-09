@@ -242,4 +242,4 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
 5. 性能问题
 
-   不见使用 `VALUES` 方式进行单行的插入。如果必须这样使用，请将多行数据合并到一个 INSERT 语句中进行批量提交。
+   不建议使用 `VALUES` 方式进行单行的插入。如果必须这样使用，请将多行数据合并到一个 INSERT 语句中进行批量提交。

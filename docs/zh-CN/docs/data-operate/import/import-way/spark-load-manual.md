@@ -168,6 +168,9 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 - `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 - `broker`: broker 名字。spark 作为 ETL 资源使用时必填。需要使用 `ALTER SYSTEM ADD BROKER` 命令提前完成配置。
   - `broker.property_key`: broker 读取 ETL 生成的中间文件时需要指定的认证信息等。
+- `env`: 指定spark环境变量,支持动态设置,比如当认证hadoop认为方式为simple时，设置hadoop用户名和密码
+  - `env.HADOOP_USER_NAME`: 访问hadoop用户名
+  - `env.HADOOP_USER_PASSWORD`:密码
 
 示例：
 

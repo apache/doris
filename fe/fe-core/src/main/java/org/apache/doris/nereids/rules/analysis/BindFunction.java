@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.expressions.functions.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.Year;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
@@ -51,6 +53,22 @@ public class BindFunction implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
+            RuleType.BINDING_ONE_ROW_RELATION_FUNCTION.build(
+                logicalOneRowRelation().then(oneRowRelation -> {
+                    List<NamedExpression> projects = oneRowRelation.getProjects();
+                    List<NamedExpression> boundProjects = bind(projects);
+                    // TODO:
+                    // trick logic: currently XxxRelation in GroupExpression always difference to each other,
+                    // so this rule must check the expression whether is changed to prevent dead loop because
+                    // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
+                    // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
+                    // GroupExpression by id
+                    if (projects.equals(boundProjects)) {
+                        return oneRowRelation;
+                    }
+                    return new LogicalOneRowRelation(boundProjects);
+                })
+            ),
             RuleType.BINDING_PROJECT_FUNCTION.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundExpr = bind(project.getProjects());
@@ -69,6 +87,12 @@ public class BindFunction implements AnalysisRuleFactory {
                    List<Expression> predicates = bind(filter.getExpressions());
                    return new LogicalFilter<>(predicates.get(0), filter.child());
                })
+            ),
+            RuleType.BINDING_HAVING_FUNCTION.build(
+                logicalHaving(logicalAggregate()).then(filter -> {
+                    List<Expression> predicates = bind(filter.getExpressions());
+                    return new LogicalHaving<>(predicates.get(0), filter.child());
+                })
             )
         );
     }
@@ -168,7 +192,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 } catch (Exception e) {
                     // ignore
                 }
-                if (!left.getDataType().isDateType() && arithmetic.getTimeUnit().isDateTimeUnit()) {
+                if (!left.getDataType().isDateType() && !arithmetic.getTimeUnit().isDateTimeUnit()) {
                     left = arithmetic.left().castTo(DateType.INSTANCE);
                 }
             }

@@ -19,11 +19,13 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all physical plan that have two children.
@@ -43,5 +45,11 @@ public abstract class PhysicalBinary<
                               LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild,
                               RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
+    }
+
+    public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, groupExpression, logicalProperties, physicalProperties, leftChild, rightChild);
     }
 }

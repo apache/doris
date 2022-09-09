@@ -91,6 +91,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("hive");
         engineNames.add("iceberg");
         engineNames.add("hudi");
+        engineNames.add("jdbc");
     }
 
     public CreateTableStmt() {
@@ -514,7 +515,7 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")
-                || engineName.equals("iceberg") || engineName.equals("hudi")) {
+                || engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("jdbc")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;

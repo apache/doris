@@ -153,7 +153,7 @@ public enum ErrorCode {
     ERR_TABLE_NOT_LOCKED(1100, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' was not locked with LOCK TABLES"),
     ERR_UNUSED_17(1101, new byte[]{}, "You should never see it"),
     ERR_WRONG_DB_NAME(1102, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect database name '%s'"),
-    ERR_WRONG_TABLE_NAME(1103, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table name '%s'"),
+    ERR_WRONG_TABLE_NAME(1103, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table name '%s'. Table name regex is '%s'"),
     ERR_TOO_BIG_SELECT(1104, new byte[]{'4', '2', '0', '0', '0'}, "The SELECT would examine more than MAX_JOIN_SIZE "
             + "rows; check your WHERE and use SET SQL_BIG_SELECTS=1 or SET MAX_JOIN_SIZE=# if the SELECT is okay"),
     ERR_UNKNOWN_ERROR(1105, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown error"),
@@ -248,7 +248,7 @@ public enum ErrorCode {
             + "support AUTO_INCREMENT columns"),
     ERR_DELAYED_INSERT_TABLE_LOCKED(1165, new byte[]{'H', 'Y', '0', '0', '0'}, "INSERT DELAYED can't be used with "
             + "table '%s' because it is locked with LOCK TABLES"),
-    ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'"),
+    ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'. Column regex is '%s'"),
     ERR_WRONG_KEY_COLUMN(1167, new byte[]{'4', '2', '0', '0', '0'}, "The used storage engine can't index column '%s'"),
     ERR_WRONG_MRG_TABLE(1168, new byte[]{'H', 'Y', '0', '0', '0'}, "Unable to open underlying table which is "
             + "differently defined or of non-MyISAM type or doesn't exist"),

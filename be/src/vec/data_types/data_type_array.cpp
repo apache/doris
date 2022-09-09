@@ -58,7 +58,7 @@ size_t DataTypeArray::get_number_of_dimensions() const {
 int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
-    return sizeof(IColumn::Offset64) * (column.size() + 1) +
+    return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
            get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data());
 }
 
@@ -67,11 +67,11 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
     // row num
-    *reinterpret_cast<IColumn::Offset64*>(buf) = column.size();
-    buf += sizeof(IColumn::Offset64);
+    *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+    buf += sizeof(ColumnArray::Offset64);
     // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset64));
-    buf += column.size() * sizeof(IColumn::Offset64);
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
+    buf += column.size() * sizeof(ColumnArray::Offset64);
     // children
     return get_nested_type()->serialize(data_column.get_data(), buf);
 }
@@ -81,12 +81,12 @@ const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
     auto& offsets = data_column->get_offsets();
 
     // row num
-    IColumn::Offset64 row_num = *reinterpret_cast<const IColumn::Offset64*>(buf);
-    buf += sizeof(IColumn::Offset64);
+    ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+    buf += sizeof(ColumnArray::Offset64);
     // offsets
     offsets.resize(row_num);
-    memcpy(offsets.data(), buf, sizeof(IColumn::Offset64) * row_num);
-    buf += sizeof(IColumn::Offset64) * row_num;
+    memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
+    buf += sizeof(ColumnArray::Offset64) * row_num;
     // children
     return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable());
 }

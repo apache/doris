@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 /**
@@ -31,8 +29,8 @@ import com.google.common.collect.Lists;
  */
 public class EnforceMissingPropertiesHelper {
 
-    private JobContext context;
-    private GroupExpression groupExpression;
+    private final JobContext context;
+    private final GroupExpression groupExpression;
     private double curTotalCost;
 
     public EnforceMissingPropertiesHelper(JobContext context, GroupExpression groupExpression,
@@ -50,15 +48,14 @@ public class EnforceMissingPropertiesHelper {
      * Enforce missing property.
      */
     public PhysicalProperties enforceProperty(PhysicalProperties output, PhysicalProperties request) {
-        boolean isSatistyOrder = output.getOrderSpec().satisfy(request.getOrderSpec());
-        boolean isSatistyDistribution = output.getDistributionSpec().satisfy(request.getDistributionSpec());
+        boolean isSatisfyOrder = output.getOrderSpec().satisfy(request.getOrderSpec());
+        boolean isSatisfyDistribution = output.getDistributionSpec().satisfy(request.getDistributionSpec());
 
-        if (!isSatistyDistribution && !isSatistyOrder) {
+        if (!isSatisfyDistribution && !isSatisfyOrder) {
             return enforceSortAndDistribution(output, request);
-        } else if (isSatistyDistribution && isSatistyOrder) {
-            Preconditions.checkState(false, "can't reach here.");
-            return null;
-        } else if (!isSatistyDistribution) {
+        } else if (isSatisfyDistribution && isSatisfyOrder) {
+            return output;
+        } else if (!isSatisfyDistribution) {
             if (!request.getOrderSpec().getOrderKeys().isEmpty()) {
                 // After redistribute data , original order request may be wrong.
                 return enforceDistributionButMeetSort(output, request);
@@ -66,16 +63,16 @@ public class EnforceMissingPropertiesHelper {
             return enforceDistribution(output);
         } else {
             // Order don't satisfy.
-            return enforceSort(output);
+            return enforceLocalSort(output);
         }
     }
 
     /**
      * When requestProperty include sort, enforce distribution may break the original sort.
      * <p>
-     * But if we additonal enforce sort, it may cause infinite loop.
+     * But if we add enforce sort, it may cause infinite loop.
      * <p>
-     * hackly, use {[empty order], Any} to eliminate the original property.
+     * trick, use {[empty order], Any} to eliminate the original property.
      */
     private PhysicalProperties enforceDistributionButMeetSort(PhysicalProperties output, PhysicalProperties request) {
         groupExpression.getOwnerGroup()
@@ -83,13 +80,23 @@ public class EnforceMissingPropertiesHelper {
         return enforceSortAndDistribution(output, request);
     }
 
-    private PhysicalProperties enforceSort(PhysicalProperties oldOutputProperty) {
+    private PhysicalProperties enforceGlobalSort(PhysicalProperties oldOutputProperty) {
+        // keep consistent in DistributionSpec with the oldOutputProperty
+        PhysicalProperties newOutputProperty = new PhysicalProperties(context.getRequiredProperties().getOrderSpec());
+        GroupExpression enforcer = context.getRequiredProperties().getOrderSpec()
+                        .addGlobalQuickSortEnforcer(groupExpression.getOwnerGroup());
+
+        addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
+
+        return newOutputProperty;
+    }
+
+    private PhysicalProperties enforceLocalSort(PhysicalProperties oldOutputProperty) {
         // keep consistent in DistributionSpec with the oldOutputProperty
         PhysicalProperties newOutputProperty = new PhysicalProperties(
-                oldOutputProperty.getDistributionSpec(),
-                context.getRequiredProperties().getOrderSpec());
-        GroupExpression enforcer =
-                context.getRequiredProperties().getOrderSpec().addEnforcer(groupExpression.getOwnerGroup());
+                oldOutputProperty.getDistributionSpec(), context.getRequiredProperties().getOrderSpec());
+        GroupExpression enforcer = context.getRequiredProperties().getOrderSpec()
+                        .addLocalQuickSortEnforcer(groupExpression.getOwnerGroup());
 
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
 
@@ -98,8 +105,7 @@ public class EnforceMissingPropertiesHelper {
 
     private PhysicalProperties enforceDistribution(PhysicalProperties oldOutputProperty) {
         PhysicalProperties newOutputProperty = new PhysicalProperties(
-                context.getRequiredProperties().getDistributionSpec(),
-                oldOutputProperty.getOrderSpec());
+                context.getRequiredProperties().getDistributionSpec());
         GroupExpression enforcer =
                 context.getRequiredProperties().getDistributionSpec().addEnforcer(groupExpression.getOwnerGroup());
 
@@ -112,11 +118,10 @@ public class EnforceMissingPropertiesHelper {
             PhysicalProperties requiredProperty) {
         PhysicalProperties enforcedProperty;
         if (requiredProperty.getDistributionSpec().equals(new DistributionSpecGather())) {
-            enforcedProperty = enforceSort(outputProperty);
-            enforcedProperty = enforceDistribution(enforcedProperty);
+            enforcedProperty = enforceGlobalSort(outputProperty);
         } else {
             enforcedProperty = enforceDistribution(outputProperty);
-            enforcedProperty = enforceSort(enforcedProperty);
+            enforcedProperty = enforceLocalSort(enforcedProperty);
         }
 
         return enforcedProperty;

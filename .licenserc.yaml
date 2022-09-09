@@ -62,5 +62,6 @@ header:
     - "docs/.vuepress/public/js/wow.min.js"
     - "docs/package-lock.json"
     - "regression-test/script/README"
+    - "regression-test/suites/load_p0/stream_load/data"
 
   comment: on-failure

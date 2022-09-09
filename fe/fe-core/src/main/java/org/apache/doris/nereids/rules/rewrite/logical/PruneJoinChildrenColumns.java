@@ -19,20 +19,20 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.SlotExtractor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * prune join children output.
@@ -66,18 +66,23 @@ public class PruneJoinChildrenColumns
     @Override
     protected Plan pushDownProject(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             Set<Slot> references) {
-        if (joinPlan.getOtherJoinCondition().isPresent()) {
-            references.addAll(SlotExtractor.extractSlot(joinPlan.getOtherJoinCondition().get()));
-        }
-        for (Expression expr : joinPlan.getHashJoinConjuncts()) {
-            references.addAll(SlotExtractor.extractSlot(expr));
-        }
-        Set<ExprId> exprIds = references.stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
+
+        Set<ExprId> exprIds = Stream.of(references, joinPlan.getInputSlots())
+                .flatMap(Set::stream)
+                .map(NamedExpression::getExprId)
+                .collect(Collectors.toSet());
 
         List<NamedExpression> leftInputs = joinPlan.left().getOutput().stream()
                 .filter(r -> exprIds.contains(r.getExprId())).collect(Collectors.toList());
         List<NamedExpression> rightInputs = joinPlan.right().getOutput().stream()
                 .filter(r -> exprIds.contains(r.getExprId())).collect(Collectors.toList());
+
+        if (leftInputs.isEmpty()) {
+            leftInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.left().getOutput()));
+        }
+        if (rightInputs.isEmpty()) {
+            rightInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.right().getOutput()));
+        }
 
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();

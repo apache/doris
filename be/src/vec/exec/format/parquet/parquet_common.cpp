@@ -64,12 +64,13 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new FixLengthDecoder(type));
             break;
         default:
-            return Status::InternalError("Unsupported type {} in parquet decoder",
-                                         tparquet::to_string(type));
+            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
+                                         tparquet::to_string(type), tparquet::to_string(encoding));
         }
+        break;
     default:
-        return Status::InternalError("Unsupported encoding {} in parquet decoder",
-                                     tparquet::to_string(encoding));
+        return Status::InternalError("Unsupported encoding {}(type={}) in parquet decoder",
+                                     tparquet::to_string(encoding), tparquet::to_string(type));
     }
     return Status::OK();
 }
@@ -120,7 +121,11 @@ Status Decoder::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, s
     return decode_values(data_column, data_type, num_values);
 }
 
-Status FixLengthDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+Status FixLengthDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
+                                  size_t num_values) {
+    if (num_values * _type_length != length) {
+        return Status::Corruption("Wrong dictionary data for fixed length type");
+    }
     _has_dict = true;
     _dict = std::move(dict);
     return Status::OK();
@@ -261,18 +266,25 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                                    tparquet::to_string(_physical_type), getTypeName(logical_type));
 }
 
-Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
+                                  size_t num_values) {
     _has_dict = true;
     _dict = std::move(dict);
-    _dict_offsets.resize(dict_size + 1);
+    _dict_offsets.resize(num_values + 1);
     uint32_t offset_cursor = 0;
-    for (int i = 0; i < dict_size; ++i) {
-        uint32_t length = decode_fixed32_le(_dict.get() + offset_cursor);
+    for (int i = 0; i < num_values; ++i) {
+        uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
         offset_cursor += 4;
         _dict_offsets[i] = offset_cursor;
-        offset_cursor += length;
+        offset_cursor += l;
+        if (offset_cursor > length) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
     }
-    _dict_offsets[dict_size] = offset_cursor + 4;
+    if (offset_cursor != length) {
+        return Status::Corruption("Wrong dictionary data for byte array type");
+    }
+    _dict_offsets[num_values] = offset_cursor + 4;
     return Status::OK();
 }
 

@@ -87,7 +87,6 @@ public class ExpressionRewriteTest {
         assertRewrite("a = 1 or a = 1 or b >= 1", "a = 1 or b >= 1");
     }
 
-
     @Test
     public void testExtractCommonFactorRewrite() {
         executor = new ExpressionRuleExecutor(ExtractCommonFactorRule.INSTANCE);
@@ -98,13 +97,11 @@ public class ExpressionRewriteTest {
         assertRewrite("a and b", "a and b");
         assertRewrite("a = 1 and b > 2", "a = 1 and b > 2");
 
-
         assertRewrite("(a and b) or (c and d)", "(a and b) or (c and d)");
         assertRewrite("(a and b) and (c and d)", "((a and b) and c) and d");
 
         assertRewrite("(a or b) and (a or c)", "a or (b and c)");
         assertRewrite("(a and b) or (a and c)", "a and (b or c)");
-
 
         assertRewrite("(a or b) and (a or c) and (a or d)", "a or (b and c and d)");
         assertRewrite("(a and b) or (a and c) or (a and d)", "a and (b or c or d)");
@@ -179,15 +176,14 @@ public class ExpressionRewriteTest {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
 
         // deduplicate
-        assertRewrite("CAST(1 AS int)", "1");
-        assertRewrite("CAST('str' AS string)", "'str'");
-        assertRewrite("CAST(CAST(1 AS int) AS int)", "1");
+        assertRewrite("CAST(1 AS tinyint)", "1");
+        assertRewrite("CAST('str' AS varchar)", "'str'");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS tinyint)", "1");
 
         // deduplicate inside
-        assertRewrite("CAST(CAST('str' AS string) AS double)", "CAST('str' AS double)");
-        assertRewrite("CAST(CAST(1 AS int) AS double)", "CAST(1 AS double)");
+        assertRewrite("CAST(CAST('str' AS varchar) AS double)", "CAST('str' AS double)");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS double)", "CAST(1 AS double)");
     }
-
 
     private void assertRewrite(String expression, String expected) {
         Expression needRewriteExpression = PARSER.parseExpression(expression);

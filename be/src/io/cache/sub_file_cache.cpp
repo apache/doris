@@ -174,8 +174,9 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
         } else {
             return Status::InternalError("Failed to get download cache thread token");
         }
-        if (!future.get().ok()) {
-            return future.get();
+        auto st = future.get();
+        if (!st.ok()) {
+            return st;
         }
     }
     io::FileReaderSPtr cache_reader;

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
@@ -30,6 +31,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -74,6 +76,14 @@ public class ExpressionUtils {
             extract(type, predicate.right(), result);
         } else {
             result.add(expr);
+        }
+    }
+
+    public static Optional<Expression> andByOptional(List<Expression> expressions) {
+        if (expressions.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(ExpressionUtils.and(expressions));
         }
     }
 
@@ -123,16 +133,30 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether lhs and rhs (both are List of SlotReference) are intersecting.
+     * Check whether lhs and rhs are intersecting.
      */
-    public static boolean isIntersecting(List<SlotReference> lhs, List<SlotReference> rhs) {
-        for (SlotReference lSlot : lhs) {
-            for (SlotReference rSlot : rhs) {
-                if (lSlot.equals(rSlot)) {
-                    return true;
-                }
+    public static boolean isIntersecting(Set<SlotReference> lhs, List<SlotReference> rhs) {
+        for (SlotReference rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Choose the minimum slot from input parameter.
+     */
+    public static Slot selectMinimumColumn(List<Slot> slots) {
+        Slot minSlot = null;
+        for (Slot slot : slots) {
+            if (minSlot == null) {
+                minSlot = slot;
+            } else {
+                int slotDataTypeWidth = slot.getDataType().width();
+                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
+            }
+        }
+        return minSlot;
     }
 }
