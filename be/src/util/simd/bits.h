@@ -101,23 +101,23 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
 
 // TODO: compare with different SIMD implements
 template <class T>
-inline static size_t find_byte(const std::vector<T>& list, size_t start, T byte) {
-    if (start >= list.size()) {
+inline static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) {
+    if (start >= vec.size()) {
         return start;
     }
-    const void* p = std::memchr((const void*)(list.data() + start), byte, list.size() - start);
+    const void* p = std::memchr((const void*)(vec.data() + start), byte, vec.size() - start);
     if (p == nullptr) {
-        return list.size();
+        return vec.size();
     }
-    return (T*)p - list.data();
+    return (T*)p - vec.data();
 }
 
-inline size_t find_nonzero(const std::vector<uint8_t>& list, size_t start) {
-    return find_byte<uint8_t>(list, start, 1);
+inline size_t find_nonzero(const std::vector<uint8_t>& vec, size_t start) {
+    return find_byte<uint8_t>(vec, start, 1);
 }
 
-inline size_t find_zero(const std::vector<uint8_t>& list, size_t start) {
-    return find_byte<uint8_t>(list, start, 0);
+inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
+    return find_byte<uint8_t>(vec, start, 0);
 }
 
 } // namespace simd
