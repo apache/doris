@@ -78,10 +78,24 @@ public class OdbcTable extends Table {
         return "`" + name + "`";
     }
 
+    private static String mssqlProperName(String name) {
+        return "[" + name + "]";
+    }
+
+    private static String psqlProperName(String name) {
+        return "\"" + name + "\"";
+    }
+
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
                 return mysqlProperName(name);
+            case SQLSERVER:
+                return mssqlProperName(name);
+            case POSTGRESQL:
+                return psqlProperName(name);
+            default:
+                return name;
         }
         return name;
     }
