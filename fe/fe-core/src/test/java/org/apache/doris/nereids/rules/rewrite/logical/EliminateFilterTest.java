@@ -15,30 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 
-import mockit.Mocked;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class CheckAnalysisTest {
-    @Mocked
-    private CascadesContext cascadesContext;
-    @Mocked
-    private GroupPlan groupPlan;
+import java.util.List;
 
+/**
+ * MergeConsecutiveFilter ut
+ */
+public class EliminateFilterTest {
     @Test
-    public void testCheckExpressionInputTypes() {
-        Plan plan = new LogicalFilter<>(new And(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
-        CheckAnalysis checkAnalysis = new CheckAnalysis();
-        Assertions.assertThrows(RuntimeException.class, () -> checkAnalysis.build().transform(plan, cascadesContext));
+    public void testEliminateFilter() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(BooleanLiteral.FALSE, scan);
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter);
+        List<Rule> rules = Lists.newArrayList(new EliminateFilter().build());
+        cascadesContext.topDownRewrite(rules);
+
+        Plan actual = cascadesContext.getMemo().copyOut();
+        Assertions.assertTrue(actual instanceof LogicalEmptyRelation);
     }
 }

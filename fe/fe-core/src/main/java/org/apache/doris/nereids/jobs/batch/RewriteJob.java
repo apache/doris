@@ -23,6 +23,8 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization
 import org.apache.doris.nereids.rules.mv.SelectRollup;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LogicalLimitZeroToLogicalEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
@@ -59,6 +61,8 @@ public class RewriteJob extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
+                .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
+                .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))

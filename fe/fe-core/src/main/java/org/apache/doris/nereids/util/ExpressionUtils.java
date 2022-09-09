@@ -137,7 +137,7 @@ public class ExpressionUtils {
 
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
-                .orElse(new BooleanLiteral(type == And.class));
+                .orElse(BooleanLiteral.of(type == And.class));
     }
 
     /**

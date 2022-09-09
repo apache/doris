@@ -587,7 +587,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitBooleanLiteral(BooleanLiteralContext ctx) {
         Boolean b = Boolean.valueOf(ctx.getText());
-        return new BooleanLiteral(b);
+        return BooleanLiteral.of(b);
     }
 
     @Override
