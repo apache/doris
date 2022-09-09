@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -35,13 +38,12 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
-import java.util.List;
-
 /**
  * Calculate the cost of a plan.
  * Inspired by Presto.
  */
 public class CostCalculator {
+
     /**
      * Constructor.
      */
@@ -106,19 +108,43 @@ public class CostCalculator {
             return new CostEstimate(
                     childStatistics.computeSize(),
                     statistics.computeSize(),
-                    childStatistics.computeSize());
+                    0);
         }
 
         @Override
         public CostEstimate visitPhysicalDistribute(
                 PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
+            DistributionSpec spec = distribute.getDistributionSpec();
+            // shuffle
+            if (spec instanceof DistributionSpecHash) {
+                return new CostEstimate(
+                        childStatistics.computeSize(),
+                        0,
+                        childStatistics.computeSize());
+            }
 
+            // replicate
+            if (spec instanceof DistributionSpecReplicated) {
+                return new CostEstimate(
+                        0,
+                        0,
+                        childStatistics.computeSize());
+            }
+
+            // gather
+            if (spec instanceof DistributionSpecGather) {
+                return new CostEstimate(
+                        childStatistics.computeSize(),
+                        0,
+                        childStatistics.computeSize());
+            }
+
+            // any
             return new CostEstimate(
                     childStatistics.computeSize(),
-                    statistics.computeSize(),
-                    childStatistics.computeSize());
+                    0,
+                    0);
         }
 
         @Override
@@ -158,22 +184,10 @@ public class CostCalculator {
 
             StatsDeriveResult leftStatistics = context.getChildStatistics(0);
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
 
-            // TODO: handle some case
-            // handle cross join, onClause is empty .....
-            if (nestedLoopJoin.getJoinType().isCrossJoin()) {
-                return new CostEstimate(
-                        leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds),
-                        rightStatistics.computeColumnSize(rightIds),
-                        0);
-            }
-
-            // TODO: network 0?
             return new CostEstimate(
-                    (leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds)) / 2,
-                    rightStatistics.computeColumnSize(rightIds),
+                    leftStatistics.computeSize() * rightStatistics.computeSize(),
+                    rightStatistics.computeSize(),
                     0);
         }
     }
