@@ -136,7 +136,7 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
             return false;
         }
         UnboundRelation that = (UnboundRelation) o;
-        return Objects.equals(nameParts, that.nameParts);
+        return this.id.equals(that.getId());
     }
 
     @Override

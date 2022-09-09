@@ -75,7 +75,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
             return false;
         }
         PhysicalRelation that = (PhysicalRelation) o;
-        return Objects.equals(id, that.id) && Objects.equals(qualifier, that.qualifier);
+        return this.id.equals(that.id) && Objects.equals(qualifier, that.qualifier);
     }
 
     @Override
