@@ -296,11 +296,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
-        try {
-            olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), false, "");
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage());
+
+        // TODO: Unify the logic here for all the table types once aggregate/unique key types are fully supported.
+        switch (olapScan.getTable().getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+                // TODO: Improve complete info for aggregate and unique key types table.
+                olapScanNode.selectSelectIndexInfo(olapScan.getSelectedIndexId(), true, "");
+                break;
+            case DUP_KEYS:
+                try {
+                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), false, "");
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage());
+                }
+                break;
+            default:
+                throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
         }
+
         Utils.execWithUncheckedException(olapScanNode::init);
         context.addScanNode(olapScanNode);
         // Create PlanFragment

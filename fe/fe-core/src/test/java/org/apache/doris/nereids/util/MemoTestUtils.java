@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -80,6 +81,12 @@ public class MemoTestUtils {
         CascadesContext cascadesContext = CascadesContext.newContext(statementContext, initPlan);
         MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
         return cascadesContext;
+    }
+
+    public static NereidsPlanner createNereidsPlanner(ConnectContext connectContext, String sql) {
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        nereidsPlanner.plan();
     }
 
     public static LogicalPlan analyze(String sql) {

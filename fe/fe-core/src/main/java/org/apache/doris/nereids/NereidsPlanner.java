@@ -40,6 +40,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -82,6 +83,15 @@ public class NereidsPlanner extends Planner {
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
+    }
+
+    @VisibleForTesting
+    public void plan(StatementBase queryStmt) {
+        try {
+            plan(queryStmt, statementContext.getConnectContext().getSessionVariable().toThrift());
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**

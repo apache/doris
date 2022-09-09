@@ -24,16 +24,15 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionReplacer;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -65,7 +64,7 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
 
         private final List<NamedExpression> outputExpressions;
         private final List<Expression> groupByExpressions;
-        private final Map<Expression, Slot> substitution = Maps.newHashMap();
+        private final Map<Expression, Expression> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
 
         Resolver(LogicalAggregate<? extends Plan> aggregate) {
@@ -160,7 +159,7 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
             substitution.put(expression, alias.toSlot());
         }
 
-        public Map<Expression, Slot> getSubstitution() {
+        public Map<Expression, Expression> getSubstitution() {
             return substitution;
         }
 
@@ -171,8 +170,7 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
 
     private Plan createPlan(LogicalHaving<LogicalAggregate<GroupPlan>> having, Resolver resolver) {
         LogicalAggregate<GroupPlan> aggregate = having.child();
-        Expression newPredicates = ExpressionReplacer.INSTANCE
-                .visit(having.getPredicates(), resolver.getSubstitution());
+        Expression newPredicates = ExpressionUtils.replace(having.getPredicates(), resolver.getSubstitution());
         List<NamedExpression> newOutputExpressions = Streams.concat(
                 aggregate.getOutputExpressions().stream(), resolver.getNewOutputSlots().stream()
         ).collect(Collectors.toList());
