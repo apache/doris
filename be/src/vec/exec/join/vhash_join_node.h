@@ -239,6 +239,7 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    std::vector<bool> _right_check_slot_flags; // used for TupleIsNullPredicate to check
 
     RowDescriptor _output_row_desc;
 
