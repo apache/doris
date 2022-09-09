@@ -60,17 +60,17 @@ public class BackendServiceClient {
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.execPlanFragment(request);
+        return stub.withDeadlineAfter(Config.remote_fragment_exec_timeout_ms, TimeUnit.MILLISECONDS).execPlanFragment(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.execPlanFragmentPrepare(request);
+        return stub.withDeadlineAfter(Config.remote_fragment_exec_timeout_ms, TimeUnit.MILLISECONDS).execPlanFragmentPrepare(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
-        return stub.execPlanFragmentStart(request);
+        return stub.withDeadlineAfter(Config.remote_fragment_exec_timeout_ms, TimeUnit.MILLISECONDS).execPlanFragmentStart(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
