@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
@@ -91,21 +92,21 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
             newLeftProjectExpr.addAll(cOutput);
         }
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                newBottomHashJoinConjuncts, ExpressionUtils.andByOptional(newBottomNonHashJoinConjuncts), a, c,
+                newBottomHashJoinConjuncts, ExpressionUtils.optionalAnd(newBottomNonHashJoinConjuncts), a, c,
                 bottomJoin.getJoinReorderContext());
         newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
         newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-        Plan left = JoinReorderCommon.project(newLeftProjectExpr, newBottomJoin).orElse(newBottomJoin);
-        Plan right = JoinReorderCommon.project(newRightProjectExprs, b).orElse(b);
+        Plan left = PlanUtils.projectOrSelf(newLeftProjectExpr, newBottomJoin);
+        Plan right = PlanUtils.projectOrSelf(newRightProjectExprs, b);
 
         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                 newTopHashJoinConjuncts,
-                ExpressionUtils.andByOptional(newTopNonHashJoinConjuncts), left, right,
+                ExpressionUtils.optionalAnd(newTopNonHashJoinConjuncts), left, right,
                 topJoin.getJoinReorderContext());
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-        return JoinReorderCommon.project(new ArrayList<>(topJoin.getOutput()), newTopJoin).get();
+        return PlanUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
     }
 
     public static boolean check(Type type, LogicalJoin<? extends Plan, GroupPlan> topJoin,

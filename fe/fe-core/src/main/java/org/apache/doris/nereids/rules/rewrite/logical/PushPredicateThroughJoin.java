@@ -26,15 +26,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -114,22 +113,12 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
     private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             List<Expression> joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
-
-        Expression left = ExpressionUtils.and(leftPredicates);
-        Expression right = ExpressionUtils.and(rightPredicates);
-        //todo expr should optimize again using expr rewrite
-        Plan leftPlan = joinPlan.left();
-        Plan rightPlan = joinPlan.right();
-        if (!left.equals(BooleanLiteral.TRUE)) {
-            leftPlan = new LogicalFilter<>(left, leftPlan);
-        }
-
-        if (!right.equals(BooleanLiteral.TRUE)) {
-            rightPlan = new LogicalFilter<>(right, rightPlan);
-        }
+        // todo expr should optimize again using expr rewrite
+        Plan leftPlan = PlanUtils.filterOrSelf(leftPredicates, joinPlan.left());
+        Plan rightPlan = PlanUtils.filterOrSelf(rightPredicates, joinPlan.right());
 
         return new LogicalJoin<>(joinPlan.getJoinType(), joinPlan.getHashJoinConjuncts(),
-                Optional.of(ExpressionUtils.and(joinConditions)), leftPlan, rightPlan);
+                ExpressionUtils.optionalAnd(joinConditions), leftPlan, rightPlan);
     }
 
     private Expression getJoinCondition(Expression predicate, Set<Slot> leftOutputs, Set<Slot> rightOutputs) {

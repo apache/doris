@@ -128,14 +128,13 @@ public abstract class AbstractPhysicalJoin<
      * @return the combination of hashJoinConjuncts and otherJoinCondition
      */
     public Optional<Expression> getOnClauseCondition() {
-        if (hashJoinConjuncts.isEmpty()) {
-            return otherJoinCondition;
+        Optional<Expression> hashJoinCondition = ExpressionUtils.optionalAnd(hashJoinConjuncts);
+
+        if (hashJoinCondition.isPresent() && otherJoinCondition.isPresent()) {
+            return ExpressionUtils.optionalAnd(hashJoinCondition.get(), otherJoinCondition.get());
         }
 
-        Expression onClauseCondition = ExpressionUtils.and(hashJoinConjuncts);
-        if (otherJoinCondition.isPresent()) {
-            onClauseCondition = ExpressionUtils.and(onClauseCondition, otherJoinCondition.get());
-        }
-        return Optional.of(onClauseCondition);
+        return hashJoinCondition.map(Optional::of)
+                .orElse(otherJoinCondition);
     }
 }

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
@@ -63,7 +64,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
 
-                    return JoinReorderCommon.project(new ArrayList<>(join.getOutput()), newJoin).get();
+                    return PlanUtils.project(new ArrayList<>(join.getOutput()), newJoin).get();
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 

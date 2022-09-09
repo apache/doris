@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -56,18 +57,13 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
 
     /**
      * reorderJoinsAccordingToConditions
+     *
      * @return join or filter
      */
     public Optional<Plan> reorderJoinsAccordingToConditions() {
         if (joinInputs.size() >= 2) {
             Plan root = reorderJoinsAccordingToConditions(joinInputs, conjunctsForAllHashJoins);
-            if (!conjunctsKeepInFilter.isEmpty()) {
-                root = new LogicalFilter(
-                        ExpressionUtils.and(conjunctsKeepInFilter),
-                        root
-                );
-            }
-            return Optional.of(root);
+            return Optional.of(PlanUtils.filterOrSelf(conjunctsKeepInFilter, root));
         }
         return Optional.empty();
     }
@@ -94,20 +90,11 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
                     conjuncts);
             List<Expression> joinConditions = pair.first;
             conjunctsKeepInFilter = pair.second;
-            LogicalJoin join;
-            if (joinConditions.isEmpty()) {
-                join = new LogicalJoin(JoinType.CROSS_JOIN,
-                        new ArrayList<>(),
-                        Optional.empty(),
-                        joinInputs.get(0), joinInputs.get(1));
-            } else {
-                join = new LogicalJoin(JoinType.INNER_JOIN,
-                        new ArrayList<>(),
-                        Optional.of(ExpressionUtils.and(joinConditions)),
-                        joinInputs.get(0), joinInputs.get(1));
-            }
 
-            return join;
+            return new LogicalJoin<>(JoinType.INNER_JOIN,
+                    new ArrayList<>(),
+                    ExpressionUtils.optionalAnd(joinConditions),
+                    joinInputs.get(0), joinInputs.get(1));
         }
         // input size >= 3;
         Plan left = joinInputs.get(0);
@@ -145,16 +132,9 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
                 conjuncts);
         List<Expression> joinConditions = pair.first;
         List<Expression> nonJoinConditions = pair.second;
-        LogicalJoin join;
-        if (joinConditions.isEmpty()) {
-            join = new LogicalJoin(JoinType.CROSS_JOIN, new ArrayList<Expression>(),
-                    Optional.empty(),
-                    left, right);
-        } else {
-            join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(),
-                    Optional.of(ExpressionUtils.and(joinConditions)),
-                    left, right);
-        }
+        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
+                ExpressionUtils.optionalAnd(joinConditions),
+                left, right);
 
         List<Plan> newInputs = new ArrayList<>();
         newInputs.add(join);

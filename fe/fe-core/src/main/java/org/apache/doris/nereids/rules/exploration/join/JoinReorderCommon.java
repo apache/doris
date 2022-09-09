@@ -17,24 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import java.util.List;
-import java.util.Optional;
-
 class JoinReorderCommon {
     public enum Type {
         INNER,
         OUTER
-    }
-
-    public static Optional<Plan> project(List<NamedExpression> projectExprs, Plan plan) {
-        if (!projectExprs.isEmpty()) {
-            return Optional.of(new LogicalProject<>(projectExprs, plan));
-        } else {
-            return Optional.empty();
-        }
     }
 }
