@@ -51,34 +51,25 @@ public class LogicalOlapScan extends LogicalRelation {
 
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
-
-
-    public LogicalOlapScan(OlapTable table, List<String> qualifier) {
-        this(table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, ImmutableList.of(), false);
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false);
     }
 
-    public LogicalOlapScan(Table table, List<String> qualifier) {
-        this(table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false);
+    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(),
+                table.getPartitionIds(), false, ImmutableList.of(), false);
+    }
+
     public LogicalOlapScan(RelationId id, Table table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false);
+                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false);
     }
 
     /**
      * Constructor for LogicalOlapScan.
      */
-    public LogicalOlapScan(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<Long> selectedPartitionIdList,
-            boolean partitionPruned, List<Long> candidateIndexIds, boolean rollupSelected) {
-        super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
     public LogicalOlapScan(RelationId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Long> selectedPartitionIdList, boolean partitionPruned) {
+            List<Long> selectedPartitionIdList, boolean partitionPruned, List<Long> candidateIndexIds,
+            boolean rollupSelected) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties, selectedPartitionIdList);
         // TODO: use CBO manner to select best index id, according to index's statistics info,
@@ -120,30 +111,24 @@ public class LogicalOlapScan extends LogicalRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(getId(), table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, rollupSelected);
-        return new LogicalOlapScan(getId(), table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()), selectedPartitionIds, partitionPruned);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
+        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
                 partitionPruned, candidateIndexIds, rollupSelected);
-        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(),
-                logicalProperties, selectedPartitionIds, partitionPruned);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionId, true, candidateIndexIds, rollupSelected);
     }
 
     public LogicalOlapScan withCandidateIndexIds(List<Long> candidateIndexIds) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, true);
-        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(),
-                Optional.of(logicalPropertiesSupplier.get()), selectedPartitionId, true);
     }
 
     @Override
