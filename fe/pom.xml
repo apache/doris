@@ -205,7 +205,7 @@ under the License.
         <okhttp.version>4.7.2</okhttp.version>
         <okhttp-ws.version>3.4.2</okhttp-ws.version>
         <okio.version>2.6.0</okio.version>
-        <snakeyaml.version>1.15</snakeyaml.version>
+        <snakeyaml.version>1.26</snakeyaml.version>
         <validation-api.version>1.1.0.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <slf4j.version>1.7.5</slf4j.version>
