@@ -522,41 +522,50 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_DATEV2: {
-                if (_str_schema[i][1] != "int32") {
+                if (_str_schema[i][1] != "int64") {
                     return Status::InvalidArgument(
                             "project field type is datev2, should use int32, "
                             "but the definition type of column {} is {}",
                             _str_schema[i][2], _str_schema[i][1]);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::Int32Writer* col_writer =
-                        static_cast<parquet::Int32Writer*>(rgWriter->column(i));
-                int32_t default_int32 = 0;
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
+                int64_t default_int64 = 0;
                 if (const auto* not_nullable_column =
                             check_and_get_column<const ColumnVector<UInt32>>(col.get())) {
+                    std::vector<uint64_t> res(sz);
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        res[row_id] = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                                              not_nullable_column->get_data()[row_id])
+                                              .to_olap_datetime();
+                    }
                     col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const int32_t*>(
-                                                   not_nullable_column->get_data().data()));
+                                           reinterpret_cast<const int64_t*>(res.data()));
                 } else if (const auto* nullable_column =
                                    check_and_get_column<const ColumnNullable>(col.get())) {
+                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto& nested_col = assert_cast<const ColumnVector<UInt32>&>(
+                            nullable_column->get_nested_column());
                     if (!nullable_column->has_null()) {
+                        std::vector<uint64_t> res(sz);
+                        for (size_t row_id = 0; row_id < sz; row_id++) {
+                            res[row_id] = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                                                  nested_col.get_data()[row_id])
+                                                  .to_olap_datetime();
+                        }
                         col_writer->WriteBatch(sz, nullptr, nullptr,
-                                               reinterpret_cast<const int32_t*>(
-                                                       assert_cast<const ColumnVector<UInt32>&>(
-                                                               nullable_column->get_nested_column())
-                                                               .get_data()
-                                                               .data()));
+                                               reinterpret_cast<const int64_t*>(res.data()));
                     } else {
-                        const auto& null_map = nullable_column->get_null_map_data();
-                        const auto& nested_col = nullable_column->get_nested_column();
                         for (size_t row_id = 0; row_id < sz; row_id++) {
                             if (null_map[row_id] != 0) {
-                                col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                                col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
                             } else {
-                                col_writer->WriteBatch(
-                                        1, nullptr, nullptr,
-                                        reinterpret_cast<const int32_t*>(
-                                                nested_col.get_data_at(row_id).data));
+                                uint64_t tmp = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                                                       nested_col.get_data()[row_id])
+                                                       .to_olap_datetime();
+                                col_writer->WriteBatch(1, nullptr, nullptr,
+                                                       reinterpret_cast<const int64_t*>(&tmp));
                             }
                         }
                     }
@@ -581,29 +590,39 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 int64_t default_int64 = 0;
                 if (const auto* not_nullable_column =
                             check_and_get_column<const ColumnVector<UInt64>>(col.get())) {
+                    std::vector<uint64_t> res(sz);
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        res[row_id] = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                              not_nullable_column->get_data()[row_id])
+                                              .to_olap_datetime();
+                    }
                     col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const int64_t*>(
-                                                   not_nullable_column->get_data().data()));
+                                           reinterpret_cast<const int64_t*>(res.data()));
                 } else if (const auto* nullable_column =
                                    check_and_get_column<const ColumnNullable>(col.get())) {
+                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto& nested_col = assert_cast<const ColumnVector<UInt64>&>(
+                            nullable_column->get_nested_column());
                     if (!nullable_column->has_null()) {
+                        std::vector<uint64_t> res(sz);
+                        for (size_t row_id = 0; row_id < sz; row_id++) {
+                            res[row_id] = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                                  nested_col.get_data()[row_id])
+                                                  .to_olap_datetime();
+                        }
                         col_writer->WriteBatch(sz, nullptr, nullptr,
-                                               reinterpret_cast<const int64_t*>(
-                                                       assert_cast<const ColumnVector<UInt64>&>(
-                                                               nullable_column->get_nested_column())
-                                                               .get_data()
-                                                               .data()));
+                                               reinterpret_cast<const int64_t*>(res.data()));
                     } else {
-                        const auto& null_map = nullable_column->get_null_map_data();
-                        const auto& nested_col = nullable_column->get_nested_column();
                         for (size_t row_id = 0; row_id < sz; row_id++) {
                             if (null_map[row_id] != 0) {
                                 col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
                             } else {
-                                col_writer->WriteBatch(
-                                        1, nullptr, nullptr,
-                                        reinterpret_cast<const int64_t*>(
-                                                nested_col.get_data_at(row_id).data));
+                                uint64_t tmp =
+                                        binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                                nested_col.get_data()[row_id])
+                                                .to_olap_datetime();
+                                col_writer->WriteBatch(1, nullptr, nullptr,
+                                                       reinterpret_cast<const int64_t*>(&tmp));
                             }
                         }
                     }
@@ -648,6 +667,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
                     }
                 }
+                break;
             }
             case TYPE_DECIMALV2: {
                 if (_str_schema[i][1] != "byte_array") {

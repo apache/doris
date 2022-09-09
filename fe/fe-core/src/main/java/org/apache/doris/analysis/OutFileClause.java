@@ -233,9 +233,8 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
-                case DATEV2:
                     if (!type.equals("int32")) {
-                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT/DATEV2,"
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT,"
                                 + "should use int32, " + "but the definition type of column " + i + " is " + type);
                     }
                     break;
@@ -243,9 +242,10 @@ public class OutFileClause {
                 case DATE:
                 case DATETIME:
                 case DATETIMEV2:
+                case DATEV2:
                     if (!type.equals("int64")) {
-                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, "
-                                + "but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME/DATEV2/DATETIMEV2,"
+                                + "should use int64, but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case FLOAT:
@@ -305,13 +305,13 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
-                case DATEV2:
                     column.add("int32");
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
                 case DATETIMEV2:
+                case DATEV2:
                     column.add("int64");
                     break;
                 case FLOAT:
