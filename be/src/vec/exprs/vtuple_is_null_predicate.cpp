@@ -42,14 +42,14 @@ Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& 
 
     _column_to_check.reserve(_tuple_ids.size());
     // Resolve tuple ids to column id, one tuple only need check one column to speed up
+    uint32_t loc = 0;
     for (auto tuple_id : _tuple_ids) {
-        uint32_t loc = 0;
         for (auto& tuple_desc : desc.tuple_descriptors()) {
             if (tuple_desc->id() == tuple_id) {
                 _column_to_check.emplace_back(loc);
+                loc += tuple_desc->slots().size();
                 break;
             }
-            loc += tuple_desc->slots().size();
         }
     }
 
