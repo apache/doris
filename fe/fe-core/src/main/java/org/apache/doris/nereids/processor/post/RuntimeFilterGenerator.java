@@ -21,7 +21,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.rules.analysis.OlapScanNodeId;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -30,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
 /**
  * generate runtime filter
  */
-public class RuntimeFilterGenerator extends PlanPostprocessor {
+public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
 
@@ -71,7 +71,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
 
     // olap scan node that contains target of a runtime filter.
-    private final Map<OlapScanNodeId, List<SlotReference>> targetOnOlapScanNodeMap = Maps.newHashMap();
+    private final Map<RelationId, List<SlotReference>> targetOnOlapScanNodeMap = Maps.newHashMap();
 
     private final List<org.apache.doris.planner.RuntimeFilter> legacyFilters = Lists.newArrayList();
 
@@ -193,7 +193,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                             hashJoinExprToOlapScanSlot.put(expr.getExprId(), slot);
                         })
                         .count() > 0)
-                .forEach(slot -> targetOnOlapScanNodeMap.computeIfAbsent(scan.id, k -> new ArrayList<>())
+                .forEach(slot -> targetOnOlapScanNodeMap.computeIfAbsent(scan.getId(), k -> new ArrayList<>())
                         .add((SlotReference) slot));
         return scan;
     }
@@ -213,7 +213,7 @@ public class RuntimeFilterGenerator extends PlanPostprocessor {
                 .collect(Collectors.toList()));
     }
 
-    public List<SlotReference> getTargetOnOlapScanNode(OlapScanNodeId id) {
+    public List<SlotReference> getTargetOnOlapScanNode(RelationId id) {
         return targetOnOlapScanNodeMap.getOrDefault(id, Collections.emptyList());
     }
 

@@ -25,7 +25,6 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.PlanFragment;
@@ -230,7 +229,7 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {
-        return ((SlotReference) filter.getSrcExpr()).getColumn().getName().equals(srcColName)
-                && ((SlotReference) filter.getTargetExpr()).getColumn().getName().equals(targetColName);
+        return filter.getSrcExpr().toSql().equals(srcColName)
+                && filter.getTargetExpr().toSql().equals(targetColName);
     }
 }
