@@ -127,7 +127,8 @@ public class LoadingTaskPlanner {
                 if (fileGroups.size() > 0) {
                     for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
                         try {
-                            if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null && importColumnDesc.getColumnName().equals(col.getName())) {
+                            if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                    && importColumnDesc.getColumnName().equals(col.getName())) {
                                 scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
                                 break;
                             }
