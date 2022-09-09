@@ -87,6 +87,10 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    DataDir* get_data_dir() { return _data_dir; }
+    uint32_t get_segment_id() { return _segment_id; }
+    bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();

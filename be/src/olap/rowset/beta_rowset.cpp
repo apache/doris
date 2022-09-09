@@ -55,6 +55,12 @@ std::string BetaRowset::local_segment_path(const std::string& tablet_path,
     return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id.to_string(), segment_id);
 }
 
+std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
+                                           const RowsetId& rowset_id, int64_t begin, int64_t end) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{begin_seg}-{end_seg}.dat
+    return fmt::format("{}/{}_{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end);
+}
+
 std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                             int segment_id) {
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat

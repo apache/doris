@@ -49,6 +49,7 @@
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+//#include "olap/rowset/beta_rowset_writer.h"
 
 namespace doris {
 
@@ -58,6 +59,10 @@ class BlockManager;
 class MemTableFlushExecutor;
 class Tablet;
 class TaskWorkerPool;
+class BetaRowsetWriter;
+
+using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
+using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
@@ -191,6 +196,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
     Status submit_quick_compaction_task(TabletSharedPtr tablet);
+    Status submit_seg_compaction_task(BetaRowsetWriter* writer, SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
@@ -277,6 +283,8 @@ private:
     void _cooldown_tasks_producer_callback();
 
     void _cache_file_cleaner_tasks_producer_callback();
+
+    Status _handle_seg_compaction(BetaRowsetWriter* writer, SegCompactionCandidatesSharedPtr segments);
 
 private:
     struct CompactionCandidate {
@@ -378,6 +386,7 @@ private:
     std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
