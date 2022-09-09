@@ -53,5 +53,6 @@ public class BuiltinFunctions implements FunctionHelper {
 
     public static final BuiltinFunctions INSTANCE = new BuiltinFunctions();
 
+    // Note: Do not add any code here!
     private BuiltinFunctions() {}
 }
