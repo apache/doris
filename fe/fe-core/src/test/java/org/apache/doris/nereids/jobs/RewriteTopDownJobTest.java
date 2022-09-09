@@ -71,7 +71,7 @@ public class RewriteTopDownJobTest {
 
     @Test
     public void testSimplestScene() {
-        Plan leaf = new UnboundRelation(RelationId.createGenerator().getNextId(), Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf

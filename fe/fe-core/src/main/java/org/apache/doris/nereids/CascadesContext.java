@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -122,6 +123,10 @@ public class CascadesContext {
 
     public JobContext getCurrentJobContext() {
         return currentJobContext;
+    }
+
+    public RelationId getNextId() {
+        return statementContext.getNextId();
     }
 
     public void setCurrentJobContext(JobContext currentJobContext) {

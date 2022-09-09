@@ -72,7 +72,7 @@ public class MemoInitTest implements PatternMatchSupported {
 
     @Test
     public void initByJoinSameUnboundTable() {
-        UnboundRelation scanA = new UnboundRelation(RelationId.createGenerator().getNextId(), ImmutableList.of("a"));
+        UnboundRelation scanA = new UnboundRelation(ImmutableList.of("a"));
 
         LogicalJoin<UnboundRelation, UnboundRelation> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA);
 

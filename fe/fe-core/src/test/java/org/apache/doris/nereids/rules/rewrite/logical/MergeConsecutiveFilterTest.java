@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -40,8 +39,7 @@ import java.util.List;
 public class MergeConsecutiveFilterTest {
     @Test
     public void testMergeConsecutiveFilters() {
-        UnboundRelation relation = new UnboundRelation(
-                RelationId.createGenerator().getNextId(), Lists.newArrayList("db", "table"));
+        UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
         Expression expression1 = new IntegerLiteral(1);
         LogicalFilter filter1 = new LogicalFilter(expression1, relation);
         Expression expression2 = new IntegerLiteral(2);
