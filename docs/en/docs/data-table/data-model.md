@@ -444,6 +444,9 @@ Another way is to **change the aggregation type of the count column above to REP
 
 Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
 
+### Key Columns
+For the Duplicate,Aggregate and Unique models,The key columns will be given when the table created, but it is actually different: For the Duplicate model, the key columns of the table can be regarded as just "sort columns", not an unique identifier. In aggregate type tables such as Aggregate and Unique models, the key columns are both "sort columns" and "unique identification columns", which were the real "key columns".
+
 ## Suggestions for Choosing Data Model
 
 Because the data model was established when the table was built, and **could not be modified. Therefore, it is very important to select an appropriate data model**.
