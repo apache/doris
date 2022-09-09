@@ -118,12 +118,12 @@ public class PlanEqualsTest {
 
     @Test
     public void testLogicalOlapScan() {
-        LogicalOlapScan actual = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+        LogicalOlapScan actual = PlanConstructor.newLogicalOlapScanWithSameId(0, "table", 0);
 
-        LogicalOlapScan expected = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+        LogicalOlapScan expected = PlanConstructor.newLogicalOlapScanWithSameId(0, "table", 0);
         Assertions.assertEquals(expected, actual);
 
-        LogicalOlapScan unexpected = PlanConstructor.newLogicalOlapScan(1, "table", 0);
+        LogicalOlapScan unexpected = PlanConstructor.newLogicalOlapScanWithSameId(1, "table", 0);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

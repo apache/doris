@@ -42,6 +42,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Context of physical plan.
@@ -150,15 +151,11 @@ public class PlanTranslatorContext {
         return slotDescriptor;
     }
 
-    /**
-     * in Nereids, all node only has one TupleDescriptor, so we can use the first one.
-     *
-     * @param planNode the node to get the TupleDescriptor
-     *
-     * @return plan node's tuple descriptor
-     */
-    public TupleDescriptor getTupleDesc(PlanNode planNode) {
-        return descTable.getTupleDesc(planNode.getOutputTupleIds().get(0));
+    public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {
+        if (planNode.getOutputTupleDesc() != null) {
+            return Lists.newArrayList(planNode.getOutputTupleDesc());
+        }
+        return planNode.getOutputTupleIds().stream().map(this::getTupleDesc).collect(Collectors.toList());
     }
 
     public TupleDescriptor getTupleDesc(TupleId tupleId) {

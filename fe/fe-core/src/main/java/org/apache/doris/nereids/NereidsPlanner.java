@@ -86,6 +86,15 @@ public class NereidsPlanner extends Planner {
         logicalPlanAdapter.setColLabels(columnLabelList);
     }
 
+    @VisibleForTesting
+    public void plan(StatementBase queryStmt) {
+        try {
+            plan(queryStmt, statementContext.getConnectContext().getSessionVariable().toThrift());
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Do analyze and optimize for query plan.
      *

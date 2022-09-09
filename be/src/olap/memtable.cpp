@@ -413,8 +413,9 @@ Status MemTable::_generate_delete_bitmap() {
     RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
     segments.push_back(segment);
     std::shared_lock meta_rlock(_tablet->get_header_lock());
+    int64_t end_version = _tablet->max_version_unlocked().second;
     RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, &_rowset_ids,
-                                                _delete_bitmap));
+                                                _delete_bitmap, end_version));
     return Status::OK();
 }
 

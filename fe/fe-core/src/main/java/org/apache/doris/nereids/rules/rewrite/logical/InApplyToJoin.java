@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
@@ -54,15 +53,13 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         apply.right().getOutput().get(0));
             }
 
-            LogicalJoin newJoin;
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
-                newJoin = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(), Optional.of(predicate),
+                return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(), Optional.of(predicate),
                         apply.left(), apply.right());
             } else {
-                newJoin = new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(), Optional.of(predicate),
+                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(), Optional.of(predicate),
                         apply.left(), apply.right());
             }
-            return new LogicalProject(apply.left().getOutput(), newJoin);
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }
 }
