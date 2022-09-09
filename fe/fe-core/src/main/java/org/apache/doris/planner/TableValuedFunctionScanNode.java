@@ -88,7 +88,7 @@ public class TableValuedFunctionScanNode extends ScanNode {
         msg.node_type = TPlanNodeType.TABLE_VALUED_FUNCTION_SCAN_NODE;
         TTableValuedFunctionScanNode tvfScanNode = new TTableValuedFunctionScanNode();
         tvfScanNode.setTupleId(desc.getId().asInt());
-        tvfScanNode.setFuncName(tvf.getFuncName());
+        tvfScanNode.setFuncName(tvf.getFunctionName());
         msg.table_valued_func_scan_node = tvfScanNode;
     }
 

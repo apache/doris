@@ -28,9 +28,9 @@ import java.util.List;
 
 public abstract class TableValuedFunctionInf {
 
-    public abstract TTVFunctionName getFuncName();
+    public abstract TTVFunctionName getFunctionName();
 
-    public FunctionGenTable getTable() {
+    public FunctionGenTable getTable() throws AnalysisException {
         FunctionGenTable table = new FunctionGenTable(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION,
                                 getTableColumns());
         return table;
@@ -38,15 +38,19 @@ public abstract class TableValuedFunctionInf {
 
     // All table functions should be registered here
     public static TableValuedFunctionInf getTableFunction(String funcName, List<String> params) throws UserException {
-        if (funcName.equalsIgnoreCase(NumbersTableValuedFunction.NAME)) {
-            return new NumbersTableValuedFunction(params);
+        switch (funcName.toLowerCase()) {
+            case NumbersTableValuedFunction.NAME:
+                return new NumbersTableValuedFunction(params);
+            case S3TableValuedFunction.NAME:
+                return new S3TableValuedFunction(params);
+            default:
+                throw new UserException("Could not find table function " + funcName);
         }
-        throw new UserException("Could not find table function " + funcName);
     }
 
     public abstract String getTableName();
 
-    public abstract List<Column> getTableColumns();
+    public abstract List<Column> getTableColumns() throws AnalysisException;
 
     public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
 }

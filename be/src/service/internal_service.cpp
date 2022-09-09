@@ -44,11 +44,14 @@
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
+#include "util/s3_uri.h"
 #include "util/string_util.h"
 #include "util/telemetry/brpc_carrier.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+#include "vec/exec/table_schema_parser/file_schema_parser.h"
+#include "vec/exec/table_schema_parser/s3_file_schema_parser.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
@@ -407,6 +410,35 @@ void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* cntl_base
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+}
+
+void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* controller,
+                                              const PFetchTableSchemaRequest* request,
+                                              PFetchTableSchemaResult* result,
+                                              google::protobuf::Closure* done) {
+    SCOPED_SWITCH_BTHREAD_TLS();
+    brpc::ClosureGuard closure_guard(done);
+    std::string path;
+    Status status;
+    if (!request->properties().contains("path")) {
+        status = Status::InvalidArgument("no path for this query");
+        status.to_protobuf(result->mutable_status());
+        return;
+    } else {
+        path = request->properties().at("path");
+    }
+    std::unique_ptr<FileSchemaParser> file_schema_parser;
+    switch (request->storage_type()) {
+    case S3_STORAGE:
+        file_schema_parser.reset(new S3FileSchemaParser(request, result, path));
+        break;
+    default:
+        status = Status::InvalidArgument("no support storage");
+        return;
+    }
+    status = file_schema_parser->parse();
+    LOG(INFO) << "--ftw: complete parse, status: " << status;
+    status.to_protobuf(result->mutable_status());
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,

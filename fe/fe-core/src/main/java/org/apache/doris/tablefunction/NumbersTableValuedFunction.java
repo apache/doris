@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
@@ -30,8 +29,6 @@ import org.apache.doris.thrift.TTVFScanRange;
 import org.apache.doris.thrift.TTVFunctionName;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,7 +42,6 @@ import java.util.List;
  */
 public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     public static final String NAME = "numbers";
-    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
     // The total numbers will be generated.
     private long totalNumbers;
     // The total backends will server it.
@@ -71,7 +67,7 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     }
 
     @Override
-    public TTVFunctionName getFuncName() {
+    public TTVFunctionName getFunctionName() {
         return TTVFunctionName.NUMBERS;
     }
 

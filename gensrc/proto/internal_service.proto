@@ -525,6 +525,32 @@ message PTabletWriteSlaveDoneResult {
     optional PStatus status = 1;
 };
 
+enum PStorageType {
+    S3_STORAGE = 1;
+};
+
+enum PFormatType {
+   CSV = 1;
+};
+
+message PFetchTableSchemaRequest {
+
+  // support different storage, such as S3, hdfs, local.  
+  required PStorageType storage_type = 1;
+  
+  // support different format, such as csv,json,csv_with_names,csv_with_names_and_types
+  required PFormatType format_type = 2;
+  
+  map<string, string> properties = 3;
+};
+
+message PFetchTableSchemaResult {
+  required PStatus status = 1;
+  optional int32 column_nums = 2;
+  repeated string column_names = 3;
+  repeated PTypeDesc column_types = 4;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -558,5 +584,6 @@ service PBackendService {
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
+    rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
 };
 

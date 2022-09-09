@@ -326,6 +326,7 @@ struct TExternalScanRange {
 
 enum TTVFunctionName {
     NUMBERS = 0,
+    S3 = 1,
 }
 
 // Every table valued function should have a scan range definition to save its
