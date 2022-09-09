@@ -294,7 +294,12 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
     vectorized::ColumnNullable* nullable_column = nullptr;
     if (slot_desc->is_nullable()) {
         nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-        nullable_column->get_null_map_data().push_back(0);
+        // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
+        if (value->GetType() != rapidjson::Type::kNullType) {
+            nullable_column->get_null_map_data().push_back(0);
+        } else {
+            nullable_column->insert_default();
+        }
         column_ptr = &nullable_column->get_nested_column();
     }
 
@@ -326,9 +331,7 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
         str_value = (char*)"1";
         break;
     case rapidjson::Type::kNullType:
-        if (slot_desc->is_nullable()) {
-            nullable_column->insert_default();
-        } else {
+        if (!slot_desc->is_nullable()) {
             RETURN_IF_ERROR(_append_error_msg(
                     *value, "Json value is null, but the column `{}` is not nullable.",
                     slot_desc->col_name(), valid));
@@ -630,7 +633,7 @@ Status VSIMDJsonReader::_write_data_to_column(simdjson::ondemand::value value,
     ColumnString* column_string = assert_cast<ColumnString*>(column_ptr);
     if (value.is_null()) {
         if (column->is_nullable()) {
-            nullable_column->get_null_map_data().push_back(1);
+            // insert_default already push 1 to null_map
             nullable_column->insert_default();
         } else {
             RETURN_IF_ERROR(
