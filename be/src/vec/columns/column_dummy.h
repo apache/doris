@@ -74,6 +74,9 @@ public:
 
     void update_hash_with_value(size_t /*n*/, SipHash& /*hash*/) const override {}
 
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override {};
+
     void insert_from(const IColumn&, size_t) override { ++s; }
 
     void insert_range_from(const IColumn& /*src*/, size_t /*start*/, size_t length) override {
@@ -123,6 +126,20 @@ public:
         for (size_t i = 0; i < num_columns; ++i) res[i] = clone_resized(counts[i]);
 
         return res;
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
+                                      selector.size(), num_rows);
+        }
+
+        res->reserve(num_rows);
+
+        for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
     }
 
     void get_extremes(Field&, Field&) const override {}

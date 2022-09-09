@@ -60,7 +60,6 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
         return Objects.hash(symbol, left(), right());
     }
 
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {

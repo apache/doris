@@ -37,33 +37,36 @@ Status ParquetFileHdfsScanner::open() {
     if (_ranges.empty()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_get_next_reader(_next_range));
+    RETURN_IF_ERROR(_get_next_reader());
     return Status();
 }
 
 void ParquetFileHdfsScanner::_init_profiles(RuntimeProfile* profile) {}
 
 Status ParquetFileHdfsScanner::get_next(vectorized::Block* block, bool* eof) {
-    if (_next_range >= _ranges.size() || _scanner_eof) {
+    if (_scanner_eof) {
         *eof = true;
         return Status::OK();
     }
     RETURN_IF_ERROR(init_block(block));
     bool range_eof = false;
     RETURN_IF_ERROR(_reader->read_next_batch(block, &range_eof));
+    if (block->rows() > 0) {
+        _fill_columns_from_path(block, block->rows());
+    }
     if (range_eof) {
-        _next_range++;
-        RETURN_IF_ERROR(_get_next_reader(_next_range));
+        RETURN_IF_ERROR(_get_next_reader());
+        *eof = _scanner_eof;
     }
     return Status::OK();
 }
 
-Status ParquetFileHdfsScanner::_get_next_reader(int _next_range) {
+Status ParquetFileHdfsScanner::_get_next_reader() {
     if (_next_range >= _ranges.size()) {
         _scanner_eof = true;
         return Status::OK();
     }
-    const TFileRangeDesc& range = _ranges[_next_range];
+    const TFileRangeDesc& range = _ranges[_next_range++];
     std::unique_ptr<FileReader> file_reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
                                                     file_reader));
@@ -75,8 +78,7 @@ Status ParquetFileHdfsScanner::_get_next_reader(int _next_range) {
             _reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());
     if (!status.ok()) {
         if (status.is_end_of_file()) {
-            _scanner_eof = true;
-            return Status::OK();
+            return _get_next_reader();
         }
         return status;
     }

@@ -29,7 +29,7 @@ under the License.
 In version 0.14, Doris supports atomic replacement of two tables.
 This operation only applies to OLAP tables.
 
-For partition level replacement operations, please refer to [Temporary Partition Document](../partition/table-temp-partition.md)
+For partition level replacement operations, please refer to [Temporary Partition Document](../partition/table-temp-partition)
 
 ## Syntax
 

@@ -27,6 +27,7 @@
 #include "vec/common/exception.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -35,7 +36,7 @@ namespace doris::vectorized {
 
 template <typename T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
-    auto& other = static_cast<const Self&>(rhs_);
+    auto& other = assert_cast<const Self&>(rhs_);
     const T& a = data[n];
     const T& b = other.data[m];
 
@@ -121,6 +122,12 @@ void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
+void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                                const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
 void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
                                        IColumn::Permutation& res) const {
 #if 1 /// TODO: perf test
@@ -157,7 +164,7 @@ MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);
@@ -322,6 +329,13 @@ void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min, scale);
     max = NearestFieldType<T>(cur_max, scale);
+}
+
+template <typename T>
+void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                   IColumn::Permutation& perms, EqualRange& range,
+                                   bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <>

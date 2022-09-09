@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -102,20 +103,28 @@ public class TypeCoercionUtils {
         if (input instanceof NullType) {
             // Cast null type (usually from null literals) into target types
             returnType = expected.defaultConcreteType();
-        } else if (input instanceof NumericType && expected instanceof DecimalType) {
-            // If input is a numeric type but not decimal, and we expect a decimal type,
-            // cast the input to decimal.
-            returnType = DecimalType.forType(input);
-        } else if (input instanceof NumericType && expected instanceof NumericType) {
-            // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
-            returnType = expected.defaultConcreteType();
+        } else if (input instanceof NumericType) {
+            if (expected instanceof DecimalType) {
+                // If input is a numeric type but not decimal, and we expect a decimal type,
+                // cast the input to decimal.
+                returnType = DecimalType.forType(input);
+            } else if (expected instanceof DateTimeType) {
+                returnType = DateTimeType.INSTANCE;
+            } else if (expected instanceof NumericType) {
+                // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
+                returnType = expected.defaultConcreteType();
+            }
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalType) {
                 returnType = DecimalType.SYSTEM_DEFAULT;
             } else if (expected instanceof NumericType) {
                 returnType = expected.defaultConcreteType();
+            } else if (expected instanceof DateTimeType) {
+                returnType = DateTimeType.INSTANCE;
             }
-        } else if (input instanceof PrimitiveType
+        }
+
+        if (returnType == null && input instanceof PrimitiveType
                 && expected instanceof CharacterType) {
             returnType = StringType.INSTANCE;
         }

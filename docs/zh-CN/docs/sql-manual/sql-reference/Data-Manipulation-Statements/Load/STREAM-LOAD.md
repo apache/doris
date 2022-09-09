@@ -99,7 +99,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 11. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
-12. format: 指定导入数据格式，默认是csv，支持json格式。
+12. format: 指定导入数据格式，默认是csv，也支持：csv_with_names(支持csv文件行首过滤)，csv_with_names_and_types(支持csv文件前两行过滤) 或 json格式。
 
 13. jsonpaths: 导入json方式分为：简单模式和匹配模式。
     

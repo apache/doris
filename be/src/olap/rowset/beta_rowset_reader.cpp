@@ -203,8 +203,18 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     _iterator.reset(final_iterator);
 
+    // The data in _input_block will be copied shallowly to _output_block.
+    // Therefore, for nestable fields, the _input_block can't be shared.
+    bool has_nestable_fields = false;
+    for (const auto* field : _input_schema->columns()) {
+        if (field != nullptr && field->get_sub_field_count() > 0) {
+            has_nestable_fields = true;
+            break;
+        }
+    }
+
     // init input block
-    if (can_reuse_schema) {
+    if (can_reuse_schema && !has_nestable_fields) {
         if (read_context->reuse_block == nullptr) {
             read_context->reuse_block.reset(
                     new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));

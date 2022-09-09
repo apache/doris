@@ -18,22 +18,20 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.CheckedMath;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Estimate hash join stats.
@@ -41,38 +39,61 @@ import java.util.stream.Collectors;
  */
 public class JoinEstimation {
 
+    private static final double DEFAULT_JOIN_RATIO = 10.0;
+
     /**
      * Do estimate.
+     * // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
      */
     public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
         JoinType joinType = join.getJoinType();
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
-        statsDeriveResult.merge(rightStats);
         // TODO: normalize join hashConjuncts.
-        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
-        List<Slot> leftSlot = new ArrayList<>(leftStats.getSlotToColumnStats().keySet());
-        List<Expression> normalizedConjuncts = hashJoinConjuncts.stream().map(EqualTo.class::cast)
-                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftSlot))
-                        .collect(Collectors.toList());
-        long rowCount = -1;
-        if (joinType.isSemiOrAntiJoin()) {
-            rowCount = getSemiJoinRowCount(leftStats, rightStats, normalizedConjuncts, joinType);
-        } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
-            rowCount = getJoinRowCount(leftStats, rightStats, normalizedConjuncts, joinType);
-        } else if (joinType.isCrossJoin()) {
+        // List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+        // List<Expression> normalizedConjuncts = hashJoinConjuncts.stream().map(EqualTo.class::cast)
+        //         .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftStats.getSlotToColumnStats().keySet()))
+        //         .collect(Collectors.toList());
+
+        long rowCount;
+        if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
+            rowCount = Math.round(leftStats.getRowCount() / DEFAULT_JOIN_RATIO) + 1;
+        } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
+            rowCount = Math.round(rightStats.getRowCount() / DEFAULT_JOIN_RATIO) + 1;
+        } else if (joinType == JoinType.INNER_JOIN) {
+            long childRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            rowCount = Math.round(childRowCount / DEFAULT_JOIN_RATIO) + 1;
+        } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
+            rowCount = leftStats.getRowCount();
+        } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
+            rowCount = rightStats.getRowCount();
+        } else if (joinType == JoinType.CROSS_JOIN) {
             rowCount = CheckedMath.checkedMultiply(leftStats.getRowCount(),
                     rightStats.getRowCount());
         } else {
             throw new RuntimeException("joinType is not supported");
         }
+
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount, Maps.newHashMap());
+        if (joinType.isRemainLeftJoin()) {
+            statsDeriveResult.merge(leftStats);
+        }
+        if (joinType.isRemainRightJoin()) {
+            statsDeriveResult.merge(rightStats);
+        }
         statsDeriveResult.setRowCount(rowCount);
         return statsDeriveResult;
+    }
+
+    private static Expression removeCast(Expression parent) {
+        if (parent instanceof Cast) {
+            return removeCast(((Cast) parent).child());
+        }
+        return parent;
     }
 
     // TODO: If the condition of Join Plan could any expression in addition to EqualTo type,
     //       we should handle that properly.
     private static long getSemiJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
-            List<Expression> eqConjunctList, JoinType joinType) {
+            List<Expression> hashConjuncts, JoinType joinType) {
         long rowCount;
         if (JoinType.RIGHT_SEMI_JOIN.equals(joinType) || JoinType.RIGHT_ANTI_JOIN.equals(joinType)) {
             if (rightStats.getRowCount() == -1) {
@@ -88,10 +109,11 @@ public class JoinEstimation {
         Map<Slot, ColumnStats> leftSlotToColStats = leftStats.getSlotToColumnStats();
         Map<Slot, ColumnStats> rightSlotToColStats = rightStats.getSlotToColumnStats();
         double minSelectivity = 1.0;
-        for (Expression eqJoinPredicate : eqConjunctList) {
-            long lhsNdv = leftSlotToColStats.get(eqJoinPredicate.child(0)).getNdv();
+        for (Expression hashConjunct : hashConjuncts) {
+            // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
+            long lhsNdv = leftSlotToColStats.get(removeCast(hashConjunct.child(0))).getNdv();
             lhsNdv = Math.min(lhsNdv, leftStats.getRowCount());
-            long rhsNdv = rightSlotToColStats.get(eqJoinPredicate.child(1)).getNdv();
+            long rhsNdv = rightSlotToColStats.get(removeCast(hashConjunct.child(1))).getNdv();
             rhsNdv = Math.min(rhsNdv, rightStats.getRowCount());
             // Skip conjuncts with unknown NDV on either side.
             if (lhsNdv == -1 || rhsNdv == -1) {

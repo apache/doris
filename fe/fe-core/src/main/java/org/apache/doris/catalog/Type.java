@@ -508,6 +508,10 @@ public abstract class Type {
             }
 
             return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
+        } else if (t1.isArrayType() && t2.isNull()) {
+            return t1;
+        } else if (t1.isNull() && t2.isArrayType()) {
+            return t2;
         }
 
         return ScalarType.INVALID;

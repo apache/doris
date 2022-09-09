@@ -22,13 +22,15 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "vec/core/sort_block.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
 VSortNode::VSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-          _num_rows_skipped(0) {}
+          _num_rows_skipped(0),
+          _unsorted_block(nullptr) {}
 
 Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -44,6 +46,9 @@ Status VSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
+    _unsorted_block.reset(new MutableBlock(
+            VectorizedUtils::create_empty_columnswithtypename(child(0)->row_desc())));
+    _partial_sort_timer = ADD_TIMER(_runtime_profile, "PartialSortTime");
     return Status::OK();
 }
 
@@ -124,15 +129,23 @@ void VSortNode::debug_string(int indentation_level, stringstream* out) const {
 Status VSortNode::sort_input(RuntimeState* state) {
     bool eos = false;
     do {
-        Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next_after_projects(state, &block, &eos),
-                                       child(0)->get_next_span(), eos);
-        auto rows = block.rows();
-
-        if (rows != 0) {
-            RETURN_IF_ERROR(pretreat_block(block));
-            size_t mem_usage = block.allocated_bytes();
-
+        do {
+            Block upstream_block;
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(0)->get_next_after_projects(state, &upstream_block, &eos),
+                    child(0)->get_next_span(), eos);
+            if (upstream_block.rows() != 0) {
+                _unsorted_block->merge(upstream_block);
+            }
+        } while (!eos && _unsorted_block->rows() < BUFFERED_BLOCK_SIZE &&
+                 _unsorted_block->allocated_bytes() < BUFFERED_BLOCK_BYTES);
+        if (_unsorted_block->rows() > 0) {
+            _total_mem_usage += _unsorted_block->allocated_bytes();
+            Block block = _unsorted_block->to_block(0);
+            {
+                SCOPED_TIMER(_partial_sort_timer);
+                RETURN_IF_ERROR(partial_sort(block));
+            }
             // dispose TOP-N logic
             if (_limit != -1) {
                 // Here is a little opt to reduce the mem uasge, we build a max heap
@@ -140,9 +153,8 @@ Status VSortNode::sort_input(RuntimeState* state) {
                 // if one block totally greater the heap top of _block_priority_queue
                 // we can throw the block data directly.
                 if (_num_rows_in_block < _limit) {
-                    _total_mem_usage += mem_usage;
                     _sorted_blocks.emplace_back(std::move(block));
-                    _num_rows_in_block += rows;
+                    _num_rows_in_block += block.rows();
                     _block_priority_queue.emplace(_pool->add(
                             new SortCursorImpl(_sorted_blocks.back(), _sort_description)));
                 } else {
@@ -151,19 +163,18 @@ Status VSortNode::sort_input(RuntimeState* state) {
                     if (!block_cursor.totally_greater(_block_priority_queue.top())) {
                         _sorted_blocks.emplace_back(std::move(block));
                         _block_priority_queue.push(block_cursor);
-                        _total_mem_usage += mem_usage;
                     } else {
                         continue;
                     }
                 }
             } else {
                 // dispose normal sort logic
-                _total_mem_usage += mem_usage;
                 _sorted_blocks.emplace_back(std::move(block));
             }
-
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
+            _unsorted_block.reset(new MutableBlock(
+                    VectorizedUtils::create_empty_columnswithtypename(child(0)->row_desc())));
         }
     } while (!eos);
 
@@ -171,7 +182,7 @@ Status VSortNode::sort_input(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VSortNode::pretreat_block(doris::vectorized::Block& block) {
+Status VSortNode::partial_sort(doris::vectorized::Block& block) {
     if (_vsort_exec_exprs.need_materialize_tuple()) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
         std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());

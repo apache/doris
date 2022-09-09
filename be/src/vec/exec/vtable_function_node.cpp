@@ -59,7 +59,7 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, _row_descriptor));
 
     // get current all output slots
-    for (const auto& tuple_desc : this->row_desc().tuple_descriptors()) {
+    for (const auto& tuple_desc : this->_row_descriptor.tuple_descriptors()) {
         for (const auto& slot_desc : tuple_desc->slots()) {
             _output_slots.push_back(slot_desc);
         }

@@ -38,10 +38,8 @@ public class LimitClauseTest extends ParserTestBase {
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
                 );
 
-
         parsePlan("SELECT b FROM test limit 3")
                 .matchesFromRoot(logicalLimit().when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0));
-
 
         parsePlan("SELECT b FROM test order by a limit 3")
                 .matchesFromRoot(

@@ -107,6 +107,8 @@ set(VEC_FILES
   exec/vbroker_scan_node.cpp
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
+  exec/vjdbc_connector.cpp
+  exec/vjdbc_scan_node.cpp
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
@@ -239,6 +241,10 @@ set(VEC_FILES
   exec/scan/scanner_scheduler.cpp
   exec/scan/new_olap_scan_node.cpp
   exec/scan/new_olap_scanner.cpp
+  exec/scan/new_file_arrow_scanner.cpp
+  exec/scan/new_file_scan_node.cpp
+  exec/scan/new_file_scanner.cpp
+  exec/scan/new_file_text_scanner.cpp
 )
 
 add_library(Vec STATIC

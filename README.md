@@ -149,7 +149,7 @@ We deeply appreciate 🔗[community contributors](https://github.com/apache/dori
 
 ## 👨‍👩‍👧‍👦 Users
 
-Apache Doris now has a wide user base in China and around the world, and as of today, Apache Doris is used in production environments in over 500 companies worldwide. More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Weibo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
+Apache Doris now has a wide user base in China and around the world, and as of today, Apache Doris is used in production environments in over 700 companies worldwide. More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Weibo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
 
 The users of Apache Doris: 🔗[https://doris.apache.org/users](https://doris.apache.org/users)
 

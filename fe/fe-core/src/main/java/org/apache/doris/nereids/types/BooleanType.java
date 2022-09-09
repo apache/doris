@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 public class BooleanType extends PrimitiveType {
     public static BooleanType INSTANCE = new BooleanType();
 
+    private static int WIDTH = 1;
+
     private BooleanType() {
     }
 
@@ -37,5 +39,10 @@ public class BooleanType extends PrimitiveType {
     @Override
     public String simpleString() {
         return "boolean";
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

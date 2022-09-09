@@ -47,7 +47,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -63,17 +62,17 @@ public class CreateTableStmt extends DdlStmt {
 
     private boolean ifNotExists;
     private boolean isExternal;
-    private TableName tableName;
-    private List<ColumnDef> columnDefs;
+    protected TableName tableName;
+    protected List<ColumnDef> columnDefs;
     private List<IndexDef> indexDefs;
-    private KeysDesc keysDesc;
-    private PartitionDesc partitionDesc;
-    private DistributionDesc distributionDesc;
-    private Map<String, String> properties;
+    protected KeysDesc keysDesc;
+    protected PartitionDesc partitionDesc;
+    protected DistributionDesc distributionDesc;
+    protected Map<String, String> properties;
     private Map<String, String> extProperties;
     private String engineName;
     private String comment;
-    private List<AlterClause> rollupAlterClauseList;
+    private List<AlterClause> rollupAlterClauseList = Lists.newArrayList();
 
     private static Set<String> engineNames;
 
@@ -92,6 +91,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("hive");
         engineNames.add("iceberg");
         engineNames.add("hudi");
+        engineNames.add("jdbc");
     }
 
     public CreateTableStmt() {
@@ -164,7 +164,7 @@ public class CreateTableStmt extends DdlStmt {
         this.ifNotExists = ifNotExists;
         this.comment = Strings.nullToEmpty(comment);
 
-        this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
+        this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
     // This is for iceberg/hudi table, which has no column schema
@@ -515,7 +515,7 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")
-                || engineName.equals("iceberg") || engineName.equals("hudi")) {
+                || engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("jdbc")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;

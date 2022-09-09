@@ -67,7 +67,7 @@ public:
     }
 
 private:
-    ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
+    ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
         const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
@@ -110,7 +110,7 @@ private:
     }
 
     template <typename NestedColumnType, typename RightColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
+    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
         const auto& nested_data =
@@ -144,7 +144,7 @@ private:
     }
 
     template <typename NestedColumnType>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets& offsets,
+    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const UInt8* nested_null_map, const IColumn& nested_column,
                                        const IColumn& right_column) {
         if (check_column<ColumnUInt8>(right_column)) {

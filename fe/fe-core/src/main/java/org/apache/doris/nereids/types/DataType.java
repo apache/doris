@@ -33,12 +33,16 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Abstract class for all data type in Nereids.
  */
 public abstract class DataType implements AbstractDataType {
+    private static final Pattern VARCHAR_PATTERN = Pattern.compile("varchar(\\(\\d+\\))?");
 
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
@@ -116,14 +120,21 @@ public abstract class DataType implements AbstractDataType {
     public static DataType convertFromString(String type) {
         // TODO: use a better way to resolve types
         // TODO: support varchar, char, decimal
-        switch (type.toLowerCase()) {
+        type = type.toLowerCase();
+        switch (type) {
             case "bool":
             case "boolean":
                 return BooleanType.INSTANCE;
+            case "tinyint":
+                return TinyIntType.INSTANCE;
+            case "smallint":
+                return SmallIntType.INSTANCE;
             case "int":
                 return IntegerType.INSTANCE;
             case "bigint":
                 return BigIntType.INSTANCE;
+            case "largeint":
+                return LargeIntType.INSTANCE;
             case "double":
                 return DoubleType.INSTANCE;
             case "string":
@@ -133,6 +144,10 @@ public abstract class DataType implements AbstractDataType {
             case "datetime":
                 return DateTimeType.INSTANCE;
             default:
+                Optional<VarcharType> varcharType = matchVarchar(type);
+                if (varcharType.isPresent()) {
+                    return varcharType.get();
+                }
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
     }
@@ -226,5 +241,18 @@ public abstract class DataType implements AbstractDataType {
         } else {
             return this;
         }
+    }
+
+    public abstract int width();
+
+    private static Optional<VarcharType> matchVarchar(String type) {
+        Matcher matcher = VARCHAR_PATTERN.matcher(type);
+        if (matcher.find()) {
+            VarcharType varcharType = matcher.groupCount() > 1
+                    ? VarcharType.createVarcharType(Integer.valueOf(matcher.group(1)))
+                    : VarcharType.SYSTEM_DEFAULT;
+            return Optional.of(varcharType);
+        }
+        return Optional.empty();
     }
 }

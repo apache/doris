@@ -17,18 +17,42 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+
+import java.util.function.Predicate;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
  */
-@Developing
 public class JoinLAsscom extends OneExplorationRuleFactory {
+    // for inner-inner
+    public static final JoinLAsscom INNER = new JoinLAsscom(Type.INNER);
+    // for inner-leftOuter or leftOuter-leftOuter
+    public static final JoinLAsscom OUTER = new JoinLAsscom(Type.OUTER);
+
+    private final Predicate<LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan>> typeChecker;
+
+    private final Type type;
+
+    /**
+     * Specify join type.
+     */
+    public JoinLAsscom(Type type) {
+        this.type = type;
+        if (type == Type.INNER) {
+            typeChecker = join -> join.getJoinType().isInnerJoin() && join.left().getJoinType().isInnerJoin();
+        } else {
+            typeChecker = join -> JoinLAsscomHelper.outerSet.contains(
+                    Pair.of(join.left().getJoinType(), join.getJoinType()));
+        }
+    }
+
     /*
      *      topJoin                newTopJoin
      *      /     \                 /     \
@@ -38,19 +62,15 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalJoin(), groupPlan())
-            .when(JoinLAsscomHelper::check)
-            .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
-                    && (join.left().getJoinType().isInnerJoin() || join.left().getJoinType().isLeftOuterJoin()))
-            .then(topJoin -> {
-
-                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
-                JoinLAsscomHelper helper = JoinLAsscomHelper.of(topJoin, bottomJoin);
-                if (!helper.initJoinOnCondition()) {
-                    return null;
-                }
-
-                return helper.newTopJoin();
-            }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+        return logicalJoin(logicalJoin(), group())
+                .when(topJoin -> JoinLAsscomHelper.check(type, topJoin, topJoin.left()))
+                .when(typeChecker)
+                .then(topJoin -> {
+                    JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
+                    if (!helper.initJoinOnCondition()) {
+                        return null;
+                    }
+                    return helper.newTopJoin();
+                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }
 }

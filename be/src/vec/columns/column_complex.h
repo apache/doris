@@ -55,7 +55,7 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(static_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
@@ -150,7 +150,7 @@ public:
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        auto& col = static_cast<const Self&>(src);
+        auto& col = assert_cast<const Self&>(src);
         auto& src_data = col.get_data();
         auto st = src_data.begin() + start;
         auto ed = st + length;
@@ -183,7 +183,13 @@ public:
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
     }
 
+    // maybe we do not need to impl the function
     void update_hash_with_value(size_t n, SipHash& hash) const override {
+        // TODO add hash function
+    }
+
+    void update_hashes_with_value(std::vector<SipHash>& hash,
+                                  const uint8_t* __restrict null_data) const override {
         // TODO add hash function
     }
 
@@ -230,9 +236,14 @@ public:
         LOG(FATAL) << "scatter not implemented";
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector);
+    }
+
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = static_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
@@ -249,7 +260,7 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
     auto res = this->create();
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data = this->data;
     }
 

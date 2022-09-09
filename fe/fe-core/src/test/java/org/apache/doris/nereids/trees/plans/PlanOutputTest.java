@@ -22,8 +22,10 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -82,7 +84,7 @@ public class PlanOutputTest {
     @Test
     public void testPhysicalPlanMustHaveLogicalProperties() {
         Assertions.assertThrows(NullPointerException.class, () ->
-                new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl"), Optional.empty(), null) {
+                new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
                     @Override
                     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
                         return null;
@@ -90,6 +92,11 @@ public class PlanOutputTest {
 
                     @Override
                     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+                        return null;
+                    }
+
+                    @Override
+                    public PhysicalPlan withPhysicalProperties(PhysicalProperties physicalProperties) {
                         return null;
                     }
 

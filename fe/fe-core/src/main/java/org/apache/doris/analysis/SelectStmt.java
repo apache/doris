@@ -444,13 +444,16 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
+            ArrayList<Expr> aggFnExprList = new ArrayList<>();
             for (SelectListItem item : selectList.getItems()) {
-                if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
+                aggFnExprList.clear();
+                getAggregateFnExpr(item.getExpr(), aggFnExprList);
+                for (Expr aggFnExpr : aggFnExprList) {
                     for (Expr expr : groupByClause.getGroupingExprs()) {
-                        if (item.getExpr().contains(expr)) {
-                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
-                                    + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
-                                    + " instead.");
+                        if (aggFnExpr.contains(expr)) {
+                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select "
+                                    + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
+                                    + "please use union instead.");
                         }
                     }
                 }
@@ -733,12 +736,12 @@ public class SelectStmt extends QueryStmt {
 
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
-        List<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
+        ArrayList<TableRef> originOrderBackUp = Lists.newArrayList(fromClause.getTableRefs());
         // New pair of table ref and row count
         for (TableRef tblRef : fromClause) {
             if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
                 // Unsupported reorder outer join
-                return;
+                break;
             }
             long rowCount = 0;
             if (tblRef.getTable().getType() == TableType.OLAP) {
@@ -746,6 +749,11 @@ public class SelectStmt extends QueryStmt {
                 LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
             }
             candidates.add(Pair.of(tblRef, rowCount));
+        }
+        int reorderTableCount = candidates.size();
+        if (reorderTableCount < originOrderBackUp.size()) {
+            fromClause.clear();
+            fromClause.addAll(originOrderBackUp.subList(0, reorderTableCount));
         }
         // give InlineView row count
         long last = 0;
@@ -765,6 +773,9 @@ public class SelectStmt extends QueryStmt {
                 // as long as one scheme success, we return this scheme immediately.
                 // in this scheme, candidate.first will be consider to be the big table in star schema.
                 // this scheme might not be fit for snowflake schema.
+                if (reorderTableCount < originOrderBackUp.size()) {
+                    fromClause.addAll(originOrderBackUp.subList(reorderTableCount, originOrderBackUp.size()));
+                }
                 return;
             }
         }
@@ -819,18 +830,7 @@ public class SelectStmt extends QueryStmt {
                     List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
                     for (Expr candidateEqJoinPredicate : candidateEqJoinPredicates) {
                         List<TupleId> candidateTupleList = Lists.newArrayList();
-                        List<Expr> candidateEqJoinPredicateList = Lists.newArrayList(candidateEqJoinPredicate);
-                        // If a large table or view has joinClause is ranked first,
-                        // and the joinClause is not judged here,
-                        // the column in joinClause may not be found during reanalyzing.
-                        // for example:
-                        // select * from t1 inner join t2 on t1.a = t2.b inner join t3 on t3.c = t2.b;
-                        // If t3 is a large table, it will be placed first after the reorderTable,
-                        // and the problem that t2.b does not exist will occur in reanalyzing
-                        if (candidateTableRef.getOnClause() != null) {
-                            candidateEqJoinPredicateList.add(candidateTableRef.getOnClause());
-                        }
-                        Expr.getIds(candidateEqJoinPredicateList, candidateTupleList, null);
+                        Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
                         int count = candidateTupleList.size();
                         for (TupleId tupleId : candidateTupleList) {
                             if (validTupleId.contains(tupleId) || tid.equals(tupleId)) {
@@ -1959,7 +1959,7 @@ public class SelectStmt extends QueryStmt {
     private boolean checkGroupingFn(Expr expr) {
         if (expr instanceof GroupingFunctionCallExpr) {
             return true;
-        } else if (expr.getChildren() != null && expr.getChildren().size() > 0) {
+        } else if (expr.getChildren() != null) {
             for (Expr child : expr.getChildren()) {
                 if (checkGroupingFn(child)) {
                     return true;
@@ -1967,6 +1967,16 @@ public class SelectStmt extends QueryStmt {
             }
         }
         return false;
+    }
+
+    private void getAggregateFnExpr(Expr expr, ArrayList<Expr> aggFnExprList) {
+        if (expr instanceof FunctionCallExpr && expr.fn instanceof AggregateFunction) {
+            aggFnExprList.add(expr);
+        } else if (expr.getChildren() != null) {
+            for (Expr child : expr.getChildren()) {
+                getAggregateFnExpr(child, aggFnExprList);
+            }
+        }
     }
 
     @Override

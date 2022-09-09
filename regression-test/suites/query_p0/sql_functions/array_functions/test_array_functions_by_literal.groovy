@@ -97,6 +97,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_sort(['a','b','c'])"
     qt_sql "select array_sort(['c','b','a'])"
     qt_sql "select array_sort([true, false, true])"
+    qt_sql "select array_sort([])"
 
     // array_overlap function
     qt_sql "select arrays_overlap([1,2,3], [4,5,6])"

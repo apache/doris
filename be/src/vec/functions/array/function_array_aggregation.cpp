@@ -106,7 +106,7 @@ struct AggregateFunctionImpl<AggregateOperation::PRODUCT> {
     template <typename Element>
     struct TypeTraits {
         using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT>;
-        using AggregateDataType = AggregateFunctionProductData<Element>;
+        using AggregateDataType = AggregateFunctionProductData<ResultType>;
         using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
     };
 };
@@ -176,7 +176,7 @@ struct ArrayAggregateImpl {
 
     template <typename Element>
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets& offsets) {
+                             const ColumnArray::Offsets64& offsets) {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ResultType = ArrayAggregateResult<Element, operation>;
         using ColVecResultType = ColumnVectorOrDecimal<ResultType>;

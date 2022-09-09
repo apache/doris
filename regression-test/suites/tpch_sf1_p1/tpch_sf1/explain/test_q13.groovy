@@ -56,9 +56,9 @@ suite("test_explain_tpch_sf_1_q13") {
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
 				"  |  output: count(*)\n" + 
-				"  |  group by: <slot 5> count(`o_orderkey`)") && 
+				"  |  group by: <slot 5> count(<slot 15>)") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: count(<slot 5> count(`o_orderkey`))\n" + 
+				"  |  output: count(<slot 5> count(<slot 15>))\n" + 
 				"  |  group by: <slot 4> `c_custkey`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 

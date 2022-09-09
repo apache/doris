@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,12 +47,18 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
     }
 
     @Override
-    public LogicalProperties getLogicalProperties() {
-        return logicalProperties;
+    public List<Slot> getOutput() {
+        return getLogicalProperties().getOutput();
     }
 
     @Override
-    public List<Slot> getOutput() {
-        return logicalProperties.getOutput();
+    public LogicalProperties computeLogicalProperties() {
+        boolean hasUnboundChild = children.stream().map(Plan::getLogicalProperties)
+                .anyMatch(UnboundLogicalProperties.class::isInstance);
+        if (hasUnboundChild || hasUnboundExpression()) {
+            return UnboundLogicalProperties.INSTANCE;
+        } else {
+            return new LogicalProperties(this::computeOutput);
+        }
     }
 }

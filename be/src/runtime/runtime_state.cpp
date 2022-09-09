@@ -107,9 +107,14 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
           _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
-    if (query_globals.__isset.time_zone) {
+    if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = query_globals.nano_seconds;
+    } else if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+        _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
@@ -117,10 +122,12 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
+        _nano_seconds = 0;
     } else {
         //Unit test may set into here
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
+        _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 }
@@ -135,6 +142,7 @@ RuntimeState::RuntimeState()
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
+    _nano_seconds = 0;
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     _exec_env = ExecEnv::GetInstance();
 }
@@ -161,9 +169,14 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
                           const TQueryGlobals& query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
-    if (query_globals.__isset.time_zone) {
+    if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = query_globals.nano_seconds;
+    } else if (query_globals.__isset.time_zone) {
+        _timezone = query_globals.time_zone;
+        _timestamp_ms = query_globals.timestamp_ms;
+        _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
@@ -171,10 +184,12 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
+        _nano_seconds = 0;
     } else {
         //Unit test may set into here
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
+        _nano_seconds = 0;
     }
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 
@@ -230,6 +245,11 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
             &_profile);
+
+    if (_query_options.is_report_success) {
+        _query_mem_tracker->enable_print_log_usage();
+        _instance_mem_tracker->enable_print_log_usage();
+    }
 
     return Status::OK();
 }

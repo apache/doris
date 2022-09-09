@@ -38,6 +38,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Context of physical plan.
@@ -92,6 +93,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public void removePlanFragment(PlanFragment planFragment) {
+        this.planFragments.remove(planFragment);
+    }
+
     public SlotRef findSlotRef(ExprId exprId) {
         return exprIdToSlotRef.get(exprId);
     }
@@ -104,7 +109,6 @@ public class PlanTranslatorContext {
         return slotIdToExprId.get(slotId);
     }
 
-
     public List<ScanNode> getScanNodes() {
         return scanNodes;
     }
@@ -114,14 +118,16 @@ public class PlanTranslatorContext {
      */
     public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-        Column column = slotReference.getColumn();
+        Optional<Column> column = slotReference.getColumn();
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        if (column != null) {
-            slotDescriptor.setColumn(column);
+        if (column.isPresent()) {
+            slotDescriptor.setColumn(column.get());
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
-        this.addExprIdSlotRefPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
+        SlotRef slotRef = new SlotRef(slotDescriptor);
+        slotRef.setLabel(slotReference.getName());
+        this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
     }

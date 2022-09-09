@@ -68,7 +68,7 @@ suite("test_explain_tpch_sf_1_q8") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 26> <slot 23> `o_year` ASC") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 24> sum(CASE WHEN `nation` = 'BRAZIL' THEN `volume` ELSE 0 END)), sum(<slot 25> sum(`volume`))\n" + 
+				"  |  output: sum(<slot 24> sum(CASE WHEN <slot 117> = 'BRAZIL' THEN <slot 105> * (1 - <slot 106>) ELSE 0 END)), sum(<slot 25> sum(<slot 105> * (1 - <slot 106>)))\n" + 
 				"  |  group by: <slot 23> `o_year`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 

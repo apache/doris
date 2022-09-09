@@ -158,19 +158,21 @@ public class Memo {
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 2:                               |                                   |                                |
      * | if targetGroup is null                |              true                 |      new group expression      |
-     * | and same group expression exist       |                                   |                                |
+     * | and same group expression not exist   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 3:                               |                                   |                                |
-     * | if targetGroup is null                |              true                 |      new group expression      |
+     * | if targetGroup is not null            |              true                 |      new group expression      |
      * | and same group expression not exits   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 4:                               |                                   |                                |
-     * | if targetGroup equal to the exists    |              true                 |      new group expression      |
-     * | group expression's owner group        |                                   |                                |
+     * | if targetGroup is not null and not    |              true                 |      new group expression      |
+     * | equal to the existed group            |                                   |                                |
+     * | expression's owner group              |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 5:                               |                                   |                                |
-     * | if targetGroup not equal to the       |              false                |    existed group expression    |
-     * | exists group expression's owner group |                                   |                                |
+     * | if targetGroup is null or equal to    |              false                |    existed group expression    |
+     * | the existed group expression's owner  |                                   |                                |
+     * | group                                 |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * </pre>
      *
@@ -190,15 +192,19 @@ public class Memo {
             return rewriteByExistedPlan(targetGroup, plan);
         }
 
-        // try to create a new group expression
         List<Group> childrenGroups = rewriteChildrenPlansToGroups(plan, targetGroup);
+        plan = replaceChildrenToGroupPlan(plan, childrenGroups);
+
+        // try to create a new group expression
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
 
         // slow check the groupExpression/plan whether exists in the memo
         GroupExpression existedExpression = groupExpressions.get(newGroupExpression);
         if (existedExpression == null) {
+            // case 2 or case 3
             return rewriteByNewGroupExpression(targetGroup, plan, newGroupExpression);
         } else {
+            // case 4 or case 5
             return rewriteByExistedGroupExpression(targetGroup, plan, existedExpression, newGroupExpression);
         }
     }
@@ -213,6 +219,10 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+        // check logicalproperties, must same output in a Group.
+        if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+            throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
+        }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
             return CopyInResult.of(false, groupExpr.get());
@@ -341,8 +351,10 @@ public class Memo {
             }
         }
         if (!source.equals(destination)) {
+            // TODO: stats and other
             source.moveLogicalExpressionOwnership(destination);
             source.movePhysicalExpressionOwnership(destination);
+            source.moveLowestCostPlansOwnership(destination);
             groups.remove(source.getGroupId());
         }
         return destination;
@@ -471,7 +483,6 @@ public class Memo {
         return plan.withChildren(groupPlanChildren)
             .withLogicalProperties(Optional.of(logicalProperties));
     }
-
 
     /*
      * the scenarios that 'parentGroupExpression == toGroup': eliminate the root group.

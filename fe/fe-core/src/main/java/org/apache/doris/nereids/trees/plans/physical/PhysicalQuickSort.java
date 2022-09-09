@@ -20,14 +20,14 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,7 +35,7 @@ import java.util.Optional;
 /**
  * Physical quick sort plan.
  */
-public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> {
+public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements Sort {
 
     public PhysicalQuickSort(List<OrderKey> orderKeys,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
@@ -51,32 +51,40 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
         super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, child);
     }
 
+    /**
+     * Constructor of PhysicalHashJoinNode.
+     */
+    public PhysicalQuickSort(List<OrderKey> orderKeys,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, physicalProperties, child);
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalQuickSort((PhysicalQuickSort<Plan>) this, context);
+        return visitor.visitPhysicalQuickSort(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return orderKeys.stream()
-                .map(OrderKey::getExpr)
-                .collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
-    public PhysicalUnary<Plan> withChildren(List<Plan> children) {
+    public PhysicalQuickSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalQuickSort<>(orderKeys, logicalProperties, children.get(0));
+        return new PhysicalQuickSort<>(orderKeys, getLogicalProperties(), children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalQuickSort<>(orderKeys, groupExpression, logicalProperties, child());
+    public PhysicalQuickSort<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalQuickSort<>(orderKeys, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public PhysicalQuickSort<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalQuickSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
+    }
+
+    @Override
+    public PhysicalQuickSort<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
+        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), getLogicalProperties(), physicalProperties,
+                child());
     }
 
     @Override

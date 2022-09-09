@@ -132,6 +132,9 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
@@ -164,6 +167,11 @@ public:
     }
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+    }
 
     void get_extremes(Field& min, Field& max) const override { data->get_extremes(min, max); }
 

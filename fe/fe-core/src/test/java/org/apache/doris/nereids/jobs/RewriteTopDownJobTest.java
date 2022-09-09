@@ -109,13 +109,13 @@ public class RewriteTopDownJobTest {
 
         public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, groupExpression, logicalProperties,
-                    Collections.emptyList());
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+                    groupExpression, logicalProperties, Collections.emptyList());
         }
 
         @Override
         public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-            return new LogicalBoundRelation(table, qualifier, groupExpression, Optional.of(logicalProperties));
+            return new LogicalBoundRelation(table, qualifier, groupExpression, Optional.of(getLogicalProperties()));
         }
 
         @Override

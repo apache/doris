@@ -81,6 +81,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -550,6 +551,7 @@ public class Analyzer {
         Calendar currentDate = Calendar.getInstance();
         String nowStr = formatter.format(currentDate.getTime());
         queryGlobals.setNowString(nowStr);
+        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;
     }
 

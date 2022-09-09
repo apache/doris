@@ -69,11 +69,11 @@ public class PushDownPredicateTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
 
-        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of("score"));
+        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of(""));
 
-        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of("course"));
+        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of(""));
     }
 
     @Test
@@ -88,7 +88,6 @@ public class PushDownPredicateTest {
         Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition2 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
-
 
         Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.of(onCondition), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);

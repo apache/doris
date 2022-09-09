@@ -66,7 +66,7 @@ public class ApplyRuleJob extends Job {
             for (Plan newPlan : newPlans) {
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
                 if (!result.generateNewExpression) {
                     continue;
                 }
@@ -74,14 +74,14 @@ public class ApplyRuleJob extends Job {
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
                     if (exploredOnly) {
-                        pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
-                        pushTask(new DeriveStatsJob(newGroupExpression, context));
+                        pushJob(new ExploreGroupExpressionJob(newGroupExpression, context));
+                        pushJob(new DeriveStatsJob(newGroupExpression, context));
                         continue;
                     }
-                    pushTask(new OptimizeGroupExpressionJob(newGroupExpression, context));
-                    pushTask(new DeriveStatsJob(newGroupExpression, context));
+                    pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
+                    pushJob(new DeriveStatsJob(newGroupExpression, context));
                 } else {
-                    pushTask(new CostAndEnforcerJob(newGroupExpression, context));
+                    pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
             }
         }

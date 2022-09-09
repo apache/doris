@@ -46,7 +46,7 @@ public class ExploreGroupJob extends Job {
             return;
         }
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-            pushTask(new ExploreGroupExpressionJob(groupExpression, context));
+            pushJob(new ExploreGroupExpressionJob(groupExpression, context));
         }
         group.setExplored(true);
     }

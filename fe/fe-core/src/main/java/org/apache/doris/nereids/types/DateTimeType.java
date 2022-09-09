@@ -27,6 +27,8 @@ public class DateTimeType extends PrimitiveType {
 
     public static DateTimeType INSTANCE = new DateTimeType();
 
+    private static final int WIDTH = 16;
+
     private DateTimeType() {
     }
 
@@ -38,5 +40,10 @@ public class DateTimeType extends PrimitiveType {
     @Override
     public boolean equals(Object o) {
         return o instanceof DateTimeType;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

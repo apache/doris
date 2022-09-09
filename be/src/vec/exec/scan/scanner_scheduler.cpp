@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
+#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
@@ -165,9 +166,8 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
-    // TODO: rethink mem tracker and span
-    // START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
-    //                    "ScannerScheduler::_scanner_scan");
+    INIT_AND_SCOPE_REENTRANT_SPAN_IF(ctx->state()->enable_profile(), ctx->state()->get_tracer(),
+                                     ctx->scan_span(), "VScanner::scan");
     SCOPED_ATTACH_TASK(scanner->runtime_state());
 
     Thread::set_self_name("_scanner_scan");
@@ -205,26 +205,30 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool get_free_block = true;
     int num_rows_in_block = 0;
 
+    // Only set to true when ctx->done() return true.
+    // Use this flag because we need distinguish eos from `should_stop`.
+    // If eos is true, we still need to return blocks,
+    // but is should_stop is true, no need to return blocks
+    bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
     while (!eos && raw_bytes_read < raw_bytes_threshold &&
            ((raw_rows_read < raw_rows_threshold && get_free_block) ||
             num_rows_in_block < state->batch_size())) {
         if (UNLIKELY(ctx->done())) {
-            eos = true;
-            status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            // No need to set status on error here.
+            // Because done() maybe caused by "should_stop"
+            should_stop = true;
             break;
         }
 
         auto block = ctx->get_free_block(&get_free_block);
         status = scanner->get_block(state, block, &eos);
-        VLOG_ROW << "VOlapScanNode input rows: " << block->rows();
+        VLOG_ROW << "VOlapScanNode input rows: " << block->rows() << ", eos: " << eos;
         if (!status.ok()) {
             LOG(WARNING) << "Scan thread read VOlapScanner failed: " << status.to_string();
             // Add block ptr in blocks, prevent mem leak in read failed
             blocks.push_back(block);
-            eos = true;
             break;
         }
 
@@ -249,11 +253,14 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         ctx->set_status_on_error(status);
         eos = true;
         std::for_each(blocks.begin(), blocks.end(), std::default_delete<vectorized::Block>());
+    } else if (should_stop) {
+        // No need to return blocks because of should_stop, just delete them
+        std::for_each(blocks.begin(), blocks.end(), std::default_delete<vectorized::Block>());
     } else if (!blocks.empty()) {
         ctx->append_blocks_to_queue(blocks);
     }
 
-    if (eos) {
+    if (eos || should_stop) {
         scanner->mark_to_need_to_close();
     }
 

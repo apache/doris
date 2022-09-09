@@ -35,6 +35,8 @@ Status ColumnChunkReader::init() {
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
+    // get the block compression codec
+    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
@@ -44,8 +46,6 @@ Status ColumnChunkReader::init() {
         // seek to the first data page
         _page_reader->seek_to_page(_metadata.data_page_offset);
     }
-    // get the block compression codec
-    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
     return Status::OK();
 }
 
@@ -70,13 +70,13 @@ Status ColumnChunkReader::load_page_data() {
 
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
-        RETURN_IF_ERROR(_page_reader->get_page_date(compressed_data));
+        RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
         // check decompressed buffer size
         _reserve_decompress_buf(uncompressed_size);
         _page_data = Slice(_decompress_buf.get(), uncompressed_size);
         RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
     } else {
-        RETURN_IF_ERROR(_page_reader->get_page_date(_page_data));
+        RETURN_IF_ERROR(_page_reader->get_page_data(_page_data));
     }
 
     // Initialize repetition level and definition level. Skip when level = 0, which means required field.
@@ -102,7 +102,7 @@ Status ColumnChunkReader::load_page_data() {
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     } else {
         std::unique_ptr<Decoder> page_decoder;
-        Decoder::get_decoder(_metadata.type, encoding, page_decoder);
+        RETURN_IF_ERROR(Decoder::get_decoder(_metadata.type, encoding, page_decoder));
         // Set type length
         page_decoder->set_type_length(_get_type_length());
         // Initialize the time convert context
@@ -135,25 +135,27 @@ Status ColumnChunkReader::_decode_dict_page() {
     std::unique_ptr<uint8_t[]> dict_data(new uint8_t[uncompressed_size]);
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
-        RETURN_IF_ERROR(_page_reader->get_page_date(compressed_data));
+        RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
         Slice dict_slice(dict_data.get(), uncompressed_size);
         RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
     } else {
         Slice dict_slice;
-        RETURN_IF_ERROR(_page_reader->get_page_date(dict_slice));
+        RETURN_IF_ERROR(_page_reader->get_page_data(dict_slice));
         // The data is stored by BufferedStreamReader, we should copy it out
         memcpy(dict_data.get(), dict_slice.data, dict_slice.size);
     }
 
     // Cache page decoder
     std::unique_ptr<Decoder> page_decoder;
-    Decoder::get_decoder(_metadata.type, tparquet::Encoding::RLE_DICTIONARY, page_decoder);
+    RETURN_IF_ERROR(
+            Decoder::get_decoder(_metadata.type, tparquet::Encoding::RLE_DICTIONARY, page_decoder));
     // Set type length
     page_decoder->set_type_length(_get_type_length());
     // Initialize the time convert context
     page_decoder->init(_field_schema, _ctz);
     // Set the dictionary data
-    RETURN_IF_ERROR(page_decoder->set_dict(dict_data, header.dictionary_page_header.num_values));
+    RETURN_IF_ERROR(page_decoder->set_dict(dict_data, uncompressed_size,
+                                           header.dictionary_page_header.num_values));
     _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)] = std::move(page_decoder);
 
     return Status::OK();

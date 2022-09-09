@@ -246,8 +246,14 @@ public:
         size_t string_size = size_at(n);
         size_t offset = offset_at(n);
 
+        // TODO: Rethink we really need to update the string_size?
         hash.update(reinterpret_cast<const char*>(&string_size), sizeof(string_size));
         hash.update(reinterpret_cast<const char*>(&chars[offset]), string_size);
+    }
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override {
+        SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -258,6 +264,9 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
 
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
@@ -300,6 +309,11 @@ public:
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnString>(res, selector);
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;

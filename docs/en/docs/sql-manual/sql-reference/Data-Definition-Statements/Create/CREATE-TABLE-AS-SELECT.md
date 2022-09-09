@@ -38,13 +38,22 @@ grammar：
 
 ```sql
 CREATE TABLE table_name [( column_name_list )]
-opt_engine opt_partition opt_properties KW_AS query_stmt
+    opt_engine:engineName
+    opt_keys:keys
+    opt_comment:tableComment
+    opt_partition:partition
+    opt_distribution:distribution
+    opt_rollup:index
+    opt_properties:tblProperties
+    opt_ext_properties:extProperties
+    KW_AS query_stmt:query_def
  ```
 
 illustrate: 
 
 - The user needs to have`SELECT`permission for the source table and`CREATE`permission for the target database
 - After a table is created, data is imported. If the import fails, the table is deleted
+- You can specify the key type. The default key type is `Duplicate Key`
 
 ### Example
 

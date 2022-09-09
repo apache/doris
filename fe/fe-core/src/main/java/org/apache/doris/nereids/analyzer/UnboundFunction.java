@@ -64,13 +64,13 @@ public class UnboundFunction extends Expression implements Unbound {
         String params = children.stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
-        return name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+        return name + "(" + (isDistinct ? "DISTINCT " : "") + params + ")";
     }
 
     @Override
     public String toString() {
         String params = Joiner.on(", ").join(children);
-        return "'" + name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+        return "'" + name + "(" + (isDistinct ? "DISTINCT " : "") + params + ")";
     }
 
     @Override

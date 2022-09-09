@@ -386,7 +386,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
-    SCOPED_ATTACH_TASK(_runtime_state);
+    // SCOPED_ATTACH_TASK(_runtime_state); // TODO Recorded on an independent tracker
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
@@ -426,7 +426,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             DCHECK(runtime_filter != nullptr);
             bool ready = runtime_filter->is_ready();
             if (ready) {
-                runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
+                runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
                 scanner_filter_apply_marks[i] = true;
                 if (!_runtime_filter_ready_flag[i] && !vexprs.empty()) {
                     std::lock_guard<std::shared_mutex> l(_rf_lock);
@@ -1829,7 +1829,7 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
         if (_vconjunct_ctx_ptr) {
             (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
         }
-        RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(state, row_desc()));
+        RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(state, _row_descriptor));
         RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(state));
         if (_vconjunct_ctx_ptr) {
             (*(_vconjunct_ctx_ptr.get()))->mark_as_stale();

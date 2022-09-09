@@ -40,7 +40,7 @@ public:
 
     const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
 
-    Status get_page_date(Slice& slice);
+    Status get_page_data(Slice& slice);
 
     void seek_to_page(int64_t page_header_offset) {
         _offset = page_header_offset;

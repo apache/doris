@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-
 /** java's type declaration. */
 public abstract class TypeDeclaration implements JavaAstNode {
     public final Optional<QualifiedName> packageName;

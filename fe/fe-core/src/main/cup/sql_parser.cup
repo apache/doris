@@ -446,6 +446,7 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
+nonterminal KeysDesc opt_mv_keys;
 
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc list_partition_key_desc;
@@ -1337,6 +1338,16 @@ opt_mv_refersh_info ::=
     :}
     ;
 
+opt_mv_keys ::=
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, Lists.newArrayList());
+    :}
+    | KW_KEY LPAREN ident_list:keys RPAREN
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    ;
+
 // Create Statement
 create_stmt ::=
     /* Database */
@@ -1461,12 +1472,13 @@ create_stmt ::=
     :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
-         opt_partition:partition
-         opt_distribution:distribution
-         opt_properties:tblProperties
+         opt_mv_keys:keyDesc
+         opt_partition:partitionDesc
+         opt_distribution:distributionDesc
+         opt_properties:properties
          KW_AS query_stmt:query
     {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, partition, distribution, tblProperties, query);
+        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
@@ -4847,8 +4859,6 @@ type ::=
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
-  | KW_ARRAY LESSTHAN KW_NOT_NULL LPAREN type:value_type RPAREN GREATERTHAN
-  {: RESULT = new ArrayType(value_type, false); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN

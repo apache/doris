@@ -494,6 +494,51 @@ public:
     }
 };
 
+class FunctionStringElt : public IFunction {
+public:
+    static constexpr auto name = "elt";
+    static FunctionPtr create() { return std::make_shared<FunctionStringElt>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        int arguent_size = arguments.size();
+        auto pos_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
+            pos_col = nullable->get_nested_column_ptr();
+        }
+        auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
+        auto pos = pos_data[0];
+        int num_children = arguent_size - 1;
+        if (pos < 1 || num_children == 0 || pos > num_children) {
+            auto null_map = ColumnUInt8::create(input_rows_count, 1);
+            auto res = ColumnString::create();
+            auto& res_data = res->get_chars();
+            auto& res_offset = res->get_offsets();
+            res_offset.resize(input_rows_count);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                res_data.push_back('\0');
+                res_offset[i] = res_data.size();
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+            return Status::OK();
+        }
+
+        block.get_by_position(result).column = block.get_by_position(arguments[pos]).column;
+        return Status::OK();
+    }
+};
+
 // concat_ws (string,string....) or (string, Array)
 // TODO: avoid use fmtlib
 class FunctionStringConcatWs : public IFunction {
@@ -618,9 +663,9 @@ private:
 
         const auto& string_column = reinterpret_cast<const ColumnString&>(*array_nested_column);
         const Chars& string_src_chars = string_column.get_chars();
-        const Offsets& src_string_offsets = string_column.get_offsets();
-        const Offsets& src_array_offsets = array_column.get_offsets();
-        ColumnArray::Offset current_src_array_offset = 0;
+        const auto& src_string_offsets = string_column.get_offsets();
+        const auto& src_array_offsets = array_column.get_offsets();
+        size_t current_src_array_offset = 0;
 
         // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {

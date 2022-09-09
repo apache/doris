@@ -64,22 +64,27 @@ Parameter Description:
     ```sql
     CREATE SQL_BLOCK_RULE test_rule
     PROPERTIES(
-    "sql"="select \\* from order_analysis;",
+    "sql"="select \\* from order_analysis",
     "global"="false",
     "enable"="true"
     );
     ````
 
+    >Notes:
+    >
+    >That the sql statement here does not end with a semicolon
+    
     When we execute the sql we just defined in the rule, an exception error will be returned. The example is as follows:
-
+    
     ```sql
     select * from order_analysis;
     ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule
     ````
 
+
 2. Create test_rule2, limit the maximum number of scanned partitions to 30, and limit the maximum scan base to 10 billion rows. The example is as follows:
 
-    ```sql
+   ```sql
     CREATE SQL_BLOCK_RULE test_rule2
     PROPERTIES (
     "partition_num" = "30",
@@ -87,8 +92,7 @@ Parameter Description:
     "global" = "false",
     "enable" = "true"
     );
-    ````
-
+   ````
 3. Create SQL BLOCK RULE with special chars
 
     ```sql
@@ -97,7 +101,6 @@ Parameter Description:
     ( 
     "sql" = "select count\\(1\\) from db1.tbl1"
     );
-
     CREATE SQL_BLOCK_RULE test_rule4
     PROPERTIES
     ( 

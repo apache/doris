@@ -25,7 +25,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
 
-/** ProjectToGlobalAggregate. */
+/**
+ * ProjectToGlobalAggregate.
+ *
+ * example sql:
+ * <pre>
+ * select sum(value)
+ * from tbl
+ * </pre>
+ *
+ * origin plan:                                                 transformed plan:
+ *
+ * LogicalProject(projects=[sum(value)])                        LogicalAggregate(groupBy=[], output=[sum(value)])
+ *            |                                      =>                              |
+ *  LogicalOlapScan(table=tbl)                                                  LogicalOlapScan(table=tbl)
+ */
 public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {

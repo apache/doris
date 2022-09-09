@@ -21,7 +21,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
-/** AggregateFunction. */
+/**
+ * The function which consume arguments in lots of rows and product one value.
+ */
 public abstract class AggregateFunction extends BoundFunction {
 
     private DataType intermediate;

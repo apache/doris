@@ -23,6 +23,7 @@
 #include "util/doris_metrics.h"
 #include "util/proto_util.h"
 #include "util/time.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -160,9 +161,11 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
+Status VNodeChannel::add_block(vectorized::Block* block,
+                               const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                               std::vector<int64_t>>& payload) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
+    // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
@@ -177,25 +180,31 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // so in the ideal case, mem limit is a matter for _plan node.
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
-    // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
+    // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    _cur_mutable_block->add_row(block_row.first, block_row.second);
-    _cur_add_block_request.add_tablet_ids(tablet_id);
+    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), *(payload.first));
+    for (auto tablet_id : payload.second) {
+        _cur_add_block_request.add_tablet_ids(tablet_id);
+    }
 
-    if (_cur_mutable_block->rows() == _batch_size ||
+    if (_cur_mutable_block->rows() >= _batch_size ||
         _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
-            //To simplify the add_row logic, postpone adding block into req until the time of sending req
+            // To simplify the add_row logic, postpone adding block into req until the time of sending req
             _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
             _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
             _pending_batches_num++;
+            VLOG_DEBUG << "VOlapTableSink:" << _parent << " VNodeChannel:" << this
+                       << " pending_batches_bytes:" << _pending_batches_bytes
+                       << " jobid:" << std::to_string(_state->load_job_id())
+                       << " loadinfo:" << _load_info;
         }
 
         _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
@@ -480,12 +489,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
 
-    //if pending bytes is more than 500M, wait
-    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
-    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
-    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
-    //}
-
+    std::vector<std::unordered_map<
+            NodeChannel*,
+            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
+            channel_to_payload;
+    channel_to_payload.resize(_channels.size());
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -498,7 +506,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
                         fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple=[]");
+                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                       block.dump_data(i, 1));
                         return fmt::to_string(buf);
                     },
                     &stop_processing));
@@ -520,12 +529,36 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             tablet_index = _vpartition->find_tablet(&block_row, *partition);
         }
         for (int j = 0; j < partition->indexes.size(); ++j) {
-            int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
-            _channels[j]->add_row(block_row, tablet_id);
+            auto tid = partition->indexes[j].tablets[tablet_index];
+            auto it = _channels[j]->_channels_by_tablet.find(tid);
+            DCHECK(it != _channels[j]->_channels_by_tablet.end())
+                    << "unknown tablet, tablet_id=" << tablet_index;
+            for (const auto& channel : it->second) {
+                if (channel_to_payload[j].count(channel.get()) < 1) {
+                    channel_to_payload[j].insert(
+                            {channel.get(),
+                             std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                       std::vector<int64_t>> {
+                                     std::unique_ptr<vectorized::IColumn::Selector>(
+                                             new vectorized::IColumn::Selector()),
+                                     std::vector<int64_t>()}});
+                }
+                channel_to_payload[j][channel.get()].first->push_back(i);
+                channel_to_payload[j][channel.get()].second.push_back(tid);
+            }
             _number_output_rows++;
         }
     }
-
+    for (size_t i = 0; i < _channels.size(); i++) {
+        for (const auto& entry : channel_to_payload[i]) {
+            // if this node channel is already failed, this add_row will be skipped
+            auto st = entry.first->add_block(&block, entry.second);
+            if (!st.ok()) {
+                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
+                                             st.get_error_msg());
+            }
+        }
+    }
     // check intolerable failure
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
@@ -540,128 +573,174 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     return OlapTableSink::close(state, exec_status);
 }
 
-Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* block,
-                                      Bitmap* filter_bitmap, int* filtered_rows,
-                                      bool* stop_processing) {
-    const auto num_rows = block->rows();
+Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescriptor& type,
+                                        bool is_nullable, vectorized::ColumnPtr column,
+                                        size_t slot_index, Bitmap* filter_bitmap,
+                                        bool* stop_processing, fmt::memory_buffer& error_prefix,
+                                        vectorized::IColumn::Permutation* rows) {
+    DCHECK((rows == nullptr) || (rows->size() == column->size()));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
         filter_bitmap->Set(row, true);
-        return state->append_error_msg_to_file(
-                []() -> std::string { return ""; },
-                [&error_msg]() -> std::string { return fmt::to_string(error_msg); },
-                stop_processing);
+        auto ret = state->append_error_msg_to_file([]() -> std::string { return ""; },
+                                                   [&error_prefix, &error_msg]() -> std::string {
+                                                       return fmt::to_string(error_prefix) +
+                                                              fmt::to_string(error_msg);
+                                                   },
+                                                   stop_processing);
+        error_msg.clear();
+        return ret;
     };
 
+    auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
+    auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+
+    ssize_t last_invalid_row = -1;
+    switch (type.type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
+
+        size_t limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        for (size_t j = 0; j < column->size(); ++j) {
+            auto row = rows ? (*rows)[j] : j;
+            if (row == last_invalid_row) {
+                continue;
+            }
+            if (!filter_bitmap->Get(row)) {
+                auto str_val = column_string->get_data_at(j);
+                bool invalid = str_val.size > limit;
+                if (invalid) {
+                    last_invalid_row = row;
+                    if (str_val.size > type.len) {
+                        fmt::format_to(error_msg, "{}",
+                                       "the length of input is too long than schema. ");
+                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                        fmt::format_to(error_msg, "schema length: {}; ", type.len);
+                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                    } else if (str_val.size > limit) {
+                        fmt::format_to(error_msg, "{}",
+                                       "the length of input string is too long than vec schema. ");
+                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                        fmt::format_to(error_msg, "schema length: {}; ", type.len);
+                        fmt::format_to(error_msg, "limit length: {}; ", limit);
+                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                    }
+                    RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
+                }
+            }
+        }
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+                        real_column_ptr.get()));
+
+        for (size_t j = 0; j < column->size(); ++j) {
+            auto row = rows ? (*rows)[j] : j;
+            if (row == last_invalid_row) {
+                continue;
+            }
+            if (!filter_bitmap->Get(row)) {
+                auto dec_val = binary_cast<vectorized::Int128, DecimalV2Value>(
+                        column_decimal->get_data()[j]);
+                bool invalid = false;
+
+                if (dec_val.greater_than_scale(type.scale)) {
+                    auto code = dec_val.round(&dec_val, type.scale, HALF_UP);
+                    column_decimal->get_data()[j] = dec_val.value();
+
+                    if (code != E_DEC_OK) {
+                        fmt::format_to(error_msg, "round one decimal failed.value={}; ",
+                                       dec_val.to_string());
+                        invalid = true;
+                    }
+                }
+                if (dec_val > _max_decimalv2_val[slot_index] ||
+                    dec_val < _min_decimalv2_val[slot_index]) {
+                    fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
+                    fmt::format_to(error_msg, ", value={}", dec_val.to_string());
+                    fmt::format_to(error_msg, ", precision={}, scale={}; ", type.precision,
+                                   type.scale);
+                    invalid = true;
+                }
+
+                if (invalid) {
+                    last_invalid_row = row;
+                    RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
+                }
+            }
+        }
+        break;
+    }
+    case TYPE_ARRAY: {
+        const auto column_array =
+                assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
+        DCHECK(type.children.size() == 1);
+        auto nested_type = type.children[0];
+        if (nested_type.type == TYPE_ARRAY || nested_type.type == TYPE_CHAR ||
+            nested_type.type == TYPE_VARCHAR || nested_type.type == TYPE_STRING) {
+            const auto& offsets = column_array->get_offsets();
+            vectorized::IColumn::Permutation permutation(offsets.back());
+            for (size_t r = 0; r < offsets.size(); ++r) {
+                for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
+                    permutation[c] = rows ? (*rows)[r] : r;
+                }
+            }
+            fmt::format_to(error_prefix, "ARRAY type failed: ");
+            RETURN_IF_ERROR(_validate_column(
+                    state, nested_type, nested_type.contains_null, column_array->get_data_ptr(),
+                    slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+
+    // Dispose the column should do not contain the NULL value
+    // Only two case:
+    // 1. column is nullable but the desc is not nullable
+    // 2. desc->type is BITMAP
+    if ((!is_nullable || type == TYPE_OBJECT) && column_ptr) {
+        const auto& null_map = column_ptr->get_null_map_data();
+        for (int j = 0; j < null_map.size(); ++j) {
+            auto row = rows ? (*rows)[j] : j;
+            if (row == last_invalid_row) {
+                continue;
+            }
+            if (null_map[j] && !filter_bitmap->Get(row)) {
+                fmt::format_to(error_msg, "null value for not null column, type={}",
+                               type.debug_string());
+                last_invalid_row = row;
+                RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* block,
+                                      Bitmap* filter_bitmap, int* filtered_rows,
+                                      bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         block->get_by_position(i).column =
                 block->get_by_position(i).column->convert_to_full_column_if_const();
         const auto& column = block->get_by_position(i).column;
 
-        auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
-        auto& real_column_ptr =
-                column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
-
-        switch (desc->type().type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            const auto column_string =
-                    assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
-
-            size_t limit = std::min(config::string_type_length_soft_limit_bytes, desc->type().len);
-            for (int j = 0; j < num_rows; ++j) {
-                if (!filter_bitmap->Get(j)) {
-                    auto str_val = column_string->get_data_at(j);
-                    bool invalid = str_val.size > limit;
-                    if (invalid) {
-                        error_msg.clear();
-                        if (str_val.size > desc->type().len) {
-                            fmt::format_to(error_msg, "{}",
-                                           "the length of input is too long than schema. ");
-                            fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
-                            fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
-                            fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                        } else if (str_val.size > limit) {
-                            fmt::format_to(
-                                    error_msg, "{}",
-                                    "the length of input string is too long than vec schema. ");
-                            fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
-                            fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
-                            fmt::format_to(error_msg, "limit length: {}; ", limit);
-                            fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                        }
-                        RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
-                    }
-                }
-            }
-            break;
-        }
-        case TYPE_DECIMALV2: {
-            auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
-                    assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
-                            real_column_ptr.get()));
-
-            for (int j = 0; j < num_rows; ++j) {
-                if (!filter_bitmap->Get(j)) {
-                    auto dec_val = binary_cast<vectorized::Int128, DecimalV2Value>(
-                            column_decimal->get_data()[j]);
-                    error_msg.clear();
-                    bool invalid = false;
-
-                    if (dec_val.greater_than_scale(desc->type().scale)) {
-                        auto code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
-                        column_decimal->get_data()[j] = dec_val.value();
-
-                        if (code != E_DEC_OK) {
-                            fmt::format_to(error_msg, "round one decimal failed.value={}; ",
-                                           dec_val.to_string());
-                            invalid = true;
-                        }
-                    }
-                    if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                        fmt::format_to(error_msg,
-                                       "decimal value is not valid for definition, column={}",
-                                       desc->col_name());
-                        fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                        fmt::format_to(error_msg, ", precision={}, scale={}; ",
-                                       desc->type().precision, desc->type().scale);
-                        invalid = true;
-                    }
-
-                    if (invalid) {
-                        RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
-                    }
-                }
-            }
-            break;
-        }
-        default:
-            break;
-        }
-
-        // Dispose the column should do not contain the NULL value
-        // Only tow case:
-        // 1. column is nullable but the desc is not nullable
-        // 2. desc->type is BITMAP
-        if ((!desc->is_nullable() || desc->type() == TYPE_OBJECT) && column_ptr) {
-            const auto& null_map = column_ptr->get_null_map_data();
-            for (int j = 0; j < null_map.size(); ++j) {
-                if (null_map[j] && !filter_bitmap->Get(j)) {
-                    error_msg.clear();
-                    fmt::format_to(error_msg, "null value for not null column, column={}; ",
-                                   desc->col_name());
-                    RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
-                }
-            }
-        }
+        fmt::memory_buffer error_prefix;
+        fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
+        RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
+                                         filter_bitmap, stop_processing, error_prefix));
     }
 
     *filtered_rows = 0;
-    for (int i = 0; i < num_rows; ++i) {
+    for (int i = 0; i < block->rows(); ++i) {
         *filtered_rows += filter_bitmap->Get(i);
     }
     return Status::OK();

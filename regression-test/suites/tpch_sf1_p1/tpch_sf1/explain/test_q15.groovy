@@ -49,7 +49,7 @@ suite("test_explain_tpch_sf_1_q15") {
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 23> `s_suppkey` ASC") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 33> = <slot 17> max(`total_revenue`)") && 
+				"  |  equal join conjunct: <slot 33> = <slot 17> max(<slot 13> sum(`l_extendedprice` * (1 - `l_discount`)))") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 34 35 36 37 39 \n" + 
 				"  |  hash output slot ids: 33 28 29 30 31 ") && 
@@ -62,7 +62,7 @@ suite("test_explain_tpch_sf_1_q15") {
 		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> `s_suppkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: max(<slot 16> max(`total_revenue`))\n" + 
+				"  |  output: max(<slot 16> max(<slot 13> sum(`l_extendedprice` * (1 - `l_discount`))))\n" + 
 				"  |  group by: ") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  output: max(<slot 13> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 

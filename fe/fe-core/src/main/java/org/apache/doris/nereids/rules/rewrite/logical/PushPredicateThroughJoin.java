@@ -26,17 +26,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -76,8 +73,8 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
 
-            List<Slot> leftInput = join.left().getOutput();
-            List<Slot> rightInput = join.right().getOutput();
+            Set<Slot> leftInput = join.left().getOutputSet();
+            Set<Slot> rightInput = join.right().getOutputSet();
 
             ExpressionUtils.extractConjunction(ExpressionUtils.and(onPredicates, wherePredicates))
                     .forEach(predicate -> {
@@ -92,7 +89,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             List<Expression> rightPredicates = Lists.newArrayList();
 
             for (Expression p : otherConditions) {
-                Set<Slot> slots = SlotExtractor.extractSlot(p);
+                Set<Slot> slots = p.getInputSlots();
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
                     rightPredicates.add(p);
@@ -116,43 +113,30 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
     private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             List<Expression> joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
-
-        Expression left = ExpressionUtils.and(leftPredicates);
-        Expression right = ExpressionUtils.and(rightPredicates);
-        //todo expr should optimize again using expr rewrite
-        Plan leftPlan = joinPlan.left();
-        Plan rightPlan = joinPlan.right();
-        if (!left.equals(BooleanLiteral.TRUE)) {
-            leftPlan = new LogicalFilter(left, leftPlan);
-        }
-
-        if (!right.equals(BooleanLiteral.TRUE)) {
-            rightPlan = new LogicalFilter(right, rightPlan);
-        }
+        // todo expr should optimize again using expr rewrite
+        Plan leftPlan = PlanUtils.filterOrSelf(leftPredicates, joinPlan.left());
+        Plan rightPlan = PlanUtils.filterOrSelf(rightPredicates, joinPlan.right());
 
         return new LogicalJoin<>(joinPlan.getJoinType(), joinPlan.getHashJoinConjuncts(),
-                Optional.of(ExpressionUtils.and(joinConditions)), leftPlan, rightPlan);
+                ExpressionUtils.optionalAnd(joinConditions), leftPlan, rightPlan);
     }
 
-    private Expression getJoinCondition(Expression predicate, List<Slot> leftOutputs, List<Slot> rightOutputs) {
+    private Expression getJoinCondition(Expression predicate, Set<Slot> leftOutputs, Set<Slot> rightOutputs) {
         if (!(predicate instanceof ComparisonPredicate)) {
             return null;
         }
 
         ComparisonPredicate comparison = (ComparisonPredicate) predicate;
 
-        Set<Slot> leftSlots = SlotExtractor.extractSlot(comparison.left());
-        Set<Slot> rightSlots = SlotExtractor.extractSlot(comparison.right());
+        Set<Slot> leftSlots = comparison.left().getInputSlots();
+        Set<Slot> rightSlots = comparison.right().getInputSlots();
 
         if (!(leftSlots.size() >= 1 && rightSlots.size() >= 1)) {
             return null;
         }
 
-        Set<Slot> left = Sets.newLinkedHashSet(leftOutputs);
-        Set<Slot> right = Sets.newLinkedHashSet(rightOutputs);
-
-        if ((left.containsAll(leftSlots) && right.containsAll(rightSlots)) || (left.containsAll(rightSlots)
-                && right.containsAll(leftSlots))) {
+        if ((leftOutputs.containsAll(leftSlots) && rightOutputs.containsAll(rightSlots))
+                || (leftOutputs.containsAll(rightSlots) && rightOutputs.containsAll(leftSlots))) {
             return predicate;
         }
 

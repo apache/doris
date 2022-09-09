@@ -212,7 +212,7 @@ Priority ensures that severely damaged fragments can be repaired first, and impr
 
 At the same time, in order to ensure the weight of the initial priority, we stipulate that the initial priority is VERY HIGH, and the lowest is lowered to NORMAL. When the initial priority is LOW, it is raised to HIGH at most. The priority adjustment here also adjusts the priority set manually by the user.
 
-## Duplicate Equilibrium
+## Replicas Balance
 
 Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
 
@@ -639,6 +639,13 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 	* Default value: false
 	* Importance:
 
+The following adjustable parameters are all configurable parameters in be.conf.
+
+* clone\_worker\_count
+
+     * Description: Affects the speed of copy equalization. In the case of low disk pressure, you can speed up replica balancing by adjusting this parameter.
+     * Default: 3
+     * Importance: Medium
 ### Unadjustable parameters
 
 The following parameters do not support modification for the time being, just for illustration.

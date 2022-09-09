@@ -35,6 +35,7 @@
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -103,6 +104,19 @@ void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys
 template <typename T>
 void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
+}
+
+template <typename T>
+void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                               const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
+void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                  IColumn::Permutation& perms, EqualRange& range,
+                                  bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <typename T>
@@ -226,7 +240,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);

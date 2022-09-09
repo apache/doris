@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class LargeIntType extends IntegralType {
     public static LargeIntType INSTANCE = new LargeIntType();
 
+    private static final int WIDTH = 16;
+
     private LargeIntType() {
     }
 
@@ -52,5 +54,10 @@ public class LargeIntType extends IntegralType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -173,6 +175,118 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
                                                 "default_cluster:test.course.cname",
                                                 "default_cluster:test.score.grade")))
                                 )
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(1) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountConstantAndSumConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(1), SUM(2) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarAndSumConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*), SUM(2) FROM test.course")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarAndSumColumnStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*), SUM(grade) FROM test.score")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(DoubleType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneCountStarAndSumColumnAndSumConstantStmt() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT COUNT(*), SUM(grade) + SUM(2) FROM test.score")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalProject(
+                                        logicalOlapScan()
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(DoubleType.INSTANCE)
+                                        && p.getProjects().size() == 1)
+                        )
+                );
+    }
+
+    @Test
+    public void pruneColumnForOneSideOnCrossJoin() {
+        PlanChecker.from(connectContext)
+                .analyze("select id,name from student cross join score")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalProject(
+                                    logicalJoin(
+                                            logicalProject(logicalRelation())
+                                                    .when(p -> getOutputQualifiedNames(p)
+                                                            .containsAll(ImmutableList.of(
+                                                                    "default_cluster:test.student.id",
+                                                                    "default_cluster:test.student.name"))),
+                                            logicalProject(logicalRelation())
+                                                    .when(p -> getOutputQualifiedNames(p)
+                                                            .containsAll(ImmutableList.of(
+                                                                    "default_cluster:test.score.sid")))
+                                    )
                         )
                 );
     }

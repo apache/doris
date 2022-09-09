@@ -74,7 +74,7 @@ public class DeriveStatsJobTest {
         }
         StatsDeriveResult statistics = cascadesContext.getMemo().getRoot().getStatistics();
         Assertions.assertNotNull(statistics);
-        Assertions.assertEquals(10, statistics.getRowCount());
+        Assertions.assertEquals(1, statistics.getRowCount());
     }
 
     private LogicalOlapScan constructOlapSCan() {

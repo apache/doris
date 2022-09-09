@@ -27,14 +27,13 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 
 /**
  * Push the predicate in the LogicalFilter to the aggregate child.
@@ -78,7 +77,7 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
             ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
-                Set<Slot> conjunctSlots = SlotExtractor.extractSlot(conjunct);
+                Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 if (groupBySlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {
@@ -91,19 +90,15 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
     }
 
     private Plan pushDownPredicate(LogicalFilter filter, LogicalAggregate aggregate,
-                                   List<Expression> pushDownPredicates, List<Expression> filterPredicates) {
+            List<Expression> pushDownPredicates, List<Expression> filterPredicates) {
         if (pushDownPredicates.size() == 0) {
-            //nothing pushed down, just return origin plan
+            // nothing pushed down, just return origin plan
             return filter;
         }
-        LogicalFilter bottomFilter = new LogicalFilter(ExpressionUtils.and(pushDownPredicates),
-                (Plan) aggregate.child(0));
-        if (filterPredicates.isEmpty()) {
-            //all predicates are pushed down, just exchange filter and aggregate
-            return aggregate.withChildren(Lists.newArrayList(bottomFilter));
-        } else {
-            aggregate = aggregate.withChildren(Lists.newArrayList(bottomFilter));
-            return new LogicalFilter<>(ExpressionUtils.and(filterPredicates), aggregate);
-        }
+        LogicalFilter bottomFilter = new LogicalFilter<>(ExpressionUtils.and(pushDownPredicates),
+                aggregate.child(0));
+
+        aggregate = aggregate.withChildren(Lists.newArrayList(bottomFilter));
+        return PlanUtils.filterOrSelf(filterPredicates, aggregate);
     }
 }
