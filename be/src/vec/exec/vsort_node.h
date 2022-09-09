@@ -86,6 +86,7 @@ private:
     std::priority_queue<SortBlockCursor> _block_priority_queue;
 
     std::unique_ptr<MutableBlock> _unsorted_block;
+    RuntimeProfile::Counter* _partial_sort_timer = nullptr;
 
     static constexpr size_t BUFFERED_BLOCK_SIZE = 1024 * 1024;
     static constexpr size_t BUFFERED_BLOCK_BYTES = 16 << 20;
