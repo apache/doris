@@ -100,4 +100,12 @@ public class PlanConstructor {
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
         return new LogicalOlapScan(GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
+
+    public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
+        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+    }
+
+    public static RelationId getNextId() {
+        return GENERATOR.getNextId();
+    }
 }
