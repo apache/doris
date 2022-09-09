@@ -43,7 +43,6 @@ Usage: $0 <options>
      --be               build Backend
      --meta-tool        build Backend meta tool
      --broker           build Broker
-     --audit            build audit loader
      --spark-dpp        build Spark DPP application
      --hive-udf         build Hive UDF library for Spark Load
      --java-udf         build Java UDF library
@@ -103,7 +102,6 @@ if ! OPTS="$(getopt \
     -l 'fe' \
     -l 'be' \
     -l 'broker' \
-    -l 'audit' \
     -l 'meta-tool' \
     -l 'spark-dpp' \
     -l 'java-udf' \
@@ -121,7 +119,6 @@ PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_BROKER=0
-BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=0
@@ -135,7 +132,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_FE=1
     BUILD_BE=1
     BUILD_BROKER=1
-    BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_JAVA_UDF=0 # TODO: open it when ready
@@ -155,10 +151,6 @@ else
             ;;
         --broker)
             BUILD_BROKER=1
-            shift
-            ;;
-        --audit)
-            BUILD_AUDIT=1
             shift
             ;;
         --meta-tool)
@@ -405,9 +397,22 @@ function build_ui() {
     cp -r "${ui_dist}"/* "${DORIS_HOME}/fe/fe-core/src/main/resources/static"/
 }
 
+
+##Build audit plugin loader
+function build_audit_loader() {
+    install -d "${DORIS_OUTPUT}/audit_loader"
+    cd "${DORIS_HOME}/fe_plugins/auditloader"
+    ./build.sh
+    rm -rf "${DORIS_OUTPUT}/audit_loader"/*
+    mkdir -p ${DORIS_OUTPUT}/fe/plugins/audit_loader
+    cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/fe/plugins/audit_loader"/
+    cd "${DORIS_HOME}"
+}
+
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     build_ui
+    build_audit_loader
 fi
 
 # Clean and build Frontend
@@ -444,6 +449,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
+    mkdir -p ${DORIS_OUTPUT}/fe/plugins/audit_loader
+    cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/fe/plugins/audit_loader"/
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -498,16 +505,6 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
-    cd "${DORIS_HOME}"
-fi
-
-if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/audit_loader"
-
-    cd "${DORIS_HOME}/fe_plugins/auditloader"
-    ./build.sh
-    rm -rf "${DORIS_OUTPUT}/audit_loader"/*
-    cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
     cd "${DORIS_HOME}"
 fi
 
