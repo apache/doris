@@ -35,6 +35,7 @@
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -109,6 +110,13 @@ template <typename T>
 void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
                                                const uint8_t* __restrict null_data) const {
     SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
+void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                  IColumn::Permutation& perms, EqualRange& range,
+                                  bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <typename T>

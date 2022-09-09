@@ -384,6 +384,9 @@ public:
         data[self_row] = T();
     }
 
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
 protected:
     Container data;
 };
