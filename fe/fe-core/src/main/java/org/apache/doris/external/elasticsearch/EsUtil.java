@@ -37,6 +37,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -359,7 +360,7 @@ public class EsUtil {
         for (String key : keys) {
             JSONObject field = (JSONObject) mappingProps.get(key);
             Type type;
-            // Complex types are not currently supported.
+            // Complex types are treating as String types for now.
             if (field.containsKey("type")) {
                 type = toDorisType(field.get("type").toString());
             } else {
@@ -405,7 +406,7 @@ public class EsUtil {
             case "scaled_float":
                 return Type.DOUBLE;
             case "date":
-                return Type.DATE;
+                return ScalarType.getDefaultDateType(Type.DATE);
             case "keyword":
             case "text":
             case "ip":

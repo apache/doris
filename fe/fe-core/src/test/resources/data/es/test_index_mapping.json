@@ -32,6 +32,20 @@
                 "type": "long"
               }
             }
+          },
+          "k5": {
+            "type": "nested",
+            "properties": {
+              "child3": {
+                "type": "keyword"
+              },
+              "child4": {
+                "type": "keyword"
+              }
+            }
+          },
+          "k6": {
+            "type": "date"
           }
         }
       }
