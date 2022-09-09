@@ -404,7 +404,7 @@ function build_audit_loader() {
     cd "${DORIS_HOME}/fe_plugins/auditloader"
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
-    mkdir -p ${DORIS_OUTPUT}/fe/plugins/audit_loader
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/audit_loader"
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/fe/plugins/audit_loader"/
     cd "${DORIS_HOME}"
 }
@@ -449,7 +449,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
-    mkdir -p ${DORIS_OUTPUT}/fe/plugins/audit_loader
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/audit_loader"
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/fe/plugins/audit_loader"/
 fi
 
