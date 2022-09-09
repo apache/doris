@@ -319,8 +319,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(olapScanNode::init);
         context.addScanNode(olapScanNode);
         // translate runtime filter
-        context.getRuntimeFilterGenerator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnOlapScanNode(olapScan.getId()).forEach(
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(olapScan.getId()).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
                 )
         );
@@ -516,7 +516,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setvOutputTupleDesc(outputDescriptor);
         hashJoinNode.setvSrcToOutputSMap(srcToOutput);
         // translate runtime filter
-        context.getRuntimeFilterGenerator().ifPresent(runtimeFilterGenerator ->
+        context.getRuntimeTranslator().ifPresent(runtimeFilterGenerator ->
                 hashJoin.getOutput().stream()
                         .filter(slot -> runtimeFilterGenerator.getHashJoinNodeExistRuntimeFilter(slot) != null)
                         .forEach(slot -> runtimeFilterGenerator.translateRuntimeFilter(runtimeFilterGenerator

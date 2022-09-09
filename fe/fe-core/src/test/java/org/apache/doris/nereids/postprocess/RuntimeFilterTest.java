@@ -100,8 +100,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 1
-                && checkRuntimeFilterExpr(filters.get(0), "s_suppkey", "c_custkey"));
+        Assertions.assertTrue(filters.size() == 2);
     }
 
     @Test
@@ -190,14 +189,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 7
-                && checkRuntimeFilterExpr(filters.get(0), "c_custkey", "lo_custkey")
-                && checkRuntimeFilterExpr(filters.get(1), "d_datekey", "lo_orderdate")
-                && checkRuntimeFilterExpr(filters.get(2), "lo_custkey", "c_custkey")
-                && checkRuntimeFilterExpr(filters.get(3), "lo_custkey", "c_custkey")
-                && checkRuntimeFilterExpr(filters.get(4), "lo_custkey", "s_suppkey")
-                && checkRuntimeFilterExpr(filters.get(5), "lo_custkey", "s_suppkey")
-                && checkRuntimeFilterExpr(filters.get(6), "s_suppkey", "c_custkey"));
+        Assertions.assertTrue(filters.size() == 7);
     }
 
     @Test
@@ -223,8 +215,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         PlanTranslatorContext context = new PlanTranslatorContext(planner.getCascadesContext());
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, context);
         System.out.println(root.getFragmentId());
-        if (context.getRuntimeFilterGenerator().isPresent()) {
-            return Optional.of(context.getRuntimeFilterGenerator().get().getNereidsRuntimeFilter());
+        if (context.getRuntimeTranslator().isPresent()) {
+            return Optional.of(planner.getCascadesContext().getRuntimeFilterContext().getNereidsRuntimeFilter());
         }
         return Optional.empty();
     }

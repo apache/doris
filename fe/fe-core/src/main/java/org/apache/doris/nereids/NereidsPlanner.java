@@ -214,7 +214,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
-        return cascadesContext.getRuntimeFilterGenerator().getRuntimeFilters();
+        return cascadesContext.getRuntimeFilterContext().getLegacyFilters();
     }
 
     @VisibleForTesting

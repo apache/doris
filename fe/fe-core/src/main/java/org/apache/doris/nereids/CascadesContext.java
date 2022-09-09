@@ -27,7 +27,7 @@ import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
@@ -57,7 +57,7 @@ public class CascadesContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
 
-    private RuntimeFilterGenerator runtimeFilterGenerator;
+    private RuntimeFilterContext runtimeFilterContext;
 
     /**
      * Constructor of OptimizerContext.
@@ -73,7 +73,7 @@ public class CascadesContext {
         this.jobScheduler = new SimpleJobScheduler();
         this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
-        this.runtimeFilterGenerator = new RuntimeFilterGenerator(getConnectContext().getSessionVariable());
+        this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
     }
 
     public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
@@ -128,6 +128,10 @@ public class CascadesContext {
         return currentJobContext;
     }
 
+    public RuntimeFilterContext getRuntimeFilterContext() {
+        return runtimeFilterContext;
+    }
+
     public void setCurrentJobContext(JobContext currentJobContext) {
         this.currentJobContext = currentJobContext;
     }
@@ -147,10 +151,6 @@ public class CascadesContext {
             return false;
         }
         return subqueryExprIsAnalyzed.get(subqueryExpr);
-    }
-
-    public RuntimeFilterGenerator getRuntimeFilterGenerator() {
-        return runtimeFilterGenerator;
     }
 
     public CascadesContext bottomUpRewrite(RuleFactory... rules) {
