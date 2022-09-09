@@ -39,10 +39,12 @@ import java.util.Optional;
 /**
  * Logical Aggregate plan.
  * <p>
- * eg:select a, sum(b), c from table group by a, c;
- * groupByExprList: Column field after group by. eg: a, c;
- * outputExpressionList: Column field after select. eg: a, sum(b), c;
- * partitionExprList: Column field after partition by.
+ * For example SQL:
+ * <p>
+ * select a, sum(b), c from table group by a, c;
+ * <p>
+ * groupByExpressions: Column field after group by. eg: a, c;
+ * outputExpressions: Column field after select. eg: a, sum(b), c;
  * <p>
  * Each agg node only contains the select statement field of the same layer,
  * and other agg nodes in the subquery contain.
