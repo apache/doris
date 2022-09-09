@@ -268,6 +268,7 @@ public class MaterializedViewSelector {
         return selectedIndexId;
     }
 
+    // Step2: check all columns in compensating predicates are available in the view output
     private void checkCompensatingPredicates(Set<String> columnsInPredicates, Map<Long, MaterializedIndexMeta>
             candidateIndexIdToMeta) {
         // When the query statement does not contain any columns in predicates, all candidate index can pass this check
@@ -300,6 +301,7 @@ public class MaterializedViewSelector {
      * @param candidateIndexIdToMeta
      */
 
+    // Step3: group by list in query is the subset of group by list in view or view contains no aggregation
     private void checkGrouping(OlapTable table, Set<String> columnsInGrouping, Map<Long, MaterializedIndexMeta>
             candidateIndexIdToMeta) {
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
@@ -351,6 +353,7 @@ public class MaterializedViewSelector {
                           + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
+    // Step4: aggregation functions are available in the view output
     private void checkAggregationFunction(OlapTable table, Set<FunctionCallExpr> aggregatedColumnsInQueryOutput,
             Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) throws AnalysisException {
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
@@ -387,6 +390,7 @@ public class MaterializedViewSelector {
                           + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
+    // Step5: columns required to compute output expr are available in the view output
     private void checkOutputColumns(Set<String> columnNamesInQueryOutput,
             Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) {
         if (columnNamesInQueryOutput == null) {

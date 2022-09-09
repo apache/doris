@@ -20,37 +20,30 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionReplacer;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 /**
- * Rewrite filter -> project to project -> filter.
+ * Push down filter through project.
+ * input:
+ * filter(a>2, b=0) -> project(c+d as a, e as b)
+ * output:
+ * project(c+d as a, e as b) -> filter(c+d>2, e=0).
  */
 public class SwapFilterAndProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalProject()).thenApply(ctx -> {
-            LogicalFilter<LogicalProject<GroupPlan>> filter = ctx.root;
+        return logicalFilter(logicalProject()).then(filter -> {
             LogicalProject<GroupPlan> project = filter.child();
-            List<NamedExpression> namedExpressionList = project.getProjects();
-            Map<Expression, Expression> slotToAlias = new HashMap<>();
-            namedExpressionList.stream().filter(Alias.class::isInstance).forEach(s -> {
-                slotToAlias.put(s.toSlot(), ((Alias) s).child());
-            });
-            Expression rewrittenPredicate = ExpressionReplacer.INSTANCE.visit(filter.getPredicates(), slotToAlias);
-            LogicalFilter<LogicalPlan> rewrittenFilter =
-                    new LogicalFilter<LogicalPlan>(rewrittenPredicate, project.child());
-            return new LogicalProject(project.getProjects(), rewrittenFilter);
+            return new LogicalProject<>(
+                    project.getProjects(),
+                    new LogicalFilter<>(
+                            ExpressionUtils.replace(filter.getPredicates(), project.getSlotToProducer()),
+                            project.child()
+                    )
+            );
         }).toRule(RuleType.SWAP_FILTER_AND_PROJECT);
     }
 }
