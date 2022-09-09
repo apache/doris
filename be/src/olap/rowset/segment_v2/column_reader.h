@@ -402,9 +402,10 @@ private:
     std::unique_ptr<ColumnIterator> _item_iterator;
     std::unique_ptr<ColumnVectorBatch> _length_batch;
 
+    Status _peek_one_offset(ordinal_t* offset);
     Status _seek_by_offsets(ordinal_t ord);
-    Status _caculate_offsets(ssize_t start, vectorized::MutableColumnPtr& offsets,
-                             size_t* num_items);
+    Status _calculate_offsets(ssize_t start, vectorized::MutableColumnPtr& offsets,
+                              size_t* num_items);
 };
 
 // This iterator is used to read default value column

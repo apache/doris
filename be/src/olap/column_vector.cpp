@@ -228,9 +228,8 @@ void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, s
                                               size_t size) {
     DCHECK(size > 0);
     size_t first_offset = *(_offsets->scalar_cell_ptr(start_idx));
-    segment_v2::ordinal_t first_ordinal = ordinals[0];
-    size_t i = 0;
-    while (++i < size) {
+    for (size_t i = 1; i < size; ++i) {
+        segment_v2::ordinal_t first_ordinal = ordinals[0];
         *(_offsets->scalar_cell_ptr(start_idx + i)) = first_offset + (ordinals[i] - first_ordinal);
     }
 }
