@@ -28,7 +28,7 @@ suite("test_join2", "query,p0") {
     sql "DROP TABLE IF EXISTS ${TBname2}"
 
     sql """
-            CREATE TABLE ${TBname1} (
+            CREATE TABLE IF NOT EXISTS ${TBname1} (
                 i integer,
                 j integer,
                 t text
@@ -36,7 +36,7 @@ suite("test_join2", "query,p0") {
             DISTRIBUTED BY HASH(i) properties("replication_num" = "1");
         """
     sql """
-            CREATE TABLE ${TBname2} (
+            CREATE TABLE IF NOT EXISTS ${TBname2} (
                 i integer,
                 k integer
             )
@@ -154,4 +154,8 @@ suite("test_join2", "query,p0") {
             WHERE (${TBname1}.i = 1)
             ORDER BY 1,2,3,4,5,6;
         """
+
+    sql "DROP TABLE IF EXISTS ${TBname1};"
+    sql "DROP TABLE IF EXISTS ${TBname2};"
+    sql "DROP DATABASE IF EXISTS ${DBname};"
 }
