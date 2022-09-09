@@ -856,6 +856,12 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                     if (tablet_meta_info.storage_policy.empty()) {
                         tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
+                        // The field is_in_memory should not be in the tablet_schema.
+                        // it should be in the tablet_meta.
+                        for (auto rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                            rowset_meta->tablet_schema()->set_is_in_memory(
+                                    tablet_meta_info.is_in_memory);
+                        }
                         tablet->get_max_version_schema(wrlock)->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
                     } else {
