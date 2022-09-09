@@ -34,14 +34,14 @@ import java.util.Optional;
 /**
  * this rule aims to find a conjunct list from on clause expression, which could
  * be used to build hash-table.
- *
+ * <p>
  * For example:
- *  A join B on A.x=B.x and A.y>1 and A.x+1=B.x+B.y and A.z=B.z+A.x and (A.z=B.z or A.x=B.x)
- *  {A.x=B.x, A.x+1=B.x+B.y} could be used to build hash table,
- *  but {A.y>1, A.z=B.z+A.z, (A.z=B.z or A.x=B.x)} are not.
- *
+ * A join B on A.x=B.x and A.y>1 and A.x+1=B.x+B.y and A.z=B.z+A.x and (A.z=B.z or A.x=B.x)
+ * {A.x=B.x, A.x+1=B.x+B.y} could be used to build hash table,
+ * but {A.y>1, A.z=B.z+A.z, (A.z=B.z or A.x=B.x)} are not.
+ * <p>
  * CAUTION:
- *  This rule must be applied after BindSlotReference
+ * This rule must be applied after BindSlotReference
  */
 public class FindHashConditionForJoin extends OneRewriteRuleFactory {
     @Override
@@ -49,21 +49,21 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
         return logicalJoin().then(join -> {
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(join);
             List<Expression> extractedHashJoinConjuncts = pair.first;
-            Optional<Expression> remainedNonHashJoinConjuncts = Optional.of(ExpressionUtils.and(pair.second));
-            if (!extractedHashJoinConjuncts.isEmpty()) {
-                List<Expression> combinedHashJoinConjuncts = new ImmutableList.Builder<Expression>()
-                                    .addAll(join.getHashJoinConjuncts())
-                                    .addAll(extractedHashJoinConjuncts)
-                                    .build();
-                return new LogicalJoin(join.getJoinType(),
+            Optional<Expression> remainedNonHashJoinConjuncts = ExpressionUtils.optionalAnd(pair.second);
+            if (extractedHashJoinConjuncts.isEmpty()) {
+                return join;
+            }
+
+            List<Expression> combinedHashJoinConjuncts = new ImmutableList.Builder<Expression>()
+                    .addAll(join.getHashJoinConjuncts())
+                    .addAll(extractedHashJoinConjuncts)
+                    .build();
+            return new LogicalJoin<>(join.getJoinType(),
                     combinedHashJoinConjuncts,
                     remainedNonHashJoinConjuncts,
                     Optional.empty(),
                     Optional.empty(),
                     join.left(), join.right());
-            } else {
-                return join;
-            }
         }).toRule(RuleType.FIND_HASH_CONDITION_FOR_JOIN);
     }
 }
