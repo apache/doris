@@ -89,11 +89,12 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
         );
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(a1, new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(a1, new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
@@ -105,22 +106,24 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(TypeCoercion.INSTANCE))
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(TypeCoercion.INSTANCE))
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
@@ -173,11 +176,12 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
@@ -192,21 +196,23 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
         Alias value = new Alias(new ExprId(0), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
@@ -239,11 +245,12 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
         Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                    logicalFilter(
-                        logicalAggregate(
-                            logicalOlapScan()
-                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
-                    ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A2.toSlot(), new TinyIntLiteral((byte) 0)))));
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalOlapScan()
+                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A2.toSlot(), new TinyIntLiteral((byte) 0))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";

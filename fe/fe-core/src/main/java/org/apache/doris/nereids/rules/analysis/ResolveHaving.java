@@ -178,12 +178,8 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
         ).collect(Collectors.toList());
         LogicalFilter<LogicalAggregate<Plan>> filter = new LogicalFilter<>(newPredicates,
                 aggregate.withGroupByAndOutput(aggregate.getGroupByExpressions(), newOutputExpressions));
-        return resolver.getNewOutputSlots().isEmpty()
-                ? filter
-                : new LogicalProject<>(
-                        aggregate.getOutputExpressions().stream().map(NamedExpression::toSlot)
-                                .collect(Collectors.toList()),
-                        filter
-                );
+        List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
+                .map(NamedExpression::toSlot).collect(Collectors.toList());
+        return new LogicalProject<>(projections, filter);
     }
 }
