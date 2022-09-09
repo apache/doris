@@ -130,6 +130,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (JoinUtils.couldShuffle(hashJoin)) {
             Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
             // colocate join
+            // TODO need to check whether colocate join is illegal.
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.NATURAL)),
