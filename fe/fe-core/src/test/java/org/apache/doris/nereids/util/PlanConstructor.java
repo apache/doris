@@ -34,12 +34,10 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 public class PlanConstructor {
-
-    private static final IdGenerator<RelationId> GENERATOR = RelationId.createGenerator();
-
     public static OlapTable student;
     public static OlapTable score;
     public static OlapTable course;
+    private static final IdGenerator<RelationId> GENERATOR = RelationId.createGenerator();
 
     static {
         student = new OlapTable(0L, "student",
