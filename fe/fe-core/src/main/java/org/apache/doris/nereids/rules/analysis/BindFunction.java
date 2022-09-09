@@ -18,21 +18,19 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.Count;
-import org.apache.doris.nereids.trees.expressions.functions.Max;
-import org.apache.doris.nereids.trees.expressions.functions.Min;
-import org.apache.doris.nereids.trees.expressions.functions.Substring;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.WeekOfYear;
-import org.apache.doris.nereids.trees.expressions.functions.Year;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -54,9 +52,10 @@ public class BindFunction implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_ONE_ROW_RELATION_FUNCTION.build(
-                logicalOneRowRelation().then(oneRowRelation -> {
+                logicalOneRowRelation().thenApply(ctx -> {
+                    LogicalOneRowRelation oneRowRelation = ctx.root;
                     List<NamedExpression> projects = oneRowRelation.getProjects();
-                    List<NamedExpression> boundProjects = bind(projects);
+                    List<NamedExpression> boundProjects = bind(projects, ctx.connectContext.getEnv());
                     // TODO:
                     // trick logic: currently XxxRelation in GroupExpression always difference to each other,
                     // so this rule must check the expression whether is changed to prevent dead loop because
@@ -70,113 +69,64 @@ public class BindFunction implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_PROJECT_FUNCTION.build(
-                logicalProject().then(project -> {
-                    List<NamedExpression> boundExpr = bind(project.getProjects());
+                logicalProject().thenApply(ctx -> {
+                    LogicalProject<GroupPlan> project = ctx.root;
+                    List<NamedExpression> boundExpr = bind(project.getProjects(), ctx.connectContext.getEnv());
                     return new LogicalProject<>(boundExpr, project.child());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
-                logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressions());
-                    List<NamedExpression> output = bind(agg.getOutputExpressions());
+                logicalAggregate().thenApply(ctx -> {
+                    LogicalAggregate<GroupPlan> agg = ctx.root;
+                    List<Expression> groupBy = bind(agg.getGroupByExpressions(), ctx.connectContext.getEnv());
+                    List<NamedExpression> output = bind(agg.getOutputExpressions(), ctx.connectContext.getEnv());
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
             RuleType.BINDING_FILTER_FUNCTION.build(
-               logicalFilter().then(filter -> {
-                   List<Expression> predicates = bind(filter.getExpressions());
+               logicalFilter().thenApply(ctx -> {
+                   LogicalFilter<GroupPlan> filter = ctx.root;
+                   List<Expression> predicates = bind(filter.getExpressions(), ctx.connectContext.getEnv());
                    return new LogicalFilter<>(predicates.get(0), filter.child());
                })
             ),
             RuleType.BINDING_HAVING_FUNCTION.build(
-                logicalHaving(logicalAggregate()).then(filter -> {
-                    List<Expression> predicates = bind(filter.getExpressions());
-                    return new LogicalHaving<>(predicates.get(0), filter.child());
+                logicalHaving(logicalAggregate()).thenApply(ctx -> {
+                    LogicalHaving<LogicalAggregate<GroupPlan>> having = ctx.root;
+                    List<Expression> predicates = bind(having.getExpressions(), ctx.connectContext.getEnv());
+                    return new LogicalHaving<>(predicates.get(0), having.child());
                 })
             )
         );
     }
 
-    private <E extends Expression> List<E> bind(List<E> exprList) {
+    private <E extends Expression> List<E> bind(List<E> exprList, Env env) {
         return exprList.stream()
-            .map(FunctionBinder.INSTANCE::bind)
+            .map(expr -> FunctionBinder.INSTANCE.bind(expr, env))
             .collect(Collectors.toList());
     }
 
-    private static class FunctionBinder extends DefaultExpressionRewriter<Void> {
+    private static class FunctionBinder extends DefaultExpressionRewriter<Env> {
         public static final FunctionBinder INSTANCE = new FunctionBinder();
 
-        public <E extends Expression> E bind(E expression) {
-            return (E) expression.accept(this, null);
+        public <E extends Expression> E bind(E expression, Env env) {
+            return (E) expression.accept(this, env);
         }
 
         @Override
-        public Expression visitUnboundFunction(UnboundFunction unboundFunction, Void context) {
-            String name = unboundFunction.getName();
-            // TODO: lookup function in the function registry
-            if (name.equalsIgnoreCase("sum")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
-                    return unboundFunction;
-                }
-                return new Sum(unboundFunction.getArguments().get(0));
-            } else if (name.equalsIgnoreCase("count")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() > 1 || (arguments.size() == 0 && !unboundFunction.isStar())) {
-                    return unboundFunction;
-                }
-                if (unboundFunction.isStar() || arguments.stream().allMatch(Expression::isConstant)) {
-                    return new Count();
-                }
-                return new Count(unboundFunction.getArguments().get(0));
-            } else if (name.equalsIgnoreCase("max")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
-                    return unboundFunction;
-                }
-                return new Max(unboundFunction.getArguments().get(0));
-            } else if (name.equalsIgnoreCase("min")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
-                    return unboundFunction;
-                }
-                return new Min(unboundFunction.getArguments().get(0));
-            } else if (name.equalsIgnoreCase("avg")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
-                    return unboundFunction;
-                }
-                return new Avg(unboundFunction.getArguments().get(0));
-            } else if (name.equalsIgnoreCase("substr") || name.equalsIgnoreCase("substring")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() == 2) {
-                    return new Substring(unboundFunction.getArguments().get(0),
-                            unboundFunction.getArguments().get(1));
-                } else if (arguments.size() == 3) {
-                    return new Substring(unboundFunction.getArguments().get(0), unboundFunction.getArguments().get(1),
-                            unboundFunction.getArguments().get(2));
-                }
-                return unboundFunction;
-            } else if (name.equalsIgnoreCase("year")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
-                    return unboundFunction;
-                }
-                return new Year(unboundFunction.getArguments().get(0));
-            } else if (name.equalsIgnoreCase("WeekOfYear")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
-                    return unboundFunction;
-                }
-                return new WeekOfYear(unboundFunction.getArguments().get(0));
-            }
-            return unboundFunction;
+        public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+            FunctionRegistry functionRegistry = env.getFunctionRegistry();
+            String functionName = unboundFunction.getName();
+            FunctionBuilder builder = functionRegistry.findFunctionBuilder(
+                    functionName, unboundFunction.getArguments());
+            return builder.build(functionName, unboundFunction.getArguments());
         }
 
         @Override
-        public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Void context) {
+        public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Env env) {
             String funcOpName;
             if (arithmetic.getFuncName() == null) {
+                // e.g. YEARS_ADD, MONTHS_SUB
                 funcOpName = String.format("%sS_%s", arithmetic.getTimeUnit(),
                         (arithmetic.getOp() == Operator.ADD) ? "ADD" : "SUB");
             } else {

@@ -375,6 +375,9 @@ public class Env {
     private CatalogRecycleBin recycleBin;
     private FunctionSet functionSet;
 
+    // for nereids
+    private FunctionRegistry functionRegistry;
+
     private MetaReplayState metaReplayState;
 
     private BrokerMgr brokerMgr;
@@ -554,6 +557,8 @@ public class Env {
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
         this.functionSet.init();
+
+        this.functionRegistry = new FunctionRegistry();
 
         this.metaReplayState = new MetaReplayState();
 
@@ -4304,6 +4309,10 @@ public class Env {
             throw new DdlException("Failed to create view[" + tableName + "].");
         }
         LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
+    }
+
+    public FunctionRegistry getFunctionRegistry() {
+        return functionRegistry;
     }
 
     /**

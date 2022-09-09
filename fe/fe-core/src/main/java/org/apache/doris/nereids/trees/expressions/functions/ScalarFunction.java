@@ -18,32 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 
 /**
- * The function which consume arguments in lots of rows and product one value.
+ * The function which consume zero or more arguments in a row and product one value.
  */
-public abstract class AggregateFunction extends BoundFunction {
-
-    private DataType intermediate;
-
-    public AggregateFunction(String name, Expression... arguments) {
+public abstract class ScalarFunction extends BoundFunction {
+    public ScalarFunction(String name, Expression... arguments) {
         super(name, arguments);
-    }
-
-    public abstract DataType getIntermediateType();
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitAggregateFunction(this, context);
-    }
-
-    public DataType getIntermediate() {
-        return intermediate;
-    }
-
-    public void setIntermediate(DataType intermediate) {
-        this.intermediate = intermediate;
     }
 }
