@@ -109,7 +109,7 @@ TEST(MathFunctionTest, sqrt_test) {
 }
 
 TEST(MathFunctionTest, cbrt_test) {
-    std::string func_name = "cbrt"; 
+    std::string func_name = "cbrt";
 
     InputTypeSet input_types = {TypeIndex::Float64};
 
