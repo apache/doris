@@ -115,8 +115,8 @@ TEST(MathFunctionTest, cbrt_test) {
 
     DataSet data_set = {
             {{0.0}, 0.0}, {{2.0}, 1.2599210498948734}, {{8.0}, 2.0}, {{-1000.0}, -10.0}};
-            
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+	
+	check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
 TEST(MathFunctionTest, tan_test) {
