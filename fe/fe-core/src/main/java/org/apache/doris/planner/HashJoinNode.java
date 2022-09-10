@@ -1135,6 +1135,16 @@ public class HashJoinNode extends PlanNode {
             }
             output.append("\n");
         }
+        output.append(detailPrefix).append("nereids output slot ids: ");
+        for (Expr e : vSrcToOutputSMap.getLhs()) {
+            if (e instanceof SlotRef) {
+                SlotRef s = (SlotRef) e;
+                output.append("t")
+                        .append(s.getDesc().getParent().getId())
+                        .append(".").append(s.getSlotId()).append(" ");
+            }
+        }
+        output.append("\n");
         if (hashOutputSlotIds != null) {
             output.append(detailPrefix).append("hash output slot ids: ");
             for (SlotId slotId : hashOutputSlotIds) {
@@ -1142,6 +1152,11 @@ public class HashJoinNode extends PlanNode {
             }
             output.append("\n");
         }
+        output.append(detailPrefix).append("input tuple ids: ");
+        for (TupleId tid : tblRefIds) {
+            output.append(tid.asInt()).append(" ");
+        }
+        output.append("\n");
         return output.toString();
     }
 

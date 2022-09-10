@@ -482,7 +482,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         // Output Tuple Ids only when explain plan level is set to verbose
         if (detailLevel.equals(TExplainLevel.VERBOSE)) {
-            expBuilder.append(detailPrefix + "tuple ids: ");
+            expBuilder.append(detailPrefix + "output tuple ids: ");
             for (TupleId tupleId : tupleIds) {
                 String nullIndicator = nullableTupleIds.contains(tupleId) ? "N" : "";
                 expBuilder.append(tupleId.asInt() + nullIndicator + " ");
