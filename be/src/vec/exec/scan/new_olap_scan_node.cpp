@@ -124,7 +124,7 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     filters_string += "[";
     for (auto it = filters.cbegin(); it != filters.cend(); it++) {
         if (it != filters.cbegin()) {
-            filters_string += ",";
+            filters_string += ", ";
         }
         filters_string += olap_filter_to_string(*it);
     }
@@ -180,6 +180,11 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         }
     }
 
+    // Append value ranges in "_not_in_value_ranges"
+    for (auto& range : _not_in_value_ranges) {
+        std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); }, range);
+    }
+
     _runtime_profile->add_info_string("PushDownPredicates", olap_filters_to_string(_olap_filters));
     _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
     VLOG_CRITICAL << _scan_keys.debug_string();
@@ -187,7 +192,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-PushDownType NewOlapScanNode::_should_push_down_function_filter(
+VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringVal* constant_str,
         doris_udf::FunctionContext** fn_ctx) {
     // Now only `like` function filters is supported to push down

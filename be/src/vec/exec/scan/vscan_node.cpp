@@ -546,7 +546,6 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                                                  PushDownType* pdt) {
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
                                                                            slot->type().scale);
-    bool effect = false;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         VInPredicate* pred = static_cast<VInPredicate*>(expr);
@@ -576,7 +575,6 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
         }
 
         range.intersection(temp_range);
-        effect = true;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
@@ -586,7 +584,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
 
         *pdt = _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
                                                   expr_ctx, &value, &slot_ref_child, eq_checker);
-        if (*pdt != PushDownTyep::UNACCEPTABLE) {
+        if (*pdt != PushDownType::UNACCEPTABLE) {
             DCHECK(slot_ref_child >= 0);
             // where A = nullptr should return empty result set
             auto fn_name = std::string("");
@@ -694,12 +692,8 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
         }
     }
 
-    if (is_fixed_range ||
-        not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
-        if (!is_fixed_range) {
-            // push down not in condition to storage engine
-            not_in_range.to_in_condition(_olap_filters, false);
-        }
+    if (!is_fixed_range && not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+        _not_in_value_ranges.push_back(not_in_range);
     }
     return Status::OK();
 }
@@ -909,7 +903,7 @@ Status VScanNode::clone_vconjunct_ctx(VExprContext** _vconjunct_ctx) {
     return Status::OK();
 }
 
-PushDownType VScanNode::_should_push_down_binary_predicate(
+VScanNode::PushDownType VScanNode::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
         int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker) {
     if (!fn_checker(fn_call->fn().name.function_name)) {
@@ -939,7 +933,7 @@ PushDownType VScanNode::_should_push_down_binary_predicate(
     return PushDownType::ACCEPTABLE;
 }
 
-PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprContext* expr_ctx,
+VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprContext* expr_ctx,
                                                        bool is_not_in) {
     if (pred->is_not_in() != is_not_in) {
         return PushDownType::UNACCEPTABLE;

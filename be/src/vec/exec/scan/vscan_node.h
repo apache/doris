@@ -73,7 +73,16 @@ public:
     const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
 
-    enum class PushDownType { UNACCEPTABLE, ACCEPTABLE, PARTIAL_ACCEPTABLE };
+    enum class PushDownType {
+        // The predicate can not be pushed down to data source
+        UNACCEPTABLE,
+        // The predicate can be pushed down to data source
+        // and the data source can fully evaludate it
+        ACCEPTABLE,
+        // The predicate can be pushed down to data source
+        // but the data source can not fully evaluate it.
+        PARTIAL_ACCEPTABLE
+    };
 
 protected:
     // Different data sources register different profiles by implementing this method
@@ -180,11 +189,18 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // slot id -> ColumnValueRange
-    // Parsed from conjunts
+    // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
     // column -> ColumnValueRange
     std::map<std::string, ColumnValueRangeType> _colname_to_value_range;
+    // We use _colname_to_value_range to store a column and its conresponding value ranges.
+    // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
+    // in this case we can not merge "1 < col < 10" with "col not in (2)".
+    // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
+    // When the data source try to use the value ranges, it should use both ranges in
+    // "_colname_to_value_range" and in "_not_in_value_ranges"
+    std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
 
