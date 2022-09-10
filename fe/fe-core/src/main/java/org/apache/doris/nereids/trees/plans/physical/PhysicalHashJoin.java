@@ -40,6 +40,8 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
+    public boolean shouldTranslateOutput = true;
+
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {

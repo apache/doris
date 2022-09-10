@@ -493,30 +493,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     physicalHashJoin, hashJoinNode, leftFragment, rightFragment, context);
         }
 
-        // Nereids does not care about output order of join,
-        // but BE need left child's output must be before right child's output.
-        // So we need to swap the output order of left and right child if necessary.
-        // TODO: revert this after Nereids could ensure the output order is correct.
-        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
-        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
-        TupleDescriptor outputDescriptor = context.generateTupleDesc();
-        Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
-
+        TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
         Stream.concat(hashJoin.child(0).getOutput().stream(), hashJoin.child(1).getOutput().stream())
                 .map(SlotReference.class::cast)
-                .forEach(s -> context.createSlotDesc(outputDescriptor, s));
-
-        hashJoin.getOutput().stream()
-                .map(SlotReference.class::cast)
-                .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
-        List<Expr> srcToOutput = Stream.concat(leftTuples.stream(), rightTuples.stream())
-                .map(TupleDescriptor::getSlots)
-                .flatMap(Collection::stream)
-                .map(sd -> context.findExprId(sd.getId()))
-                .map(outputSlotReferenceMap::get)
-                .filter(Objects::nonNull)
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
+                .forEach(s -> context.createSlotDesc(intermediateDescriptor, s));
 
         List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
                 .map(ExpressionUtils::extractConjunction)
@@ -529,9 +509,40 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         hashJoinNode.setOtherJoinConjuncts(otherJoinConjuncts);
-        hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(outputDescriptor));
-        hashJoinNode.setvOutputTupleDesc(outputDescriptor);
-        hashJoinNode.setvSrcToOutputSMap(srcToOutput);
+
+        hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
+
+        if (hashJoin.shouldTranslateOutput) {
+            // Nereids does not care about output order of join,
+            // but BE need left child's output must be before right child's output.
+            // So we need to swap the output order of left and right child if necessary.
+            // TODO: revert this after Nereids could ensure the output order is correct.
+            List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
+            List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
+            TupleDescriptor outputDescriptor = context.generateTupleDesc();
+            Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
+
+            hashJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+            List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .map(sd -> context.findExprId(sd.getId()))
+                    .map(outputSlotReferenceMap::get)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            //translate output expr on intermediate tuple
+            List<Expr> srcToOutput = outputSlotReferences.stream()
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+
+            outputSlotReferences.stream().forEach(s -> context.createSlotDesc(outputDescriptor, s));
+
+            hashJoinNode.setvOutputTupleDesc(outputDescriptor);
+            hashJoinNode.setvSrcToOutputSMap(srcToOutput);
+        }
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
                 .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
@@ -574,6 +585,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
+        if (project.child(0) instanceof PhysicalHashJoin) {
+            ((PhysicalHashJoin<?, ?>) project.child(0)).shouldTranslateOutput = false;
+        }
         PlanFragment inputFragment = project.child(0).accept(this, context);
 
         List<Expr> execExprList = project.getProjects()
