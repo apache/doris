@@ -182,7 +182,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
     // Append value ranges in "_not_in_value_ranges"
     for (auto& range : _not_in_value_ranges) {
-        std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); }, range);
+        std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
+                   range);
     }
 
     _runtime_profile->add_info_string("PushDownPredicates", olap_filters_to_string(_olap_filters));

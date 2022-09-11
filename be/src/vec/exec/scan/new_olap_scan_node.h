@@ -42,13 +42,9 @@ protected:
                                                    VExprContext* expr_ctx, StringVal* constant_str,
                                                    doris_udf::FunctionContext** fn_ctx) override;
 
-    PushDownType _should_push_down_bloom_filter() override {
-        return PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 
-    PushDownType _should_push_down_is_null_predicate() override {
-        return PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
     Status _init_scanners(std::list<VScanner*>* scanners) override;
 

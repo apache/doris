@@ -31,7 +31,7 @@
 namespace doris::vectorized {
 
 #define RETURN_IF_PUSH_DOWN(stmt)            \
-    if (pdt != PushDownType::UNACCEPTABLE) { \
+    if (pdt == PushDownType::UNACCEPTABLE) { \
         stmt;                                \
     } else {                                 \
         return;                              \
@@ -466,8 +466,10 @@ Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, S
                                           PushDownType* pdt) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 1);
-        if ((*pdt = _should_push_down_bloom_filter()) != PushDownType::UNACCEPTABLE) {
+        PushDownType temp_pdt = _should_push_down_bloom_filter();
+        if (temp_pdt != PushDownType::UNACCEPTABLE) {
             _bloom_filters_push_down.emplace_back(slot->col_name(), expr->get_bloom_filter_func());
+            *pdt = temp_pdt;
         }
     }
     return Status::OK();
@@ -486,11 +488,12 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
         doris_udf::FunctionContext* fn_ctx = nullptr;
         StringVal val;
-        *pdt = _should_push_down_function_filter(reinterpret_cast<VectorizedFnCall*>(fn_expr),
-                                                 expr_ctx, &val, &fn_ctx);
-        if (*pdt != PushDownType::UNACCEPTABLE) {
+        PushDownType temp_pdt = _should_push_down_function_filter(
+                reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx);
+        if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
+            *pdt = temp_pdt;
         }
     }
     return Status::OK();
@@ -549,8 +552,8 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         VInPredicate* pred = static_cast<VInPredicate*>(expr);
-        if ((*pdt = _should_push_down_in_predicate(pred, expr_ctx, false)) ==
-            PushDownType::UNACCEPTABLE) {
+        PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
+        if (temp_pdt == PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
 
@@ -573,8 +576,8 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                                                       fn_name, !state->hybrid_set->is_date_v2()));
             iter->next();
         }
-
         range.intersection(temp_range);
+        *pdt = temp_pdt;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
@@ -582,27 +585,30 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
         StringRef value;
         int slot_ref_child = -1;
 
-        *pdt = _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
-                                                  expr_ctx, &value, &slot_ref_child, eq_checker);
-        if (*pdt != PushDownType::UNACCEPTABLE) {
-            DCHECK(slot_ref_child >= 0);
-            // where A = nullptr should return empty result set
-            auto fn_name = std::string("");
-            if (value.data != nullptr) {
-                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
-                              T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
-                    RETURN_IF_ERROR(_change_value_range<true>(
-                            temp_range, reinterpret_cast<void*>(&val),
-                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
-                } else {
-                    RETURN_IF_ERROR(_change_value_range<true>(
-                            temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
-                }
-                range.intersection(temp_range);
-            }
+        PushDownType temp_pdt =
+                _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
+                                                   expr_ctx, &value, &slot_ref_child, eq_checker);
+        if (temp_pdt == PushDownType::UNACCEPTABLE) {
+            return Status::OK();
         }
+        DCHECK(slot_ref_child >= 0);
+        // where A = nullptr should return empty result set
+        auto fn_name = std::string("");
+        if (value.data != nullptr) {
+            if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                          T == TYPE_HLL) {
+                auto val = StringValue(value.data, value.size);
+                RETURN_IF_ERROR(_change_value_range<true>(
+                        temp_range, reinterpret_cast<void*>(&val),
+                        ColumnValueRange<T>::add_fixed_value_range, fn_name));
+            } else {
+                RETURN_IF_ERROR(_change_value_range<true>(
+                        temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                        ColumnValueRange<T>::add_fixed_value_range, fn_name));
+            }
+            range.intersection(temp_range);
+        }
+        *pdt = temp_pdt;
     }
 
     // exceed limit, no conditions will be pushed down to storage engine.
@@ -620,10 +626,11 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                                                          PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range.column_name());
+    PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         VInPredicate* pred = static_cast<VInPredicate*>(expr);
-        if ((*pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
+        if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
             PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
@@ -657,43 +664,50 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
         auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         StringRef value;
         int slot_ref_child = -1;
-        *pdt = _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
-                                                  expr_ctx, &value, &slot_ref_child, ne_checker);
-        if (*pdt != PushDownType::UNACCEPTABLE) {
-            DCHECK(slot_ref_child >= 0);
-            // where A = nullptr should return empty result set
-            if (value.data != nullptr) {
-                auto fn_name = std::string("");
-                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
-                              T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
-                    if (is_fixed_range) {
-                        RETURN_IF_ERROR(_change_value_range<true>(
-                                range, reinterpret_cast<void*>(&val),
-                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
-                    } else {
-                        RETURN_IF_ERROR(_change_value_range<true>(
-                                not_in_range, reinterpret_cast<void*>(&val),
-                                ColumnValueRange<T>::add_fixed_value_range, fn_name));
-                    }
+        if ((temp_pdt = _should_push_down_binary_predicate(
+                     reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx, &value, &slot_ref_child,
+                     ne_checker)) == PushDownType::UNACCEPTABLE) {
+            return Status::OK();
+        }
+
+        DCHECK(slot_ref_child >= 0);
+        // where A = nullptr should return empty result set
+        if (value.data != nullptr) {
+            auto fn_name = std::string("");
+            if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                          T == TYPE_HLL) {
+                auto val = StringValue(value.data, value.size);
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            range, reinterpret_cast<void*>(&val),
+                            ColumnValueRange<T>::remove_fixed_value_range, fn_name));
                 } else {
-                    if (is_fixed_range) {
-                        RETURN_IF_ERROR(_change_value_range<true>(
-                                range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
-                    } else {
-                        RETURN_IF_ERROR(_change_value_range<true>(
-                                not_in_range,
-                                reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                                ColumnValueRange<T>::add_fixed_value_range, fn_name));
-                    }
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            not_in_range, reinterpret_cast<void*>(&val),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                }
+            } else {
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                } else {
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            not_in_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
         }
+    } else {
+        return Status::OK();
     }
 
-    if (!is_fixed_range && not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
-        _not_in_value_ranges.push_back(not_in_range);
+    if (is_fixed_range ||
+        not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+        if (!is_fixed_range) {
+            _not_in_value_ranges.push_back(not_in_range);
+        }
+        *pdt = temp_pdt;
     }
     return Status::OK();
 }
@@ -702,7 +716,8 @@ template <PrimitiveType T>
 Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                PushDownType* pdt) {
-    if ((*pdt = _should_push_down_is_null_predicate()) == PushDownType::UNACCEPTABLE) {
+    PushDownType temp_pdt = _should_push_down_is_null_predicate();
+    if (temp_pdt == PushDownType::UNACCEPTABLE) {
         return Status::OK();
     }
 
@@ -712,12 +727,14 @@ Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_c
                     slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
+            *pdt = temp_pdt;
         } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
+            *pdt = temp_pdt;
         }
     }
     return Status::OK();
@@ -735,17 +752,16 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
         };
         StringRef value;
         int slot_ref_child = -1;
-        PushDownType tmpPdt = _should_push_down_binary_predicate(
+        PushDownType temp_pdt = _should_push_down_binary_predicate(
                 reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx, &value, &slot_ref_child,
                 noneq_checker);
-        if (tmpPdt != PushDownType::UNACCEPTABLE) {
+        if (temp_pdt != PushDownType::UNACCEPTABLE) {
             DCHECK(slot_ref_child >= 0);
             const std::string& fn_name =
                     reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
 
             // where A = nullptr should return empty result set
             if (value.data != nullptr) {
-                *pdt = tmpPdt;
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
                     auto val = StringValue(value.data, value.size);
@@ -757,6 +773,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
                             range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
                             ColumnValueRange<T>::add_value_range, fn_name, true, slot_ref_child));
                 }
+                *pdt = temp_pdt;
             }
         }
     }
@@ -933,8 +950,9 @@ VScanNode::PushDownType VScanNode::_should_push_down_binary_predicate(
     return PushDownType::ACCEPTABLE;
 }
 
-VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprContext* expr_ctx,
-                                                       bool is_not_in) {
+VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* pred,
+                                                                  VExprContext* expr_ctx,
+                                                                  bool is_not_in) {
     if (pred->is_not_in() != is_not_in) {
         return PushDownType::UNACCEPTABLE;
     }
