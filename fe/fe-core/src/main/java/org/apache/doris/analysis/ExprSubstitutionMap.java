@@ -19,18 +19,15 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Objects;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
 /**
  * Map of expression substitutions: lhs[i] gets substituted with rhs[i].
@@ -41,7 +38,7 @@ import com.google.common.collect.Lists;
  * See Expr.substitute() and related functions for details on the actual substitution.
  */
 public final class ExprSubstitutionMap {
-    private final static Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
+    private final static Logger LOG = LogManager.getLogger(ExprSubstitutionMap.class);
 
     private boolean checkAnalyzed_ = true;
     private List<Expr> lhs_; // left-hand side
