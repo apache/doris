@@ -35,6 +35,11 @@ namespace doris {
 namespace vectorized {
 class VExprContext;
 }
+static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
+// Now we only treat HLL, CHAR, VARCHAR as big column
+static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
+// Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
+static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
 struct ODBCConnectorParam {
     std::string connect_string;
@@ -89,6 +94,10 @@ public:
 
     const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
 
+    static std::u16string utf8_to_u16string(const char* first, const char* last) {
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> utf8_utf16_cvt;
+        return utf8_utf16_cvt.from_bytes(first, last);
+    }
 private:
     void _init_profile(RuntimeProfile*);
 

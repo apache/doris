@@ -17,12 +17,15 @@
 
 #include "vec/exec/vjdbc_connector.h"
 #ifdef LIBJVM
+#include "exec/odbc_connector.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/exprs/vexpr.h"
+
 namespace doris {
 namespace vectorized {
 const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
@@ -33,16 +36,21 @@ const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
+const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
         : _is_open(false),
           _query_string(param.query_string),
           _tuple_desc(param.tuple_desc),
-          _conn_param(param) {}
+          _conn_param(param),
+          _is_in_transaction(false) {}
 
 JdbcConnector::~JdbcConnector() {
     if (!_is_open) {
         return;
+    }
+    if (_is_in_transaction) {
+        abort_trans();
     }
     JNIEnv* env;
     Status status;
@@ -99,6 +107,12 @@ Status JdbcConnector::open() {
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _executor_obj, &_executor_obj));
     _is_open = true;
     return Status::OK();
+}
+
+void JdbcConnector::_init_profile(doris::RuntimeProfile* profile) {
+    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
+    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
+    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
 }
 
 Status JdbcConnector::query_exec() {
@@ -203,6 +217,12 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     RETURN_IF_ERROR(
             register_id(_executor_object_clazz, "toString", "()Ljava/lang/String;", _to_string_id));
 
+    RETURN_IF_ERROR(register_id(_executor_clazz, "openTrans", JDBC_EXECUTOR_TRANSACTION_SIGNATURE,
+                                _executor_begin_trans_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "commitTrans", JDBC_EXECUTOR_TRANSACTION_SIGNATURE,
+                                _executor_finish_trans_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "rollbackTrans",
+                                JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
     return Status::OK();
 }
 
@@ -301,6 +321,118 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     return Status::OK();
 }
 
+Status JdbcConnector::append(const std::string& table_name, vectorized::Block* block,
+                             const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
+                             uint32_t start_send_row, uint32_t* num_rows_sent) {
+    _insert_stmt_buffer.clear();
+    std::u16string insert_stmt;
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
+
+        int num_rows = block->rows();
+        int num_columns = block->columns();
+        for (int i = start_send_row; i < num_rows; ++i) {
+            (*num_rows_sent)++;
+
+            // Construct insert statement of jdbc table
+            for (int j = 0; j < num_columns; ++j) {
+                if (j != 0) {
+                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
+                }
+                auto [item, size] = block->get_by_position(j).column->get_data_at(i);
+                if (item == nullptr) {
+                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+                    continue;
+                }
+                switch (_output_vexpr_ctxs[j]->root()->type().type) {
+                case TYPE_BOOLEAN:
+                case TYPE_TINYINT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int8_t*>(item));
+                    break;
+                case TYPE_SMALLINT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int16_t*>(item));
+                    break;
+                case TYPE_INT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int32_t*>(item));
+                    break;
+                case TYPE_BIGINT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int64_t*>(item));
+                    break;
+                case TYPE_FLOAT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const float*>(item));
+                    break;
+                case TYPE_DOUBLE:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const double*>(item));
+                    break;
+                case TYPE_DATE:
+                case TYPE_DATETIME: {
+                    vectorized::VecDateTimeValue value =
+                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(
+                                    *(int64_t*)item);
+
+                    char buf[64];
+                    char* pos = value.to_string(buf);
+                    std::string_view str(buf, pos - buf - 1);
+                    fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+                    break;
+                }
+                case TYPE_VARCHAR:
+                case TYPE_CHAR:
+                case TYPE_STRING: {
+                    fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
+                    break;
+                }
+                case TYPE_DECIMALV2: {
+                    DecimalV2Value value = *(DecimalV2Value*)(item);
+                    fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
+                    break;
+                }
+                case TYPE_LARGEINT: {
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const __int128*>(item));
+                    break;
+                }
+                default: {
+                    return Status::InternalError("can't convert this type to mysql type. type = {}",
+                                                 _output_vexpr_ctxs[j]->root()->type().type);
+                }
+                }
+            }
+
+            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
+                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
+            } else {
+                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
+                fmt::format_to(_insert_stmt_buffer, "{}", ")");
+                break;
+            }
+        }
+        // Translate utf8 string to utf16 to use unicode encodeing
+        insert_stmt = ODBCConnector::utf8_to_u16string(
+                _insert_stmt_buffer.data(),
+                _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
+    }
+
+    {
+        SCOPED_TIMER(_result_send_timer);
+        JNIEnv* env = nullptr;
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+        jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
+        env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_query_id, query_sql);
+        env->DeleteLocalRef(query_sql);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    }
+    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+    return Status::OK();
+}
+
 std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
     jobject jstr = env->CallObjectMethod(jobj, _to_string_id);
     const jbyteArray stringJbytes =
@@ -321,6 +453,40 @@ int64_t JdbcConnector::_jobject_to_date(JNIEnv* env, jobject jobj) {
 int64_t JdbcConnector::_jobject_to_datetime(JNIEnv* env, jobject jobj) {
     return env->CallNonvirtualLongMethod(_executor_obj, _executor_clazz,
                                          _executor_convert_datetime_id, jobj);
+}
+
+Status JdbcConnector::begin_trans() {
+    if (!_is_open) {
+        return Status::InternalError("Begin transaction before open.");
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_begin_trans_id);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    _is_in_transaction = true;
+    return Status::OK();
+}
+
+Status JdbcConnector::abort_trans() {
+    if (!_is_in_transaction) {
+        return Status::InternalError("Abort transaction before begin trans.");
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_abort_trans_id);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+
+Status JdbcConnector::finish_trans() {
+    if (!_is_in_transaction) {
+        return Status::InternalError("Abort transaction before begin trans.");
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_finish_trans_id);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    _is_in_transaction = false;
+    return Status::OK();
 }
 
 #define FUNC_IMPL_TO_CONVERT_DATA(cpp_return_type, java_type, sig, java_return_type)          \

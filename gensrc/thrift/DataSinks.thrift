@@ -34,6 +34,7 @@ enum TDataSinkType {
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
+    JDBC_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -103,6 +104,11 @@ struct TOdbcTableSink {
     3: optional bool use_transaction
 }
 
+struct TJdbcTableSink {
+    1: optional Descriptors.TJdbcTable jdbc_table
+    2: optional bool use_transaction
+}
+
 struct TExportSink {
     1: required Types.TFileType file_type
     2: required string export_path
@@ -145,5 +151,6 @@ struct TDataSink {
   8: optional TMemoryScratchSink memory_scratch_sink
   9: optional TOdbcTableSink odbc_table_sink
   10: optional TResultFileSink result_file_sink
+  11: optional TJdbcTableSink jdbc_table_sink
 }
 

@@ -85,6 +85,24 @@ Parameter Description：
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
+### Data write
+
+After the JDBC external table is create in Doris, the data can be written directly by the `insert into` statement, the query results of Doris can be written to the JDBC external table, or the data can be imported from one JDBC table to another.
+
+```
+insert into mysql_table values(1, "doris");
+insert into mysql_table select * from table;
+```
+#### Transaction
+
+
+The data of Doris is written to the external table by a group of batch. If the import is interrupted, the data written before may need to be rolled back. Therefore, the JDBC external table supports transactions when data is written. Transaction support needs to be supported set by session variable: `enable_odbc_transcation`. ODBC transactions are also controlled by this variable.
+
+```
+set enable_odbc_transcation = true; 
+```
+
+Transactions ensure the atomicity of JDBC external table writing, but it will reduce the performance of data writing, so we can consider turning on the way as appropriate.
 
 #### 1.Mysql
 

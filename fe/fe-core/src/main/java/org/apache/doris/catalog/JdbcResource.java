@@ -55,13 +55,13 @@ import java.util.Map;
  * DROP RESOURCE "jdbc_mysql";
  */
 public class JdbcResource extends Resource {
-    public static final String URL = "jdbc_url";
-    public static final String USER = "user";
-    public static final String PASSWORD = "password";
-    public static final String DRIVER_CLASS = "driver_class";
-    public static final String DRIVER_URL = "driver_url";
-    public static final String TYPE = "type";
-    public static final String CHECK_SUM = "checksum";
+    private static final String URL = "jdbc_url";
+    private static final String USER = "user";
+    private static final String PASSWORD = "password";
+    private static final String DRIVER_CLASS = "driver_class";
+    private static final String DRIVER_URL = "driver_url";
+    private static final String TYPE = "type";
+    private static final String CHECK_SUM = "checksum";
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;

@@ -271,7 +271,7 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) throws UserException {
-        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
+        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode || node instanceof JdbcScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
