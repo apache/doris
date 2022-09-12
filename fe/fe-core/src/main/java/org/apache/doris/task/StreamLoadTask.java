@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -272,6 +273,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
+        } else {
+            execMemLimit = VariableMgr.getDefaultSessionVariable().getLoadMemLimit();
         }
         if (request.getFormatType() == TFileFormatType.FORMAT_JSON) {
             if (request.getJsonpaths() != null) {

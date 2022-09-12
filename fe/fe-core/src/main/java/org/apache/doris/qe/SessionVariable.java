@@ -358,7 +358,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean forwardToMaster = true;
 
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
-    public long loadMemLimit = 0L;
+    public long loadMemLimit = 2 * 1024 * 1024 * 1024L; // 2GB as default
 
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
