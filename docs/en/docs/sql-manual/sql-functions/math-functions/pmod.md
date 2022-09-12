@@ -30,7 +30,7 @@ under the License.
 `BIGINT PMOD(BIGINT x, BIGINT y)`
 `DOUBLE PMOD(DOUBLE x, DOUBLE y)`
 Returns the positive result of x mod y in the residue systems.
-Formally, return `(x%y+y)%y`.
+Formally, return `(x % y + y) % y`.
 
 ### example
 
