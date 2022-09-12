@@ -450,4 +450,56 @@ bool ParquetReader::_determine_filter_min_max(const std::vector<ExprContext*>& c
     return need_filter;
 }
 
+void _eval_binary(Expr* conjunct, void* conjunct_value, const char* min_bytes,
+                  const char* max_bytes, bool& need_filter) {
+    // todo: use this instead of row group minmax filter
+    Expr* expr = conjunct->get_child(1);
+    if (expr == nullptr) {
+        return;
+    }
+    auto conjunct_type = expr->type().type;
+    switch (conjunct->op()) {
+    case TExprOpcode::EQ:
+        need_filter = _eval_eq(conjunct_type, conjunct_value, min_bytes, max_bytes);
+        break;
+    case TExprOpcode::NE:
+        break;
+    case TExprOpcode::GT:
+        need_filter = _eval_gt(conjunct_type, conjunct_value, max_bytes);
+        break;
+    case TExprOpcode::GE:
+        need_filter = _eval_ge(conjunct_type, conjunct_value, max_bytes);
+        break;
+    case TExprOpcode::LT:
+        need_filter = _eval_lt(conjunct_type, conjunct_value, min_bytes);
+        break;
+    case TExprOpcode::LE:
+        need_filter = _eval_le(conjunct_type, conjunct_value, min_bytes);
+        break;
+    default:
+        break;
+    }
+}
+
+bool PageIndex::_filter_page_by_min_max(const std::vector<ExprContext*>& conjuncts,
+                                        const std::string& encoded_min,
+                                        const std::string& encoded_max) {
+    const char* min_bytes = encoded_min.data();
+    const char* max_bytes = encoded_max.data();
+    bool need_filter = false;
+    for (int i = 0; i < conjuncts.size(); i++) {
+        Expr* conjunct = conjuncts[i]->root();
+        if (conjunct->get_child(1) != nullptr) {
+            void* conjunct_value = conjuncts[i]->get_value(conjunct->get_child(1), nullptr);
+            if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
+                _eval_binary(conjunct, conjunct_value, min_bytes, max_bytes, need_filter);
+            }
+            //        } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
+            //            _eval_in_predicate(conjunct, min_bytes, max_bytes, need_filter);
+            //        }
+        }
+    }
+    return need_filter;
+}
+
 } // namespace doris::vectorized

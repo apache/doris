@@ -17,7 +17,6 @@
 
 #include "vparquet_group_reader.h"
 
-#include "parquet_pred_cmp.h"
 #include "schema_desc.h"
 #include "vparquet_column_reader.h"
 

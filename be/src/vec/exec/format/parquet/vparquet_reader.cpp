@@ -241,13 +241,13 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
         auto& chunk = row_group.columns[col_id];
         tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff, &column_index));
-        const int num_of_page = column_index.null_pages.size();
-        if (num_of_page <= 1) {
+        const int num_of_pages = column_index.null_pages.size();
+        if (num_of_pages <= 1) {
             break;
         }
         auto& conjuncts = conjunct_iter->second;
-        std::vector<int> candidate_page_range;
-        _page_index->collect_skipped_page_range(conjuncts, candidate_page_range);
+        std::unordered_set<int> candidate_page_range;
+        _page_index->collect_skipped_page_range(&column_index, conjuncts, candidate_page_range);
         tparquet::OffsetIndex offset_index;
         RETURN_IF_ERROR(_page_index->parse_offset_index(chunk, buff, buffer_size, &offset_index));
         for (int page_id : candidate_page_range) {

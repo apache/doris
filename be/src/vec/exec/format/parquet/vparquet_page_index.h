@@ -31,13 +31,16 @@ public:
     ~PageIndex() = default;
     Status create_skipped_row_range(tparquet::OffsetIndex& offset_index, int total_rows_of_group,
                                     int page_idx, RowRange* row_range);
-    Status collect_skipped_page_range(std::vector<ExprContext*> conjuncts,
-                                      std::vector<int> page_range);
+    Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
+                                      std::vector<ExprContext*> conjuncts,
+                                      std::unordered_set<int> page_range);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               tparquet::ColumnIndex* _column_index);
     Status parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               int64_t buffer_size, tparquet::OffsetIndex* _offset_index);
+    bool _filter_page_by_min_max(const std::vector<ExprContext*>& conjuncts,
+                                 const std::string& encoded_min, const std::string& encoded_max);
 
 private:
     friend class ParquetReader;
