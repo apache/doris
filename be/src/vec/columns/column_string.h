@@ -339,8 +339,6 @@ public:
         } else {
             offsets[self_row] = offsets[self_row - 1];
         }
-
-        chars.emplace_back(0);
     }
 
     MutableColumnPtr get_shinked_column() const {
