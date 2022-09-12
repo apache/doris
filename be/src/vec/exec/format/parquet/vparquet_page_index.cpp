@@ -17,6 +17,7 @@
 
 #include "vparquet_page_index.h"
 
+#include "parquet_pred_cmp.h"
 #include "util/thrift_util.h"
 
 namespace doris::vectorized {
@@ -35,9 +36,33 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
     return Status::OK();
 }
 
-Status PageIndex::collect_skipped_page_range(std::vector<ExprContext*> conjuncts,
-                                             std::vector<int> page_range) {
-    return Status();
+Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index,
+                                             std::vector<ExprContext*> conjuncts,
+                                             std::vector<int> skipped_ranges) {
+    const vector<std::string>& encoded_min_vals = column_index->min_values;
+    const vector<std::string>& encoded_max_vals = column_index->max_values;
+    DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
+
+    const int num_of_pages = column_index->null_pages.size();
+    for (int page_id = 0; page_id < num_of_pages; page_id++) {
+        for (int i = 0; i < conjuncts.size(); i++) {
+            ExprContext* conjunct_expr = conjuncts[i];
+            if (conjunct_expr->root()->get_child(1) == nullptr) {
+                // conjunct value is null
+                continue;
+            }
+            //        bool is_null_page = column_index->null_pages[page_id];
+            //        if (UNLIKELY(is_null_page) && is_not_null_predicate()) {
+            //             skipped_ranges.emplace_back(page_id);
+            //        }
+            if (_filter_page_by_min_max(conjunct_expr, encoded_min_vals[page_id], encoded_max_vals[page_id])) {
+                skipped_ranges.emplace_back(page_id);
+                break;
+            }
+        }
+    }
+    LOG(WARNING) << "skipped_ranges.size()=" << skipped_ranges.size();
+    return Status::OK();
 }
 
 bool PageIndex::check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns) {

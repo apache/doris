@@ -43,11 +43,13 @@ void ParquetReader::close() {
     for (auto& conjuncts : _slot_conjuncts) {
         conjuncts.second.clear();
     }
+    // todo: use context instead of these structures
     _row_group_readers.clear();
     _read_row_groups.clear();
-    _skipped_row_ranges.clear();
+    _candidate_row_ranges.clear();
     _slot_conjuncts.clear();
     _file_reader->close();
+    _col_offsets.clear();
     delete _file_reader;
 }
 
@@ -93,7 +95,7 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
             VLOG_DEBUG << str_error.str();
             return Status::InvalidArgument(str_error.str());
         }
-        ParquetReadColumn column(slot_desc);
+        ParquetReadColumn column(parquet_col_id, slot_desc);
         _read_columns.emplace_back(column);
     }
     return Status::OK();
@@ -132,12 +134,13 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
     RETURN_IF_ERROR(_filter_row_groups());
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
-        RETURN_IF_ERROR(_process_page_index(row_group));
         std::shared_ptr<RowGroupReader> row_group_reader;
         row_group_reader.reset(
                 new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
         // todo: can filter row with candidate ranges rather than skipped ranges
-        RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), _skipped_row_ranges));
+        RETURN_IF_ERROR(_process_page_index(row_group));
+        RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), _candidate_row_ranges,
+                                               _col_offsets));
         _row_group_readers.emplace_back(row_group_reader);
     }
     if (!_next_row_group_reader()) {
@@ -233,6 +236,8 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
     int64_t bytes_read = 0;
     RETURN_IF_ERROR(
             _file_reader->readat(_page_index->_column_index_start, buffer_size, &bytes_read, buff));
+
+    std::vector<RowRange> skipped_row_ranges;
     for (auto col_id : _include_column_ids) {
         auto conjunct_iter = _slot_conjuncts.find(col_id);
         if (_slot_conjuncts.end() == conjunct_iter) {
@@ -241,20 +246,46 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
         auto& chunk = row_group.columns[col_id];
         tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff, &column_index));
-        const int num_of_page = column_index.null_pages.size();
-        if (num_of_page <= 1) {
+        const int num_of_pages = column_index.null_pages.size();
+        if (num_of_pages <= 0) {
             break;
         }
         auto& conjuncts = conjunct_iter->second;
-        std::vector<int> candidate_page_range;
-        _page_index->collect_skipped_page_range(conjuncts, candidate_page_range);
+        std::vector<int> skipped_page_range;
+        _page_index->collect_skipped_page_range(&column_index, conjuncts, skipped_page_range);
+        if (skipped_page_range.empty()) {
+            return Status::OK();
+        }
         tparquet::OffsetIndex offset_index;
         RETURN_IF_ERROR(_page_index->parse_offset_index(chunk, buff, buffer_size, &offset_index));
-        for (int page_id : candidate_page_range) {
+        for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             _page_index->create_skipped_row_range(offset_index, row_group.num_rows, page_id,
                                                   &skipped_row_range);
-            _skipped_row_ranges.emplace_back(skipped_row_range);
+            // use the union row range
+            skipped_row_ranges.emplace_back(skipped_row_range);
+        }
+        _col_offsets.emplace(col_id, offset_index);
+    }
+    if (skipped_row_ranges.empty()) {
+        return Status::OK();
+    }
+
+    std::sort(skipped_row_ranges.begin(), skipped_row_ranges.end(),
+              [](const RowRange& lhs, const RowRange& rhs) {
+                  return std::tie(lhs.first_row, lhs.last_row) <
+                         std::tie(rhs.first_row, rhs.last_row);
+              });
+    int skip_end = -1;
+    for (auto& skip_range : skipped_row_ranges) {
+        LOG(WARNING) << skip_range.first_row << " " << skip_range.last_row << " | ";
+        if (skip_end + 1 >= skip_range.first_row) {
+            if (skip_end < skip_range.last_row) {
+                skip_end = skip_range.last_row;
+            }
+        } else {
+            _candidate_row_ranges.push_back({skip_end + 1, skip_range.first_row - 1});
+            skip_end = skip_range.last_row;
         }
     }
     return Status::OK();

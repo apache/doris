@@ -63,10 +63,13 @@ public:
                          const tparquet::RowGroup& row_group, std::vector<RowRange>& row_ranges,
                          cctz::time_zone* ctz, std::unique_ptr<ParquetColumnReader>& reader);
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
+    void add_offset_index(tparquet::OffsetIndex* offset_index) {
+        _offset_index.reset(offset_index);
+    }
     virtual void close() = 0;
 
 protected:
-    void _skipped_pages();
+    Status _filter_and_load_page();
     void _reserve_def_levels_buf(size_t size);
 
     const ParquetReadColumn& _column;
@@ -77,6 +80,9 @@ protected:
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::unique_ptr<level_t[]> _def_levels_buf = nullptr;
     size_t _def_levels_buf_size = 0;
+    std::unique_ptr<tparquet::OffsetIndex> _offset_index;
+    bool _has_filtered_pages = false;
+    int64_t _current_page_location = 0;
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
