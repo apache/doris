@@ -98,6 +98,16 @@ public class Memo {
      */
     public Plan copyOut(Group group, boolean includeGroupExpression) {
         GroupExpression logicalExpression = group.getLogicalExpression();
+        return copyOut(logicalExpression, includeGroupExpression);
+    }
+
+    /**
+     * copyOut the logicalExpression.
+     * @param logicalExpression the logicalExpression what want to copyOut
+     * @param includeGroupExpression whether include group expression in the plan
+     * @return plan
+     */
+    public Plan copyOut(GroupExpression logicalExpression, boolean includeGroupExpression) {
         List<Plan> children = Lists.newArrayList();
         for (Group child : logicalExpression.children()) {
             children.add(copyOut(child, includeGroupExpression));
