@@ -267,11 +267,11 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `load_mem_limit`
 
-  用于指定导入操作的内存限制。默认为 0，即表示不使用该变量，而采用 `exec_mem_limit` 作为导入操作的内存限制。
+  用于指定所有导入的内存限制。默认是2GB。
 
-  这个变量仅用于 INSERT 操作。因为 INSERT 操作设计查询和导入两个部分，如果用户不设置此变量，则查询和导入操作各自的内存限制均为 `exec_mem_limit`。否则，INSERT 的查询部分内存限制为 `exec_mem_limit`，而导入部分限制为 `load_mem_limit`。
+  对于 Broker Load， Stream Load 和 Routine Load，默认使用`load_mem_limit`; 如果用户创建任务时指定任务`exec_mem_limit`参数，则使用指定的值。
 
-  其他导入方式，如 BROKER LOAD，STREAM LOAD 的内存限制依然使用 `exec_mem_limit`。
+  这个变量也用于 INSERT 操作。 INSERT 操作设计查询和导入两个部分， INSERT 的查询部分内存限制为 `exec_mem_limit`，而导入部分限制为 `load_mem_limit`。
 
 - `lower_case_table_names`
 
