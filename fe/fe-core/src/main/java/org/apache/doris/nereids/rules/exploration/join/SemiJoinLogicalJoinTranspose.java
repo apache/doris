@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
+
 import java.util.Set;
 
 /**
@@ -89,7 +91,10 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
         Set<Slot> aOutputSet = topJoin.left().left().getOutputSet();
         Set<Slot> bOutputSet = topJoin.left().right().getOutputSet();
 
-        return !ExpressionUtils.isIntersecting(bottomOutputSet, aOutputSet)
-                && !ExpressionUtils.isIntersecting(bottomOutputSet, bOutputSet);
+        boolean isProjectA = !ExpressionUtils.isIntersecting(bottomOutputSet, aOutputSet);
+        boolean isProjectB = !ExpressionUtils.isIntersecting(bottomOutputSet, bOutputSet);
+
+        Preconditions.checkState(isProjectA || isProjectB, "join output must contain child");
+        return !(isProjectA && isProjectB);
     }
 }

@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
 import java.util.Set;
 
@@ -54,7 +56,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    boolean lasscom = project.getOutputSet().containsAll(a.getOutput());
+                    boolean lasscom = a.getOutputSet().containsAll(project.getOutput());
 
                     if (lasscom) {
                         /*-
@@ -111,7 +113,10 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
         Set<Slot> aOutputSet = topJoin.left().child().left().getOutputSet();
         Set<Slot> bOutputSet = topJoin.left().child().right().getOutputSet();
 
-        return !ExpressionUtils.isIntersecting(projectOutputSet, aOutputSet)
-                && !ExpressionUtils.isIntersecting(projectOutputSet, bOutputSet);
+        boolean isProjectA = !ExpressionUtils.isIntersecting(projectOutputSet, aOutputSet);
+        boolean isProjectB = !ExpressionUtils.isIntersecting(projectOutputSet, bOutputSet);
+
+        Preconditions.checkState(isProjectA || isProjectB, "project must contain child");
+        return !(isProjectA && isProjectB);
     }
 }
