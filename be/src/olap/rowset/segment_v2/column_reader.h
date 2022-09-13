@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 #include "util/file_cache.h"
 #include "util/once.h"
+#include "vec/columns/column_array.h" // ColumnArray
 
 namespace doris {
 
@@ -404,8 +405,8 @@ private:
 
     Status _peek_one_offset(ordinal_t* offset);
     Status _seek_by_offsets(ordinal_t ord);
-    Status _calculate_offsets(ssize_t start, vectorized::MutableColumnPtr& offsets,
-                              size_t* num_items);
+    Status _calculate_offsets(ssize_t start,
+                              vectorized::ColumnArray::ColumnOffsets& column_offsets);
 };
 
 // This iterator is used to read default value column

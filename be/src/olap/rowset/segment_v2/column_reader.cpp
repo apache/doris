@@ -502,16 +502,13 @@ Status ArrayFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return _seek_by_offsets(ord);
 }
 
-Status ArrayFileColumnIterator::_calculate_offsets(ssize_t start,
-                                                   vectorized::MutableColumnPtr& offsets,
-                                                   size_t* num_items) {
-    auto& column_offsets = static_cast<vectorized::ColumnArray::ColumnOffsets&>(*offsets);
+Status ArrayFileColumnIterator::_calculate_offsets(
+        ssize_t start, vectorized::ColumnArray::ColumnOffsets& column_offsets) {
     ordinal_t last_offset = 0;
     RETURN_IF_ERROR(_peek_one_offset(&last_offset));
 
-    auto& offsets_data = column_offsets.get_data();
-    *num_items = last_offset - offsets_data[start];
     // calculate real offsets
+    auto& offsets_data = column_offsets.get_data();
     ordinal_t first_offset = offsets_data[start - 1]; // -1 is valid
     ordinal_t first_ord = offsets_data[start];
     for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
@@ -535,8 +532,10 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     if (*n == 0) {
         return Status::OK();
     }
-    size_t num_items = 0;
-    RETURN_IF_ERROR(_calculate_offsets(start, column_offsets_ptr, &num_items));
+    auto& column_offsets =
+            static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+    RETURN_IF_ERROR(_calculate_offsets(start, column_offsets));
+    size_t num_items = column_offsets.get_data().back() - column_offsets.get_data()[start];
     auto column_items_ptr = column_array->get_data().assume_mutable();
     if (num_items > 0) {
         size_t num_read = num_items;
