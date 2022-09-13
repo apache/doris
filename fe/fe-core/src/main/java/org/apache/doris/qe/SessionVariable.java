@@ -211,6 +211,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
 
+    public static final String SKIP_STORAGE_ENGINE_MERGE = "skip_storage_engine_merge";
+
+    public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -530,6 +534,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
     public boolean enableLocalExchange = false;
 
+    /**
+     * For debugg purpose, dont' merge unique key and agg key when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
+    public boolean skipStorageEngineMerge = false;
+
+    /**
+     * For debugg purpose, skip delte predicate when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
+    public boolean skipDeletePredicate = false;
+
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
     }
@@ -843,6 +859,10 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
+    public boolean skipStorageEngineMerge() {
+        return skipStorageEngineMerge;
+    }
+
     public boolean isAllowPartitionColumnNullable() {
         return allowPartitionColumnNullable;
     }
@@ -1123,6 +1143,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
+
+        tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
+
+        tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         return tResult;
     }

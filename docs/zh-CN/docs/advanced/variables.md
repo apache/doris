@@ -515,3 +515,9 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 - `trim_tailing_spaces_for_external_table_query`
 
   用于控制查询Hive外表时是否过滤掉字段末尾的空格。默认为false。
+
+* `skip_storage_engine_merge`
+  用于调试目的。在向量化执行引擎中，当发现读取Aggregate Key模型或者Unique Key模型的数据结果有问题的时候，把此变量的值设置为`true`，将会把Aggregate Key模型或者Unique Key模型的数据当成Duplicate Key模型读取。
+
+* `skip_delete_predicate`
+  用于调试目的。在向量化执行引擎中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被删除的数据当成正常数据读取。
