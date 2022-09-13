@@ -50,8 +50,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _version(-1),
           _mem_tracker(MemTracker::CreateTracker(
                   runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
-                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::VERBOSE)) {
-}
+                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::VERBOSE)) {}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
@@ -91,8 +90,8 @@ Status OlapScanner::prepare(
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
-            OLAPStatus acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers, _mem_tracker);
+            OLAPStatus acquire_reader_st = _tablet->capture_rs_readers(
+                    rd_version, &_tablet_reader_params.rs_readers, _mem_tracker);
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -125,8 +124,9 @@ Status OlapScanner::open() {
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);
         std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet=" << _tablet_reader_params.tablet->full_name()
-           << ", res=" << res << ", backend=" << BackendOptions::get_localhost();
+        ss << "failed to initialize storage reader. tablet="
+           << _tablet_reader_params.tablet->full_name() << ", res=" << res
+           << ", backend=" << BackendOptions::get_localhost();
         return Status::InternalError(ss.str().c_str());
     }
     return Status::OK();
@@ -167,7 +167,8 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.conditions.push_back(filter);
     }
     std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
-              std::inserter(_tablet_reader_params.bloom_filters, _tablet_reader_params.bloom_filters.begin()));
+              std::inserter(_tablet_reader_params.bloom_filters,
+                            _tablet_reader_params.bloom_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {
@@ -206,7 +207,8 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    OLAPStatus res = _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
+    OLAPStatus res =
+            _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row cursor.[res=%d]", res);
         return Status::InternalError("failed to initialize storage read row cursor");
@@ -302,7 +304,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             }
 
             if (tmp_object_pool.size() > 0) {
-                unused_object_pool.acquire_data(&tmp_object_pool); 
+                unused_object_pool.acquire_data(&tmp_object_pool);
             }
 
             if (unused_object_pool.size() >= config::object_pool_buffer_size) {
@@ -456,7 +458,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     }
                 }
             } while (false);
-
         }
     }
 
@@ -567,6 +568,16 @@ void OlapScanner::update_counter() {
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
     COUNTER_UPDATE(_parent->_vec_cond_timer, stats.vec_cond_ns);
+    COUNTER_UPDATE(_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(_parent->_block_init_timer, stats.block_init_ns);
+    COUNTER_UPDATE(_parent->_block_init_seek_timer, stats.block_init_seek_ns);
+    COUNTER_UPDATE(_parent->_block_init_seek_counter, stats.block_init_seek_num);
+    COUNTER_UPDATE(_parent->_first_read_timer, stats.first_read_ns);
+    COUNTER_UPDATE(_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
+    COUNTER_UPDATE(_parent->_first_read_seek_counter, stats.block_first_read_seek_num);
+    COUNTER_UPDATE(_parent->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
 
     COUNTER_UPDATE(_parent->_stats_filtered_counter, stats.rows_stats_filtered);
@@ -574,8 +585,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
 
-    COUNTER_UPDATE(_parent->_conditions_filtered_counter,
-                   stats.rows_conditions_filtered);
+    COUNTER_UPDATE(_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, stats.index_load_ns);
@@ -588,8 +598,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, stats.cached_pages_num);
 
-    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter,
-                   stats.rows_bitmap_index_filtered);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, stats.block_seek_num);
 

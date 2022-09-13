@@ -124,8 +124,20 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _block_seek_timer = ADD_TIMER(_segment_profile, "BlockSeekTime");
     _block_seek_counter = ADD_COUNTER(_segment_profile, "BlockSeekCount", TUnit::UNIT);
 
+    _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
+    _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
+    _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
+
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
+    _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
+    _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
+    _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
+
+    _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
+    _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
+    _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
@@ -310,7 +322,8 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             materialized_batch = _materialized_row_batches.front();
             DCHECK(materialized_batch != nullptr);
             _materialized_row_batches.pop_front();
-            _materialized_row_batches_bytes -= materialized_batch->tuple_data_pool()->total_reserved_bytes();
+            _materialized_row_batches_bytes -=
+                    materialized_batch->tuple_data_pool()->total_reserved_bytes();
         }
     }
 
@@ -1206,7 +1219,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 std::string is_null_str;
                 // 1. dispose the where pred "A is null" and "A is not null"
                 if (root_expr->is_null_scalar_function(is_null_str) &&
-                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str, range)) {
+                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str,
+                                                range)) {
                     // if column is key column should push down conjunct storage engine
                     if (is_key_column(slot->col_name())) {
                         filter_conjuncts_index.emplace_back(conj_idx);
@@ -1414,7 +1428,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             if (state->fragment_mem_tracker() != nullptr) {
                 mem_consume = state->fragment_mem_tracker()->consumption();
             }
-            if (mem_consume < (mem_limit * 6) / 10 && _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
+            if (mem_consume < (mem_limit * 6) / 10 &&
+                _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
                 // Memory already exceed

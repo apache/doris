@@ -821,6 +821,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
 void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                         uint16_t& selected_size) {
+    SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     if (_vec_pred_column_ids.empty()) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
@@ -861,6 +862,7 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
 
 void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
                                                         uint16_t* selected_size_ptr) {
+    SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
     if (_short_cir_pred_column_ids.empty()) {
         return;
     }
@@ -899,9 +901,9 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
 }
 
 void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                                std::vector<rowid_t>& rowid_vector,
-                                                uint16_t* sel_rowid_idx, size_t select_size,
-                                                vectorized::MutableColumns* mutable_columns) {
+                                              std::vector<rowid_t>& rowid_vector,
+                                              uint16_t* sel_rowid_idx, size_t select_size,
+                                              vectorized::MutableColumns* mutable_columns) {
     std::vector<rowid_t> rowids(select_size);
     for (size_t i = 0; i < select_size; ++i) {
         rowids[i] = rowid_vector[sel_rowid_idx[i]];
@@ -950,8 +952,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
-    _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
-
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+        _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
+    }
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += nrows_read;
 
@@ -991,6 +995,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
             // step3: read non_predicate column
             if (!_non_predicate_columns.empty()) {
+                SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
                 _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx,
                                         selected_size, &_current_return_columns);
             }
