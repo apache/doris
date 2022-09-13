@@ -860,7 +860,6 @@
                        "admin-manual/maint-monitor/multi-tenant",
                        "admin-manual/maint-monitor/tablet-local-debug",
                        "admin-manual/maint-monitor/tablet-restore-tool",
-                       "admin-manual/maint-monitor/monitor-metrics/metrics",
                        "admin-manual/maint-monitor/metadata-operation"
                     ]
                 },

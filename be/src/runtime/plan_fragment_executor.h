@@ -123,11 +123,6 @@ public:
     // in open()/get_next().
     void close();
 
-    // Abort this execution. Must be called if we skip running open().
-    // It will let DataSink node closed with error status, to avoid use resources which created in open() phase.
-    // DataSink node should distinguish Aborted status from other error status.
-    void set_abort();
-
     // Initiate cancellation. Must not be called until after prepare() returned.
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "");
