@@ -25,11 +25,13 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -40,6 +42,19 @@ import java.util.Set;
  * Push the predicate in the LogicalFilter to the join children.
  */
 public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
+
+    private static final ImmutableList<JoinType> NEED_RESERVE_LEFT = ImmutableList.of(
+            JoinType.RIGHT_OUTER_JOIN,
+            JoinType.RIGHT_ANTI_JOIN,
+            JoinType.FULL_OUTER_JOIN
+    );
+
+    private static final ImmutableList<JoinType> NEED_RESERVE_RIGHT = ImmutableList.of(
+            JoinType.LEFT_OUTER_JOIN,
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.FULL_OUTER_JOIN
+    );
+
     /*
      * For example:
      * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
@@ -95,16 +110,20 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
                     rightPredicates.add(p);
                     continue;
                 }
-                if (leftInput.containsAll(slots)) {
+                if (leftInput.containsAll(slots) && !NEED_RESERVE_LEFT.contains(join.getJoinType())) {
                     leftPredicates.add(p);
                 }
-                if (rightInput.containsAll(slots)) {
+                if (rightInput.containsAll(slots) && !NEED_RESERVE_RIGHT.contains(join.getJoinType())) {
                     rightPredicates.add(p);
                 }
             }
 
-            filterConditions.removeAll(leftPredicates);
-            filterConditions.removeAll(rightPredicates);
+            if (!NEED_RESERVE_LEFT.contains(join.getJoinType())) {
+                filterConditions.removeAll(leftPredicates);
+            }
+            if (!NEED_RESERVE_RIGHT.contains(join.getJoinType())) {
+                filterConditions.removeAll(rightPredicates);
+            }
             join.getOtherJoinCondition().map(joinConditions::add);
 
             return PlanUtils.filterOrSelf(filterConditions,

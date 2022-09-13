@@ -80,13 +80,8 @@ public class PushDownPredicateTest {
     public void pushOneSidePredicatesThroughJoin() {
         pushOneSidePredicatesThroughJoin(JoinType.CROSS_JOIN);
         pushOneSidePredicatesThroughJoin(JoinType.INNER_JOIN);
-        pushOneSidePredicatesThroughJoin(JoinType.LEFT_OUTER_JOIN);
         pushOneSidePredicatesThroughJoin(JoinType.LEFT_SEMI_JOIN);
-        pushOneSidePredicatesThroughJoin(JoinType.LEFT_ANTI_JOIN);
-        pushOneSidePredicatesThroughJoin(JoinType.RIGHT_OUTER_JOIN);
         pushOneSidePredicatesThroughJoin(JoinType.RIGHT_SEMI_JOIN);
-        pushOneSidePredicatesThroughJoin(JoinType.RIGHT_ANTI_JOIN);
-        pushOneSidePredicatesThroughJoin(JoinType.FULL_OUTER_JOIN);
     }
 
     private void pushOneSidePredicatesThroughJoin(JoinType joinType) {
@@ -137,13 +132,8 @@ public class PushDownPredicateTest {
     public void pushBothSideEqualToPredicateThroughJoin() {
         pushBothSideEqualToPredicateThroughJoin(JoinType.CROSS_JOIN);
         pushBothSideEqualToPredicateThroughJoin(JoinType.INNER_JOIN);
-        pushBothSideEqualToPredicateThroughJoin(JoinType.LEFT_OUTER_JOIN);
         pushBothSideEqualToPredicateThroughJoin(JoinType.LEFT_SEMI_JOIN);
-        pushBothSideEqualToPredicateThroughJoin(JoinType.LEFT_ANTI_JOIN);
-        pushBothSideEqualToPredicateThroughJoin(JoinType.RIGHT_OUTER_JOIN);
         pushBothSideEqualToPredicateThroughJoin(JoinType.RIGHT_SEMI_JOIN);
-        pushBothSideEqualToPredicateThroughJoin(JoinType.RIGHT_ANTI_JOIN);
-        pushBothSideEqualToPredicateThroughJoin(JoinType.FULL_OUTER_JOIN);
     }
 
     private void pushBothSideEqualToPredicateThroughJoin(JoinType joinType) {
@@ -189,8 +179,6 @@ public class PushDownPredicateTest {
     public void pushOneSideEqualToPredicateThroughJoin() {
         pushOneSideEqualToPredicateThroughJoin(JoinType.CROSS_JOIN);
         pushOneSideEqualToPredicateThroughJoin(JoinType.INNER_JOIN);
-        pushOneSideEqualToPredicateThroughJoin(JoinType.LEFT_OUTER_JOIN);
-        pushOneSideEqualToPredicateThroughJoin(JoinType.FULL_OUTER_JOIN);
     }
 
     private void pushOneSideEqualToPredicateThroughJoin(JoinType joinType) {
