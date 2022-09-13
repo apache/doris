@@ -685,6 +685,11 @@ private:
     bool _should_limit_output = false;
     bool _reach_limit = false;
 
+    PODArray<AggregateDataPtr> _places;
+    std::vector<char> _deserialize_buffer;
+    std::vector<size_t> _hash_values;
+    std::vector<AggregateDataPtr> _values;
+
 private:
     /// Return true if we should keep expanding hash tables in the preagg. If false,
     /// the preagg should pass through any rows it can't fit in its tables.
@@ -743,21 +748,23 @@ private:
         }
 
         int rows = block->rows();
-        PODArray<AggregateDataPtr> places(rows);
+        if (_places.size() < rows) {
+            _places.resize(rows);
+        }
 
         if constexpr (limit) {
-            _find_in_hash_table(places.data(), key_columns, rows);
+            _find_in_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _offsets_of_aggregate_states[i], places.data(), &_agg_arena_pool);
+                        block, _offsets_of_aggregate_states[i], _places.data(), &_agg_arena_pool);
             }
         } else {
-            _emplace_into_hash_table(places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                            places.data(), &_agg_arena_pool);
+                                                            _places.data(), &_agg_arena_pool);
             }
 
             if (_should_limit_output) {
@@ -793,10 +800,12 @@ private:
         }
 
         int rows = block->rows();
-        PODArray<AggregateDataPtr> places(rows);
+        if (_places.size() < rows) {
+            _places.resize(rows);
+        }
 
         if constexpr (limit) {
-            _find_in_hash_table(places.data(), key_columns, rows);
+            _find_in_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 if (_aggregate_evaluators[i]->is_merge()) {
@@ -806,34 +815,37 @@ private:
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
                     }
 
-                    std::unique_ptr<char[]> deserialize_buffer(
-                            new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
+                    size_t buffer_size =
+                            _aggregate_evaluators[i]->function()->size_of_data() * rows;
+                    if (_deserialize_buffer.size() < buffer_size) {
+                        _deserialize_buffer.resize(buffer_size);
+                    }
 
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                deserialize_buffer.get(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
-                                deserialize_buffer.get(), (ColumnString*)(column.get()),
+                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 &_agg_arena_pool, rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec_selected(
-                            places.data(), _offsets_of_aggregate_states[i],
-                            deserialize_buffer.get(), &_agg_arena_pool, rows);
+                            _places.data(), _offsets_of_aggregate_states[i],
+                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
 
-                    _aggregate_evaluators[i]->function()->destroy_vec(deserialize_buffer.get(),
+                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
 
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add_selected(
-                            block, _offsets_of_aggregate_states[i], places.data(),
+                            block, _offsets_of_aggregate_states[i], _places.data(),
                             &_agg_arena_pool);
                 }
             }
         } else {
-            _emplace_into_hash_table(places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 if (_aggregate_evaluators[i]->is_merge()) {
@@ -843,30 +855,33 @@ private:
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
                     }
 
-                    std::unique_ptr<char[]> deserialize_buffer(
-                            new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
+                    size_t buffer_size =
+                            _aggregate_evaluators[i]->function()->size_of_data() * rows;
+                    if (_deserialize_buffer.size() < buffer_size) {
+                        _deserialize_buffer.resize(buffer_size);
+                    }
 
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                deserialize_buffer.get(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
-                                deserialize_buffer.get(), (ColumnString*)(column.get()),
+                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 &_agg_arena_pool, rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec(
-                            places.data(), _offsets_of_aggregate_states[i],
-                            deserialize_buffer.get(), &_agg_arena_pool, rows);
+                            _places.data(), _offsets_of_aggregate_states[i],
+                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
 
-                    _aggregate_evaluators[i]->function()->destroy_vec(deserialize_buffer.get(),
+                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
 
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add(block,
                                                                 _offsets_of_aggregate_states[i],
-                                                                places.data(), &_agg_arena_pool);
+                                                                _places.data(), &_agg_arena_pool);
                 }
             }
 
