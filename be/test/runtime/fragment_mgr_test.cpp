@@ -28,7 +28,6 @@ namespace doris {
 
 static Status s_prepare_status;
 static Status s_open_status;
-static int s_abort_cnt;
 // Mock used for this unittest
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
                                            const report_status_callback& report_status_cb)
@@ -47,11 +46,6 @@ Status PlanFragmentExecutor::open() {
 }
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
-}
-
-void PlanFragmentExecutor::set_abort() {
-    LOG(INFO) << "Plan Aborted";
-    s_abort_cnt++;
 }
 
 void PlanFragmentExecutor::close() {}
@@ -128,7 +122,6 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
     config::fragment_pool_thread_num_min = 1;
     config::fragment_pool_thread_num_max = 1;
     config::fragment_pool_queue_size = 0;
-    s_abort_cnt = 0;
     FragmentMgr mgr(nullptr);
 
     TExecPlanFragmentParams params;
@@ -145,7 +138,6 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
         params.params.fragment_instance_id.__set_lo(200);
         EXPECT_FALSE(mgr.exec_plan_fragment(params).ok());
     }
-    EXPECT_EQ(3, s_abort_cnt);
 }
 
 } // namespace doris
