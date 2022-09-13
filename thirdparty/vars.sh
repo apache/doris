@@ -423,6 +423,12 @@ SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
 SSE2NEON_SOURCE=sse2neon-1.5.1
 SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
 
+# xxhash
+XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz"
+XXHASH_NAME=xxHash-0.8.1.tar.gz
+XXHASH_SOURCE=xxHash-0.8.1
+XXHASH_MD5SUM="b67c587f5ff4894253da0095ba7ea393"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -484,4 +490,5 @@ export TP_ARCHIVES=(
     'OPENTELEMETRY'
     'LIBBACKTRACE'
     'SSE2NEON'
+    'XXHASH'
 )

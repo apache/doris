@@ -1382,6 +1382,16 @@ build_sse2neon() {
     cp sse2neon.h "${TP_INSTALL_DIR}/include/"
 }
 
+# xxhash
+build_xxhash() {
+    check_if_source_exist "${XXHASH_SOURCE}"
+	cd "${TP_SOURCE_DIR}/${XXHASH_SOURCE}"
+
+	make -j "${PARALLEL}"
+	cp -r ./*.h "${TP_INSTALL_DIR}/include/"
+	cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1434,5 +1444,6 @@ build_nlohmann_json
 build_opentelemetry
 build_libbacktrace
 build_sse2neon
+build_xxhash
 
 echo "Finished to build all thirdparties"
