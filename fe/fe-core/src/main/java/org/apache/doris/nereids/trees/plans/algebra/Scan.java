@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.analyzer.Relation;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.RelationId;
 
 import java.util.Collections;
 import java.util.List;
@@ -36,4 +37,6 @@ public interface Scan extends Relation {
     default List<Slot> getOutput() {
         return Collections.emptyList();
     }
+
+    RelationId getId();
 }
