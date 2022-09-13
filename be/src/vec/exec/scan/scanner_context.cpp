@@ -108,6 +108,16 @@ void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::Block*
 
 Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos) {
     std::unique_lock<std::mutex> l(_transfer_lock);
+    // Normally, the scanner scheduler will schedule ctx.
+    // But when the amount of data in the blocks queue exceeds the upper limit,
+    // the scheduler will stop scheduling.
+    // (if the scheduler continues to schedule, it will cause a lot of busy running).
+    // At this point, consumers are required to trigger new scheduling to ensure that
+    // data can be continuously fetched.
+    if (_has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
+        _num_scheduling_ctx++;
+        _state->exec_env()->scanner_scheduler()->submit(this);
+    }
     // Wait for block from queue
     while (_process_status.ok() && !_is_finished && blocks_queue.empty()) {
         if (_state->is_cancelled()) {
@@ -170,6 +180,9 @@ void ScannerContext::clear_and_join() {
     // So that we can make sure to close all scanners.
     _close_and_clear_scanners();
 
+    COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
+    COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
+
     std::for_each(blocks_queue.begin(), blocks_queue.end(),
                   std::default_delete<vectorized::Block>());
     std::for_each(_free_blocks.begin(), _free_blocks.end(),
@@ -189,8 +202,7 @@ std::string ScannerContext::debug_string() {
             _max_thread_num, _block_per_scanner, _cur_bytes_in_queue, _max_bytes_in_queue);
 }
 
-void ScannerContext::push_back_scanner_and_reschedule(ScannerScheduler* scheduler,
-                                                      VScanner* scanner) {
+void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     {
         std::unique_lock<std::mutex> l(_scanners_lock);
         _scanners.push_front(scanner);
@@ -199,22 +211,20 @@ void ScannerContext::push_back_scanner_and_reschedule(ScannerScheduler* schedule
     std::lock_guard<std::mutex> l(_transfer_lock);
     _num_running_scanners--;
     _num_scheduling_ctx++;
-    scheduler->submit(this);
+    _state->exec_env()->scanner_scheduler()->submit(this);
     if (scanner->need_to_close() && (--_num_unfinished_scanners) == 0) {
         _is_finished = true;
-        COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
-        COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
         _blocks_queue_added_cv.notify_one();
     }
     _ctx_finish_cv.notify_one();
 }
 
-bool ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_run) {
+void ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_run) {
     // 1. Calculate how many scanners should be scheduled at this run.
     int thread_slot_num = 0;
     {
         std::unique_lock<std::mutex> l(_transfer_lock);
-        if (_cur_bytes_in_queue < _max_bytes_in_queue / 2) {
+        if (_has_enough_space_in_blocks_queue()) {
             // If there are enough space in blocks queue,
             // the scanner number depends on the _free_blocks numbers
             std::lock_guard<std::mutex> l(_free_blocks_lock);
@@ -225,10 +235,12 @@ bool ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
                 thread_slot_num = 1;
             }
         } else {
-            // The blocks queue reaches limit, so no more scanners will be scheduled this time.
-            // We need to return false so that the scanner scheduler will push bash this ctx
-            // to the scheduling queue, waiting next scheduling.
-            return false;
+            // The blocks queue reaches limit, just return to stop scheduling
+            // There will be two cases:
+            // 1. There are running scanners, these scanner will continue scheduler the ctx.
+            // 2. No running scanners, the consumer(ScanNode.get_next()) will continue scheduling the ctx.
+            // In both cases, we do not need to continue to schedule ctx here. So just return
+            return;
         }
     }
 
@@ -247,7 +259,7 @@ bool ScannerContext::get_next_batch_of_scanners(std::list<VScanner*>* current_ru
             }
         }
     }
-    return true;
+    return;
 }
 
 } // namespace doris::vectorized

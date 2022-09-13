@@ -79,7 +79,7 @@ public:
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
-    void push_back_scanner_and_reschedule(ScannerScheduler* scheduler, VScanner* scanner);
+    void push_back_scanner_and_reschedule(VScanner* scanner);
 
     bool set_status_on_error(const Status& status);
 
@@ -111,7 +111,7 @@ public:
         _ctx_finish_cv.notify_one();
     }
 
-    bool get_next_batch_of_scanners(std::list<VScanner*>* current_run);
+    void get_next_batch_of_scanners(std::list<VScanner*>* current_run);
 
     void clear_and_join();
 
@@ -134,6 +134,10 @@ public:
 
 private:
     Status _close_and_clear_scanners();
+
+    inline bool _has_enough_space_in_blocks_queue() {
+        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+    }
 
 private:
     RuntimeState* _state;

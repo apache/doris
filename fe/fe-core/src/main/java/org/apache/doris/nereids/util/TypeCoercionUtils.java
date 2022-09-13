@@ -143,6 +143,10 @@ public class TypeCoercionUtils {
         if (leftType instanceof NullType && rightType instanceof DecimalType) {
             return true;
         }
+        if (leftType instanceof DecimalType && rightType instanceof IntegralType
+                || leftType instanceof IntegralType && rightType instanceof DecimalType) {
+            return true;
+        }
         // TODO: add decimal promotion support
         if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
             return true;
@@ -189,6 +193,10 @@ public class TypeCoercionUtils {
             }
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
             tightestCommonType = StringType.INSTANCE;
+        } else if (left instanceof DecimalType && right instanceof IntegralType) {
+            tightestCommonType = DecimalType.widerDecimalType((DecimalType) left, DecimalType.forType(right));
+        } else if (left instanceof IntegralType && right instanceof DecimalType) {
+            tightestCommonType = DecimalType.widerDecimalType((DecimalType) right, DecimalType.forType(left));
         }
         return Optional.ofNullable(tightestCommonType);
     }
