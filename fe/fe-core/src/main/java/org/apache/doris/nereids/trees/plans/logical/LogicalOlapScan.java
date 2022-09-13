@@ -27,9 +27,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -43,37 +45,42 @@ public class LogicalOlapScan extends LogicalRelation {
     private final List<Long> selectedTabletId;
     private final boolean partitionPruned;
 
+    private final List<Long> candidateIndexIds;
+    private final boolean rollupSelected;
+
     public LogicalOlapScan(OlapTable table) {
         this(table, ImmutableList.of());
     }
 
     public LogicalOlapScan(OlapTable table, List<String> qualifier) {
         this(table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false);
+                table.getPartitionIds(), false, ImmutableList.of(), false);
     }
 
     public LogicalOlapScan(Table table, List<String> qualifier) {
         this(table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false);
+                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false);
     }
 
     /**
      * Constructor for LogicalOlapScan.
-     *
-     * @param table Doris table
-     * @param qualifier table name qualifier
      */
     public LogicalOlapScan(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Long> selectedPartitionIdList,
-            boolean partitionPruned) {
+            boolean partitionPruned, List<Long> candidateIndexIds, boolean rollupSelected) {
         super(PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties, selectedPartitionIdList);
-        this.selectedIndexId = getTable().getBaseIndexId();
+        // TODO: use CBO manner to select best index id, according to index's statistics info,
+        //   revisit this after rollup and materialized view selection are fully supported.
+        this.selectedIndexId = CollectionUtils.isEmpty(candidateIndexIds)
+                ? getTable().getBaseIndexId() : candidateIndexIds.get(0);
         this.selectedTabletId = Lists.newArrayList();
         for (Partition partition : getTable().getAllPartitions()) {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
         this.partitionPruned = partitionPruned;
+        this.candidateIndexIds = candidateIndexIds;
+        this.rollupSelected = rollupSelected;
     }
 
     @Override
@@ -86,7 +93,9 @@ public class LogicalOlapScan extends LogicalRelation {
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
                 "qualified", qualifiedName(),
-                "output", getOutput()
+                "output", getOutput(),
+                "candidateIndexIds", candidateIndexIds,
+                "selectedIndexId", selectedIndexId
         );
     }
 
@@ -104,18 +113,23 @@ public class LogicalOlapScan extends LogicalRelation {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned);
+                selectedPartitionIds, partitionPruned, candidateIndexIds, rollupSelected);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
-                partitionPruned);
+                partitionPruned, candidateIndexIds, rollupSelected);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(logicalPropertiesSupplier.get()),
-                selectedPartitionId, true);
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionId, true, candidateIndexIds, rollupSelected);
+    }
+
+    public LogicalOlapScan withCandidateIndexIds(List<Long> candidateIndexIds) {
+        return new LogicalOlapScan(table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, candidateIndexIds, true);
     }
 
     @Override
@@ -133,5 +147,28 @@ public class LogicalOlapScan extends LogicalRelation {
 
     public long getSelectedIndexId() {
         return selectedIndexId;
+    }
+
+    public boolean isRollupSelected() {
+        return rollupSelected;
+    }
+
+    /**
+     * Should apply {@link org.apache.doris.nereids.rules.mv.SelectRollup} or not.
+     */
+    public boolean shouldSelectRollup() {
+        switch (((OlapTable) table).getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+                return !rollupSelected;
+            default:
+                return false;
+        }
+    }
+
+    @VisibleForTesting
+    public Optional<String> getSelectRollupName() {
+        return rollupSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
+                : Optional.empty();
     }
 }

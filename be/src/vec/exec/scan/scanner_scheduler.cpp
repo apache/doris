@@ -99,17 +99,15 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     }
 
     std::list<VScanner*> this_run;
-    bool res = ctx->get_next_batch_of_scanners(&this_run);
+    ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
-        if (!res) {
-            // This means we failed to choose scanners this time, and there may be no other scanners running.
-            // So we need to submit this ctx back to queue to be scheduled next time.
-            submit(ctx);
-        } else {
-            // No need to push back this ctx to reschedule
-            // There will be running scanners to push it back.
-            ctx->update_num_running(0, -1);
-        }
+        // There will be 2 cases when this_run is empty:
+        // 1. The blocks queue reaches limit.
+        //      The consumer will continue scheduling the ctx.
+        // 2. All scanners are running.
+        //      There running scanner will schedule the ctx after they are finished.
+        // So here we just return to stop scheduling ctx.
+        ctx->update_num_running(0, -1);
         return;
     }
 
@@ -264,7 +262,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         scanner->mark_to_need_to_close();
     }
 
-    ctx->push_back_scanner_and_reschedule(scheduler, scanner);
+    ctx->push_back_scanner_and_reschedule(scanner);
 }
 
 } // namespace doris::vectorized

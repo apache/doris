@@ -74,6 +74,10 @@ public class PlanConstructor {
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
+        return newOlapTable(tableId, tableName, hashColumn, KeysType.PRIMARY_KEYS);
+    }
+
+    public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                 new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
@@ -82,13 +86,13 @@ public class PlanConstructor {
                 ImmutableList.of(columns.get(hashColumn)));
 
         OlapTable table = new OlapTable(tableId, tableName, columns,
-                KeysType.PRIMARY_KEYS, new PartitionInfo(), hashDistributionInfo);
+                keysType, new PartitionInfo(), hashDistributionInfo);
         table.setIndexMeta(-1,
                 tableName,
                 table.getFullSchema(),
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
-                KeysType.PRIMARY_KEYS);
+                keysType);
         return table;
     }
 

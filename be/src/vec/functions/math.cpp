@@ -266,6 +266,11 @@ struct SqrtName {
 };
 using FunctionSqrt = FunctionMathUnary<UnaryFunctionVectorized<SqrtName, std::sqrt>>;
 
+struct CbrtName {
+    static constexpr auto name = "cbrt";
+};
+using FunctionCbrt = FunctionMathUnary<UnaryFunctionVectorized<CbrtName, std::cbrt>>;
+
 struct TanName {
     static constexpr auto name = "tan";
 };
@@ -444,6 +449,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSin>();
     factory.register_function<FunctionSqrt>();
     factory.register_alias("sqrt", "dsqrt");
+    factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionFloor>();
     factory.register_alias("floor", "dfloor");

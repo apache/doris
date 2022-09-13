@@ -245,8 +245,12 @@ public class StmtExecutor implements ProfileWriter {
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
         queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
-        if (coord != null) {
-            coord.endProfile(waiteBeReport);
+        endProfile(waiteBeReport);
+    }
+
+    private void endProfile(boolean waitProfileDone) {
+        if (context != null && context.getSessionVariable().enableProfile() && coord != null) {
+            coord.endProfile(waitProfileDone);
         }
     }
 
@@ -466,6 +470,10 @@ public class StmtExecutor implements ProfileWriter {
                             throw e;
                         }
                     } finally {
+                        // The final profile report occurs after be returns the query data, and the profile cannot be
+                        // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
+                        // for the profile before unregisterQuery().
+                        endProfile(true);
                         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                     }
                 }
@@ -1472,6 +1480,7 @@ public class StmtExecutor implements ProfileWriter {
                  */
                 throwable = t;
             } finally {
+                endProfile(true);
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
 

@@ -859,6 +859,13 @@ CONF_Bool(enable_new_scan_node, "true");
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
+// Max waiting time to wait the "plan fragment start" rpc.
+// If timeout, the fragment will be cancelled.
+// This parameter is usually only used when the FE loses connection,
+// and the BE can automatically cancel the relevant fragment after the timeout,
+// so as to avoid occupying the execution thread for a long time.
+CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
@@ -869,7 +876,6 @@ CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
 CONF_String(test_s3_prefix, "prefix");
 #endif
-
 } // namespace config
 
 } // namespace doris

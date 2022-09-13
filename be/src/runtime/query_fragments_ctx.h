@@ -20,6 +20,7 @@
 #include <atomic>
 #include <string>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
@@ -61,19 +62,22 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    void set_ready_to_execute() {
+    void set_ready_to_execute(bool is_cancelled) {
         {
             std::lock_guard<std::mutex> l(_start_lock);
+            _is_cancelled = is_cancelled;
             _ready_to_execute = true;
         }
         _start_cond.notify_all();
     }
 
-    void wait_for_start() {
+    bool wait_for_start() {
+        int wait_time = config::max_fragment_start_wait_time_seconds;
         std::unique_lock<std::mutex> l(_start_lock);
-        while (!_ready_to_execute.load()) {
-            _start_cond.wait(l);
+        while (!_ready_to_execute.load() && !_is_cancelled.load() && --wait_time > 0) {
+            _start_cond.wait_for(l, std::chrono::seconds(1));
         }
+        return _ready_to_execute.load() && !_is_cancelled.load();
     }
 
 public:
@@ -112,6 +116,7 @@ private:
     // Only valid when _need_wait_execution_trigger is set to true in FragmentExecState.
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
+    std::atomic<bool> _is_cancelled {false};
 };
 
 } // namespace doris

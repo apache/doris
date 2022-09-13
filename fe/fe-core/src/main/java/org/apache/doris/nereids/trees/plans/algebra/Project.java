@@ -17,13 +17,37 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Common interface for logical/physical project.
  */
 public interface Project {
     List<NamedExpression> getProjects();
+
+    /**
+     * Generate a map that the key is the project output slot, corresponding value is the expression produces the slot.
+     * Note that alias is striped off.
+     */
+    default Map<Slot, Expression> getSlotToProducer() {
+        return getProjects()
+                .stream()
+                .collect(Collectors.toMap(
+                        NamedExpression::toSlot,
+                        namedExpr -> {
+                            if (namedExpr instanceof Alias) {
+                                return ((Alias) namedExpr).child();
+                            } else {
+                                return namedExpr;
+                            }
+                        })
+                );
+    }
 }
