@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/exception.h"
 #include "vec/common/pod_array_fwd.h"
@@ -41,6 +42,18 @@ class SipHash;
         for (size_t i = 0; i < s; i++) {                                 \
             if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
         }                                                                \
+    }
+
+#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
+    if (null_data == nullptr) {                                                      \
+        for (size_t i = 0; i < s; i++) {                                             \
+            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
+        }                                                                            \
+    } else {                                                                         \
+        for (size_t i = 0; i < s; i++) {                                             \
+            if (null_data[i] == 0)                                                   \
+                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
+        }                                                                            \
     }
 
 namespace doris::vectorized {
@@ -320,6 +333,14 @@ public:
     virtual void update_hashes_with_value(std::vector<SipHash>& hash,
                                           const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << "update_hashes_with_value not supported";
+    };
+
+    /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
+    /// null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    virtual void update_crcs_with_value(std::vector<uint32_t>& hash, PrimitiveType type,
+                                        const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_crcs_with_value not supported";
     };
 
     /** Removes elements that don't match the filter.

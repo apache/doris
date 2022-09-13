@@ -62,6 +62,12 @@ public class LargeIntLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public LargeIntLiteral(BigInteger v) {
+        super();
+        type = Type.LARGEINT;
+        value = v;
+    }
+
     public LargeIntLiteral(String value) throws AnalysisException {
         super();
         BigInteger bigInt;
