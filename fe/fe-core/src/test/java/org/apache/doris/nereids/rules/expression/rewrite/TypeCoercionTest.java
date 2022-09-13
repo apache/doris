@@ -140,15 +140,15 @@ public class TypeCoercionTest {
 
     @Test
     public void testCaseWhenTypeCoercion() {
-        WhenClause actualWhenClause1 = new WhenClause(new BooleanLiteral(true), new SmallIntLiteral((short) 1));
-        WhenClause actualWhenClause2 = new WhenClause(new BooleanLiteral(true), new DoubleLiteral(1.5));
+        WhenClause actualWhenClause1 = new WhenClause(BooleanLiteral.TRUE, new SmallIntLiteral((short) 1));
+        WhenClause actualWhenClause2 = new WhenClause(BooleanLiteral.TRUE, new DoubleLiteral(1.5));
         List<WhenClause> actualWhenClauses = Lists.newArrayList(actualWhenClause1, actualWhenClause2);
         Expression actualDefaultValue = new IntegerLiteral(1);
         Expression actual = new CaseWhen(actualWhenClauses, actualDefaultValue);
 
-        WhenClause expectedWhenClause1 = new WhenClause(new BooleanLiteral(true),
+        WhenClause expectedWhenClause1 = new WhenClause(BooleanLiteral.TRUE,
                 new Cast(new SmallIntLiteral((short) 1), DoubleType.INSTANCE));
-        WhenClause expectedWhenClause2 = new WhenClause(new BooleanLiteral(true),
+        WhenClause expectedWhenClause2 = new WhenClause(BooleanLiteral.TRUE,
                 new DoubleLiteral(1.5));
         List<WhenClause> expectedWhenClauses = Lists.newArrayList(expectedWhenClause1, expectedWhenClause2);
         Expression expectedDefaultValue = new Cast(new IntegerLiteral(1), DoubleType.INSTANCE);
