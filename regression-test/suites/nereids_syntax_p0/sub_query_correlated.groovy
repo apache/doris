@@ -171,14 +171,6 @@ suite ("sub_query_correlated") {
         select * from subquery1 where exists (select subquery3.k3 from subquery3) order by k1
     """
 
-    qt_not_exists_unCorrelated """
-        select * from subquery1 where not exists (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1
-    """
-
-    qt_not_exist_uncorr """
-        select * from subquery1 where not exists (select subquery3.k3 from subquery3) order by k1
-    """
-
     //----------with subquery alias----------
     qt_alias_scalar """
         select * from subquery1

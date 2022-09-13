@@ -51,6 +51,7 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
+    Thread.sleep(2)
     max_try_secs = 60
     sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
@@ -65,6 +66,7 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
+    Thread.sleep(2)
     max_try_secs = 60
     sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
@@ -79,6 +81,7 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
+    Thread.sleep(2)
     max_try_secs = 60
     sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {

@@ -109,29 +109,33 @@ public class LoadingTaskPlanner {
             throws UserException {
         // Generate tuple descriptor
         TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-        TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        TupleDescriptor scanTupleDesc = destTupleDesc;
+        if (Config.enable_vectorized_load) {
+            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        }
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
-
-            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            scanSlotDesc.setIsMaterialized(true);
-            scanSlotDesc.setColumn(col);
-            scanSlotDesc.setIsNullable(col.isAllowNull());
-            if (fileGroups.size() > 0) {
-                for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
-                    try {
-                        if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                                && importColumnDesc.getColumnName().equals(col.getName())) {
-                            scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
-                            break;
+            if (Config.enable_vectorized_load) {
+                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+                scanSlotDesc.setIsMaterialized(true);
+                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setIsNullable(col.isAllowNull());
+                if (fileGroups.size() > 0) {
+                    for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
+                        try {
+                            if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                    && importColumnDesc.getColumnName().equals(col.getName())) {
+                                scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                                break;
+                            }
+                        } catch (Exception e) {
+                            // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed
+                            // now. We just skip this case here.
                         }
-                    } catch (Exception e) {
-                        // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed
-                        // now. We just skip this case here.
                     }
                 }
             }

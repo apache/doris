@@ -37,6 +37,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -358,22 +359,23 @@ public class EsUtil {
         List<Column> columns = new ArrayList<>();
         for (String key : keys) {
             JSONObject field = (JSONObject) mappingProps.get(key);
-            // Complex types are not currently supported.
+            Type type;
+            // Complex types are treating as String types for now.
             if (field.containsKey("type")) {
-                Type type = toDorisType(field.get("type").toString());
-                if (!type.isInvalid()) {
-                    Column column = new Column();
-                    column.setName(key);
-                    column.setIsKey(true);
-                    column.setIsAllowNull(true);
-                    if (arrayFields.contains(key)) {
-                        column.setType(ArrayType.create(type, true));
-                    } else {
-                        column.setType(type);
-                    }
-                    columns.add(column);
-                }
+                type = toDorisType(field.get("type").toString());
+            } else {
+                type = Type.STRING;
             }
+            Column column = new Column();
+            column.setName(key);
+            column.setIsKey(true);
+            column.setIsAllowNull(true);
+            if (arrayFields.contains(key)) {
+                column.setType(ArrayType.create(type, true));
+            } else {
+                column.setType(type);
+            }
+            columns.add(column);
         }
         return columns;
     }
@@ -403,16 +405,15 @@ public class EsUtil {
             case "double":
             case "scaled_float":
                 return Type.DOUBLE;
+            case "date":
+                return ScalarType.getDefaultDateType(Type.DATE);
             case "keyword":
             case "text":
             case "ip":
             case "nested":
             case "object":
-                return Type.STRING;
-            case "date":
-                return Type.DATE;
             default:
-                return Type.INVALID;
+                return Type.STRING;
         }
     }
 

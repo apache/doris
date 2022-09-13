@@ -55,9 +55,10 @@ suite("test_array_export", "export") {
     def outFilePath = """${context.file.parent}/tmp"""
     logger.warn("test_array_export the outFilePath=" + outFilePath)
     
-    try {
+    def create_test_table = {testTablex ->
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
+
         result1 = sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` INT(11) NULL COMMENT "",
@@ -94,6 +95,67 @@ suite("test_array_export", "export") {
                         (2, [4, 5, 6], [32767, 32768, 32769], [65534, 65535, 65536], ['d', 'e', 'f'], ["good", "luck"], 
                         ['2022-07-13'], ['2022-08-15 15:59:59'], [0.333336, 0.666677], [3.141592, 0.878787], [4.22222, 5.5555555, 6.6666777])
                         """
+    }
+    
+    def export_to_hdfs = {exportTable, exportLable, hdfsPath, exportFormat, BrokerName, HdfsUserName, HdfsPasswd->
+        sql """ EXPORT TABLE ${exportTable} 
+                TO "${hdfsPath}" 
+                PROPERTIES (
+                    "label" = "${exportLable}",
+                    "column_separator"=",",
+                    "format"="${exportFormat}"
+                ) 
+                WITH BROKER "${BrokerName}" (
+                    "username"="${HdfsUserName}",
+                    "password"="${HdfsPasswd}"
+                )
+            """
+    }
+
+    def select_out_file = {exportTable, HdfsPath, outFormat, BrokerName, HdfsUserName, HdfsPasswd->
+        sql """
+            SELECT * FROM ${exportTable}
+            INTO OUTFILE "${HdfsPath}"
+            FORMAT AS "${outFormat}"
+            PROPERTIES
+            (
+                "broker.name" = "${BrokerName}",
+                "line_delimiter" = "\n",
+                "max_file_size" = "10MB",
+                "broker.username"="${HdfsUserName}",
+                "broker.password"="${HdfsPasswd}"
+            )
+        """
+    }
+    
+    def check_export_result = {checklabel->
+        max_try_milli_secs = 15000
+        while(max_try_milli_secs) {
+            result = sql "show export where label='${checklabel}'"
+            if(result[0][2] == "FINISHED") {
+                break
+            } else {
+                sleep(1000)  // wait 1 second every time
+                max_try_milli_secs -= 1000
+                if(max_try_milli_secs <= 0) {
+                    assertEquals(1,2)
+                }
+            }
+        }
+    }
+
+    def check_download_result={resultlist, expectedTotalRows->
+        int totalLines = 0
+        for(String oneFile :resultlist) {
+            totalLines += getTotalLine(oneFile)
+            deleteFile(oneFile)
+        }
+        assertEquals(expectedTotalRows, totalLines)
+    }
+
+    // case1: test "select ...into outfile ...."
+    try {
+        create_test_table.call(tableName)
         
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY k1; """
 
@@ -126,6 +188,44 @@ suite("test_array_export", "export") {
                 f.delete();
             }
             path.delete();
+        }
+    }
+
+    if (enableHdfs()) {
+        brokerName = getBrokerName()
+        hdfsUser = getHdfsUser()
+        hdfsPasswd = getHdfsPasswd()
+        hdfsDataDir = getHdfsDataDir()
+        
+        // case2: test "select ...into outfile 'hdfs_path'"
+        try {
+            create_test_table.call(tableName)
+
+            resultCount = sql "select count(*) from ${tableName}"
+            currentTotalRows = resultCount[0][0]
+
+            label = UUID.randomUUID().toString().replaceAll("-", "")
+            select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)
+            result = downloadExportFromHdfs(label + "/export-data")
+            check_download_result(result, currentTotalRows)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${tableName}")
+        }
+
+        // case3: test "export table to hdfs"
+        try {
+            create_test_table.call(tableName)
+
+            resultCount = sql "select count(*) from ${tableName}"
+            currentTotalRows = resultCount[0][0]
+
+            label = UUID.randomUUID().toString().replaceAll("-", "")
+            export_to_hdfs.call(tableName, label, hdfsDataDir + "/" + label, '', brokerName, hdfsUser, hdfsPasswd)
+            check_export_result(label)
+            result = downloadExportFromHdfs(label + "/export-data")
+            check_download_result(result, currentTotalRows)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${tableName}")
         }
     }
 }

@@ -1715,6 +1715,8 @@ visible_functions = [
 
     [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions4sqrtEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
+    [['cbrt'], 'DOUBLE', ['DOUBLE'],
+            '_ZN5doris13MathFunctions4cbrtEPN9doris_udf15FunctionContextERKNS1_9DoubleValE', '', '', 'vec', ''],
     [['pow', 'power', 'dpow', 'fpow'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
             '_ZN5doris13MathFunctions3powEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_', '', '', 'vec', ''],
 
