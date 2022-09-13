@@ -752,6 +752,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String INTERSECT_COUNT = "intersect_count";
     public static final String BITMAP_INTERSECT = "bitmap_intersect";
 
+    public static final String ORTHOGONAL_BITMAP_UNION_COUNT = "orthogonal_bitmap_union_count";
+
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.TINYINT,
