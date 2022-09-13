@@ -143,7 +143,7 @@ private:
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
 };
 
 } // namespace segment_v2
