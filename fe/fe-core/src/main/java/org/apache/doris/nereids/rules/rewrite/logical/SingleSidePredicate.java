@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
@@ -74,25 +73,27 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
                     join.getHashJoinConjuncts().forEach(conjunct -> {
                         Preconditions.checkArgument(conjunct instanceof EqualTo);
                         Expression[] exprs = conjunct.children().toArray(new Expression[0]);
+                        // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
+                        // doesn't swap the two sides.
                         int tag = checkIfSwap(exprs[0], left);
                         exprsOfJoinRelation.get(0).add(exprs[tag]);
                         exprsOfJoinRelation.get(1).add(exprs[tag ^ 1]);
                         Arrays.stream(exprs).sequential().forEach(expr ->
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.hashCode())));
                     });
-                    LogicalJoin<Plan, Plan> join1 = join.withHashJoinConjuncts(join.getHashJoinConjuncts()
-                            .stream().map(equalTo -> equalTo.withChildren(equalTo.children()
-                                    .stream().map(expr -> exprMap.get(expr).toSlot())
-                                    .collect(Collectors.toList())))
-                            .collect(Collectors.toList()));
                     Iterator<List<Expression>> iter = exprsOfJoinRelation.iterator();
-                    return join1.withChildren(join1.children().stream().map(
-                            plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
-                                    .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
-                                            .collect(Collectors.toList()))
-                                    .addAll(plan.getOutput())
-                                    .build(), plan))
-                            .collect(Collectors.toList()));
+                    return join.withhashJoinConjunctsAndChildren(
+                            join.getHashJoinConjuncts()
+                                    .stream().map(equalTo -> equalTo.withChildren(equalTo.children()
+                                            .stream().map(expr -> exprMap.get(expr).toSlot())
+                                            .collect(Collectors.toList())))
+                                    .collect(Collectors.toList()),
+                            join.children().stream().map(
+                                    plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
+                                            .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
+                                                    .collect(Collectors.toList()))
+                                            .addAll(plan.getOutput()).build(), plan))
+                                    .collect(Collectors.toList()));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
 
