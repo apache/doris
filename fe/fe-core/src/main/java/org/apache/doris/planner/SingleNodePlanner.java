@@ -171,6 +171,7 @@ public class SingleNodePlanner {
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
                 ctx.getQueryOptions().getDefaultOrderByLimit());
         Preconditions.checkNotNull(singleNodePlan);
+        analyzer.getDescTbl().materializeIntermediateSlots();
         return singleNodePlan;
     }
 
