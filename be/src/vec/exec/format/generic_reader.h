@@ -22,10 +22,12 @@
 namespace doris::vectorized {
 
 class Block;
+// This a reader interface for all file readers.
+// A GenericReader is responsible for reading a file and return
+// a set of blocks with specified schema,
 class GenericReader {
 public:
-    virtual Status init(RuntimeState* state)
     virtual Status get_next_block(Block* block, bool* eof) = 0;
 };
 
-}
+} // namespace doris::vectorized

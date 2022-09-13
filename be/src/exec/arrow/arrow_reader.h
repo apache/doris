@@ -81,8 +81,7 @@ private:
 class ArrowReaderWrap : public vectorized::GenericReader {
 public:
     ArrowReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
-                    FileReader* file_reader, int64_t batch_size,
-                    int32_t num_of_columns_from_file, bool caseSensitive);
+                    FileReader* file_reader, int32_t num_of_columns_from_file, bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const TupleDescriptor* tuple_desc,
@@ -107,16 +106,14 @@ public:
     bool is_case_sensitive() { return _case_sensitive; }
 
 protected:
-
     virtual Status column_indices();
     virtual void read_batches(arrow::RecordBatchVector& batches, int current_group) = 0;
     virtual bool filter_row_group(int current_group) = 0;
 
 protected:
     RuntimeState* _state;
-    std::vector<SlotDescriptor*> _file_slot_descs,
+    std::vector<SlotDescriptor*> _file_slot_descs;
 
-    const int64_t _batch_size;
     const int32_t _num_of_columns_from_file;
     std::shared_ptr<ArrowFile> _arrow_file;
     std::shared_ptr<::arrow::RecordBatchReader> _rb_reader;

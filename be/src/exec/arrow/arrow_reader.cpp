@@ -40,11 +40,10 @@ namespace doris {
 
 ArrowReaderWrap::ArrowReaderWrap(RuntimeState* state,
                                  const std::vector<SlotDescriptor*>& file_slot_descs,
-                                 FileReader* file_reader, int64_t batch_size,
-                                 int32_t num_of_columns_from_file, bool case_sensitive)
+                                 FileReader* file_reader, int32_t num_of_columns_from_file,
+                                 bool case_sensitive)
         : _state(state),
           _file_slot_descs(file_slot_descs),
-          _batch_size(batch_size),
           _num_of_columns_from_file(num_of_columns_from_file),
           _case_sensitive(case_sensitive) {
     _arrow_file = std::shared_ptr<ArrowFile>(new ArrowFile(file_reader));
@@ -106,7 +105,7 @@ Status ArrowReaderWrap::get_next_block(vectorized::Block* block, bool* eof) {
     size_t rows = 0;
     do {
         if (_batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
-            RETURN_IF_ERROR(_next_batch(&_batch, eof));
+            RETURN_IF_ERROR(next_batch(&_batch, eof));
             if (*eof) {
                 return Status::OK();
             }

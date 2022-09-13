@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "io/file_reader.h"
 #include "runtime/mem_pool.h"
+#include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
 
@@ -30,10 +31,9 @@ namespace doris {
 
 ORCReaderWrap::ORCReaderWrap(RuntimeState* state,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
-                             FileReader* file_reader, int64_t batch_size,
-                             int32_t num_of_columns_from_file, int64_t range_start_offset,
-                             int64_t range_size, bool case_sensitive)
-        : ArrowReaderWrap(state, file_slot_descs, file_reader, batch_size, num_of_columns_from_file,
+                             FileReader* file_reader, int32_t num_of_columns_from_file,
+                             int64_t range_start_offset, int64_t range_size, bool case_sensitive)
+        : ArrowReaderWrap(state, file_slot_descs, file_reader, num_of_columns_from_file,
                           case_sensitive),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {
@@ -135,7 +135,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     // which may cause OOM issues by loading the whole stripe into memory.
     // Note this will only read rows for the current stripe, not the entire file.
     arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> maybe_rb_reader =
-            _reader->NextStripeReader(_batch_size, _include_column_ids);
+            _reader->NextStripeReader(_state->batch_size(), _include_column_ids);
     if (!maybe_rb_reader.ok()) {
         LOG(WARNING) << "Get RecordBatch Failed. " << maybe_rb_reader.status();
         return Status::InternalError(maybe_rb_reader.status().ToString());

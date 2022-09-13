@@ -235,17 +235,17 @@ set(VEC_FILES
   exec/format/parquet/vparquet_column_reader.cpp
   exec/format/parquet/level_decoder.cpp
   exec/format/parquet/parquet_common.cpp
-        exec/scan/vscan_node.cpp
-        exec/scan/vscanner.cpp
-        exec/scan/scanner_context.cpp
-        exec/scan/scanner_scheduler.cpp
-        exec/scan/new_olap_scan_node.cpp
-        exec/scan/new_olap_scanner.cpp
-        exec/scan/new_file_arrow_scanner.cpp
-        exec/scan/new_file_scan_node.cpp
-        exec/scan/new_file_scanner.cpp
-        exec/scan/new_file_text_scanner.cpp
-        exec/format/generic_reader.h exec/format/csv/csv_reader.cpp exec/format/csv/csv_reader.h)
+  exec/scan/vscan_node.cpp
+  exec/scan/vscanner.cpp
+  exec/scan/scanner_context.cpp
+  exec/scan/scanner_scheduler.cpp
+  exec/scan/new_olap_scan_node.cpp
+  exec/scan/new_olap_scanner.cpp
+  exec/scan/new_file_arrow_scanner.cpp
+  exec/scan/new_file_scan_node.cpp
+  exec/scan/new_file_scanner.cpp
+  exec/scan/new_file_text_scanner.cpp
+  )
 
 add_library(Vec STATIC
         ${VEC_FILES}
