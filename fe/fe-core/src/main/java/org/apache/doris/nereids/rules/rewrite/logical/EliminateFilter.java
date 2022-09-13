@@ -33,7 +33,7 @@ public class EliminateFilter extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter()
                 .when(filter -> filter.getPredicates() == BooleanLiteral.FALSE)
-                .then(limit -> new LogicalEmptyRelation((List) limit.getOutput()))
+                .then(filter -> new LogicalEmptyRelation((List) filter.getOutput()))
                 .toRule(RuleType.ELIMINATE_FILTER);
     }
 }

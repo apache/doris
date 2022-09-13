@@ -45,14 +45,6 @@ public class BooleanLiteral extends Literal {
         }
     }
 
-    public static BooleanLiteral of(Boolean value) {
-        if (value) {
-            return TRUE;
-        } else {
-            return FALSE;
-        }
-    }
-
     @Override
     public Boolean getValue() {
         return value;

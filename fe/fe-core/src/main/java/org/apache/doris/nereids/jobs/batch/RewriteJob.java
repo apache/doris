@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.LogicalLimitZeroToLogicalEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
@@ -61,8 +60,6 @@ public class RewriteJob extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
-                .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
-                .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
@@ -76,7 +73,8 @@ public class RewriteJob extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
-                .add(bottomUpBatch(ImmutableList.of(new LogicalLimitZeroToLogicalEmptyRelation())))
+                .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
+                .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
                 .add(topDownBatch(ImmutableList.of(new SelectRollup())))
                 .build();
