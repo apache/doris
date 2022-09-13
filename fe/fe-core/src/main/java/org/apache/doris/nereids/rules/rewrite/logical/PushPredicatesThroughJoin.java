@@ -21,9 +21,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -37,17 +37,16 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Push the predicate in the LogicalFilter or LogicalJoin to the join children.
- * todo: Now, only support eq on condition for inner join, support other case later
+ * Push the predicate in the LogicalFilter to the join children.
  */
-public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
+public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
     /*
      * For example:
      * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
      * Logical plan tree:
      *                 project
      *                   |
-     *                filter (a.k1 > 1 and b.k1 > 2)
+     *                filter (a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2)
      *                   |
      *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
      *                 /   \
@@ -55,40 +54,41 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
      * transformed:
      *                      project
      *                        |
-     *                join (a.k1 = b.k1)
+     *                filter(a.k2 > b.k2)
+     *                        |
+     *           join (otherConditions: a.k1 = b.k1)
      *                /                \
-     * filter(a.k1 > 1 and a.k2 > 2 )   filter(b.k1 > 2 and b.k2 > 5)
+     * filter(a.k1 > 1 and a.k2 > 2)   filter(b.k1 > 2 and b.k2 > 5)
      *             |                                    |
      *            scan                                scan
      */
     @Override
     public Rule build() {
-        return logicalFilter(innerLogicalJoin()).then(filter -> {
+        return logicalFilter(logicalJoin()).then(filter -> {
 
             LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
-            Expression wherePredicates = filter.getPredicates();
-            Expression onPredicates = join.getOtherJoinCondition().orElse(BooleanLiteral.TRUE);
+            Expression filterPredicates = filter.getPredicates();
 
-            List<Expression> otherConditions = Lists.newArrayList();
-            List<Expression> eqConditions = Lists.newArrayList();
+            List<Expression> filterConditions = Lists.newArrayList();
+            List<Expression> joinConditions = Lists.newArrayList();
 
             Set<Slot> leftInput = join.left().getOutputSet();
             Set<Slot> rightInput = join.right().getOutputSet();
 
-            ExpressionUtils.extractConjunction(ExpressionUtils.and(onPredicates, wherePredicates))
+            ExpressionUtils.extractConjunction(filterPredicates)
                     .forEach(predicate -> {
                         if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
-                            eqConditions.add(predicate);
+                            joinConditions.add(predicate);
                         } else {
-                            otherConditions.add(predicate);
+                            filterConditions.add(predicate);
                         }
                     });
 
             List<Expression> leftPredicates = Lists.newArrayList();
             List<Expression> rightPredicates = Lists.newArrayList();
 
-            for (Expression p : otherConditions) {
+            for (Expression p : filterConditions) {
                 Set<Slot> slots = p.getInputSlots();
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
@@ -103,21 +103,22 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
                 }
             }
 
-            otherConditions.removeAll(leftPredicates);
-            otherConditions.removeAll(rightPredicates);
-            otherConditions.addAll(eqConditions);
+            filterConditions.removeAll(leftPredicates);
+            filterConditions.removeAll(rightPredicates);
+            join.getOtherJoinCondition().map(joinConditions::add);
 
-            return pushDownPredicate(join, otherConditions, leftPredicates, rightPredicates);
+            return PlanUtils.filterOrSelf(filterConditions,
+                    pushDownPredicate(join, joinConditions, leftPredicates, rightPredicates));
         }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_JOIN);
     }
 
-    private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
+    private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> join,
             List<Expression> joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
         // todo expr should optimize again using expr rewrite
-        Plan leftPlan = PlanUtils.filterOrSelf(leftPredicates, joinPlan.left());
-        Plan rightPlan = PlanUtils.filterOrSelf(rightPredicates, joinPlan.right());
+        Plan leftPlan = PlanUtils.filterOrSelf(leftPredicates, join.left());
+        Plan rightPlan = PlanUtils.filterOrSelf(rightPredicates, join.right());
 
-        return new LogicalJoin<>(joinPlan.getJoinType(), joinPlan.getHashJoinConjuncts(),
+        return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
                 ExpressionUtils.optionalAnd(joinConditions), leftPlan, rightPlan);
     }
 
@@ -128,12 +129,12 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
         ComparisonPredicate comparison = (ComparisonPredicate) predicate;
 
-        Set<Slot> leftSlots = comparison.left().getInputSlots();
-        Set<Slot> rightSlots = comparison.right().getInputSlots();
-
-        if (!(leftSlots.size() >= 1 && rightSlots.size() >= 1)) {
+        if (!(comparison instanceof EqualTo)) {
             return null;
         }
+
+        Set<Slot> leftSlots = comparison.left().getInputSlots();
+        Set<Slot> rightSlots = comparison.right().getInputSlots();
 
         if ((leftOutputs.containsAll(leftSlots) && rightOutputs.containsAll(rightSlots))
                 || (leftOutputs.containsAll(rightSlots) && rightOutputs.containsAll(leftSlots))) {

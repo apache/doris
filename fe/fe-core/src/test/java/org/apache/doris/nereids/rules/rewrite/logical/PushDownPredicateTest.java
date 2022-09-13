@@ -77,7 +77,19 @@ public class PushDownPredicateTest {
     }
 
     @Test
-    public void pushDownPredicateIntoScanTest1() {
+    public void pushOneSidePredicatesThroughJoin() {
+        pushOneSidePredicatesThroughJoin(JoinType.CROSS_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.INNER_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.LEFT_OUTER_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.LEFT_SEMI_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.LEFT_ANTI_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.RIGHT_OUTER_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.RIGHT_SEMI_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.RIGHT_ANTI_JOIN);
+        pushOneSidePredicatesThroughJoin(JoinType.FULL_OUTER_JOIN);
+    }
+
+    private void pushOneSidePredicatesThroughJoin(JoinType joinType) {
         // select id,name,grade from student join score on student.id = score.sid and student.id > 1
         // and score.cid > 2 where student.age > 18 and score.grade > 60
         Expression onCondition1 = new EqualTo(rStudent.getOutput().get(0), rScore.getOutput().get(0));
@@ -89,7 +101,7 @@ public class PushDownPredicateTest {
         Expression whereCondition2 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.of(onCondition), rStudent, rScore);
+        Plan join = new LogicalJoin(joinType, new ArrayList<>(), Optional.of(onCondition), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 
         Plan root = new LogicalProject(
@@ -114,15 +126,27 @@ public class PushDownPredicateTest {
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
 
-        Assertions.assertEquals(onCondition1, join1.getOtherJoinCondition().get());
-        Assertions.assertEquals(ExpressionUtils.and(onCondition2, whereCondition1), filter1.getPredicates());
-        Assertions.assertEquals(ExpressionUtils.and(onCondition3,
-                        new GreaterThan(rScore.getOutput().get(2), new Cast(Literal.of(60), DoubleType.INSTANCE))),
+        Assertions.assertEquals(onCondition, join1.getOtherJoinCondition().get());
+        Assertions.assertEquals(whereCondition1, filter1.getPredicates());
+        Assertions.assertEquals(
+                new GreaterThan(rScore.getOutput().get(2), new Cast(Literal.of(60), DoubleType.INSTANCE)),
                 filter2.getPredicates());
     }
 
     @Test
-    public void pushDownPredicateIntoScanTest3() {
+    public void pushBothSideEqualToPredicateThroughJoin() {
+        pushBothSideEqualToPredicateThroughJoin(JoinType.CROSS_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.INNER_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.LEFT_OUTER_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.LEFT_SEMI_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.LEFT_ANTI_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.RIGHT_OUTER_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.RIGHT_SEMI_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.RIGHT_ANTI_JOIN);
+        pushBothSideEqualToPredicateThroughJoin(JoinType.FULL_OUTER_JOIN);
+    }
+
+    private void pushBothSideEqualToPredicateThroughJoin(JoinType joinType) {
         //select id,name,grade from student left join score on student.id + 1 = score.sid - 2
         //where student.age > 18 and score.grade > 60
         Expression whereCondition1 = new EqualTo(new Add(rStudent.getOutput().get(0), Literal.of(1)),
@@ -131,7 +155,7 @@ public class PushDownPredicateTest {
         Expression whereCondition3 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(), Optional.empty(), rStudent, rScore);
+        Plan join = new LogicalJoin(joinType, new ArrayList<>(), Optional.empty(), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
 
         Plan root = new LogicalProject(
@@ -162,7 +186,14 @@ public class PushDownPredicateTest {
     }
 
     @Test
-    public void pushDownPredicateIntoScanTest4() {
+    public void pushOneSideEqualToPredicateThroughJoin() {
+        pushOneSideEqualToPredicateThroughJoin(JoinType.CROSS_JOIN);
+        pushOneSideEqualToPredicateThroughJoin(JoinType.INNER_JOIN);
+        pushOneSideEqualToPredicateThroughJoin(JoinType.LEFT_OUTER_JOIN);
+        pushOneSideEqualToPredicateThroughJoin(JoinType.FULL_OUTER_JOIN);
+    }
+
+    private void pushOneSideEqualToPredicateThroughJoin(JoinType joinType) {
         /*
         select
          student.name,
@@ -189,8 +220,8 @@ public class PushDownPredicateTest {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3,
                 whereCondition4);
 
-        Plan join = new LogicalJoin(JoinType.INNER_JOIN, ImmutableList.of(), Optional.empty(), rStudent, rScore);
-        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, ImmutableList.of(), Optional.empty(), join, rCourse);
+        Plan join = new LogicalJoin(joinType, ImmutableList.of(), Optional.empty(), rStudent, rScore);
+        Plan join1 = new LogicalJoin(joinType, ImmutableList.of(), Optional.empty(), join, rCourse);
         Plan filter = new LogicalFilter(whereCondition, join1);
 
         Plan root = new LogicalProject(
@@ -223,6 +254,6 @@ public class PushDownPredicateTest {
 
     private Memo rewrite(Plan plan) {
         Plan normalizedPlan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new ExpressionNormalization());
-        return PlanRewriter.topDownRewriteMemo(normalizedPlan, new ConnectContext(), new PushPredicateThroughJoin());
+        return PlanRewriter.topDownRewriteMemo(normalizedPlan, new ConnectContext(), new PushPredicatesThroughJoin());
     }
 }
