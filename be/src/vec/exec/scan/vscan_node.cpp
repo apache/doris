@@ -437,6 +437,7 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
                         },
                         *range);
             }
+            LOG(WARNING) << "MYTEST" << slot->debug_string();
             if (pdt == PushDownType::ACCEPTABLE && slot != nullptr &&
                 _is_key_column(slot->col_name())) {
                 return nullptr;
