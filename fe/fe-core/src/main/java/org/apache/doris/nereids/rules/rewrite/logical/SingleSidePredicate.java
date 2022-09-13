@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
@@ -33,6 +34,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Iterator;
@@ -92,7 +94,7 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
                                     plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
                                             .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
                                                     .collect(Collectors.toList()))
-                                            .addAll(plan.getOutput()).build(), plan))
+                                            .addAll(getOutput(plan, join)).build(), plan))
                                     .collect(Collectors.toList()));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
     }
@@ -100,5 +102,11 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
     int checkIfSwap(Expression left, Plan joinLeft) {
         Set<Expression> joinOut = ImmutableSet.copyOf(joinLeft.getOutput());
         return left.anyMatch(expr -> (expr instanceof Slot) && joinOut.contains(expr)) ? 0 : 1;
+    }
+
+    private List<Slot> getOutput(Plan plan, LogicalJoin join) {
+        Set<Slot> set = Sets.newHashSet(plan.getOutputSet());
+        set.retainAll(join.getOutputSet());
+        return Arrays.asList(set.toArray(new Slot[0]));
     }
 }
