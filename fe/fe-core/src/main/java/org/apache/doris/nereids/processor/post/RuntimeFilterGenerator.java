@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableSet;
@@ -47,10 +46,6 @@ import java.util.stream.Collectors;
 public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
-
-    private final SessionVariable sessionVariable;
-
-    private final RuntimeFilterContext ctx;
 
     private final ImmutableSet<JoinType> deniedJoinType = ImmutableSet.of(
             JoinType.LEFT_ANTI_JOIN,
@@ -72,16 +67,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      * third step: generate nereids runtime filter target at olap scan node fragment.
      * forth step: generate legacy runtime filter target and runtime filter at hash join node fragment.
      */
-
-    public RuntimeFilterGenerator(RuntimeFilterContext ctx) {
-        this.ctx = ctx;
-        this.sessionVariable = ctx.getSessionVariable();
-    }
-
     // TODO: current support inner join, cross join, right outer join, and will support more join type.
     @Override
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         if (deniedJoinType.contains(join.getJoinType())) {
             /* TODO: translate left outer join to inner join if there are inner join ancestors
              * if it has encountered inner join, like
@@ -102,7 +92,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             join.getOutput().forEach(slot -> ctx.removeFilters(slot.getExprId()));
         } else {
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values()).filter(type ->
-                    (type.getValue() & sessionVariable.getRuntimeFilterType()) > 0).collect(Collectors.toList());
+                    (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
+                    .collect(Collectors.toList());
             AtomicInteger cnt = new AtomicInteger();
             join.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast)
@@ -136,6 +127,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         project.getProjects().stream().filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
                 .filter(expr -> expr.child() instanceof SlotReference)
@@ -146,6 +138,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     @Override
     public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().stream()
                 .filter(slot -> ctx.getSlotListOfTheSameSlotAtOlapScanNode(slot).stream()
                         .filter(expr -> ctx.checkExistValue(ctx.getTargetExprIdToFilter(), expr.getExprId()))

@@ -80,10 +80,6 @@ public class RuntimeFilterTranslator {
         context.setKVInNormalMap(context.getScanNodeOfLegacyRuntimeFilterTarget(), slot, node);
     }
 
-    public List<org.apache.doris.planner.RuntimeFilter> getRuntimeFilters() {
-        return context.getLegacyFilters();
-    }
-
     private org.apache.doris.planner.RuntimeFilter createLegacyRuntimeFilter(RuntimeFilter filter,
             HashJoinNode node, PlanTranslatorContext ctx) {
         SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
