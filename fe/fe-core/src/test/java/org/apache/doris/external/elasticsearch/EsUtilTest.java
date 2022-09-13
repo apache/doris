@@ -74,9 +74,15 @@ public class EsUtilTest extends EsTestCase {
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         Column k2 = new Column("k2", PrimitiveType.VARCHAR);
         Column k3 = new Column("k3", PrimitiveType.VARCHAR);
+        Column k4 = new Column("k4", PrimitiveType.VARCHAR);
+        Column k5 = new Column("k5", PrimitiveType.VARCHAR);
+        Column k6 = new Column("k6", PrimitiveType.DATE);
         columns.add(k1);
         columns.add(k2);
         columns.add(k3);
+        columns.add(k4);
+        columns.add(k5);
+        columns.add(k6);
     }
 
     @Test
@@ -120,6 +126,8 @@ public class EsUtilTest extends EsTestCase {
         Assertions.assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
         Assertions.assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
         Assertions.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
+        Assertions.assertNull(searchContext1.docValueFieldsContext().get("k4"));
+        Assertions.assertNull(searchContext1.docValueFieldsContext().get("k5"));
 
     }
 
