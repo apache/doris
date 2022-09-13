@@ -32,12 +32,12 @@ namespace doris {
 // Reader of ORC file
 class ORCReaderWrap final : public ArrowReaderWrap {
 public:
-    ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
+    ORCReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
+                  FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
                   int64_t range_start_offset, int64_t range_size, bool case_sensitive = true);
     ~ORCReaderWrap() override = default;
 
     Status init_reader(const TupleDescriptor* tuple_desc,
-                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
 

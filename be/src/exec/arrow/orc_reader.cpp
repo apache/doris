@@ -28,10 +28,13 @@
 
 namespace doris {
 
-ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
+ORCReaderWrap::ORCReaderWrap(RuntimeState* state,
+                             const std::vector<SlotDescriptor*>& file_slot_descs,
+                             FileReader* file_reader, int64_t batch_size,
                              int32_t num_of_columns_from_file, int64_t range_start_offset,
                              int64_t range_size, bool case_sensitive)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
+        : ArrowReaderWrap(state, file_slot_descs, file_reader, batch_size, num_of_columns_from_file,
+                          case_sensitive),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {
     _reader = nullptr;
@@ -39,7 +42,6 @@ ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
 }
 
 Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                  const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                   const std::vector<ExprContext*>& conjunct_ctxs,
                                   const std::string& timezone) {
     // Open ORC file reader
@@ -73,7 +75,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         _map_column.emplace(schemaName, i + 1);
     }
-    RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+    RETURN_IF_ERROR(column_indices());
 
     _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
 

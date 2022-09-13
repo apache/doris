@@ -37,10 +37,13 @@
 namespace doris {
 
 // Broker
-ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
+ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
+                                     const std::vector<SlotDescriptor*>& file_slot_descs,
+                                     FileReader* file_reader, int64_t batch_size,
                                      int32_t num_of_columns_from_file, int64_t range_start_offset,
                                      int64_t range_size, bool case_sensitive)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
+        : ArrowReaderWrap(state, file_slot_descs, file_reader, batch_size, num_of_columns_from_file,
+                          case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
@@ -48,8 +51,6 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
           _range_size(range_size) {}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                      const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                                      const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
         parquet::ArrowReaderProperties arrow_reader_properties =
@@ -97,7 +98,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         _timezone = timezone;
 
-        RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+        RETURN_IF_ERROR(column_indices());
         if (config::parquet_predicate_push_down) {
             int64_t file_size = 0;
             size(&file_size);

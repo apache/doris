@@ -28,6 +28,7 @@
 #include "gen_cpp/parquet_types.h"
 #include "io/file_reader.h"
 #include "vec/core/block.h"
+#include "vec/exec/format/generic_reader.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
 #include "vparquet_page_index.h"
@@ -63,7 +64,7 @@ private:
     //    int64_t chunk_size;
 };
 
-class ParquetReader {
+class ParquetReader : public GenericReader {
 public:
     ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file, size_t batch_size,
                   int64_t range_start_offset, int64_t range_size, cctz::time_zone* ctz);
@@ -74,7 +75,7 @@ public:
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
 
-    Status read_next_batch(Block* block, bool* eof);
+    Status get_next_block(Block* block, bool* eof) override;
 
     // std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
