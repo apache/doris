@@ -1912,4 +1912,31 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return true;
     }
+
+    public final void finalizeForNereids() throws AnalysisException {
+        if (isAnalyzed()) {
+            return;
+        }
+        for (Expr child : children) {
+            child.finalizeForNereids();
+        }
+        finalizeImplForNereids();
+        analysisDone();
+    }
+
+    public void finalizeImplForNereids() throws AnalysisException {
+        throw new AnalysisException("analyze for Nereids do not implementation.");
+    }
+
+    public void materializeSrcExpr() {
+        if (this instanceof SlotRef) {
+            SlotRef thisRef = (SlotRef) this;
+            SlotDescriptor slotDesc = thisRef.getDesc();
+            slotDesc.setIsMaterialized(true);
+            slotDesc.getSourceExprs().forEach(Expr::materializeSrcExpr);
+        }
+        for (Expr child : children) {
+            child.materializeSrcExpr();
+        }
+    }
 }
