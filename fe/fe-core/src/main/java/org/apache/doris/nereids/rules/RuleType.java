@@ -67,9 +67,9 @@ public enum RuleType {
     JOIN_RIGHT_CHILD_ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
     AGGREGATE_ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
 
-    //subquery analyze
+    // subquery analyze
     ANALYZE_FILTER_SUBQUERY(RuleTypeClass.REWRITE),
-    //subquery rewrite rule
+    // subquery rewrite rule
     PUSH_APPLY_UNDER_PROJECT(RuleTypeClass.REWRITE),
     PUSH_APPLY_UNDER_FILTER(RuleTypeClass.REWRITE),
     APPLY_PULL_FILTER_ON_AGG(RuleTypeClass.REWRITE),
@@ -106,11 +106,11 @@ public enum RuleType {
     ROLLUP_AGG_PROJECT_SCAN(RuleTypeClass.REWRITE),
     ROLLUP_AGG_PROJECT_FILTER_SCAN(RuleTypeClass.REWRITE),
     ROLLUP_AGG_FILTER_PROJECT_SCAN(RuleTypeClass.REWRITE),
-    REWRITE_SENTINEL(RuleTypeClass.REWRITE),
     OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
+    // Swap plan
     SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
-    LOGICAL_LIMIT_TO_LOGICAL_EMPTY_RELATION_RULE(RuleTypeClass.REWRITE),
     SWAP_LIMIT_PROJECT(RuleTypeClass.REWRITE),
+    REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
@@ -153,7 +153,7 @@ public enum RuleType {
     }
 
     public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan>
-            Rule build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
+    Rule build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
         return patternMatcher.toRule(this);
     }
 
