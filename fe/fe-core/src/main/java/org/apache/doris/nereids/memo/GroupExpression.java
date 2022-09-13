@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.analyzer.Relation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -208,9 +207,9 @@ public class GroupExpression {
         GroupExpression that = (GroupExpression) o;
         // FIXME: Doris not support temporary materialization, so we should not merge same
         //        scan relation plan. We should add id for XxxRelation and compare by id.
-        if (plan instanceof Relation) {
+        /*if (plan instanceof Relation) {
             return false;
-        }
+        }*/
         return children.equals(that.children) && plan.equals(that.plan)
                 && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
     }
