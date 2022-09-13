@@ -169,6 +169,12 @@ struct TQueryOptions {
   46: optional string fragment_transmission_compression_codec;
 
   47: optional bool enable_local_exchange;
+
+  // For debug purpose, dont' merge unique key and agg key when reading data.
+  48: optional bool skip_storage_engine_merge = false
+
+  // For debug purpose, skip delete predicates when reading data
+  49: optional bool skip_delete_predicate = false
 }
     
 

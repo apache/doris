@@ -171,7 +171,11 @@ Status VOlapScanner::_init_tablet_reader_params(
                       ->rowset_meta()
                       ->is_segments_overlapping());
 
-    _tablet_reader_params.direct_mode = _aggregation || single_version;
+    if (_runtime_state->skip_storage_engine_merge()) {
+        _tablet_reader_params.direct_mode = true;
+    } else {
+        _tablet_reader_params.direct_mode = _aggregation || single_version;
+    }
 
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
@@ -192,10 +196,12 @@ Status VOlapScanner::_init_tablet_reader_params(
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
-    auto& delete_preds = _tablet->delete_predicates();
-    std::copy(delete_preds.cbegin(), delete_preds.cend(),
-              std::inserter(_tablet_reader_params.delete_predicates,
-                            _tablet_reader_params.delete_predicates.begin()));
+    if (!_runtime_state->skip_delete_predicate()) {
+        auto& delete_preds = _tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
+                  std::inserter(_tablet_reader_params.delete_predicates,
+                                _tablet_reader_params.delete_predicates.begin()));
+    }
 
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred_rs : _tablet_reader_params.delete_predicates) {
