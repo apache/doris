@@ -155,6 +155,11 @@ public class RuntimeFilterContext {
         return filters;
     }
 
+    /**
+     * get the slot list of the same olap scan node of the input slot.
+     * @param slot slot
+     * @return slot list
+     */
     public List<NamedExpression> getSlotListOfTheSameSlotAtOlapScanNode(Slot slot) {
         ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
         NamedExpression expr = slot;
