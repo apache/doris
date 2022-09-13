@@ -27,7 +27,9 @@ namespace doris::vectorized {
 
 NewFileScanNode::NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
-        : VScanNode(pool, tnode, descs), _file_scan_node(tnode.file_scan_node) {
+        : VScanNode(pool, tnode, descs),
+          _pre_filter_texprs(tnode.file_scan_node.pre_filter_exprs),
+          _file_scan_node(tnode.file_scan_node) {
     _output_tuple_id = tnode.file_scan_node.tuple_id;
 }
 
@@ -95,16 +97,19 @@ VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
     switch (scan_range.params.format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         scanner = new NewFileParquetScanner(_state, this, _limit_per_scanner, scan_range,
-                                            _scanner_mem_tracker.get(), runtime_profile());
+                                            _scanner_mem_tracker.get(), runtime_profile(),
+                                            _pre_filter_texprs);
         break;
     case TFileFormatType::FORMAT_ORC:
         scanner = new NewFileORCScanner(_state, this, _limit_per_scanner, scan_range,
-                                        _scanner_mem_tracker.get(), runtime_profile());
+                                        _scanner_mem_tracker.get(), runtime_profile(),
+                                        _pre_filter_texprs);
         break;
 
     default:
         scanner = new NewFileTextScanner(_state, this, _limit_per_scanner, scan_range,
-                                         _scanner_mem_tracker.get(), runtime_profile());
+                                         _scanner_mem_tracker.get(), runtime_profile(),
+                                         _pre_filter_texprs);
         break;
     }
     _scanner_pool.add(scanner);

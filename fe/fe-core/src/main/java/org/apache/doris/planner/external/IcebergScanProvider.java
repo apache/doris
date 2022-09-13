@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -45,14 +46,14 @@ import java.util.Map;
 /**
  * A file scan provider for iceberg.
  */
-public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
+public class IcebergScanProvider extends HiveScanProvider {
 
-    public ExternalIcebergScanProvider(HMSExternalTable hmsTable) {
-        super(hmsTable);
+    public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
+        super(hmsTable, desc);
     }
 
     @Override
-    public TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException {
+    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type;
 
         String icebergFormat = getRemoteHiveTable().getParameters()

@@ -63,9 +63,6 @@ protected:
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
-    // to filter src tuple directly.
-    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
-
 public:
     VScanNode* get_parent() { return _parent; }
 
@@ -163,7 +160,7 @@ protected:
     // File formats based push down predicate
     std::vector<ExprContext*> _conjunct_ctxs;
 
-    const std::vector<TExpr> _pre_filter_texprs;
+    bool _is_load = false;
 };
 
 } // namespace doris::vectorized

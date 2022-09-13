@@ -506,10 +506,8 @@ public class SparkLoadPendingTask extends LoadTask {
                     fileGroup.isNegative(), columnMappings, where, partitionIds);
         } else {
             etlFileGroup = new EtlFileGroup(SourceType.FILE, fileGroup.getFilePaths(), fileFieldNames,
-                    fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
-                    fileGroup.getLineDelimiter(), fileGroup.isNegative(),
-                    fileGroup.getFileFormat(), columnMappings,
-                    where, partitionIds);
+                    fileGroup.getColumnNamesFromPath(), fileGroup.getColumnSeparator(), fileGroup.getLineDelimiter(),
+                    fileGroup.isNegative(), fileGroup.getFileFormat(), columnMappings, where, partitionIds);
         }
 
         return etlFileGroup;

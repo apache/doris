@@ -170,13 +170,13 @@ Status BaseScanner::init_expr_ctxes() {
             _dest_expr_ctx.emplace_back(ctx);
         }
         if (has_slot_id_map) {
-            auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-            if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+            auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
                 _src_slot_descs_order_by_dest.emplace_back(nullptr);
             } else {
-                auto _src_slot_it = src_slot_desc_map.find(it->second);
+                auto _src_slot_it = src_slot_desc_map.find(it1->second);
                 if (_src_slot_it == std::end(src_slot_desc_map)) {
-                    return Status::InternalError("No src slot {} in src slot descs", it->second);
+                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
                 _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }

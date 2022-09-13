@@ -17,31 +17,30 @@
 
 package org.apache.doris.planner.external;
 
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.common.Config;
 
-import java.util.Collections;
-import java.util.List;
+import org.apache.hadoop.mapred.FileSplit;
 
-/**
- * A file scan provider for hudi.
- * HudiProvier is extended with hive since they both use input format interface to get the split.
- */
-public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
+public class FileSplitStrategy {
+    private long totalSplitSize;
+    private int splitNum;
 
-    public ExternalHudiScanProvider(HMSExternalTable hmsTable) {
-        super(hmsTable);
+    FileSplitStrategy() {
+        this.totalSplitSize = 0;
+        this.splitNum = 0;
     }
 
-    @Override
-    public TFileFormatType getTableFormatType() throws DdlException {
-        return TFileFormatType.FORMAT_PARQUET;
+    public void update(FileSplit split) {
+        totalSplitSize += split.getLength();
+        splitNum++;
     }
 
-    @Override
-    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return Collections.emptyList();
+    public boolean hasNext() {
+        return totalSplitSize > Config.file_scan_node_split_size || splitNum > Config.file_scan_node_split_num;
+    }
+
+    public void next() {
+        totalSplitSize = 0;
+        splitNum = 0;
     }
 }
