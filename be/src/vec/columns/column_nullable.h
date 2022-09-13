@@ -277,7 +277,7 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > 1);
+        DCHECK(size() > self_row);
         const ColumnNullable& nullable_rhs = assert_cast<const ColumnNullable&>(rhs);
         null_map->replace_column_data(*nullable_rhs.null_map, row, self_row);
 
