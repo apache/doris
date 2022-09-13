@@ -275,6 +275,8 @@ public:
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 
+    void insert_join_nullmap(const int* indices_begin, const int* indices_end);
+
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
         auto new_size = old_size + num;
