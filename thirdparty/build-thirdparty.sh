@@ -1385,11 +1385,11 @@ build_sse2neon() {
 # xxhash
 build_xxhash() {
     check_if_source_exist "${XXHASH_SOURCE}"
-	cd "${TP_SOURCE_DIR}/${XXHASH_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${XXHASH_SOURCE}"
 
-	make -j "${PARALLEL}"
-	cp -r ./*.h "${TP_INSTALL_DIR}/include/"
-	cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
+    make -j "${PARALLEL}"
+    cp -r ./*.h "${TP_INSTALL_DIR}/include/"
+    cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
 }
 
 build_libunixodbc
