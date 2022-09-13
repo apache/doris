@@ -597,7 +597,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                         }
                     }
                 } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnString>(col)) {
+                                   check_and_get_column<const ColumnDecimal128>(col)) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         const DecimalV2Value decimal_val(
                                 reinterpret_cast<const PackedInt128*>(
