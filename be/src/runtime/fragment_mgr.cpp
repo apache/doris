@@ -290,7 +290,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
+        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status.to_string();
         LOG(WARNING) << "query_id: " << _query_id << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
