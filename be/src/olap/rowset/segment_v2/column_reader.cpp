@@ -535,7 +535,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     auto& column_offsets =
             static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
     RETURN_IF_ERROR(_calculate_offsets(start, column_offsets));
-    size_t num_items = column_offsets.get_data().back() - column_offsets.get_data()[start];
+    size_t num_items =
+            column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     auto column_items_ptr = column_array->get_data().assume_mutable();
     if (num_items > 0) {
         size_t num_read = num_items;
