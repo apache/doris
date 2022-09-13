@@ -88,6 +88,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.map.HashedMap;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -492,12 +493,176 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             currentFragment = constructShuffleJoin(
                     physicalHashJoin, hashJoinNode, leftFragment, rightFragment, context);
         }
+        // Nereids does not care about output order of join,
+        // but BE need left child's output must be before right child's output.
+        // So we need to swap the output order of left and right child if necessary.
+        // TODO: revert this after Nereids could ensure the output order is correct.
+        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
+        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
+        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        TupleDescriptor outputDescriptor = context.generateTupleDesc();
+        Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
 
-        TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
-        Stream.concat(hashJoin.child(0).getOutput().stream(), hashJoin.child(1).getOutput().stream())
+        hashJoin.getOutput().stream()
                 .map(SlotReference.class::cast)
-                .forEach(s -> context.createSlotDesc(intermediateDescriptor, s));
+                .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+        List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .map(sd -> context.findExprId(sd.getId()))
+                .map(outputSlotReferenceMap::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        /*
+        if hashJoin has otherJoinConjuncts
+              intermediateTuple = left child tuple + right child tuple
+        else
+           if join type is left XXX join
+              intermediateTuple = left child tuple
+           else if join type is right XXX join
+              intermediateTuple = right child tuple
+           else
+              intermediateTuple = left child tuple + right child tuple
+         */
+        Map<ExprId, SlotReference> hashOutputSlotReferenceMap = Maps.newHashMap(outputSlotReferenceMap);
 
+        hashJoin.getOtherJoinCondition()
+                .map(ExpressionUtils::extractConjunction)
+                .orElseGet(Lists::newArrayList)
+                .stream()
+                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                .flatMap(e -> e.getInputSlots().stream())
+                .map(SlotReference.class::cast)
+                .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
+        hashJoin.getFilterConjuncts().stream()
+                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                .flatMap(e -> e.getInputSlots().stream())
+                .map(SlotReference.class::cast)
+                .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
+
+        //make intermediate tuple
+        List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
+        List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
+        TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
+
+        if (hashJoin.getOtherJoinCondition().isPresent()) {
+            for (int i = 0; i < hashJoin.child(0).getOutput().size(); i++) {
+                SlotReference sf = (SlotReference) hashJoin.child(0).getOutput().get(i);
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                    hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptors.get(i).getId());
+                }
+                leftIntermediateSlotDescriptor.add(sd);
+            }
+            for (int i = 0; i < hashJoin.child(1).getOutput().size(); i++) {
+                SlotReference sf = (SlotReference) hashJoin.child(1).getOutput().get(i);
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                    hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptors.get(i).getId());
+                }
+                rightIntermediateSlotDescriptor.add(sd);
+            }
+
+            //set slots as nullable for outer join
+            if (joinType == JoinType.LEFT_OUTER_JOIN
+                    || joinType == JoinType.FULL_OUTER_JOIN) {
+                rightIntermediateSlotDescriptor.stream()
+                        .forEach(sd -> sd.setIsNullable(true));
+            }
+
+            if (joinType == JoinType.RIGHT_OUTER_JOIN
+                    || joinType == JoinType.FULL_OUTER_JOIN) {
+                leftIntermediateSlotDescriptor.stream()
+                        .forEach(sd -> sd.setIsNullable(true));
+            }
+        } else if (joinType == JoinType.LEFT_ANTI_JOIN
+                    || joinType == JoinType.LEFT_SEMI_JOIN) {
+            leftIntermediateSlotDescriptor = hashJoin.child(0).getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .map(s -> context.createSlotDesc(intermediateDescriptor, s))
+                    .collect(Collectors.toList());
+        } else if (joinType == JoinType.RIGHT_ANTI_JOIN
+                || joinType == JoinType.RIGHT_SEMI_JOIN) {
+            rightIntermediateSlotDescriptor = hashJoin.child(1).getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .map(s -> context.createSlotDesc(intermediateDescriptor, s))
+                    .collect(Collectors.toList());
+        } else {
+            //inner/cross left-out/right-out/full-out
+            for (int i = 0; i < hashJoin.child(0).getOutput().size(); i++) {
+                SlotReference sf = (SlotReference) hashJoin.child(0).getOutput().get(i);
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                    hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptors.get(i).getId());
+                }
+                leftIntermediateSlotDescriptor.add(sd);
+            }
+            for (int i = 0; i < hashJoin.child(1).getOutput().size(); i++) {
+                SlotReference sf = (SlotReference) hashJoin.child(1).getOutput().get(i);
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                    hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptors.get(i).getId());
+                }
+                rightIntermediateSlotDescriptor.add(sd);
+            }
+            if (joinType == JoinType.FULL_OUTER_JOIN) {
+                rightIntermediateSlotDescriptor.stream()
+                        .forEach(sd -> sd.setIsNullable(true));
+                leftIntermediateSlotDescriptor.stream()
+                        .forEach(sd -> sd.setIsNullable(true));
+            } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
+                rightIntermediateSlotDescriptor.stream()
+                        .forEach(sd -> sd.setIsNullable(true));
+            } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
+                leftIntermediateSlotDescriptor.stream()
+                        .forEach(sd -> sd.setIsNullable(true));
+            }
+        }
+
+        /*
+        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .map(sd -> context.findExprId(sd.getId()))
+                .map(hashOutputSlotReferenceMap::get)
+                .filter(Objects::nonNull)
+                .map(s -> context.createSlotDesc(intermediateDescriptor, s))
+                .collect(Collectors.toList());
+
+        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .map(sd -> context.findExprId(sd.getId()))
+                .map(hashOutputSlotReferenceMap::get)
+                .filter(Objects::nonNull)
+                .map(s -> context.createSlotDesc(intermediateDescriptor, s))
+                .collect(Collectors.toList());
+
+
+        //set slots as nullable for outer join
+        if (joinType == JoinType.LEFT_OUTER_JOIN
+                || joinType == JoinType.LEFT_SEMI_JOIN
+                || joinType == JoinType.LEFT_ANTI_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
+            rightSlotDescriptors.stream()
+                    .forEach(sd -> sd.setIsNullable(true));
+        }
+
+        if (joinType == JoinType.RIGHT_OUTER_JOIN
+                || joinType == JoinType.RIGHT_SEMI_JOIN
+                || joinType == JoinType.RIGHT_ANTI_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
+            leftSlotDescriptors.stream()
+                    .forEach(sd -> sd.setIsNullable(true));
+        }
+        */
         List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
                 .map(ExpressionUtils::extractConjunction)
                 .orElseGet(Lists::newArrayList)
@@ -508,31 +673,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
+        hashJoin.getFilterConjuncts().stream()
+                .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .forEach(hashJoinNode::addConjunct);
+
         hashJoinNode.setOtherJoinConjuncts(otherJoinConjuncts);
 
         hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
-        if (hashJoin.shouldTranslateOutput) {
-            // Nereids does not care about output order of join,
-            // but BE need left child's output must be before right child's output.
-            // So we need to swap the output order of left and right child if necessary.
-            // TODO: revert this after Nereids could ensure the output order is correct.
-            List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
-            List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
-            TupleDescriptor outputDescriptor = context.generateTupleDesc();
-            Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
-
-            hashJoin.getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
-            List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
-                    .map(TupleDescriptor::getSlots)
-                    .flatMap(Collection::stream)
-                    .map(sd -> context.findExprId(sd.getId()))
-                    .map(outputSlotReferenceMap::get)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-
+        if (hashJoin.isShouldTranslateOutput()) {
             //translate output expr on intermediate tuple
             List<Expr> srcToOutput = outputSlotReferences.stream()
                     .map(e -> ExpressionTranslator.translate(e, context))
@@ -586,7 +736,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
         if (project.child(0) instanceof PhysicalHashJoin) {
-            ((PhysicalHashJoin<?, ?>) project.child(0)).shouldTranslateOutput = false;
+            ((PhysicalHashJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
+        }
+        if (project.child(0) instanceof PhysicalFilter) {
+            if (project.child(0).child(0) instanceof PhysicalHashJoin) {
+                ((PhysicalHashJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
+            }
         }
         PlanFragment inputFragment = project.child(0).accept(this, context);
 
@@ -649,9 +804,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanTranslatorContext context) {
+        if (filter.child(0) instanceof PhysicalHashJoin) {
+            PhysicalHashJoin join = (PhysicalHashJoin<?, ?>) filter.child(0);
+            join.getFilterConjuncts().addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
+        }
         PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
-        addConjunctsToPlanNode(filter, planNode, context);
+        if (!(filter.child(0) instanceof PhysicalHashJoin)) {
+            addConjunctsToPlanNode(filter, planNode, context);
+        }
         return inputFragment;
     }
 

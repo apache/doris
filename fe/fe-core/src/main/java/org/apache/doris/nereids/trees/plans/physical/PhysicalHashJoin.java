@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,7 +41,9 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public boolean shouldTranslateOutput = true;
+    private boolean shouldTranslateOutput = true;
+
+    private final List<Expression> filterConjuncts = Lists.newArrayList();
 
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition, LogicalProperties logicalProperties,
@@ -117,5 +120,17 @@ public class PhysicalHashJoin<
             PhysicalProperties physicalProperties) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
                 Optional.empty(), getLogicalProperties(), physicalProperties, left(), right());
+    }
+
+    public boolean isShouldTranslateOutput() {
+        return shouldTranslateOutput;
+    }
+
+    public void setShouldTranslateOutput(boolean shouldTranslateOutput) {
+        this.shouldTranslateOutput = shouldTranslateOutput;
+    }
+
+    public List<Expression> getFilterConjuncts() {
+        return filterConjuncts;
     }
 }
