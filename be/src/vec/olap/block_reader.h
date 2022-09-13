@@ -42,7 +42,9 @@ public:
     }
 
     Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) override;
+                                       bool* eof) override {
+        return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+    }
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 

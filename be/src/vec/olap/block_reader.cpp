@@ -140,10 +140,12 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     if (config::enable_block_aggregate_in_scanner && _aggregation &&
         (_tablet->keys_type() == AGG_KEYS)) {
+        _next_block_func = &BlockReader::_agg_next_block;
         _block_aggregator = std::make_unique<BlockAggregator>(
                 _tablet_schema.get(), *read_params.origin_return_columns,
                 read_params.return_columns, read_params.tablet_columns_convert_to_null_set,
                 _batch_size);
+        return Status::OK();
     }
 
     if (_direct_mode) {
@@ -177,18 +179,12 @@ Status BlockReader::init(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::next_block_with_aggregation(Block* block, MemPool* mem_pool,
-                                                ObjectPool* agg_pool, bool* eof) {
-    return _block_aggregator ? _agg_next_block(block, mem_pool, agg_pool, eof)
-                             : (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
-}
-
 Status BlockReader::_agg_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                     bool* eof) {
     Status status;
     while (true) {
         if (_block_aggregator->source_exhausted()) {
-            status = (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+            status = _direct_next_block(block, mem_pool, agg_pool, eof);
             if (UNLIKELY(!status.ok())) {
                 return status;
             }

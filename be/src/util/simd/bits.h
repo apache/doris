@@ -34,6 +34,8 @@
 
 namespace doris::simd {
 
+static constexpr size_t UINT64_MAX_MASK = 0xFFFFFFFFFFFFFFFF;
+
 inline uint64_t bytes64_mask_to_bits64_not_mask(const int8_t* bytes64) {
 #ifdef __AVX2__
     const auto zero32 = _mm256_setzero_si256();

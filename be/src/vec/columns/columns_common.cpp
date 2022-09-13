@@ -153,7 +153,7 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
     while (filt_pos < filt_end_aligned) {
         auto mask = simd::bytes64_mask_to_bits64_mask(filt_pos);
 
-        if (0xFFFFFFFFFFFFFFFF == mask) {
+        if (simd::UINT64_MAX_MASK == mask) {
             /// SIMD_BYTES consecutive rows pass the filter
             const auto first = offsets_pos == offsets_begin;
 

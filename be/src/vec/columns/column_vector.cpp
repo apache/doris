@@ -369,7 +369,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     while (filt_pos < filt_end_sse) {
         auto mask = simd::bytes64_mask_to_bits64_mask(filt_pos);
 
-        if (0xFFFFFFFFFFFFFFFF == mask) {
+        if (simd::UINT64_MAX_MASK == mask) {
             res_data.insert(data_pos, data_pos + SIMD_BYTES);
         } else {
             while (mask) {

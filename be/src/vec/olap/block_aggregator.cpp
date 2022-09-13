@@ -121,15 +121,25 @@ CompareFunc BlockAggregator::_get_comparator(const TabletColumn& col) {
     case OLAP_FIELD_TYPE_DOUBLE:
         return &compare_previous<ColumnFloat64>;
     case OLAP_FIELD_TYPE_DECIMAL:
-        return &compare_previous<ColumnDecimal<Decimal128>>;
+        return &compare_previous<ColumnDecimal128>;
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        return &compare_previous<ColumnDecimal32>;
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        return &compare_previous<ColumnDecimal64>;
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        return &compare_previous<ColumnDecimal128>;
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING:
         return &compare_previous<ColumnString>;
     case OLAP_FIELD_TYPE_DATE:
         return &compare_previous<ColumnDate>;
+    case OLAP_FIELD_TYPE_DATEV2:
+        return &compare_previous<ColumnDateV2>;
     case OLAP_FIELD_TYPE_DATETIME:
         return &compare_previous<ColumnDateTime>;
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        return &compare_previous<ColumnDateTimeV2>;
     default:
         DCHECK(false) << "unhandled key column type: " << col.type();
         return nullptr;

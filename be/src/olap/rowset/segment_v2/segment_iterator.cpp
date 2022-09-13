@@ -1003,7 +1003,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         auto mask = simd::bytes64_mask_to_bits64_mask(ret_flags + sel_pos);
         if (0 == mask) {
             //pass
-        } else if (0xffffffffffffffff == mask) {
+        } else if (simd::UINT64_MAX_MASK == mask) {
             for (uint32_t i = 0; i < SIMD_BYTES; i++) {
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
