@@ -122,6 +122,12 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
     case TPrimitiveType::DECIMALV2: {
         return "decimal";
     }
+    case TPrimitiveType::HLL: {
+        return "hll";
+    }
+    case TPrimitiveType::OBJECT: {
+        return "bitmap";
+    }
     default:
         return "unknown";
     }
@@ -179,6 +185,12 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
         }
         stream << ")";
         return stream.str();
+    }
+    case TPrimitiveType::HLL: {
+        return "hll";
+    }
+    case TPrimitiveType::OBJECT: {
+        return "bitmap";
     }
     default:
         return "unknown";
