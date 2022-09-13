@@ -31,8 +31,9 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.SwapFilterAndProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -54,6 +55,7 @@ public class RewriteJob extends BatchRulesJob {
                  * 1. Adjust the plan in correlated logicalApply
                  *    so that there are no correlated columns in the subquery.
                  * 2. Convert logicalApply to a logicalJoin.
+                 *  TODO: group these rules to make sure the result plan is what we expected.
                  */
                 .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
@@ -65,7 +67,8 @@ public class RewriteJob extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
-                .add(topDownBatch(ImmutableList.of(new SwapFilterAndProject())))
+                .add(topDownBatch(ImmutableList.of(new PushdownProjectThroughLimit())))
+                .add(topDownBatch(ImmutableList.of(new PushdownFilterThroughProject())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
                 .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
                 .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
