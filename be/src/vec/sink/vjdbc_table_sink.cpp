@@ -51,14 +51,14 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _use_transaction = t_jdbc_sink.use_transaction;
 
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_vexpr_ctxs));
     return Status::OK();
 }
 
 Status VJdbcTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     std::stringstream title;
     title << "VJdbcTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
@@ -68,7 +68,7 @@ Status VJdbcTableSink::prepare(RuntimeState* state) {
 
 Status VJdbcTableSink::open(RuntimeState* state) {
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
 
     // create writer
     _writer.reset(new JdbcConnector(_jdbc_param));
@@ -77,7 +77,7 @@ Status VJdbcTableSink::open(RuntimeState* state) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
 
-    _writer->_init_profile(_profile);
+    _writer->init_profile(_profile);
     return Status::OK();
 }
 
@@ -93,13 +93,13 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
     }
 
     auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _output_expr_ctxs, *block, status);
+            _output_vexpr_ctxs, *block, status);
     materialize_block_inplace(output_block);
 
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
-        status = _writer->append(_jdbc_tbl, &output_block, _output_expr_ctxs, start_send_row,
+        status = _writer->append(_jdbc_tbl, &output_block, _output_vexpr_ctxs, start_send_row,
                                  &num_row_sent);
         if (UNLIKELY(!status.ok())) {
             return status;
@@ -115,7 +115,7 @@ Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    VExpr::close(_output_expr_ctxs, state);
+    VExpr::close(_output_vexpr_ctxs, state);
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }

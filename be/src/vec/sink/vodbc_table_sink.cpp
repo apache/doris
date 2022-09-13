@@ -92,7 +92,9 @@ Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
     while (start_send_row < output_block.rows()) {
         status = _writer->append(_odbc_tbl, &output_block, _output_expr_ctxs, start_send_row,
                                  &num_row_sent);
-        if (UNLIKELY(!status.ok())) return status;
+        if (UNLIKELY(!status.ok())) {
+            return status;
+        }
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }
@@ -101,8 +103,14 @@ Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
 }
 
 Status VOdbcTableSink::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
     VExpr::close(_output_expr_ctxs, state);
-    return Status::OK();
+    if (exec_status.ok() && _use_transaction) {
+        RETURN_IF_ERROR(_writer->finish_trans());
+    }
+    return DataSink::close(state, exec_status);
 }
 } // namespace vectorized
 } // namespace doris

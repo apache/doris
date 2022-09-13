@@ -18,12 +18,9 @@
 #pragma once
 #ifdef LIBJVM
 
-#include <string>
-
+#include "exec/table_connector.h"
 #include "jni.h"
-#include "runtime/descriptors.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 namespace vectorized {
 struct JdbcConnectorParam {
@@ -39,27 +36,30 @@ struct JdbcConnectorParam {
     const TupleDescriptor* tuple_desc;
 };
 
-class JdbcConnector {
+class JdbcConnector : public TableConnector {
 public:
     JdbcConnector(const JdbcConnectorParam& param);
 
-    ~JdbcConnector();
+    ~JdbcConnector() override;
 
-    Status open();
+    Status open() override;
 
-    Status query_exec();
+    Status query() override;
+
+    Status get_next_row(bool* eos) override {
+        return Status::NotSupported("No Need to Implemented JDBC::get_next_row in vectorized");
+    }
+
+    Status exec_write_sql(const std::u16string& insert_stmt,
+                          const fmt::memory_buffer& insert_stmt_buffer) override;
 
     Status get_next(bool* eos, std::vector<MutableColumnPtr>& columns, int batch_size);
 
-    Status append(const std::string& table_name, Block* block,
-                  const std::vector<VExprContext*>& _output_vexpr_ctxs, uint32_t start_send_row,
-                  uint32_t* num_rows_sent);
-
     // use in JDBC transaction
-    Status begin_trans();  // should be call after connect and before query or init_to_write
-    Status abort_trans();  // should be call after transaction abort
-    Status finish_trans(); // should be call after transaction commit
-    void _init_profile(RuntimeProfile*);
+    Status begin_trans() override; // should be call after connect and before query or init_to_write
+    Status abort_trans() override; // should be call after transaction abort
+    Status finish_trans() override; // should be call after transaction commit
+
 private:
     Status _register_func_id(JNIEnv* env);
     Status _convert_column_data(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
@@ -68,13 +68,7 @@ private:
     int64_t _jobject_to_date(JNIEnv* env, jobject jobj);
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
 
-    bool _is_open;
-    std::string _query_string;
-    const TupleDescriptor* _tuple_desc;
-    const JdbcConnectorParam _conn_param;
-    fmt::memory_buffer _insert_stmt_buffer;
-    bool _is_in_transaction;
-
+    const JdbcConnectorParam& _conn_param;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
@@ -94,15 +88,6 @@ private:
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
-
-    // profile use in write
-    // tuple convert timer, child timer of _append_row_batch_timer
-    RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
-    // file write timer, child timer of _append_row_batch_timer
-    RuntimeProfile::Counter* _result_send_timer = nullptr;
-    // number of sent rows
-    RuntimeProfile::Counter* _sent_rows_counter = nullptr;
-
 
 #define FUNC_VARI_DECLARE(RETURN_TYPE)                                \
     RETURN_TYPE _jobject_to_##RETURN_TYPE(JNIEnv* env, jobject jobj); \

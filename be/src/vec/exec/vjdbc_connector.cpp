@@ -17,7 +17,7 @@
 
 #include "vec/exec/vjdbc_connector.h"
 #ifdef LIBJVM
-#include "exec/odbc_connector.h"
+#include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
@@ -39,11 +39,7 @@ const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
-        : _is_open(false),
-          _query_string(param.query_string),
-          _tuple_desc(param.tuple_desc),
-          _conn_param(param),
-          _is_in_transaction(false) {}
+        : TableConnector(param.tuple_desc, param.query_string), _conn_param(param) {}
 
 JdbcConnector::~JdbcConnector() {
     if (!_is_open) {
@@ -109,13 +105,7 @@ Status JdbcConnector::open() {
     return Status::OK();
 }
 
-void JdbcConnector::_init_profile(doris::RuntimeProfile* profile) {
-    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
-    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
-    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
-}
-
-Status JdbcConnector::query_exec() {
+Status JdbcConnector::query() {
     if (!_is_open) {
         return Status::InternalError("Query before open of JdbcConnector.");
     }
@@ -129,7 +119,7 @@ Status JdbcConnector::query_exec() {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jstring query_sql = env->NewStringUTF(_query_string.c_str());
+    jstring query_sql = env->NewStringUTF(_sql_str.c_str());
     jint colunm_count = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_query_id, query_sql);
     env->DeleteLocalRef(query_sql);
@@ -321,115 +311,15 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     return Status::OK();
 }
 
-Status JdbcConnector::append(const std::string& table_name, vectorized::Block* block,
-                             const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
-                             uint32_t start_send_row, uint32_t* num_rows_sent) {
-    _insert_stmt_buffer.clear();
-    std::u16string insert_stmt;
-    {
-        SCOPED_TIMER(_convert_tuple_timer);
-        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
-
-        int num_rows = block->rows();
-        int num_columns = block->columns();
-        for (int i = start_send_row; i < num_rows; ++i) {
-            (*num_rows_sent)++;
-
-            // Construct insert statement of jdbc table
-            for (int j = 0; j < num_columns; ++j) {
-                if (j != 0) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-                }
-                auto [item, size] = block->get_by_position(j).column->get_data_at(i);
-                if (item == nullptr) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
-                    continue;
-                }
-                switch (_output_vexpr_ctxs[j]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int8_t*>(item));
-                    break;
-                case TYPE_SMALLINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int16_t*>(item));
-                    break;
-                case TYPE_INT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int32_t*>(item));
-                    break;
-                case TYPE_BIGINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int64_t*>(item));
-                    break;
-                case TYPE_FLOAT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const float*>(item));
-                    break;
-                case TYPE_DOUBLE:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const double*>(item));
-                    break;
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    vectorized::VecDateTimeValue value =
-                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(
-                                    *(int64_t*)item);
-
-                    char buf[64];
-                    char* pos = value.to_string(buf);
-                    std::string_view str(buf, pos - buf - 1);
-                    fmt::format_to(_insert_stmt_buffer, "'{}'", str);
-                    break;
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_STRING: {
-                    fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    DecimalV2Value value = *(DecimalV2Value*)(item);
-                    fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const __int128*>(item));
-                    break;
-                }
-                default: {
-                    return Status::InternalError("can't convert this type to mysql type. type = {}",
-                                                 _output_vexpr_ctxs[j]->root()->type().type);
-                }
-                }
-            }
-
-            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
-            } else {
-                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-                fmt::format_to(_insert_stmt_buffer, "{}", ")");
-                break;
-            }
-        }
-        // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = ODBCConnector::utf8_to_u16string(
-                _insert_stmt_buffer.data(),
-                _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    }
-
-    {
-        SCOPED_TIMER(_result_send_timer);
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-        jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
-        env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_query_id, query_sql);
-        env->DeleteLocalRef(query_sql);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    }
-    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
+                                     const fmt::memory_buffer& insert_stmt_buffer) {
+    SCOPED_TIMER(_result_send_timer);
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
+    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_query_id, query_sql);
+    env->DeleteLocalRef(query_sql);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     return Status::OK();
 }
 
