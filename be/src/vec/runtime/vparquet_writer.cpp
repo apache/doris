@@ -428,7 +428,10 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     col_writer->WriteBatch(sz, nullptr, nullptr,
                                            reinterpret_cast<const int64_t*>(res.data()));
                 } else {
-                    return Status::InvalidArgument("unsupported file format");
+                    std::stringstream ss;
+                    ss << "Invalid column type: ";
+                    ss << raw_column->get_name();
+                    return Status::InvalidArgument(ss.str());
                 }
                 break;
             }
@@ -537,17 +540,33 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                for (size_t row_id = 0; row_id < sz; row_id++) {
-                    if (raw_column->is_null_at(row_id)) {
-                        parquet::ByteArray value;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    } else {
-                        const auto& tmp = raw_column->get_data_at(row_id);
+                if (null_map != nullptr) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if ((*null_map)[row_id] != 0) {
+                            parquet::ByteArray value;
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        } else {
+                            const auto& tmp = col->get_data_at(row_id);
+                            parquet::ByteArray value;
+                            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
+                            value.len = tmp.size;
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        }
+                    }
+                } else if (const auto* not_nullable_column =
+                                   check_and_get_column<const ColumnString>(col)) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        const auto& tmp = not_nullable_column->get_data_at(row_id);
                         parquet::ByteArray value;
                         value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
                         value.len = tmp.size;
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
                     }
+                } else {
+                    std::stringstream ss;
+                    ss << "Invalid column type: ";
+                    ss << raw_column->get_name();
+                    return Status::InvalidArgument(ss.str());
                 }
                 break;
             }
@@ -562,13 +581,27 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
                 parquet::ByteArray value;
-                for (size_t row_id = 0; row_id < sz; row_id++) {
-                    if (raw_column->is_null_at(row_id)) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    } else {
+                if (null_map != nullptr) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if ((*null_map)[row_id] != 0) {
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        } else {
+                            const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(
+                                                                     col->get_data_at(row_id).data)
+                                                                     ->value);
+                            char decimal_buffer[MAX_DECIMAL_WIDTH];
+                            int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
+                            value.ptr = reinterpret_cast<const uint8_t*>(decimal_buffer);
+                            value.len = decimal_val.to_buffer(decimal_buffer, output_scale);
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        }
+                    }
+                } else if (const auto* not_nullable_column =
+                                   check_and_get_column<const ColumnString>(col)) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
                         const DecimalV2Value decimal_val(
                                 reinterpret_cast<const PackedInt128*>(
-                                        raw_column->get_data_at(row_id).data)
+                                        not_nullable_column->get_data_at(row_id).data)
                                         ->value);
                         char decimal_buffer[MAX_DECIMAL_WIDTH];
                         int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
@@ -576,6 +609,11 @@ Status VParquetWriterWrapper::write(const Block& block) {
                         value.len = decimal_val.to_buffer(decimal_buffer, output_scale);
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
                     }
+                } else {
+                    std::stringstream ss;
+                    ss << "Invalid column type: ";
+                    ss << raw_column->get_name();
+                    return Status::InvalidArgument(ss.str());
                 }
                 break;
             }
@@ -592,11 +630,20 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
                 parquet::ByteArray value;
-                for (size_t row_id = 0; row_id < sz; row_id++) {
-                    if (raw_column->is_null_at(row_id)) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    } else {
-                        auto s = type->to_string(*raw_column, row_id);
+                if (null_map != nullptr) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if ((*null_map)[row_id] != 0) {
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        } else {
+                            auto s = type->to_string(*col, row_id);
+                            value.ptr = reinterpret_cast<const uint8_t*>(s.data());
+                            value.len = s.size();
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        }
+                    }
+                } else {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        auto s = type->to_string(*col, row_id);
                         value.ptr = reinterpret_cast<const uint8_t*>(s.data());
                         value.len = s.size();
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
