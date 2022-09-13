@@ -26,8 +26,9 @@ namespace doris::vectorized {
 
 NewFileTextScanner::NewFileTextScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                                        const TFileScanRange& scan_range, MemTracker* tracker,
-                                       RuntimeProfile* profile)
-        : NewFileScanner(state, parent, limit, scan_range, tracker, profile),
+                                       RuntimeProfile* profile,
+                                       const std::vector<TExpr>& pre_filter_texprs)
+        : NewFileScanner(state, parent, limit, scan_range, tracker, profile, pre_filter_texprs),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_line_reader_eof(false),
@@ -45,8 +46,9 @@ Status NewFileTextScanner::open(RuntimeState* state) {
 
 Status NewFileTextScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    RETURN_IF_ERROR(init_block(block));
-
+    if (!_is_load) {
+        RETURN_IF_ERROR(init_block(block));
+    }
     const int batch_size = state->batch_size();
     *eof = false;
     int current_rows = _rows;
@@ -245,6 +247,16 @@ Status NewFileTextScanner::_split_line(const Slice& line) {
         int index = it->second;
         CHECK(index < _num_of_columns_from_file) << index << " vs " << _num_of_columns_from_file;
         _split_values.emplace_back(tmp_split_values[index]);
+    }
+    return Status::OK();
+}
+
+Status NewFileTextScanner::_convert_to_output_block(Block* output_block) {
+    if (_input_block_ptr == output_block) {
+        return Status::OK();
+    }
+    if (LIKELY(_input_block_ptr->rows() > 0)) {
+        RETURN_IF_ERROR(_materialize_dest_block(output_block));
     }
     return Status::OK();
 }

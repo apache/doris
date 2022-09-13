@@ -30,13 +30,14 @@ class NewFileTextScanner : public NewFileScanner {
 public:
     NewFileTextScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                        const TFileScanRange& scan_range, MemTracker* tracker,
-                       RuntimeProfile* profile);
+                       RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
 
     Status open(RuntimeState* state) override;
 
 protected:
     void _init_profiles(RuntimeProfile* profile) override {}
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    Status _convert_to_output_block(Block* output_block);
 
 private:
     Status _fill_file_columns(const Slice& line, vectorized::Block* _block);
