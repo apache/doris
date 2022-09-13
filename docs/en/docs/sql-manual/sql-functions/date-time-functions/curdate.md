@@ -42,7 +42,7 @@ mysql> SELECT CURDATE();
 | 2019-12-20 |
 +------------+
 
-mysql> SELECT CURDATE() + 0;
+mysql> SELECT CURRENT_DATE() + 0;
 +---------------+
 | CURDATE() + 0 |
 +---------------+
