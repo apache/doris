@@ -437,7 +437,8 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
                         },
                         *range);
             }
-            if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
+            if (pdt == PushDownType::ACCEPTABLE && slot != nullptr &&
+                _is_key_column(slot->col_name())) {
                 return nullptr;
             } else {
                 // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
