@@ -181,11 +181,8 @@ public class StoragePolicy extends Policy {
         }
         if (props.containsKey(COOLDOWN_TTL)) {
             hasCooldownTtl = true;
-            if (Integer.parseInt(props.get(COOLDOWN_TTL)) < 0) {
-                throw new AnalysisException("cooldown_ttl must >= 0.");
-            }
-            this.cooldownTtl = props.get(COOLDOWN_TTL);
-            this.cooldownTtlMs = getMsByCooldownTtl(this.cooldownTtl);
+            // second
+            this.cooldownTtl = String.valueOf(getMsByCooldownTtl(props.get(COOLDOWN_TTL)) / 1000);
         }
         if (hasCooldownDatetime && hasCooldownTtl) {
             throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
