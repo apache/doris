@@ -272,11 +272,11 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        (*(_vconjunct_ctx_ptr))->mark_as_stale();
+        (*_vconjunct_ctx_ptr)->mark_as_stale();
         _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
     }
     _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-    *(_vconjunct_ctx_ptr) = new_vconjunct_ctx_ptr;
+    *_vconjunct_ctx_ptr = new_vconjunct_ctx_ptr;
     return Status::OK();
 }
 
@@ -353,7 +353,7 @@ Status VScanNode::_normalize_conjuncts() {
             if (new_root) {
                 (*_vconjunct_ctx_ptr)->set_root(new_root);
             } else {
-                (*(_vconjunct_ctx_ptr))->mark_as_stale();
+                (*_vconjunct_ctx_ptr)->mark_as_stale();
                 _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                 _vconjunct_ctx_ptr.reset(nullptr);
             }
@@ -408,7 +408,7 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
-            _eval_const_conjuncts(cur_expr, *(_vconjunct_ctx_ptr), &pdt);
+            _eval_const_conjuncts(cur_expr, *_vconjunct_ctx_ptr, &pdt);
             if (pdt == PushDownType::UNACCEPTABLE &&
                 (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                  _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range))) {
