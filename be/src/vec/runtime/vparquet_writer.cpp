@@ -24,6 +24,7 @@
 #include "io/file_writer.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -519,21 +520,102 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 }
                 break;
             }
-            case TYPE_HLL:
             case TYPE_OBJECT: {
                 if (!_output_object_data) {
                     std::stringstream ss;
                     ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
                     return Status::InvalidArgument(ss.str());
                 }
-                [[fallthrough]];
+                if (_str_schema[i][1] != "byte_array") {
+                    return Status::InvalidArgument(
+                            "project field type is bitmap, should use byte_array, "
+                            "but the definition type of column {} is {}",
+                            _str_schema[i][2], _str_schema[i][1]);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
+                if (null_map != nullptr) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if ((*null_map)[row_id] != 0) {
+                            parquet::ByteArray value;
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        } else {
+                            const auto& tmp = col->get_data_at(row_id);
+                            parquet::ByteArray value;
+                            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
+                            value.len = tmp.size;
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        }
+                    }
+                } else if (const auto* not_nullable_column =
+                                   check_and_get_column<const ColumnBitmap>(col)) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        const auto& tmp = not_nullable_column->get_data_at(row_id);
+                        parquet::ByteArray value;
+                        value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
+                        value.len = tmp.size;
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                    }
+                } else {
+                    std::stringstream ss;
+                    ss << "Invalid column type: ";
+                    ss << raw_column->get_name();
+                    return Status::InvalidArgument(ss.str());
+                }
+                break;
+            }
+            case TYPE_HLL: {
+                if (!_output_object_data) {
+                    std::stringstream ss;
+                    ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
+                    return Status::InvalidArgument(ss.str());
+                }
+                if (_str_schema[i][1] != "byte_array") {
+                    return Status::InvalidArgument(
+                            "project field type is hll, should use byte_array, "
+                            "but the definition type of column {} is {}",
+                            _str_schema[i][2], _str_schema[i][1]);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
+                if (null_map != nullptr) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if ((*null_map)[row_id] != 0) {
+                            parquet::ByteArray value;
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        } else {
+                            const auto& tmp = col->get_data_at(row_id);
+                            parquet::ByteArray value;
+                            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
+                            value.len = tmp.size;
+                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                        }
+                    }
+                } else if (const auto* not_nullable_column =
+                                   check_and_get_column<const ColumnHLL>(col)) {
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        const auto& tmp = not_nullable_column->get_data_at(row_id);
+                        parquet::ByteArray value;
+                        value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
+                        value.len = tmp.size;
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                    }
+                } else {
+                    std::stringstream ss;
+                    ss << "Invalid column type: ";
+                    ss << raw_column->get_name();
+                    return Status::InvalidArgument(ss.str());
+                }
+                break;
             }
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING: {
                 if (_str_schema[i][1] != "byte_array") {
                     return Status::InvalidArgument(
-                            "project field type is hll/bitmap, should use byte_array, "
+                            "project field type is string, should use byte_array, "
                             "but the definition type of column {} is {}",
                             _str_schema[i][2], _str_schema[i][1]);
                 }
