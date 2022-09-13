@@ -17,6 +17,9 @@
 
 suite("agg_with_const") {
 
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
+
     sql """
         DROP TABLE IF EXISTS t1
        """
@@ -32,6 +35,8 @@ suite("agg_with_const") {
     sql """
     insert into t1 values(1994, 1994, 1995)
     """
+
+    sql "SET enable_fallback_to_original_planner=false"
 
     qt_select """
         select count(2) + 1, sum(2) + sum(col1) from t1

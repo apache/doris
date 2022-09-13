@@ -62,17 +62,17 @@ public class RewriteJob extends BatchRulesJob {
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
-                .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
+                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
-                .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
+                .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin(),
+                        new PushdownProjectThroughLimit(),
+                        new PushdownFilterThroughProject(),
+                        new MergeConsecutiveProjects(),
+                        new MergeConsecutiveFilters(),
+                        new MergeConsecutiveLimits())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
-                .add(topDownBatch(ImmutableList.of(new PushdownProjectThroughLimit())))
-                .add(topDownBatch(ImmutableList.of(new PushdownFilterThroughProject())))
-                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
-                .add(topDownBatch(ImmutableList.of(new MergeConsecutiveFilters())))
-                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveLimits())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
