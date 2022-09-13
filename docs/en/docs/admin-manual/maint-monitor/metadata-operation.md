@@ -28,7 +28,7 @@ under the License.
 
 This document focuses on how to manage Doris metadata in a real production environment. It includes the proposed deployment of FE nodes, some commonly used operational methods, and common error resolution methods.
 
-For the time being, read the [Doris metadata design document](../../design/metadata-design.md) to understand how Doris metadata works.
+For the time being, read the [Doris metadata design document](../../../community/design/metadata-design.md) to understand how Doris metadata works.
 
 ## Important tips
 

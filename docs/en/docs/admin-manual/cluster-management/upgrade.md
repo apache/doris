@@ -56,6 +56,24 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 2. **important! ! Metadata needs to be backed up before upgrading(The entire directory needs to be backed up)! !**
 
+   Let's assume that the path of `meta_dir` specified in fe.conf is `path/to/doris-meta`. In a normal Doris cluster, the directory structure of metadata should be as follows:
+
+    ```
+    /path/to/doris-meta/
+                |-- bdb/
+                |   |-- 00000000.jdb
+                |   |-- je.config.csv
+                |   |-- je.info.0
+                |   |-- je.info.0.lck
+                |   |-- je.lck
+                |   `-- je.stat.csv
+                `-- image/
+                    |-- ROLE
+                    |-- VERSION
+                    `-- image.xxxx
+    ```
+    The metadata directory to be backed up is  `doris-meta/`
+
 ## Test the correctness of BE upgrade
 
 1. Arbitrarily select a BE node and deploy the latest doris_be binary file.
@@ -79,13 +97,13 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 ## Upgrade preparation
 
 1. After data validation, the new version of BE and FE binary files are distributed to their respective directories.
-2. Usually small version upgrade, BE only needs to upgrade doris_be; FE only needs to upgrade palo-fe.jar. If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
+2. Usually small version upgrade, BE only needs to upgrade doris_be; FE only needs to upgrade doris-fe.jar(which was doris-fe.jar in previous versions). If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / , lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
 
 ## rolling upgrade
 
 1. Confirm that the new version of the file is deployed. Restart FE and BE instances one by one.
 2. It is suggested that BE be restarted one by one and FE be restarted one by one. Because Doris usually guarantees backward compatibility between FE and BE, that is, the old version of FE can access the new version of BE. However, the old version of BE may not be supported to access the new version of FE.
-3. It is recommended to restart the next instance after confirming the previous instance started successfully. Refer to the Installation Deployment Document for the identification of successful instance startup.
+3. It is recommended to restart the next instance after confirming the previous instance started successfully. Refer to the [Installation Deployment Document](../../install/install-deploy.md) for the identification of successful instance startup.
 
 ## About version rollback
 Because the database is a stateful service, Doris cannot support version rollback (version downgrade) in most cases. In some cases, the rollback of the 3-bit or 4-bit version can be supported, but the rollback of the 2-bit version will not be supported.
@@ -93,3 +111,9 @@ Because the database is a stateful service, Doris cannot support version rollbac
 Therefore, it is recommended to upgrade some nodes and observe the business operation (gray upgrade) to reduce the upgrade risk.
 
 **Illegal rollback operation may cause data loss and damage.** 
+
+## Documentation
+1. [Doris metadata design document](../../../community/design/metadata-design.md) 
+2. [Metadata Operations and Maintenance](../../admin-manual/maint-monitor/metadata-operation.md) 
+3. [Data replica management](../../admin-manual/maint-monitor/tablet-repair-and-balance.md)
+4. [Installation Deployment Document](../../install/install-deploy.md)

@@ -28,7 +28,7 @@ under the License.
 
 本文档主要介绍在实际生产环境中，如何对 Doris 的元数据进行管理。包括 FE 节点建议的部署方式、一些常用的操作方法、以及常见错误的解决方法。
 
-在阅读本文当前，请先阅读 [Doris 元数据设计文档](../../design/metadata-design.md) 了解 Doris 元数据的工作原理。
+在阅读本文当前，请先阅读 [Doris 元数据设计文档](../../../community/design/metadata-design.md) 了解 Doris 元数据的工作原理。
 
 ## 重要提示
 
