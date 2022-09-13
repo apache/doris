@@ -38,17 +38,13 @@ protected:
     Status _process_conjuncts() override;
     bool _is_key_column(const std::string& col_name) override;
 
-    bool _should_push_down_binary_predicate(
-            VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-            int* slot_ref_child,
-            const std::function<bool(const std::string&)>& fn_checker) override;
+    PushDownType _should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                   VExprContext* expr_ctx, StringVal* constant_str,
+                                                   doris_udf::FunctionContext** fn_ctx) override;
 
-    bool _should_push_down_in_predicate(VInPredicate* in_pred, VExprContext* expr_ctx,
-                                        bool is_not_in) override;
+    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 
-    bool _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-                                           StringVal* constant_str,
-                                           doris_udf::FunctionContext** fn_ctx) override;
+    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
     Status _init_scanners(std::list<VScanner*>* scanners) override;
 
