@@ -25,15 +25,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import java.util.List;
 
 /**
- * e.g.
- * LogicalLimit(limit=0)   => LogicalEmptyRelation(projects=[limit.output()])
+ * Eliminate limit = 0.
  */
-public class LogicalLimitZeroToLogicalEmptyRelation extends OneRewriteRuleFactory {
+public class EliminateLimit extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalLimit()
                 .when(limit -> limit.getLimit() == 0)
                 .then(limit -> new LogicalEmptyRelation((List) limit.getOutput()))
-                .toRule(RuleType.LOGICAL_LIMIT_TO_LOGICAL_EMPTY_RELATION_RULE);
+                .toRule(RuleType.ELIMINATE_LIMIT);
     }
 }

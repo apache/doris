@@ -41,11 +41,11 @@ public class MergeConsecutiveFilterTest {
     public void testMergeConsecutiveFilters() {
         UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
         Expression expression1 = new IntegerLiteral(1);
-        LogicalFilter filter1 = new LogicalFilter(expression1, relation);
+        LogicalFilter filter1 = new LogicalFilter<>(expression1, relation);
         Expression expression2 = new IntegerLiteral(2);
-        LogicalFilter filter2 = new LogicalFilter(expression2, filter1);
+        LogicalFilter filter2 = new LogicalFilter<>(expression2, filter1);
         Expression expression3 = new IntegerLiteral(3);
-        LogicalFilter filter3 = new LogicalFilter(expression3, filter2);
+        LogicalFilter filter3 = new LogicalFilter<>(expression3, filter2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter3);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveFilters().build());
@@ -56,7 +56,7 @@ public class MergeConsecutiveFilterTest {
         Assertions.assertTrue(resultPlan instanceof LogicalFilter);
         Expression allPredicates = ExpressionUtils.and(expression3,
                 ExpressionUtils.and(expression2, expression1));
-        Assertions.assertTrue(((LogicalFilter<?>) resultPlan).getPredicates().equals(allPredicates));
+        Assertions.assertEquals(((LogicalFilter<?>) resultPlan).getPredicates(), allPredicates);
         Assertions.assertTrue(resultPlan.child(0) instanceof UnboundRelation);
     }
 }
