@@ -830,7 +830,7 @@ CONF_Int32(quick_compaction_batch_size, "10");
 CONF_Int32(quick_compaction_min_rowsets, "10");
 
 // if true, blocks are aggregated in the scanner thread to improve the parallelism of the aggregated queries.
-CONF_mBool(enable_block_aggregate_in_scanner, "false");
+CONF_mBool(enable_block_aggregate_in_scanner, "true");
 
 // For block aggregate in scanner thread, if the aggregation degree of the current block
 // is less than this value, skip the current block. valid range should be [0, 1].
