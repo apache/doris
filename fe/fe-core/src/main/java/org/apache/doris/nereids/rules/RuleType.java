@@ -152,8 +152,8 @@ public enum RuleType {
         return ruleTypeClass;
     }
 
-    public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan>
-    Rule build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
+    public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> Rule build(
+            PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
         return patternMatcher.toRule(this);
     }
 

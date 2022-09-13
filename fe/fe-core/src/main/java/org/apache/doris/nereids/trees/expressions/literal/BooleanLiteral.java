@@ -45,6 +45,10 @@ public class BooleanLiteral extends Literal {
         }
     }
 
+    public static BooleanLiteral of(Boolean value) {
+        return of(value.booleanValue());
+    }
+
     @Override
     public Boolean getValue() {
         return value;
