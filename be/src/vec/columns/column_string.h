@@ -256,6 +256,9 @@ public:
         SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
+    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,

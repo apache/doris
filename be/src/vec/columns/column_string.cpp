@@ -104,6 +104,26 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
+void ColumnString::update_crcs_with_value(std::vector<uint32_t>& hashes, doris::PrimitiveType type,
+                                          const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+            }
+        }
+    }
+}
+
 ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) const {
     if (offsets.size() == 0) return ColumnString::create();
 

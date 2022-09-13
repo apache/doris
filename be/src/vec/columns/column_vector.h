@@ -250,6 +250,9 @@ public:
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
 
+    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
