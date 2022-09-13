@@ -38,6 +38,8 @@ public:
     // It's ok, because we only get ref here, the block's owner is this reader.
     Status next_block(RowBlock** block) override;
     Status next_block(vectorized::Block* block) override;
+    Status next_block_view(vectorized::BlockView* block_view) override;
+    bool support_return_data_by_ref() override { return _iterator->support_return_data_by_ref(); }
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
