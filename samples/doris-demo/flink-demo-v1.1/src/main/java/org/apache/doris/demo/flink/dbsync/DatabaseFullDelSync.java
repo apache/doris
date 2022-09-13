@@ -28,7 +28,6 @@ import org.apache.doris.flink.sink.writer.SimpleStringSerializer;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -72,18 +71,15 @@ public class DatabaseFullDelSync {
             .deserializer(new JsonDebeziumDeserializationSchema()) // converts SourceRecord to JSON String
             .build();
 
-        Configuration configuration = new Configuration();
-      //  configuration.setString("rest.port", "9091");// set ui port
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(configuration);
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
-        // enable checkpoint 毫秒
+        // enable checkpoint
         env.enableCheckpointing(10000);
         DataStreamSource<String> cdcSource = env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL CDC Source");
-        cdcSource.print();
-        //查询 table List
+        //get table list
         List<String> tableList = getTableList();
         if (null != tableList && tableList.size() > 0) {
-            //获取表结构
+            //get column map
             Map<String, String> tableColumn = getTableColumn();
             for (String tbl : tableList) {
                 String column = tableColumn.get(tbl);
@@ -97,8 +93,6 @@ public class DatabaseFullDelSync {
 
     }
 
-
-    //根据tablename分流
 
     /**
      * Get real data
@@ -136,7 +130,7 @@ public class DatabaseFullDelSync {
     }
 
 
-    //清洗数据
+    //cleanData
     public static SingleOutputStreamOperator<String> cleanData(SingleOutputStreamOperator source) {
         return source.flatMap(new FlatMapFunction<String, String>() {
             @Override
@@ -163,6 +157,7 @@ public class DatabaseFullDelSync {
         });
     }
 
+    // create doris sink
     public static DorisSink buildDorisSink(String table, String tableColumn) {
         DorisSink.Builder<String> builder = DorisSink.builder();
         DorisOptions.Builder dorisBuilder = DorisOptions.builder();
@@ -191,7 +186,6 @@ public class DatabaseFullDelSync {
     }
 
 
-    //获取当前数据库信息
     public static List<String> getTableList() {
         List<String> list = new ArrayList<>();
         String sql = "SELECT TABLE_SCHEMA,TABLE_NAME FROM information_schema.tables  WHERE TABLE_SCHEMA = '" + SOURCE_DB + "'";
@@ -216,7 +210,6 @@ public class DatabaseFullDelSync {
     }
 
 
-    //获取当前数据所有表字段
     public static Map<String, String> getTableColumn() {
         Map<String, String> reMap = new HashMap<>();
         String sql = "select TABLE_SCHEMA,TABLE_NAME,GROUP_CONCAT('`',COLUMN_NAME,'`') AS columnStr from information_schema.columns" +
