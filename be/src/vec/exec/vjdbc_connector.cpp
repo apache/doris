@@ -133,7 +133,7 @@ Status JdbcConnector::query() {
 
 Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns, int batch_size) {
     if (!_is_open) {
-        return Status::InternalError("get_next before open if jdbc.");
+        return Status::InternalError("get_next before open of jdbc connector.");
     }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));

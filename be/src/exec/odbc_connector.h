@@ -58,7 +58,7 @@ public:
     // query for ODBC table
     Status query() override;
 
-    Status get_next_row(bool* eos) override;
+    Status get_next_row(bool* eos);
 
     Status exec_write_sql(const std::u16string& insert_stmt,
                           const fmt::memory_buffer& insert_stmt_buffer) override;

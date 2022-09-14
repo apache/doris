@@ -41,8 +41,6 @@ public:
     virtual Status open() = 0;
     // exec query for table
     virtual Status query() = 0;
-    // get next for scan node;
-    virtual Status get_next_row(bool* eos) = 0;
 
     // use in ODBC/JDBC transaction
     virtual Status begin_trans() = 0;  // should be call after connect and before query

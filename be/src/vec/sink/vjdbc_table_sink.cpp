@@ -16,28 +16,26 @@
 // under the License.
 
 #include "vec/sink/vjdbc_table_sink.h"
+
 #ifdef LIBJVM
 #include <gen_cpp/DataSinks_types.h>
 
 #include <sstream>
 
-#include "runtime/runtime_state.h"
-#include "util/debug_util.h"
-#include "util/runtime_profile.h"
 #include "vec/core/materialize_block.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/sink/vtable_sink.h"
 
 namespace doris {
 namespace vectorized {
 
 VJdbcTableSink::VJdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& t_exprs)
-        : _pool(pool), _row_desc(row_desc), _t_output_expr(t_exprs) {
+        : VTableSink(pool, row_desc, t_exprs) {
     _name = "VJdbcTableSink";
 }
 
 Status VJdbcTableSink::init(const TDataSink& t_sink) {
-    RETURN_IF_ERROR(DataSink::init(t_sink));
+    RETURN_IF_ERROR(VTableSink::init(t_sink));
     const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
 
     _jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
@@ -47,28 +45,15 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _jdbc_param.driver_path = t_jdbc_sink.jdbc_table.jdbc_driver_url;
     _jdbc_param.driver_checksum = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
     _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
-    _jdbc_tbl = t_jdbc_sink.jdbc_table.jdbc_table_name;
+    _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     _use_transaction = t_jdbc_sink.use_transaction;
 
-    // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_vexpr_ctxs));
-    return Status::OK();
-}
-
-Status VJdbcTableSink::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSink::prepare(state));
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    std::stringstream title;
-    title << "VJdbcTableSink (frag_id=" << state->fragment_instance_id() << ")";
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     return Status::OK();
 }
 
 Status VJdbcTableSink::open(RuntimeState* state) {
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::open");
+    RETURN_IF_ERROR(VTableSink::open(state));
 
     // create writer
     _writer.reset(new JdbcConnector(_jdbc_param));
@@ -81,12 +66,8 @@ Status VJdbcTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VJdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported(
-            "Not Implemented VJdbcTableSink::send(RuntimeState* state, RowBatch* batch)");
-}
-
 Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VJdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {
         return status;
@@ -99,7 +80,7 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
-        status = _writer->append(_jdbc_tbl, &output_block, _output_vexpr_ctxs, start_send_row,
+        status = _writer->append(_table_name, &output_block, _output_vexpr_ctxs, start_send_row,
                                  &num_row_sent);
         if (UNLIKELY(!status.ok())) {
             return status;
@@ -112,10 +93,8 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
 }
 
 Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    if (_closed) {
-        return Status::OK();
-    }
-    VExpr::close(_output_vexpr_ctxs, state);
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::close");
+    RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }

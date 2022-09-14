@@ -46,10 +46,6 @@ public:
 
     Status query() override;
 
-    Status get_next_row(bool* eos) override {
-        return Status::NotSupported("No Need to Implemented JDBC::get_next_row in vectorized");
-    }
-
     Status exec_write_sql(const std::u16string& insert_stmt,
                           const fmt::memory_buffer& insert_stmt_buffer) override;
 
