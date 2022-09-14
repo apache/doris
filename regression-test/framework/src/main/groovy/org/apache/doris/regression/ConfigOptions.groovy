@@ -35,6 +35,7 @@ class ConfigOptions {
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
+    static Option metaServiceHttpAddressOpt
     static Option pathOpt
     static Option dataOpt
     static Option realDataOpt
@@ -224,6 +225,14 @@ class ConfigOptions {
                 .longOpt("feHttpPassword")
                 .desc("the password of fe http server")
                 .build()
+        metaServiceHttpAddressOpt = Option.builder("hm")
+                .argName("address")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("metaServiceHttpAddress")
+                .desc("the meta service http address, format is ip:port")
+                .build()
         genOutOpt = Option.builder("genOut")
                 .required(false)
                 .hasArg(false)
@@ -316,6 +325,7 @@ class ConfigOptions {
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
+                .addOption(metaServiceHttpAddressOpt)
                 .addOption(genOutOpt)
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)
