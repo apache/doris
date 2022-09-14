@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -128,6 +129,25 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
+            RuleType.BINDING_GROUP_BY_SLOT.build(
+                    logicalGroupBy().when(Plan::canBind).thenApply(ctx -> {
+                        LogicalGroupBy<GroupPlan> groupBy = ctx.root;
+
+                        List<List<Expression>> groupingSets = groupBy.getGroupingSets().stream()
+                                .map(expr -> bind(expr, groupBy.children(), groupBy, ctx.cascadesContext))
+                                .collect(Collectors.toList());
+                        List<Expression> groupByExpressions =
+                                bind(groupBy.getOriginalGroupByExpressions(),
+                                        groupBy.children(), groupBy, ctx.cascadesContext);
+                        List<NamedExpression> output =
+                                bind(groupBy.getOutputExpressions(), groupBy.children(), groupBy, ctx.cascadesContext);
+
+                        return groupBy.replace(groupingSets, groupByExpressions, output,
+                                groupBy.getGroupingIdList(), groupBy.getVirtualSlotRefs(),
+                                groupBy.getVirtualGroupingExprs(), groupBy.getGroupingList(),
+                                groupBy.isResolved(), groupBy.hasChangedOutput(), groupBy.isNormalized());
+                    })
+            ),
             RuleType.BINDING_SORT_SLOT.build(
                 logicalSort().when(Plan::canBind).thenApply(ctx -> {
                     LogicalSort<GroupPlan> sort = ctx.root;
@@ -142,7 +162,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_HAVING_SLOT.build(
-                logicalHaving(logicalAggregate()).thenApply(ctx -> {
+                logicalHaving(logicalAggregate()).when(Plan::canBind).thenApply(ctx -> {
                     LogicalHaving<LogicalAggregate<GroupPlan>> having = ctx.root;
                     LogicalAggregate<GroupPlan> aggregate = having.child();
                     // We should deduplicate the slots, otherwise the binding process will fail due to the

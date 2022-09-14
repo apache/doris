@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.GroupingId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -49,6 +51,11 @@ public class BuiltinFunctions implements FunctionHelper {
             agg(Max.class),
             agg(Min.class),
             agg(Sum.class)
+    );
+
+    public final ImmutableList<GroupingSetsFunc> groupingSetsFunctions = ImmutableList.of(
+            groupingSets(Grouping.class),
+            groupingSets(GroupingId.class, "grouping_id")
     );
 
     public static final BuiltinFunctions INSTANCE = new BuiltinFunctions();

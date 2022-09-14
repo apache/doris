@@ -15,33 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCube;
 
 /**
- * column prune rule set.
+ * Implementation rule that convert logical cube to physical cube.
  */
-public class ColumnPruning implements PlanRuleFactory {
+public class LogicalCubeToPhysicalCube extends OneImplementationRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                new PruneFilterChildColumns().build(),
-                new PruneAggChildColumns().build(),
-                new PruneJoinChildrenColumns().build(),
-                new PruneSortChildColumns().build(),
-                new PruneGroupByChildColumns().build()
-        );
-    }
-
-    @Override
-    public RulePromise defaultPromise() {
-        return RulePromise.REWRITE;
+    public Rule build() {
+        return logicalCube().then(cube -> new PhysicalCube(
+                cube.getGroupByExpressions(),
+                cube.getOriginalGroupByExpressions(),
+                cube.getOutputExpressions(),
+                cube.getGroupingIdList(),
+                cube.getVirtualSlotRefs(),
+                cube.getVirtualGroupingExprs(),
+                cube.getGroupingList(),
+                cube.getLogicalProperties(),
+                cube.child()
+        )).toRule(RuleType.LOGICAL_CUBE_TO_PHYSICAL_CUBE_RULE);
     }
 }

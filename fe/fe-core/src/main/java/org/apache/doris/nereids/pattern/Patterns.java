@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -173,6 +174,12 @@ public interface Patterns {
         return new PatternDescriptor(new TypePattern(LogicalRelation.class), defaultPromise());
     }
 
+    /**
+     * create a logicalGroupBy pattern.
+     */
+    default PatternDescriptor<LogicalGroupBy<GroupPlan>> logicalGroupBy() {
+        return new PatternDescriptor(new TypePattern(LogicalGroupBy.class, Pattern.GROUP), defaultPromise());
+    }
     /* abstract physical plan patterns */
 
     /**

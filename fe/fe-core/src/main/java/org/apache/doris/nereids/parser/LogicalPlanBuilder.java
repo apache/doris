@@ -33,6 +33,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
@@ -131,12 +132,15 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCube;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRollup;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -803,7 +807,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // from -> where -> group by -> having -> select
 
             LogicalPlan filter = withFilter(inputRelation, whereClause);
-            LogicalPlan aggregate = withAggregate(filter, selectClause, aggClause);
+            LogicalPlan groupBy = withGroupBy(filter, selectClause, aggClause);
+            LogicalPlan aggregate = withAggregate(groupBy, selectClause, aggClause);
             // TODO: replace and process having at this position
             LogicalPlan having = withHaving(aggregate, havingClause);
             LogicalPlan projection = withProjection(having, selectClause, aggClause);
@@ -906,9 +911,35 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
                                       Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
-            List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
+            List<Expression> groupByExpressions = visit(
+                    aggCtx.get().groupByItem().groupingElement().expression(), Expression.class);
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
             return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+        });
+    }
+
+    private LogicalPlan withGroupBy(LogicalPlan input, SelectClauseContext selectCtx,
+            Optional<AggClauseContext> aggCtx) {
+        return input.optionalMap(aggCtx, () -> {
+            GroupingElementContext groupingElementCtx = aggCtx.get().groupByItem().groupingElement();
+            List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
+            if (groupingElementCtx.GROUPING() != null) {
+                List<List<Expression>> sets = groupingElementCtx.groupingSet().stream()
+                        .map(groupingSet -> visit(groupingSet.expression(), Expression.class))
+                        .collect(Collectors.toList());
+                return new LogicalGroupingSets<>(sets, namedExpressions, input);
+            }
+
+            if (groupingElementCtx.ROLLUP() != null) {
+                List<Expression> rollup = visit(groupingElementCtx.expression(), Expression.class);
+                return new LogicalRollup<>(rollup, namedExpressions, input);
+            }
+
+            if (groupingElementCtx.CUBE() != null) {
+                List<Expression> cube = visit(groupingElementCtx.expression(), Expression.class);
+                return new LogicalCube<>(cube, namedExpressions, input);
+            }
+            return null;
         });
     }
 

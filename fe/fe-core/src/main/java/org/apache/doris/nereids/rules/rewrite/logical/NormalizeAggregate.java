@@ -24,16 +24,20 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.GroupingSetsFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -88,11 +92,21 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                 partitionedKeys.get(true).stream()
                         .map(SlotReference.class::cast)
                         .peek(s -> substitutionMap.put(s, s))
-                        .peek(bottomProjections::add)
                         .forEach(newKeys::add);
+
+                partitionedKeys.get(true).stream()
+                        .filter(e -> !(e instanceof VirtualSlotReference))
+                        .map(SlotReference.class::cast)
+                        .forEach(bottomProjections::add);
+                partitionedKeys.get(true).stream()
+                        .filter(VirtualSlotReference.class::isInstance)
+                        .filter(e -> ((VirtualSlotReference) e).getRealSlots().isEmpty())
+                        .map(VirtualSlotReference.class::cast)
+                        .forEach(bottomProjections::add);
             }
             // add all necessary key to output
             substitutionMap.entrySet().stream()
+                    .filter(kv -> !(kv.getKey() instanceof VirtualSlotReference))
                     .filter(kv -> aggregate.getOutputExpressions().stream()
                             .anyMatch(e -> e.anyMatch(kv.getKey()::equals)))
                     .map(Entry::getValue)
@@ -103,9 +117,14 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
             // output
             List<NamedExpression> outputs = aggregate.getOutputExpressions();
             Map<Boolean, List<NamedExpression>> partitionedOutputs = outputs.stream()
-                    .collect(Collectors.groupingBy(e -> e.anyMatch(AggregateFunction.class::isInstance)));
+                    .collect(Collectors.groupingBy(e -> e.anyMatch(AggregateFunction.class::isInstance)
+                            || e.anyMatch(GroupingSetsFunction.class::isInstance)));
 
-            boolean needBottomProjects = partitionedKeys.containsKey(false);
+            List<NamedExpression> hasVirtualSlot = outputs.stream()
+                    .filter(e -> e.anyMatch(VirtualSlotReference.class::isInstance))
+                    .collect(Collectors.toList());
+            boolean needBottomProjects = partitionedKeys.containsKey(false)
+                    || !hasVirtualSlot.isEmpty();
             if (partitionedOutputs.containsKey(true)) {
                 // process expressions that contain aggregate function
                 Set<AggregateFunction> aggregateFunctions = partitionedOutputs.get(true).stream()
@@ -133,14 +152,50 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                     newOutputs.add(alias);
                     substitutionMap.put(aggregateFunction, alias.toSlot());
                 }
+
+                Set<GroupingSetsFunction> groupingSetsFunctions = partitionedOutputs.get(true).stream()
+                        .flatMap(e -> e.<Set<GroupingSetsFunction>>collect(
+                                GroupingSetsFunction.class::isInstance).stream())
+                        .collect(Collectors.toSet());
+
+                for (GroupingSetsFunction groupingSetsFunction : groupingSetsFunctions) {
+                    for (Expression child : groupingSetsFunction.getArguments()) {
+                        List<Expression> newChildren = Lists.newArrayList();
+                        if (child instanceof VirtualSlotReference) {
+                            for (Expression realChild : ((VirtualSlotReference) child).getRealSlots()) {
+                                if (realChild instanceof SlotReference || realChild instanceof Literal) {
+                                    newChildren.add(child);
+                                    if (realChild instanceof SlotReference) {
+                                        bottomProjections.add((SlotReference) child);
+                                    }
+                                } else {
+                                    needBottomProjects = true;
+                                    newChildren.add(substitutionMap.get(realChild));
+                                }
+                            }
+                        }
+                        VirtualSlotReference newVirtual =
+                                new VirtualSlotReference(((VirtualSlotReference) child).getExprId(),
+                                        ((VirtualSlotReference) child).getName(),
+                                child.getDataType(), child.nullable(), ((VirtualSlotReference) child).getQualifier(),
+                                        newChildren, ((VirtualSlotReference) child).isHasCast());
+                        substitutionMap.put(child, newVirtual);
+                        newOutputs.add(newVirtual);
+                        bottomProjections.add(newVirtual);
+                    }
+                }
             }
 
             // assemble
+            List<NamedExpression> newBottomProjections =
+                    Utils.reorderProjections(new ArrayList<>(bottomProjections));
+            List<NamedExpression> finalOutput =
+                    Utils.reorderProjections(newOutputs);
             LogicalPlan root = aggregate.child();
             if (needBottomProjects) {
-                root = new LogicalProject<>(bottomProjections, root);
+                root = new LogicalProject<>(newBottomProjections, root);
             }
-            root = new LogicalAggregate<>(newKeys, newOutputs, aggregate.isDisassembled(),
+            root = new LogicalAggregate<>(newKeys, finalOutput, aggregate.isDisassembled(),
                     true, aggregate.isFinalPhase(), aggregate.getAggPhase(), root);
             List<NamedExpression> projections = outputs.stream()
                     .map(e -> ExpressionUtils.replace(e, substitutionMap))

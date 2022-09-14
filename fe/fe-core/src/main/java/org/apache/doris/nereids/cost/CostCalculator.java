@@ -26,13 +26,17 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCube;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupBy;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRollup;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -162,6 +166,31 @@ public class CostCalculator {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult inputStatistics = context.getChildStatistics(0);
             return new CostEstimate(inputStatistics.computeSize(), statistics.computeSize(), 0);
+        }
+
+        public CostEstimate visitPhysicalGroupBy(PhysicalGroupBy<? extends Plan> groupBy, PlanContext context) {
+            // same as aggregate
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            StatsDeriveResult inputStatistics = context.getChildStatistics(0);
+            return new CostEstimate(inputStatistics.computeSize(), statistics.computeSize(), 0);
+        }
+
+        @Override
+        public CostEstimate visitPhysicalGroupingSets(
+                PhysicalGroupingSets<? extends Plan> groupingSets, PlanContext context) {
+            return visitPhysicalGroupBy(groupingSets, context);
+        }
+
+        @Override
+        public CostEstimate visitPhysicalRollup(
+                PhysicalRollup<? extends Plan> rollup, PlanContext context) {
+            return visitPhysicalGroupBy(rollup, context);
+        }
+
+        @Override
+        public CostEstimate visitPhysicalCube(
+                PhysicalCube<? extends Plan> cube, PlanContext context) {
+            return visitPhysicalGroupBy(cube, context);
         }
 
         @Override

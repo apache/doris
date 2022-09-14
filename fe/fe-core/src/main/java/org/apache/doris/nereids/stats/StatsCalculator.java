@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.GroupBy;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -37,20 +38,27 @@ import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCube;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupBy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRollup;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCube;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupBy;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -59,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRollup;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -172,13 +181,56 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalGroupBy(LogicalGroupBy<? extends Plan> groupby, Void context) {
+        return computeGroupBy(groupby);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalGroupingSets(LogicalGroupingSets<? extends Plan> groupingSets, Void context) {
+        return visitLogicalGroupBy(groupingSets, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalRollup(LogicalRollup<? extends Plan> rollup, Void context) {
+        return visitLogicalGroupBy(rollup, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalCube(LogicalCube<? extends Plan> cube, Void context) {
+        return visitLogicalGroupBy(cube, context);
+    }
+
+    @Override
     public StatsDeriveResult visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
         return computeEmptyRelation(emptyRelation);
     }
 
     @Override
+    public StatsDeriveResult visitPhysicalGroupBy(PhysicalGroupBy<? extends Plan> groupBy, Void context) {
+        return computeGroupBy(groupBy);
+    }
+
+    @Override
     public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, Void context) {
         return computeAggregate(agg);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalGroupingSets(
+            PhysicalGroupingSets<? extends Plan> groupingSets, Void context) {
+        return visitPhysicalGroupBy(groupingSets, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalRollup(
+            PhysicalRollup<? extends Plan> rollup, Void context) {
+        return visitPhysicalGroupBy(rollup, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalCube(
+            PhysicalCube<? extends Plan> cube, Void context) {
+        return visitPhysicalGroupBy(cube, context);
     }
 
     @Override
@@ -339,6 +391,22 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         statsDeriveResult.isReduced = true;
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
+    }
+
+    private StatsDeriveResult computeGroupBy(GroupBy groupBy) {
+        Map<Slot, ColumnStat> columnStatsMap = groupBy.getOutputExpressions()
+                .stream()
+                .map(output -> {
+                    ColumnStat columnStats = new ColumnStat();
+                    columnStats.setNdv(0);
+                    columnStats.setMaxSizeByte(0);
+                    columnStats.setNumNulls(0);
+                    columnStats.setAvgSizeByte(0);
+                    return Pair.of(output.toSlot(), columnStats);
+                })
+                .collect(Collectors.toMap(Pair::key, Pair::value));
+        int rowCount = 0;
+        return new StatsDeriveResult(rowCount, columnStatsMap);
     }
 
     // TODO: do real project on column stats

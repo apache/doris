@@ -61,7 +61,8 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
                 if (childOutput.size() == 1 && childOutput.get(0).equals(slot)) {
                     return agg;
                 }
-                return agg.withChildren(ImmutableList.of(new LogicalProject<>(ImmutableList.of(slot), agg.child())));
+                return agg.withChildren(ImmutableList.of(
+                        new LogicalProject<>(ImmutableList.of(slot), agg.child())));
             }
             Set<Slot> aggInputSlots = agg.getInputSlots();
             List<NamedExpression> prunedOutputs = childOutput.stream().filter(aggInputSlots::contains)

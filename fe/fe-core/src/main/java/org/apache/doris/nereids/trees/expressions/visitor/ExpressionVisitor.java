@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -67,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.GroupingSetsFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -312,6 +314,14 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitAssertNumRowsElement(AssertNumRowsElement assertNumRowsElement, C context) {
         return visit(assertNumRowsElement, context);
+    }
+
+    public R visitGroupingSetsFunction(GroupingSetsFunction groupingSetsFunction, C context) {
+        return visit(groupingSetsFunction, context);
+    }
+
+    public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
+        return visit(virtualSlotReference, context);
     }
 
     /* ********************************************************************************************

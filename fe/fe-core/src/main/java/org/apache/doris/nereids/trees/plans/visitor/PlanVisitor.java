@@ -26,8 +26,11 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCube;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupBy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -35,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRollup;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -43,9 +47,12 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCube;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupBy;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -55,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRollup;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
 /**
@@ -159,6 +167,22 @@ public abstract class PlanVisitor<R, C> {
         return visit(having, context);
     }
 
+    public R visitLogicalGroupBy(LogicalGroupBy<? extends Plan> groupBy, C context) {
+        return visit(groupBy, context);
+    }
+
+    public R visitLogicalGroupingSets(LogicalGroupingSets<? extends Plan> groupingSets, C context) {
+        return visit(groupingSets, context);
+    }
+
+    public R visitLogicalRollup(LogicalRollup<? extends Plan> rollup, C context) {
+        return visit(rollup, context);
+    }
+
+    public R visitLogicalCube(LogicalCube<? extends Plan> cube, C context) {
+        return visit(cube, context);
+    }
+
     // *******************************
     // Physical plans
     // *******************************
@@ -218,6 +242,25 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, C context) {
         return visit(filter, context);
+    }
+
+    public R visitPhysicalGroupBy(PhysicalGroupBy<? extends Plan> groupBy, C context) {
+        return visit(groupBy, context);
+    }
+
+    public R visitPhysicalGroupingSets(
+            PhysicalGroupingSets<? extends Plan> groupingSets, C context) {
+        return visitPhysicalGroupBy(groupingSets, context);
+    }
+
+    public R visitPhysicalRollup(
+            PhysicalRollup<? extends Plan> rollup, C context) {
+        return visitPhysicalGroupBy(rollup, context);
+    }
+
+    public R visitPhysicalCube(
+            PhysicalCube<? extends Plan> cube, C context) {
+        return visitPhysicalGroupBy(cube, context);
     }
 
     // *******************************

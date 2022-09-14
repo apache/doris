@@ -72,6 +72,22 @@ public class RepeatNode extends PlanNode {
         this.groupByClause = groupByClause;
     }
 
+    /**
+     * just for new Optimizer.
+     */
+    public RepeatNode(PlanNodeId id, PlanNode input, GroupingInfo groupingInfo, GroupByClause groupByClause,
+            List<Set<Integer>> repeatSlotIdList, Set<Integer> allSlotId, List<List<Long>> groupingList) {
+        super(id, groupingInfo.getOutputTupleDesc().getId().asList(), "REPEAT_NODE", StatisticalType.REPEAT_NODE);
+        this.children.add(input);
+        this.groupingInfo = groupingInfo;
+        this.input = input;
+        this.groupByClause = groupByClause;
+        this.repeatSlotIdList = repeatSlotIdList;
+        this.allSlotId = allSlotId;
+        this.groupingList = groupingList;
+        this.outputTupleDesc = groupingInfo.getOutputTupleDesc();
+    }
+
     // only for unittest
     protected RepeatNode(PlanNodeId id, PlanNode input, List<Set<SlotId>> repeatSlotIdList,
             TupleDescriptor outputTupleDesc, List<List<Long>> groupingList) {

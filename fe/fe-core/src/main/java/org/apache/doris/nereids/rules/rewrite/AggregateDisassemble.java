@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.GroupingSetsFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -189,6 +190,19 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 inputSubstitutionMap.put(aggregateFunction, substitutionValue);
                 globalOutputSMap.put(aggregateFunction, substitutionValue);
                 localOutputExprs.add(localOutputExpr);
+            }
+        }
+
+        for (NamedExpression originOutputExpr : originOutputExprs) {
+            Set<GroupingSetsFunction> groupingSetsFunctions
+                    = originOutputExpr.collect(GroupingSetsFunction.class::isInstance);
+            for (GroupingSetsFunction groupingSetsFunction : groupingSetsFunctions) {
+                if (inputSubstitutionMap.containsKey(groupingSetsFunction)) {
+                    continue;
+                }
+                inputSubstitutionMap.put(groupingSetsFunction, originOutputExpr);
+                globalOutputSMap.put(groupingSetsFunction, originOutputExpr);
+                localOutputExprs.add(originOutputExpr);
             }
         }
 

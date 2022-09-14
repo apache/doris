@@ -70,6 +70,13 @@ public class GroupByClause implements ParseNode {
         Preconditions.checkState(type != GroupingType.GROUPING_SETS);
     }
 
+    /**
+     * Used by new optimizer.
+     */
+    public GroupByClause(GroupingType type) {
+        this.groupingType = type;
+    }
+
     protected GroupByClause(GroupByClause other) {
         this.groupingType = other.groupingType;
         this.groupingExprs = (other.groupingExprs != null) ? Expr.cloneAndResetList(other.groupingExprs) : null;

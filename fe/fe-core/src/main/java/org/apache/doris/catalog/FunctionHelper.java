@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.GroupingSetsFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 
 import com.google.common.collect.ImmutableList;
@@ -77,6 +78,21 @@ public interface FunctionHelper {
     }
 
     /**
+     * Resolve GroupingSetsFunction class, convert to FunctionBuilder and wrap to GroupingSetsFunc
+     * @param functionClass the GroupingSetsFunction class
+     * @return GroupingSetsFunc which contains the functionName and the GroupingSetsFunc
+     */
+    default GroupingSetsFunc groupingSets(
+            Class<? extends GroupingSetsFunction> functionClass, String... functionNames) {
+        return new GroupingSetsFunc(functionClass, functionNames);
+    }
+
+    default GroupingSetsFunc groupingSets(Class<? extends GroupingSetsFunction> functionClass) {
+        String functionName = functionClass.getSimpleName();
+        return new GroupingSetsFunc(functionClass, functionName);
+    }
+
+    /**
      * use this class to prevent the wrong type from being registered, and support multi function names
      * like substring and substr.
      */
@@ -103,6 +119,12 @@ public interface FunctionHelper {
 
     class AggregateFunc extends NamedFunc<AggregateFunction> {
         public AggregateFunc(Class<? extends AggregateFunction> functionClass, String... names) {
+            super(functionClass, names);
+        }
+    }
+
+    class GroupingSetsFunc extends NamedFunc<GroupingSetsFunction> {
+        public GroupingSetsFunc(Class<? extends GroupingSetsFunction> functionClass, String... names) {
             super(functionClass, names);
         }
     }

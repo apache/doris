@@ -28,6 +28,7 @@ import java.util.BitSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -58,6 +59,17 @@ public class GroupingInfo {
         outputTupleSmap = new ExprSubstitutionMap();
         groupingSlotDescList = Lists.newArrayList();
         preRepeatExprs = Lists.newArrayList();
+    }
+
+    /**
+     * Used by new optimizer.
+     */
+    public GroupingInfo(GroupByClause.GroupingType groupingType, TupleDescriptor virtualTuple,
+            TupleDescriptor outputTupleDesc, List<Expr> preRepeatExprs) {
+        this.groupingType = groupingType;
+        this.virtualTuple = Objects.requireNonNull(virtualTuple, "virtualTuple can not be null");
+        this.outputTupleDesc = Objects.requireNonNull(outputTupleDesc, "outputTupleDesc can not be null");
+        this.preRepeatExprs = Objects.requireNonNull(preRepeatExprs, "preRepeatExprs can not be null");
     }
 
     public Set<VirtualSlotRef> getVirtualSlotRefs() {

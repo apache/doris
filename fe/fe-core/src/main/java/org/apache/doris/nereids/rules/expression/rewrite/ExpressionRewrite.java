@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -34,6 +35,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +58,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new OneRowRelationExpressionRewrite().build(),
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
+                new GroupByExpressionRewrite().build(),
                 new FilterExpressionRewrite().build(),
                 new JoinExpressionRewrite().build());
     }
@@ -127,6 +130,39 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
                         agg.isDisassembled(), agg.isNormalized(), agg.isFinalPhase(), agg.getAggPhase(), agg.child());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
+        }
+    }
+
+    private class GroupByExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalGroupBy().then(groupBy -> {
+                List<List<Expression>> groupingSetList = groupBy.getGroupingSets();
+                List<List<Expression>> newGroupingSetList = groupingSetList.stream().map(rewriter::rewrite)
+                        .collect(Collectors.toList());
+
+                List<Expression> groupByExpressions = groupBy.getOriginalGroupByExpressions();
+                List<Expression> newGroupByExpressions = rewriter.rewrite(groupByExpressions);
+
+                List<Expression> virtualGroupingExpressions = groupBy.getVirtualGroupingExprs();
+                List<Expression> newVirtualGroupingExpressions = rewriter.rewrite(virtualGroupingExpressions);
+
+                Set<VirtualSlotReference> newVirtualRefs =
+                        newVirtualGroupingExpressions.stream()
+                                .filter(VirtualSlotReference.class::isInstance)
+                                        .map(VirtualSlotReference.class::cast)
+                                                .collect(Collectors.toSet());
+
+                List<NamedExpression> outputExpressions = groupBy.getOutputExpressions();
+                List<NamedExpression> newOutputExpressions = outputExpressions.stream()
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
+
+                return groupBy.replaceWithChild(newGroupingSetList, newGroupByExpressions, newOutputExpressions,
+                        groupBy.getGroupingIdList(), newVirtualRefs,
+                        newVirtualGroupingExpressions, groupBy.getGroupingList(),
+                        groupBy.isResolved(), groupBy.hasChangedOutput(),
+                        groupBy.isNormalized(), groupBy.child());
+            }).toRule(RuleType.REWRITE_GROUP_BY_EXPRESSION);
         }
     }
 

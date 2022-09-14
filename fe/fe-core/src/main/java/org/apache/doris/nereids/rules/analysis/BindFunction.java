@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -95,6 +96,19 @@ public class BindFunction implements AnalysisRuleFactory {
                     List<Expression> predicates = bind(having.getExpressions(), ctx.connectContext.getEnv());
                     return new LogicalHaving<>(predicates.get(0), having.child());
                 })
+            ),
+            RuleType.BINDING_GROUP_BY_FUNCTION.build(
+                    logicalGroupBy().thenApply(ctx -> {
+                        LogicalGroupBy<GroupPlan> groupBy = ctx.root;
+                        List<List<Expression>> groupingSets = groupBy.getGroupingSets().stream()
+                                .map(expr -> bind(expr, ctx.connectContext.getEnv())).collect(Collectors.toList());
+                        List<NamedExpression> output =
+                                bind(groupBy.getOutputExpressions(), ctx.connectContext.getEnv());
+                        return groupBy.replace(groupingSets, groupBy.getOriginalGroupByExpressions(), output,
+                                groupBy.getGroupingIdList(), groupBy.getVirtualSlotRefs(),
+                                groupBy.getVirtualGroupingExprs(), groupBy.getGroupingList(),
+                                groupBy.isResolved(), groupBy.hasChangedOutput(), groupBy.isNormalized());
+                    })
             )
         );
     }

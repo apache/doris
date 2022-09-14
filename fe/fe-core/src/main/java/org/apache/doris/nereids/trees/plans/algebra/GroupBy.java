@@ -15,33 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.rules.PlanRuleFactory;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import java.util.List;
 
 /**
- * column prune rule set.
+ * Common interface for logical/physical GroupBy.
  */
-public class ColumnPruning implements PlanRuleFactory {
-    @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                new PruneFilterChildColumns().build(),
-                new PruneAggChildColumns().build(),
-                new PruneJoinChildrenColumns().build(),
-                new PruneSortChildColumns().build(),
-                new PruneGroupByChildColumns().build()
-        );
-    }
+public interface GroupBy {
 
-    @Override
-    public RulePromise defaultPromise() {
-        return RulePromise.REWRITE;
-    }
+    List<Expression> getGroupByExpressions();
+
+    List<NamedExpression> getOutputExpressions();
 }

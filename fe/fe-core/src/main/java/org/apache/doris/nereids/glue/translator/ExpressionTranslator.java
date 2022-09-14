@@ -29,6 +29,9 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.GroupByClause;
+import org.apache.doris.analysis.GroupByClause.GroupingType;
+import org.apache.doris.analysis.GroupingFunctionCallExpr;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -55,11 +58,17 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.grouping.GroupingSetsFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCube;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupBy;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupingSets;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRollup;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,6 +176,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findSlotRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference,
+            PlanTranslatorContext context) {
+        return context.findSlotRef(virtualSlotReference.getExprId());
     }
 
     @Override
@@ -283,6 +298,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
     }
 
+    @Override
+    public Expr visitGroupingSetsFunction(GroupingSetsFunction groupingSetsFunction, PlanTranslatorContext context) {
+        List<Expr> paramList = new ArrayList<>();
+        for (Expression expr : groupingSetsFunction.getArguments()) {
+            paramList.add(expr.accept(this, context));
+        }
+        List<Expr> realChildren = new ArrayList<>();
+        if (groupingSetsFunction.getRealChildren().isPresent()) {
+            groupingSetsFunction.getRealChildren().get()
+                    .forEach(g -> realChildren.add(g.accept(this, context)));
+        }
+        return new GroupingFunctionCallExpr(
+                groupingSetsFunction.getName(), paramList, realChildren);
+    }
+
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(
             AssertNumRowsElement assertNumRowsElement) {
         return new org.apache.doris.analysis.AssertNumRowsElement(assertNumRowsElement.getDesiredNumOfRows(),
@@ -307,5 +337,20 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             default:
                 throw new AnalysisException("UnSupported type: " + assertion);
         }
+    }
+
+    /**
+     * Generate the type of grouping that the old optimizer needs to use.
+     */
+    public static GroupByClause.GroupingType translateGroupingType(
+            PhysicalGroupBy groupBy) {
+        if (groupBy instanceof PhysicalGroupingSets) {
+            return GroupingType.GROUPING_SETS;
+        } else if (groupBy instanceof PhysicalRollup) {
+            return GroupingType.ROLLUP;
+        } else if (groupBy instanceof PhysicalCube) {
+            return GroupingType.CUBE;
+        }
+        throw new AnalysisException("UnSupported type");
     }
 }

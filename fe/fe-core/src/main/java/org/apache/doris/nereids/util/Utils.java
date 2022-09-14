@@ -19,7 +19,9 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
 import com.google.common.base.Preconditions;
@@ -31,6 +33,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -200,5 +203,21 @@ public class Utils {
 
     public static LocalDateTime getLocalDatetimeFromLong(long dateTime) {
         return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
+    }
+
+    /**
+     * Rearrange the order of the projects to ensure that
+     * slotReference is in the front and virtualSlotReference is in the back.
+     */
+    public static List<NamedExpression> reorderProjections(List<NamedExpression> projections) {
+        Map<Boolean, List<NamedExpression>> partitionProjections = projections.stream()
+                .collect(Collectors.groupingBy(VirtualSlotReference.class::isInstance,
+                        LinkedHashMap::new, Collectors.toList()));
+        List<NamedExpression> newProjections = partitionProjections.containsKey(false)
+                ? partitionProjections.get(false) : new ArrayList<NamedExpression>();
+        if (partitionProjections.containsKey(true)) {
+            newProjections.addAll(partitionProjections.get(true));
+        }
+        return newProjections;
     }
 }
