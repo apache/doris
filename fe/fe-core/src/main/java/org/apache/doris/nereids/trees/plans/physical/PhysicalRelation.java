@@ -39,7 +39,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
 
     protected final List<String> qualifier;
 
-    private final RelationId id;
+    protected final RelationId id;
 
     /**
      * Constructor for PhysicalRelation.
@@ -93,7 +93,6 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
         return ImmutableList.of();
     }
 
-    @Override
     public RelationId getId() {
         return id;
     }

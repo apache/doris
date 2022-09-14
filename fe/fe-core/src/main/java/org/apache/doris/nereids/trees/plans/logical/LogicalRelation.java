@@ -45,7 +45,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     protected final List<String> qualifier;
     protected final List<Long> selectedPartitionIds;
 
-    private final RelationId id;
+    protected final RelationId id;
 
     public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
@@ -132,7 +132,6 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         return selectedPartitionIds;
     }
 
-    @Override
     public RelationId getId() {
         return id;
     }
