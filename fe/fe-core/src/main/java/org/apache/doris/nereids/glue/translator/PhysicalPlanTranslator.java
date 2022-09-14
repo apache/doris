@@ -88,7 +88,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.map.HashedMap;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -448,6 +447,49 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return childFragment;
     }
 
+    /**
+     * the contract of hash join node with BE
+     * 1. hash join contains 3 types of predicates:
+     *   a. equal join conjuncts
+     *   b. other join conjuncts
+     *   c. other predicates (denoted by filter conjuncts in the rest of comments)
+     *
+     * 2. hash join contains 3 tuple descriptors
+     *   a. input tuple descriptors, corresponding to the left child output and right child output.
+     *      If its column is selected, it will be displayed in explain by `tuple ids`.
+     *      for example, select L.* from L join R on ..., because no column from R are selected, tuple ids only
+     *      contains output tuple of L.
+     *      equal join conjuncts is bound on input tuple descriptors.
+     *
+     *   b.intermediate tuple.
+     *      This tuple describes schema of the output block after evaluating equal join conjuncts
+     *      and other join conjuncts.
+     *
+     *      Other join conjuncts currently is bound on intermediate tuple. There are some historical reason, and it
+     *      should be bound on input tuple in the future.
+     *
+     *      filter conjuncts will be evaluated on the intermediate tuple. That means the input block of filter is
+     *      described by intermediate tuple, and hence filter conjuncts should be bound on intermediate tuple.
+     *
+     *      In order to be compatible with old version, intermediate tuple is not pruned. For example, intermediate
+     *      tuple contains all slots from both sides of children. After probing hash-table, BE does not need to
+     *      materialize all slots in intermediate tuple. The slots in HashJoinNode.hashOutputSlotIds will be
+     *      materialized by BE. If `hashOutputSlotIds` is empty, all slots will be materialized.
+     *
+     *      In case of outer join, the slots in intermediate should be set nullable.
+     *      For example,
+     *      select L.*, R.* from L left outer join R on ...
+     *      All slots from R in intermediate tuple should be nullable.
+     *
+     *   c. output tuple
+     *      This describes the schema of hash join output block.
+     * 3. Intermediate tuple
+     *      for BE performance reason, the slots in intermediate tuple depends on the join type and other join conjucts.
+     *      In general, intermediate tuple contains all slots of both children, except one case.
+     *      For left-semi/left-ant (right-semi/right-semi) join without other join conjuncts, intermediate tuple
+     *      only contains left (right) children output slots.
+     *
+     */
     // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
     @Override
     public PlanFragment visitPhysicalHashJoin(
@@ -520,17 +562,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(outputSlotReferenceMap::get)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
-        /*
-        if hashJoin has otherJoinConjuncts
-              intermediateTuple = left child tuple + right child tuple
-        else
-           if join type is left XXX join
-              intermediateTuple = left child tuple
-           else if join type is right XXX join
-              intermediateTuple = right child tuple
-           else
-              intermediateTuple = left child tuple + right child tuple
-         */
+
         Map<ExprId, SlotReference> hashOutputSlotReferenceMap = Maps.newHashMap(outputSlotReferenceMap);
 
         hashJoin.getOtherJoinCondition()
@@ -552,50 +584,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
         TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
 
-        if (hashJoin.getOtherJoinCondition().isPresent()) {
-            for (int i = 0; i < hashJoin.child(0).getOutput().size(); i++) {
-                SlotReference sf = (SlotReference) hashJoin.child(0).getOutput().get(i);
-                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-                if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
-                    hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptors.get(i).getId());
-                }
-                leftIntermediateSlotDescriptor.add(sd);
-            }
-            for (int i = 0; i < hashJoin.child(1).getOutput().size(); i++) {
-                SlotReference sf = (SlotReference) hashJoin.child(1).getOutput().get(i);
-                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-                if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
-                    hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptors.get(i).getId());
-                }
-                rightIntermediateSlotDescriptor.add(sd);
-            }
-
-            //set slots as nullable for outer join
-            if (joinType == JoinType.LEFT_OUTER_JOIN
-                    || joinType == JoinType.FULL_OUTER_JOIN) {
-                rightIntermediateSlotDescriptor.stream()
-                        .forEach(sd -> sd.setIsNullable(true));
-            }
-
-            if (joinType == JoinType.RIGHT_OUTER_JOIN
-                    || joinType == JoinType.FULL_OUTER_JOIN) {
-                leftIntermediateSlotDescriptor.stream()
-                        .forEach(sd -> sd.setIsNullable(true));
-            }
-        } else if (joinType == JoinType.LEFT_ANTI_JOIN
-                    || joinType == JoinType.LEFT_SEMI_JOIN) {
+        if (!hashJoin.getOtherJoinCondition().isPresent()
+                && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
             leftIntermediateSlotDescriptor = hashJoin.child(0).getOutput().stream()
                     .map(SlotReference.class::cast)
                     .map(s -> context.createSlotDesc(intermediateDescriptor, s))
                     .collect(Collectors.toList());
-        } else if (joinType == JoinType.RIGHT_ANTI_JOIN
-                || joinType == JoinType.RIGHT_SEMI_JOIN) {
+        } else if (!hashJoin.getOtherJoinCondition().isPresent()
+                && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
             rightIntermediateSlotDescriptor = hashJoin.child(1).getOutput().stream()
                     .map(SlotReference.class::cast)
                     .map(s -> context.createSlotDesc(intermediateDescriptor, s))
                     .collect(Collectors.toList());
         } else {
-            //inner/cross left-out/right-out/full-out
             for (int i = 0; i < hashJoin.child(0).getOutput().size(); i++) {
                 SlotReference sf = (SlotReference) hashJoin.child(0).getOutput().get(i);
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
@@ -612,57 +613,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
                 rightIntermediateSlotDescriptor.add(sd);
             }
-            if (joinType == JoinType.FULL_OUTER_JOIN) {
-                rightIntermediateSlotDescriptor.stream()
-                        .forEach(sd -> sd.setIsNullable(true));
-                leftIntermediateSlotDescriptor.stream()
-                        .forEach(sd -> sd.setIsNullable(true));
-            } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
-                rightIntermediateSlotDescriptor.stream()
-                        .forEach(sd -> sd.setIsNullable(true));
-            } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
-                leftIntermediateSlotDescriptor.stream()
-                        .forEach(sd -> sd.setIsNullable(true));
-            }
         }
-
-        /*
-        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
-                .map(TupleDescriptor::getSlots)
-                .flatMap(Collection::stream)
-                .map(sd -> context.findExprId(sd.getId()))
-                .map(hashOutputSlotReferenceMap::get)
-                .filter(Objects::nonNull)
-                .map(s -> context.createSlotDesc(intermediateDescriptor, s))
-                .collect(Collectors.toList());
-
-        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
-                .map(TupleDescriptor::getSlots)
-                .flatMap(Collection::stream)
-                .map(sd -> context.findExprId(sd.getId()))
-                .map(hashOutputSlotReferenceMap::get)
-                .filter(Objects::nonNull)
-                .map(s -> context.createSlotDesc(intermediateDescriptor, s))
-                .collect(Collectors.toList());
-
 
         //set slots as nullable for outer join
-        if (joinType == JoinType.LEFT_OUTER_JOIN
-                || joinType == JoinType.LEFT_SEMI_JOIN
-                || joinType == JoinType.LEFT_ANTI_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN) {
-            rightSlotDescriptors.stream()
+        if (joinType == JoinType.FULL_OUTER_JOIN) {
+            rightIntermediateSlotDescriptor.stream()
+                    .forEach(sd -> sd.setIsNullable(true));
+            leftIntermediateSlotDescriptor.stream()
+                    .forEach(sd -> sd.setIsNullable(true));
+        } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
+            rightIntermediateSlotDescriptor.stream()
+                    .forEach(sd -> sd.setIsNullable(true));
+        } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
+            leftIntermediateSlotDescriptor.stream()
                     .forEach(sd -> sd.setIsNullable(true));
         }
 
-        if (joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.RIGHT_SEMI_JOIN
-                || joinType == JoinType.RIGHT_ANTI_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN) {
-            leftSlotDescriptors.stream()
-                    .forEach(sd -> sd.setIsNullable(true));
-        }
-        */
         List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
                 .map(ExpressionUtils::extractConjunction)
                 .orElseGet(Lists::newArrayList)
