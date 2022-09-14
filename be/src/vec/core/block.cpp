@@ -32,6 +32,7 @@
 #include "util/block_compression.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -62,6 +63,10 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
 }
 
 Block::Block(const PBlock& pblock) {
+    CHECK(pblock.data_version() <= Block::max_data_version)
+            << "invalid pblock.data_version()=" << pblock.data_version()
+            << ", max_data_version=" << max_data_version;
+
     const char* buf = nullptr;
     std::string compression_scratch;
     if (pblock.compressed()) {
@@ -96,7 +101,7 @@ Block::Block(const PBlock& pblock) {
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
         MutableColumnPtr data_column = type->create_column();
-        buf = type->deserialize(buf, data_column.get());
+        buf = type->deserialize(buf, data_column.get(), pblock.data_version());
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -573,7 +578,6 @@ DataTypes Block::get_data_types() const {
 }
 
 void Block::clear() {
-    info = BlockInfo();
     data.clear();
     index_by_name.clear();
 }
@@ -593,7 +597,6 @@ void Block::clear_column_data(int column_size) noexcept {
 }
 
 void Block::swap(Block& other) noexcept {
-    std::swap(info, other.info);
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
 }
@@ -700,13 +703,19 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 Status Block::serialize(PBlock* pblock, std::string* compressed_buffer, size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
+    CHECK(config::block_data_version <= Block::max_data_version)
+            << "invalid config::block_data_version=" << config::block_data_version
+            << ", max_data_version=" << max_data_version;
+    pblock->set_data_version(config::block_data_version);
+
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
         // get serialized size
-        content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(*(c.column));
+        content_uncompressed_size +=
+                c.type->get_uncompressed_serialized_bytes(*(c.column), config::block_data_version);
     }
 
     // serialize data values
@@ -726,7 +735,7 @@ Status Block::serialize(PBlock* pblock, std::string* compressed_buffer, size_t* 
     char* buf = column_values->data();
 
     for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf);
+        buf = c.type->serialize(*(c.column), buf, config::block_data_version);
     }
     *uncompressed_bytes = content_uncompressed_size;
 

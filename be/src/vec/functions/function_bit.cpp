@@ -94,7 +94,7 @@ struct BitLengthImpl {
         auto size = offsets.size();
         res.resize(size);
         for (int i = 0; i < size; ++i) {
-            int str_size = offsets[i] - offsets[i - 1] - 1;
+            int str_size = offsets[i] - offsets[i - 1];
             res[i] = (str_size * 8);
         }
         return Status::OK();

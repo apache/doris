@@ -29,7 +29,6 @@
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/hash_table/ph_hash_map.h"
-#include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
@@ -95,7 +94,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
     }
 
     auto get_key_holder(ssize_t row, [[maybe_unused]] Arena& pool) const {
-        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1] - 1);
+        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
 
         if constexpr (place_string_to_arena) {
             return ArenaKeyHolder {key, pool};
