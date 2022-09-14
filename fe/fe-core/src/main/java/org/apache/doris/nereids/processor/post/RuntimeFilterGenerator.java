@@ -102,11 +102,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         List<SlotReference> slots = expr.children().stream().filter(SlotReference.class::isInstance)
                                 .map(SlotReference.class::cast).collect(Collectors.toList());
                         if (slots.size() != 2
-                                || !(ctx.checkExistValue(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId())
-                                || ctx.checkExistValue(ctx.getTargetExprIdToFilter(), slots.get(1).getExprId()))) {
+                                || !(ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId())
+                                || ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(1).getExprId()))) {
                             return;
                         }
-                        int tag = ctx.checkExistValue(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId()) ? 0 : 1;
+                        int tag = ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId()) ? 0 : 1;
                         ctx.setKVInNormalMap(ctx.getTargetExprIdToFilter(), slots.get(tag ^ 1).getExprId(),
                                 ctx.getFiltersByTargetExprId(slots.get(tag).getExprId()).stream()
                                         .map(filter -> new RuntimeFilter(generator.getNextId(), filter.getSrcExpr(),
@@ -142,7 +142,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().stream()
                 .filter(slot -> ctx.getSlotListOfTheSameSlotAtOlapScanNode(slot).stream()
-                        .filter(expr -> ctx.checkExistValue(ctx.getTargetExprIdToFilter(), expr.getExprId()))
+                        .filter(expr -> ctx.checkExistKey(ctx.getTargetExprIdToFilter(), expr.getExprId()))
                         .peek(expr -> {
                             List<RuntimeFilter> filters = ctx.getFiltersByTargetExprId(expr.getExprId());
                             ctx.removeFilters(expr.getExprId());

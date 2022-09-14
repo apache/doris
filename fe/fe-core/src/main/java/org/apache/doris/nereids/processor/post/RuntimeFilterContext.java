@@ -136,7 +136,7 @@ public class RuntimeFilterContext {
         this.legacyFilters.add(filter);
     }
 
-    public <K, V> boolean checkExistValue(@NotNull Map<K, V> map, K key) {
+    public <K, V> boolean checkExistKey(@NotNull Map<K, V> map, K key) {
         return map.containsKey(key);
     }
 
@@ -163,10 +163,10 @@ public class RuntimeFilterContext {
     public List<NamedExpression> getSlotListOfTheSameSlotAtOlapScanNode(Slot slot) {
         ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
         NamedExpression expr = slot;
-        while (aliasChildToSelf.containsKey(expr.toSlot())) {
+        do {
             builder.add(expr);
             expr = aliasChildToSelf.get(expr.toSlot());
-        }
+        } while (expr != null);
         return builder.build();
     }
 }

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -216,7 +217,9 @@ public class RuntimeFilterTest extends SSBTestBase {
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, context);
         System.out.println(root.getFragmentId());
         if (context.getRuntimeTranslator().isPresent()) {
-            return Optional.of(planner.getCascadesContext().getRuntimeFilterContext().getNereidsRuntimeFilter());
+            RuntimeFilterContext ctx = planner.getCascadesContext().getRuntimeFilterContext();
+            Assertions.assertEquals(ctx.getNereidsRuntimeFilter().size(), ctx.getLegacyFilters().size());
+            return Optional.of(ctx.getNereidsRuntimeFilter());
         }
         return Optional.empty();
     }
