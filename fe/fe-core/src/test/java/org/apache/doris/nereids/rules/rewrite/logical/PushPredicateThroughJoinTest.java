@@ -117,7 +117,6 @@ public class PushPredicateThroughJoinTest {
 
     @Test
     public void bothSideToBothSide() {
-        bothSideToBothSide(JoinType.CROSS_JOIN);
         bothSideToBothSide(JoinType.INNER_JOIN);
     }
 

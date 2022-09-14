@@ -60,8 +60,7 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
     );
 
     private static final ImmutableList<JoinType> COULD_PUSH_EQUAL_TO = ImmutableList.of(
-            JoinType.INNER_JOIN,
-            JoinType.CROSS_JOIN
+            JoinType.INNER_JOIN
     );
 
     /*
