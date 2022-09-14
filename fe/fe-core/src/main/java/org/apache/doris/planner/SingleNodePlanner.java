@@ -239,8 +239,10 @@ public class SingleNodePlanner {
         if (newDefaultOrderByLimit == -1) {
             if (analyzer.getContext().getSessionVariable().defaultOrderByLimit <= -1) {
                 newDefaultOrderByLimit = Long.MAX_VALUE;
+                LOG.warn("The current default Order By Limit number is the maximum value of Long.");
             } else {
                 newDefaultOrderByLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
+                LOG.warn("The current default Order By Limit number is {}." + newDefaultOrderByLimit);
             }
 
         }
