@@ -291,6 +291,35 @@ Status VParquetWriterWrapper::validate_schema() {
         }                                                                                        \
     }
 
+#define DISPATCH_PARQUET_COMPLEX_WRITER(COLUMN_TYPE)                                             \
+    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                         \
+    parquet::ByteArrayWriter* col_writer =                                                       \
+            static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));                         \
+    if (null_map != nullptr) {                                                                   \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            if ((*null_map)[row_id] != 0) {                                                      \
+                parquet::ByteArray value;                                                        \
+                col_writer->WriteBatch(1, nullptr, nullptr, &value);                             \
+            } else {                                                                             \
+                const auto& tmp = col->get_data_at(row_id);                                      \
+                parquet::ByteArray value;                                                        \
+                value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);                          \
+                value.len = tmp.size;                                                            \
+                col_writer->WriteBatch(1, nullptr, nullptr, &value);                             \
+            }                                                                                    \
+        }                                                                                        \
+    } else if (const auto* not_nullable_column = check_and_get_column<const COLUMN_TYPE>(col)) { \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            const auto& tmp = not_nullable_column->get_data_at(row_id);                          \
+            parquet::ByteArray value;                                                            \
+            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);                              \
+            value.len = tmp.size;                                                                \
+            col_writer->WriteBatch(1, nullptr, nullptr, &value);                                 \
+        }                                                                                        \
+    } else {                                                                                     \
+        RETURN_WRONG_TYPE                                                                        \
+    }
+
 Status VParquetWriterWrapper::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
@@ -500,39 +529,18 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 }
                 break;
             }
-            case TYPE_OBJECT:
-            case TYPE_HLL:
+            case TYPE_OBJECT: {
+                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnBitmap)
+                break;
+            }
+            case TYPE_HLL: {
+                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnHLL)
+                break;
+            }
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::ByteArrayWriter* col_writer =
-                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if ((*null_map)[row_id] != 0) {
-                            parquet::ByteArray value;
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        } else {
-                            const auto& tmp = col->get_data_at(row_id);
-                            parquet::ByteArray value;
-                            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
-                            value.len = tmp.size;
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        }
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnString>(col)) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        const auto& tmp = not_nullable_column->get_data_at(row_id);
-                        parquet::ByteArray value;
-                        value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
-                        value.len = tmp.size;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                } else {
-                    RETURN_WRONG_TYPE
-                }
+                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnString)
                 break;
             }
             case TYPE_DECIMALV2: {
