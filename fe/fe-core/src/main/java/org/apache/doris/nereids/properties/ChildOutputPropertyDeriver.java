@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.catalog.ColocateTableIndex;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -43,7 +41,6 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -166,16 +163,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             // colocate join
             if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                     && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-                final long leftTableId = leftHashSpec.getTableId();
-                final long rightTableId = rightHashSpec.getTableId();
-                final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
-                final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
-                boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
-                        && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
-                ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-                if (noNeedCheckColocateGroup
-                        || (colocateIndex.isSameGroup(leftTableId, rightTableId)
-                        && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
                     return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec));
                 }
             }

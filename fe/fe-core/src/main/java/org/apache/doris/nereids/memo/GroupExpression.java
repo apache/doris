@@ -171,9 +171,9 @@ public class GroupExpression {
     public boolean updateLowestCostTable(
             PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties,
-            double cost) {
+            double cost, boolean forceUpdate) {
         if (lowestCostTable.containsKey(outputProperties)) {
-            if (lowestCostTable.get(outputProperties).first > cost) {
+            if (lowestCostTable.get(outputProperties).first > cost || forceUpdate) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
             } else {

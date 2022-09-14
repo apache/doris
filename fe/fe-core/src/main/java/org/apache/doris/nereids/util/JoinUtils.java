@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -265,5 +267,28 @@ public class JoinUtils {
         // Because after property derive upper node's properties is contains lower node
         // if their properties are satisfy.
         return joinDistributionSpec.satisfy(leftDistributionSpec);
+    }
+
+    public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+            return false;
+        }
+        if (leftHashSpec.getShuffleType() != ShuffleType.NATURAL
+                || rightHashSpec.getShuffleType() != ShuffleType.NATURAL) {
+            return false;
+        }
+        final long leftTableId = leftHashSpec.getTableId();
+        final long rightTableId = rightHashSpec.getTableId();
+        final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
+        final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
+        boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
+                && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
+        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        if (noNeedCheckColocateGroup
+                || (colocateIndex.isSameGroup(leftTableId, rightTableId)
+                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+            return true;
+        }
+        return false;
     }
 }

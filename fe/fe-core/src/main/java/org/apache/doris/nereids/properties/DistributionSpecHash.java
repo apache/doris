@@ -237,8 +237,8 @@ public class DistributionSpecHash extends DistributionSpec {
     public enum ShuffleType {
         // require, need to satisfy the distribution spec by aggregation way.
         AGGREGATE,
-        // require, must add a enforce on child node.
-        FORCE_SHUFFLE,
+        // require, need to satisfy the distribution spec by join way.
+        JOIN,
         // output, for olap scan node and colocate join
         NATURAL,
         // output, for all join except colocate join
@@ -246,13 +246,5 @@ public class DistributionSpecHash extends DistributionSpec {
         // output, all distribute enforce
         ENFORCED,
         ;
-
-        public boolean forbiddenEnforce() {
-            return this == NATURAL || this == BUCKETED;
-        }
-
-        public boolean mustEnforce() {
-            return this == FORCE_SHUFFLE;
-        }
     }
 }

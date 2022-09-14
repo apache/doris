@@ -53,7 +53,7 @@ public class DistributionSpecHashTest {
         joinMap.put(new ExprId(5), 1);
         DistributionSpecHash join = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(5)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1), new ExprId(4)), Sets.newHashSet(new ExprId(3), new ExprId(5))),
@@ -82,7 +82,7 @@ public class DistributionSpecHashTest {
     @Test
     public void testSatisfyAny() {
         DistributionSpec required = DistributionSpecAny.INSTANCE;
-        DistributionSpecHash join = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.FORCE_SHUFFLE);
+        DistributionSpecHash join = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.JOIN);
         DistributionSpecHash aggregate = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.AGGREGATE);
         DistributionSpecHash enforce = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.ENFORCED);
         DistributionSpecHash natural = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.NATURAL);
@@ -95,7 +95,7 @@ public class DistributionSpecHashTest {
 
     @Test
     public void testNotSatisfyOther() {
-        DistributionSpecHash join = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.FORCE_SHUFFLE);
+        DistributionSpecHash join = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.JOIN);
         DistributionSpecHash aggregate = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.AGGREGATE);
         DistributionSpecHash enforce = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.ENFORCED);
         DistributionSpecHash natural = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.NATURAL);
@@ -155,7 +155,7 @@ public class DistributionSpecHashTest {
 
         DistributionSpecHash join = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
@@ -201,7 +201,7 @@ public class DistributionSpecHashTest {
         join1Map.put(new ExprId(3), 1);
         DistributionSpecHash join1 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0), new ExprId(2)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 0,
                 Sets.newHashSet(0L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(0), new ExprId(1)), Sets.newHashSet(new ExprId(2), new ExprId(3))),
@@ -213,7 +213,7 @@ public class DistributionSpecHashTest {
         join2Map.put(new ExprId(2), 1);
         DistributionSpecHash join2 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
@@ -225,7 +225,7 @@ public class DistributionSpecHashTest {
         join3Map.put(new ExprId(1), 1);
         DistributionSpecHash join3 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(2), new ExprId(1)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(2)), Sets.newHashSet(new ExprId(1))),
@@ -347,7 +347,7 @@ public class DistributionSpecHashTest {
 
         DistributionSpecHash join = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
@@ -414,7 +414,7 @@ public class DistributionSpecHashTest {
 
         DistributionSpecHash join = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.FORCE_SHUFFLE,
+                ShuffleType.JOIN,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),

@@ -129,25 +129,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-            // colocate join
-            // TODO need to check whether colocate join is illegal.
-            addToRequestPropertyToChildren(
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.NATURAL)),
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.NATURAL)));
-            // bucket shuffle join
-            addToRequestPropertyToChildren(
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.BUCKETED)),
-                    PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.FORCE_SHUFFLE)));
             // shuffle join
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.FORCE_SHUFFLE)),
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
                     PhysicalProperties.createHash(
-                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.FORCE_SHUFFLE)));
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
         }
 
         // for broadcast join
