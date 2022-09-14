@@ -36,8 +36,9 @@ namespace vectorized {
 
 class VCollectIterator {
 public:
+    VCollectIterator();
     // Hold reader point to get reader params
-    ~VCollectIterator() = default;
+    ~VCollectIterator(); 
 
     void init(TabletReader* reader, bool force_merge, bool is_reverse);
 
