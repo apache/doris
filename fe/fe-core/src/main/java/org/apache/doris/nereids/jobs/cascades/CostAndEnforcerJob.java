@@ -171,8 +171,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             if (curChildIndex == groupExpression.arity()) {
 
                 // to ensure distributionSpec has been added sufficiently.
-                ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(
-                        groupExpression, lowestCostChildren, childrenOutputProperties, context);
+                ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
+                        lowestCostChildren, childrenOutputProperties, requestChildrenProperties, context);
                 double enforceCost = regulator.adjustChildrenProperties();
                 curTotalCost += enforceCost;
 

@@ -41,14 +41,17 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
     private final GroupExpression parent;
     private final List<GroupExpression> children;
     private final List<PhysicalProperties> childrenProperties;
+    private final List<PhysicalProperties> requiredProperties;
     private final JobContext jobContext;
     private double enforceCost = 0.0;
 
     public ChildrenPropertiesRegulator(GroupExpression parent, List<GroupExpression> children,
-            List<PhysicalProperties> childrenProperties, JobContext jobContext) {
+            List<PhysicalProperties> childrenProperties, List<PhysicalProperties> requiredProperties,
+            JobContext jobContext) {
         this.parent = parent;
         this.children = children;
         this.childrenProperties = childrenProperties;
+        this.requiredProperties = requiredProperties;
         this.jobContext = jobContext;
     }
 
@@ -58,7 +61,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
 
     @Override
     public Double visit(Plan plan, Void context) {
-        return null;
+        return enforceCost;
     }
 
     @Override
@@ -66,6 +69,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
             Void context) {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(childrenProperties.size() == 2);
+        Preconditions.checkArgument(requiredProperties.size() == 2);
         DistributionSpec leftDistributionSpec = childrenProperties.get(0).getDistributionSpec();
         DistributionSpec rightDistributionSpec = childrenProperties.get(1).getDistributionSpec();
 
@@ -85,13 +89,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
 
         GroupExpression leftChild = children.get(0);
         final Pair<Double, List<PhysicalProperties>> leftLowest
-                = leftChild.getLowestCostTable().get(PhysicalProperties.ANY);
-        PhysicalProperties leftOutput = leftChild.getOutputProperties(PhysicalProperties.ANY);
+                = leftChild.getLowestCostTable().get(requiredProperties.get(0));
+        PhysicalProperties leftOutput = leftChild.getOutputProperties(requiredProperties.get(0));
 
         GroupExpression rightChild = children.get(1);
         final Pair<Double, List<PhysicalProperties>> rightLowest
-                = rightChild.getLowestCostTable().get(PhysicalProperties.ANY);
-        PhysicalProperties rightOutput = rightChild.getOutputProperties(PhysicalProperties.ANY);
+                = rightChild.getLowestCostTable().get(requiredProperties.get(1));
+        PhysicalProperties rightOutput = rightChild.getOutputProperties(requiredProperties.get(1));
 
         // check colocate join
         if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
