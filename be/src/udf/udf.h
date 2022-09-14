@@ -762,6 +762,8 @@ struct StringVal : public AnyVal {
     // copy of ptr so the underlying string must exist as long as this StringVal does.
     StringVal(const char* ptr) : len(strlen(ptr)), ptr((uint8_t*)ptr) {}
 
+    StringVal(const char* ptr, int64_t len) : len(len), ptr((uint8_t*)ptr) {}
+
     static StringVal null() {
         StringVal sv;
         sv.is_null = true;

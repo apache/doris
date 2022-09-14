@@ -152,13 +152,15 @@ StringRef ColumnArray::get_data_at(size_t n) const {
       */
 
     size_t offset_of_first_elem = offset_at(n);
-    StringRef first = get_data().get_data_at_with_terminating_zero(offset_of_first_elem);
+    StringRef first = get_data().get_data_at(offset_of_first_elem);
 
     size_t array_size = size_at(n);
-    if (array_size == 0) return StringRef(first.data, 0);
+    if (array_size == 0) {
+        return StringRef(first.data, 0);
+    }
 
-    size_t offset_of_last_elem = get_offsets()[n] - 1;
-    StringRef last = get_data().get_data_at_with_terminating_zero(offset_of_last_elem);
+    size_t offset_of_last_elem = offset_at(n + 1) - 1;
+    StringRef last = get_data().get_data_at(offset_of_last_elem);
 
     return StringRef(first.data, last.data + last.size - first.data);
 }

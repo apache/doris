@@ -24,7 +24,6 @@
 #include <memory>
 
 #include "gen_cpp/data.pb.h"
-#include "runtime/primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -236,9 +235,10 @@ public:
     /// Updates avg_value_size_hint for newly read column. Uses to optimize deserialization. Zero expected for first column.
     static void update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint);
 
-    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column) const = 0;
-    virtual char* serialize(const IColumn& column, char* buf) const = 0;
-    virtual const char* deserialize(const char* buf, IColumn* column) const = 0;
+    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                                      int data_version) const = 0;
+    virtual char* serialize(const IColumn& column, char* buf, int data_version) const = 0;
+    virtual const char* deserialize(const char* buf, IColumn* column, int data_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 

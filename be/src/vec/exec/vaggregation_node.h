@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
+#include "vec/common/hash_table/string_hash_map.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 
