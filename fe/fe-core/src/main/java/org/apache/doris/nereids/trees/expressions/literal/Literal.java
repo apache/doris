@@ -61,7 +61,7 @@ public abstract class Literal extends Expression implements LeafExpression {
         } else if (value instanceof BigInteger) {
             return new LargeIntLiteral((BigInteger) value);
         } else if (value instanceof Boolean) {
-            return new BooleanLiteral((Boolean) value);
+            return BooleanLiteral.of((Boolean) value);
         } else if (value instanceof String) {
             return new StringLiteral((String) value);
         } else {

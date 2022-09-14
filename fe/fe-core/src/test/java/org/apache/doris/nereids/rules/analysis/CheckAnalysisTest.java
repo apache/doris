@@ -37,7 +37,7 @@ public class CheckAnalysisTest {
 
     @Test
     public void testCheckExpressionInputTypes() {
-        Plan plan = new LogicalFilter<>(new And(new IntegerLiteral(1), new BooleanLiteral(true)), groupPlan);
+        Plan plan = new LogicalFilter<>(new And(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(RuntimeException.class, () -> checkAnalysis.build().transform(plan, cascadesContext));
     }

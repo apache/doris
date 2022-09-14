@@ -220,10 +220,7 @@ Status OlapTablePartitionParam::init() {
                 if (slot != nullptr) {
                     hash_val = RawValue::zlib_crc32(slot, slot_desc->type(), hash_val);
                 } else {
-                    //nullptr is treat as 0 when hash
-                    static const int INT_VALUE = 0;
-                    static const TypeDescriptor INT_TYPE(TYPE_INT);
-                    hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
+                    hash_val = HashUtil::zlib_crc_hash_null(hash_val);
                 }
             }
             return hash_val % num_buckets;
@@ -492,16 +489,13 @@ Status VOlapTablePartitionParam::init() {
             uint32_t hash_val = 0;
             for (int i = 0; i < _distributed_slot_locs.size(); ++i) {
                 auto slot_desc = _slots[_distributed_slot_locs[i]];
-                auto column = key->first->get_by_position(_distributed_slot_locs[i]).column;
+                auto& column = key->first->get_by_position(_distributed_slot_locs[i]).column;
                 auto val = column->get_data_at(key->second);
                 if (val.data != nullptr) {
                     hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
                                                     hash_val);
                 } else {
-                    // NULL is treat as 0 when hash
-                    static const int INT_VALUE = 0;
-                    static const TypeDescriptor INT_TYPE(TYPE_INT);
-                    hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
+                    hash_val = HashUtil::zlib_crc_hash_null(hash_val);
                 }
             }
             return hash_val % num_buckets;

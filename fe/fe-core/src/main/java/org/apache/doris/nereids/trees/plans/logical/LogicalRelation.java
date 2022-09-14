@@ -132,6 +132,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         return selectedPartitionIds;
     }
 
+    @Override
     public RelationId getId() {
         return id;
     }

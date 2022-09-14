@@ -26,7 +26,6 @@
 #include <cmath>
 #include <cstring>
 
-#include "runtime/datetime_value.h"
 #include "util/simd/bits.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -117,6 +116,38 @@ void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
                                   bool last_column) const {
     sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+}
+
+template <typename T>
+void ColumnVector<T>::update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+                                             const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if constexpr (!std::is_same_v<T, Int64>) {
+        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+    } else {
+        if (type == TYPE_DATE || type == TYPE_DATETIME) {
+            char buf[64];
+            auto date_convert_do_crc = [&](size_t i) {
+                const DateTimeValue& date_val = (const DateTimeValue&)data[i];
+                auto len = date_val.to_buffer(buf);
+                hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
+            };
+
+            if (null_data == nullptr) {
+                for (size_t i = 0; i < s; i++) {
+                    date_convert_do_crc(i);
+                }
+            } else {
+                for (size_t i = 0; i < s; i++) {
+                    if (null_data[i] == 0) date_convert_do_crc(i);
+                }
+            }
+        } else {
+            DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        }
+    }
 }
 
 template <typename T>

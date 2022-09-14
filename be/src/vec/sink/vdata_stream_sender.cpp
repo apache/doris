@@ -536,24 +536,12 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         // vectorized calculate hash val
         int rows = block->rows();
         // for each row, we have a hash_val
-        std::vector<size_t> hash_vals(rows);
+        std::vector<uint32_t> hash_vals(rows);
 
         // result[j] means column index, i means rows index
         for (int j = 0; j < result_size; ++j) {
-            auto& column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                auto val = column->get_data_at(i);
-                if (val.data == nullptr) {
-                    // nullptr is treat as 0 when hash
-                    static const int INT_VALUE = 0;
-                    static const TypeDescriptor INT_TYPE(TYPE_INT);
-                    hash_vals[i] = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_vals[i]);
-                } else {
-                    hash_vals[i] = RawValue::zlib_crc32(val.data, val.size,
-                                                        _partition_expr_ctxs[j]->root()->type(),
-                                                        hash_vals[i]);
-                }
-            }
+            block->get_by_position(result[j]).column->update_crcs_with_value(
+                    hash_vals, _partition_expr_ctxs[j]->root()->type().type);
         }
 
         Block::erase_useless_column(block, column_to_keep);

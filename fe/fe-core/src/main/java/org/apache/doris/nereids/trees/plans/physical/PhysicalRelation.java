@@ -93,6 +93,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
         return ImmutableList.of();
     }
 
+    @Override
     public RelationId getId() {
         return id;
     }

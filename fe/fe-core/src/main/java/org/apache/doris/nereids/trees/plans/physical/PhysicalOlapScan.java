@@ -105,11 +105,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
-            return false;
-        }
-        PhysicalOlapScan that = (PhysicalOlapScan) o;
-        return Objects.equals(getId(), that.getId());
+        return o != null && getClass() == o.getClass() && super.equals(o);
     }
 
     @Override

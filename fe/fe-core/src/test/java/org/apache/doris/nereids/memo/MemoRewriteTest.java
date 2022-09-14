@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.memo;
 
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -247,7 +246,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
      * 1. A -> A(B(C))
      * 2. A -> B(A(C))
      */
-    @Test()
+    /*@Test()
     public void a2ab() {
         Assertions.assertThrows(IllegalStateException.class, () -> {
             UnboundRelation student = new UnboundRelation(ImmutableList.of("student"));
@@ -262,7 +261,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                             logicalLimit().then(l -> l.withChildren(boundStudent))
                     );
         });
-    }
+    }*/
 
     /*
      * A -> B(C(D)):

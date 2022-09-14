@@ -45,6 +45,11 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 }
 
+MutableColumnPtr ColumnNullable::get_shinked_column() {
+    return ColumnNullable::create(get_nested_column_ptr()->get_shinked_column(),
+                                  get_null_map_column_ptr());
+}
+
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     if (is_null_at(n))
         hash.update(0);
@@ -65,6 +70,25 @@ void ColumnNullable::update_hashes_with_value(std::vector<SipHash>& hashes,
             if (real_null_data[i] != 0) hashes[i].update(0);
         }
         nested_column->update_hashes_with_value(hashes, real_null_data);
+    }
+}
+
+void ColumnNullable::update_crcs_with_value(std::vector<uint32_t>& hashes,
+                                            doris::PrimitiveType type,
+                                            const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = hashes.size();
+    DCHECK(s == size());
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (!has_null()) {
+        nested_column->update_crcs_with_value(hashes, type, nullptr);
+    } else {
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) {
+                hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
+            }
+        }
+        nested_column->update_crcs_with_value(hashes, type, real_null_data);
     }
 }
 

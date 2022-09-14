@@ -47,6 +47,13 @@ public:
     static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
         return crc32(hash, (const unsigned char*)data, bytes);
     }
+
+    static uint32_t zlib_crc_hash_null(uint32_t hash) {
+        // null is treat as 0 when hash
+        static const int INT_VALUE = 0;
+        return crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+    }
+
 #if defined(__SSE4_2__) || defined(__aarch64__)
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.

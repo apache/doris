@@ -21,29 +21,39 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 /**
- * Push down filter through project.
- * input:
- * filter(a>2, b=0) -> project(c+d as a, e as b)
- * output:
- * project(c+d as a, e as b) -> filter(c+d>2, e=0).
+ * Before:
+ *          project
+ *             │
+ *             ▼
+ *           limit
+ *             │
+ *             ▼
+ *          plan node
+ *
+ * After:
+ *
+ *           limit
+ *             │
+ *             ▼
+ *          project
+ *             │
+ *             ▼
+ *          plan node
  */
-public class SwapFilterAndProject extends OneRewriteRuleFactory {
+public class PushdownProjectThroughLimit extends OneRewriteRuleFactory {
+
     @Override
     public Rule build() {
-        return logicalFilter(logicalProject()).then(filter -> {
-            LogicalProject<GroupPlan> project = filter.child();
-            return new LogicalProject<>(
-                    project.getProjects(),
-                    new LogicalFilter<>(
-                            ExpressionUtils.replace(filter.getPredicates(), project.getSlotToProducer()),
-                            project.child()
-                    )
-            );
-        }).toRule(RuleType.SWAP_FILTER_AND_PROJECT);
+        return logicalProject(logicalLimit(group())).thenApply(ctx -> {
+            LogicalProject<LogicalLimit<GroupPlan>> logicalProject = ctx.root;
+            LogicalLimit<GroupPlan> logicalLimit = logicalProject.child();
+            return new LogicalLimit<LogicalProject<GroupPlan>>(logicalLimit.getLimit(),
+                    logicalLimit.getOffset(), new LogicalProject<>(logicalProject.getProjects(),
+                    logicalLimit.child()));
+        }).toRule(RuleType.SWAP_LIMIT_PROJECT);
     }
 }
