@@ -35,6 +35,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -106,7 +107,10 @@ public class LogicalOlapScan extends LogicalRelation {
         if (this == o) {
             return true;
         }
-        return o != null && getClass() == o.getClass() && super.equals(o);
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        return Objects.equals(selectedPartitionIds, ((LogicalOlapScan) o).selectedPartitionIds);
     }
 
     @Override
