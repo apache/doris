@@ -51,6 +51,8 @@ public:
 
     size_t agg_block_rows();
 
+    void finalize_source();
+
 private:
     CompareFunc _get_comparator(const TabletColumn& col);
 

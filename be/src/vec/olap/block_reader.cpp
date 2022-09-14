@@ -184,6 +184,7 @@ Status BlockReader::_agg_next_block(Block* block, MemPool* mem_pool, ObjectPool*
     Status status;
     while (true) {
         if (_block_aggregator->source_exhausted()) {
+            _block_aggregator->finalize_source();
             status = _direct_next_block(block, mem_pool, agg_pool, eof);
             if (UNLIKELY(!status.ok())) {
                 return status;

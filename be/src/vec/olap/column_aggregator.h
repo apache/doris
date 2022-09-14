@@ -43,6 +43,8 @@ public:
 
     virtual void finalize() { _agg_column = nullptr; }
 
+    virtual void finalize_source() { _source_column = nullptr; }
+
 public:
     ColumnPtr _source_column;
     IColumn* _agg_column;

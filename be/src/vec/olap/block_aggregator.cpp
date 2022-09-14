@@ -241,4 +241,10 @@ size_t BlockAggregator::agg_block_rows() {
     return 0;
 }
 
+void BlockAggregator::finalize_source() {
+    for (int i = 0; i < _num_columns; ++i) {
+        _column_aggregator[i]->finalize_source();
+    }
+}
+
 } // namespace doris::vectorized
