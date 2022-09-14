@@ -118,7 +118,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     }
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
     }
 
     // project of bottomJoin just return A OR B, else return false.

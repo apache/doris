@@ -102,7 +102,7 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
                                 bottomJoin.getOtherJoinCondition(), a, newBottomSemiJoin);
                     }
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }
 
     // bottomJoin just return A OR B, else return false.

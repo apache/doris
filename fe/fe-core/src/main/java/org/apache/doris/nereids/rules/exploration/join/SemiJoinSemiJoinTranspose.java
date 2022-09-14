@@ -70,7 +70,7 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
                             newBottomJoin, b);
 
                     return newTopJoin;
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE);
     }
 
     private boolean typeChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin) {
