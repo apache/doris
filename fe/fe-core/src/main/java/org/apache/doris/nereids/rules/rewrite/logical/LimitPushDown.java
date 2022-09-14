@@ -94,6 +94,8 @@ public class LimitPushDown implements RewriteRuleFactory {
 
     private Plan addLimit(LogicalLimit<? extends Plan> pushdownLimit, Plan plan) {
         if (plan instanceof LogicalLimit) {
+            // Avoid adding duplicate limits on top of the plan, otherwise would result in dead loop
+            // when applying the rule multiple times.
             LogicalLimit<? extends Plan> limit = (LogicalLimit<? extends Plan>) plan;
             // plan is pure limit and limit value > push down limit value
             if (!limit.hasValidOffset() && limit.getLimit() > pushdownLimit.getLimit()) {
