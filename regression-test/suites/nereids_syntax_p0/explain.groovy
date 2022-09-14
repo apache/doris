@@ -24,6 +24,8 @@ suite("explain") {
         SET enable_nereids_planner=true
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
         contains "projections: lo_suppkey"

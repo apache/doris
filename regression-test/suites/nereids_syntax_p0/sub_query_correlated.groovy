@@ -89,6 +89,8 @@ suite ("sub_query_correlated") {
         insert into subquery4 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     //------------------Correlated-----------------
     qt_scalar_less_than_corr """
         select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1

@@ -23,6 +23,7 @@ suite("function") {
     sql """
         SET enable_nereids_planner=true
     """
+    sql "SET enable_fallback_to_original_planner=false"
 
     order_qt_max """
         SELECT max(lo_discount), max(lo_extendedprice) AS max_extendedprice FROM lineorder;
