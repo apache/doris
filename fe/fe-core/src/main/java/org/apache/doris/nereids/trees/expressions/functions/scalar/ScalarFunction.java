@@ -86,13 +86,13 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
 
     @Override
     @Developing("this method will move to BoundFunction, when we support compute signature for AggregateFunction")
-    public final List<AbstractDataType> expectedInputTypes() {
+    public List<AbstractDataType> expectedInputTypes() {
         return ComputeSignature.super.expectedInputTypes();
     }
 
     @Override
     @Developing("this method will move to BoundFunction, when we support compute signature for AggregateFunction")
-    public final DataType getDataType() {
+    public DataType getDataType() {
         return ComputeSignature.super.getDataType();
     }
 

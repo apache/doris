@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 
@@ -123,6 +124,17 @@ public class BindFunction implements AnalysisRuleFactory {
                     unboundTVFRelation().thenApply(ctx -> {
                         UnboundTVFRelation relation = ctx.root;
                         return FunctionBinder.INSTANCE.bindTableValuedFunction(relation, ctx.statementContext);
+                    })
+            ),
+            RuleType.BINDING_REPEAT_FUNCTION.build(
+                    logicalRepeat().thenApply(ctx -> {
+                        LogicalRepeat<GroupPlan> repeat = ctx.root;
+                        List<List<Expression>> groupingSets = repeat.getGroupingSets().stream()
+                                .map(expr -> bind(expr, ctx.connectContext.getEnv())).collect(Collectors.toList());
+                        List<NamedExpression> output =
+                                bind(repeat.getOutputExpressions(), ctx.connectContext.getEnv());
+                        return repeat.replace(groupingSets, repeat.getGroupByExpressions(), output,
+                                repeat.getGroupingSetShapes());
                     })
             )
         );

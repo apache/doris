@@ -103,6 +103,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -501,7 +503,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),
             scalar(YearWeek.class, "yearweek"),
-            scalar(YearsDiff.class, "years_diff")
+            scalar(YearsDiff.class, "years_diff"),
+            scalar(Grouping.class),
+            scalar(GroupingId.class, "grouping_id")
     );
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();

@@ -56,6 +56,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new OneRowRelationExpressionRewrite().build(),
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
+                new GroupByExpressionRewrite().build(),
                 new FilterExpressionRewrite().build(),
                 new JoinExpressionRewrite().build());
     }
@@ -127,6 +128,27 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
                         agg.isDisassembled(), agg.isNormalized(), agg.isFinalPhase(), agg.getAggPhase(), agg.child());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
+        }
+    }
+
+    private class GroupByExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalRepeat().then(repeat -> {
+                List<List<Expression>> groupingSetList = repeat.getGroupingSets();
+                List<List<Expression>> newGroupingSetList = groupingSetList.stream().map(rewriter::rewrite)
+                        .collect(Collectors.toList());
+
+                List<Expression> groupByExpressions = repeat.getGroupByExpressions();
+                List<Expression> newGroupByExpressions = rewriter.rewrite(groupByExpressions);
+
+                List<NamedExpression> outputExpressions = repeat.getOutputExpressions();
+                List<NamedExpression> newOutputExpressions = outputExpressions.stream()
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
+
+                return repeat.replaceWithChild(newGroupingSetList, newGroupByExpressions, newOutputExpressions,
+                        repeat.getGroupingSetShapes(), repeat.child());
+            }).toRule(RuleType.REWRITE_GROUP_BY_EXPRESSION);
         }
     }
 

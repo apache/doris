@@ -30,6 +30,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.GroupingFunctionCallExpr;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
@@ -61,9 +62,11 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -176,6 +179,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findSlotRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference,
+            PlanTranslatorContext context) {
+        return context.findSlotRef(virtualSlotReference.getExprId());
     }
 
     @Override
@@ -353,6 +362,22 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
                     arithmetic.getDataType().toCatalogDataType());
         }
+    }
+
+    @Override
+    public Expr visitGroupingScalarFunction(
+            GroupingScalarFunction groupingScalarFunction, PlanTranslatorContext context) {
+        List<Expr> paramList = new ArrayList<>();
+        for (Expression expr : groupingScalarFunction.getArguments()) {
+            paramList.add(expr.accept(this, context));
+        }
+        List<Expr> realChildren = new ArrayList<>();
+        if (groupingScalarFunction.getRealChildren().isPresent()) {
+            groupingScalarFunction.getRealChildren().get()
+                    .forEach(g -> realChildren.add(g.accept(this, context)));
+        }
+        return new GroupingFunctionCallExpr(
+                groupingScalarFunction.getName(), paramList, realChildren);
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(

@@ -51,8 +51,8 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
                         new UserAuthentication(),
-                        new BindSlotReference(scope),
                         new BindFunction(),
+                        new BindSlotReference(scope),
                         new ProjectToGlobalAggregate(),
                         new ReplaceExpressionByChildOutput()
                 )),

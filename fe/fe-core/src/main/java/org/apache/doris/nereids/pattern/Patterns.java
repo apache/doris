@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBinary;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
@@ -173,6 +174,20 @@ public interface Patterns {
         return new PatternDescriptor(new TypePattern(LogicalRelation.class), defaultPromise());
     }
 
+    /**
+     * create a logicalRepeat pattern.
+     */
+    default PatternDescriptor<LogicalRepeat<GroupPlan>> logicalRepeat() {
+        return new PatternDescriptor(new TypePattern(LogicalRepeat.class, Pattern.GROUP), defaultPromise());
+    }
+
+    /**
+     * create a logicalRepeat pattern.
+     */
+    default <C extends Plan> PatternDescriptor<LogicalRepeat<C>>
+            logicalRepeat(PatternDescriptor<C> child) {
+        return new PatternDescriptor(new TypePattern(LogicalUnary.class, child.pattern), defaultPromise());
+    }
     /* abstract physical plan patterns */
 
     /**

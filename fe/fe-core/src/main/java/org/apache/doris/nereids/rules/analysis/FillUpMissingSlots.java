@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -43,6 +44,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -123,6 +125,23 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 return new LogicalFilter<>(newPredicates, a);
                             });
                         })
+                ),
+                RuleType.FILL_UP_HAVING_AGGREGATE_REPEAT.build(
+                    logicalHaving(logicalProject(
+                        logicalAggregate(logicalRepeat(logicalProject())))).then(having -> {
+                            LogicalProject<LogicalAggregate
+                                    <LogicalRepeat<LogicalProject<GroupPlan>>>> project = having.child();
+                            LogicalAggregate<LogicalRepeat<LogicalProject<GroupPlan>>> agg = project.child();
+                            LogicalRepeat<LogicalProject<GroupPlan>> groupBy = agg.child();
+                            LogicalProject<GroupPlan> bottomProject = groupBy.child();
+                            Resolver resolver = new Resolver(bottomProject);
+                            resolver.resolve(having.getPredicates());
+                            return createPlan(resolver, agg, (r, a) -> {
+                                Expression newPredicates = ExpressionUtils.replace(
+                                        having.getPredicates(), r.getSubstitution());
+                                return new LogicalFilter<>(newPredicates, a);
+                            });
+                        })
                 )
         );
     }
@@ -134,9 +153,14 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
 
-        Resolver(LogicalAggregate<? extends Plan> aggregate) {
-            outputExpressions = aggregate.getOutputExpressions();
-            groupByExpressions = aggregate.getGroupByExpressions();
+        Resolver(LogicalProject<? extends Plan> project) {
+            outputExpressions = project.getProjects();
+            groupByExpressions = new ArrayList<>();
+        }
+
+        Resolver(LogicalAggregate<? extends Plan> agg) {
+            outputExpressions = agg.getOutputExpressions();
+            groupByExpressions = agg.getGroupByExpressions();
         }
 
         public void resolve(Expression expression) {

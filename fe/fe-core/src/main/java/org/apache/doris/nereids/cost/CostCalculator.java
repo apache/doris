@@ -28,12 +28,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -188,6 +190,20 @@ public class CostCalculator {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult inputStatistics = context.getChildStatistics(0);
             return CostEstimate.of(inputStatistics.computeSize(), statistics.computeSize(), 0);
+        }
+
+        public CostEstimate visitPhysicalRepeat(
+                PhysicalRepeat<? extends Plan> repeat, PlanContext context) {
+            // same as aggregate
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            StatsDeriveResult inputStatistics = context.getChildStatistics(0);
+            return CostEstimate.of(inputStatistics.computeSize(), statistics.computeSize(), 0);
+        }
+
+        @Override
+        public CostEstimate visitPhysicalGroupingSets(
+                PhysicalGroupingSets<? extends Plan> groupingSets, PlanContext context) {
+            return visitPhysicalRepeat(groupingSets, context);
         }
 
         @Override

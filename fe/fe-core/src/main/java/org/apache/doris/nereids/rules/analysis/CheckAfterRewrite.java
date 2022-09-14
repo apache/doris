@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -53,7 +54,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .flatMap(List::stream)
                 .collect(Collectors.toSet());
         notFromChildren.removeAll(childrenOutput);
-        if (!notFromChildren.isEmpty()) {
+        boolean allVirtualSlots = notFromChildren.stream().allMatch(VirtualSlotReference.class::isInstance);
+        if (!notFromChildren.isEmpty() && !allVirtualSlots) {
             throw new AnalysisException(String.format("Input slot(s) not in child's output: %s",
                     StringUtils.join(notFromChildren.stream()
                             .map(ExpressionTrait::toSql)

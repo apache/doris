@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -158,6 +159,23 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     return newInPredicate.withChildren(newChildren);
                 })
                 .orElse(newInPredicate);
+    }
+
+    @Override
+    public Expression visitVirtualReference(
+            VirtualSlotReference virtualSlotReference, final ExpressionRewriteContext context) {
+        if (virtualSlotReference.getRealSlots().isEmpty()
+                || virtualSlotReference.hasCast()) {
+            return virtualSlotReference;
+        }
+
+        List<Expression> newRealChildren = virtualSlotReference.getRealSlots().stream()
+                .map(realChild -> rewrite(realChild, context))
+                .collect(Collectors.toList());
+        return new VirtualSlotReference(virtualSlotReference.getExprId(),
+                virtualSlotReference.getName(), virtualSlotReference.getDataType(),
+                virtualSlotReference.nullable(), virtualSlotReference.getQualifier(),
+                newRealChildren, true);
     }
 
     /**

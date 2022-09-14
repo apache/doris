@@ -35,6 +35,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
@@ -141,11 +142,13 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGroupingSets;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -862,9 +865,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // from -> where -> group by -> having -> select
 
             LogicalPlan filter = withFilter(inputRelation, whereClause);
-            LogicalPlan aggregate = withAggregate(filter, selectClause, aggClause);
+            LogicalPlan groupBy = withGroupBy(filter, selectClause, aggClause);
             // TODO: replace and process having at this position
-            LogicalPlan having = withHaving(aggregate, havingClause);
+            LogicalPlan having = withHaving(groupBy, havingClause);
             LogicalPlan projection = withProjection(having, selectClause, aggClause);
             return withSelectHint(projection, selectClause.selectHint());
         });
@@ -962,18 +965,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         );
     }
 
-    private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
-                                      Optional<AggClauseContext> aggCtx) {
+    private LogicalPlan withGroupBy(LogicalPlan input, SelectClauseContext selectCtx,
+            Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
-            List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
+            GroupingElementContext groupingElementCtx = aggCtx.get().groupByItem().groupingElement();
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+            if (groupingElementCtx.GROUPING() != null) {
+                List<List<Expression>> sets = groupingElementCtx.groupingSet().stream()
+                        .map(groupingSet -> visit(groupingSet.expression(), Expression.class))
+                        .collect(Collectors.toList());
+                return new LogicalGroupingSets<>(sets, namedExpressions, input);
+            }
+            if (!groupingElementCtx.expression().isEmpty()) {
+                List<Expression> groupByExpressions = visit(
+                        aggCtx.get().groupByItem().groupingElement().expression(), Expression.class);
+                return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+            }
+            throw new ParseException("not Support type.", aggCtx.get());
         });
     }
 
     private LogicalPlan withHaving(LogicalPlan input, Optional<HavingClauseContext> havingCtx) {
         return input.optionalMap(havingCtx, () -> {
-            if (!(input instanceof LogicalAggregate)) {
+            if (!(input instanceof LogicalAggregate) && !(input instanceof LogicalRepeat)) {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
             return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
+import org.apache.doris.nereids.rules.implementation.LogicalGroupSetsToPhysicalGroupSets;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashC
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
@@ -81,6 +83,7 @@ public class RuleSet {
             new PushdownFilterThroughJoin(),
             new PushdownExpressionsInHashCondition(),
             new PushdownFilterThroughAggregation(),
+            new PushdownFilterThroughRepeat(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new MergeProjects(),
@@ -101,6 +104,7 @@ public class RuleSet {
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
+            .add(new LogicalGroupSetsToPhysicalGroupSets())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()

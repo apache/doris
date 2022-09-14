@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
@@ -114,6 +115,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 + " see more in AggregateDisassemble");
 
         // TODO: add other phase logical when we support distinct aggregate
+    }
+
+    @Override
+    public Void visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PlanContext context) {
+        addToRequestPropertyToChildren(PhysicalProperties.ANY);
+        return null;
     }
 
     @Override

@@ -15,34 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupingSets;
 
 /**
- * column prune rule set.
+ * Implementation rule that convert logical groupingSets to physical groupingSets.
  */
-public class ColumnPruning implements PlanRuleFactory {
+public class LogicalGroupSetsToPhysicalGroupSets extends OneImplementationRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                new PruneFilterChildColumns().build(),
-                new PruneAggChildColumns().build(),
-                new PruneJoinChildrenColumns().build(),
-                new PruneSortChildColumns().build(),
-                new MergeProjects().build(),
-                new PruneRepeatChildColumns().build()
-        );
-    }
-
-    @Override
-    public RulePromise defaultPromise() {
-        return RulePromise.REWRITE;
+    public Rule build() {
+        return logicalGroupingSets().then(groupingSets -> new PhysicalGroupingSets<>(
+                groupingSets.getGroupByExpressions(),
+                groupingSets.getOutputExpressions(),
+                groupingSets.getGroupingSetShapes(),
+                groupingSets.getLogicalProperties(),
+                groupingSets.child())
+        ).toRule(RuleType.LOGICAL_GROUP_SETS_TO_PHYSICAL_GROUP_SETS_RULE);
     }
 }
