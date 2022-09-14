@@ -1,0 +1,11 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: doris-fe-service
+  labels:
+    app: doris-fe
+spec:
+  selector:
+    app: doris-fe
+  clusterIP: None
+  type: ClusterIP

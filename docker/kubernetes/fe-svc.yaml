@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: doris-fe-svc
+  labels:
+    app: doris-fe
+spec:
+  ports:
+  - port: 8030
+    name: web
+  - port: 9030
+    name: mysql
+  selector:
+    app: doris-fe

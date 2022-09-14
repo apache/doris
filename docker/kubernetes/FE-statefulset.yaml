@@ -1,0 +1,73 @@
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: doris-fe
+  labels:
+    app: doris-fe
+spec:
+  replicas: 1
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc-doris-fe
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 300Gi
+  serviceName: doris-fe-service
+  selector:
+    matchLabels:
+      app: doris-fe
+  template:
+    metadata:
+      labels:
+        app: doris-fe
+    spec:
+      volumes:
+         - name: doris-conf
+           configMap:
+              name: doris-configmap
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: doris-fe
+          env:
+            - name: TZ
+              value: "Asia/Shanghai"
+            - name: FE_IPADDRESS
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          image: doris-fe:1.0.0
+          command: [ "/bin/bash", "-ce", "opt/doris/doris-fe-1.0.0/fe/bin/start_fe.sh" ]
+          volumeMounts:
+            - name: pvc-doris-fe
+              mountPath: /opt/doris/doris-fe-1.0.0/fe/doris-meta
+            - name: doris-conf
+              mountPath: /opt/doris/doris-fe-1.0.0/fe/conf/fe.conf
+              subPath: fe.conf
+          livenessProbe:
+            httpGet:
+              path: /api/bootstrap
+              port: 8030
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3      
+          ports:
+            - containerPort: 8030
+              protocol: TCP
+            - containerPort: 9020
+              protocol: TCP
+            - containerPort: 9030
+              protocol: TCP
+            - containerPort: 9010
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 2
+              memory: 4G
+            requests:
+              cpu: 200m
+              memory: 1G
