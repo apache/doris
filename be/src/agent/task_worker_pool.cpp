@@ -663,7 +663,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
             task_status.__set_status_code(TStatusCode::OK);
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
         } else {
-            LOG(WARNING) << "push failed, error_code: " << status
+            LOG(WARNING) << "push failed, error_code: " << status.to_string()
                          << ", signature: " << agent_task_req.signature;
             error_msgs.push_back("push failed");
             task_status.__set_status_code(TStatusCode::RUNTIME_ERROR);
@@ -1595,7 +1595,7 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     Status status = _master_client->report(request, &result);
     bool is_report_success = false;
     if (!status.ok()) {
-        LOG(WARNING) << "report " << TYPE_STRING(type) << " failed. status: " << status
+        LOG(WARNING) << "report " << TYPE_STRING(type) << " failed. status: " << status.to_string()
                      << ", master host: " << _master_info.network_address.hostname
                      << ", port:" << _master_info.network_address.port;
     } else if (result.status.status_code != TStatusCode::OK) {
