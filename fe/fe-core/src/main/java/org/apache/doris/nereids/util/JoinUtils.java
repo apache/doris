@@ -220,7 +220,7 @@ public class JoinUtils {
      */
     public static boolean shouldColocateJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
         if (ConnectContext.get() == null
-                ||ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+                || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
@@ -244,7 +244,7 @@ public class JoinUtils {
      */
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
         if (ConnectContext.get() == null
-                ||!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+                || !ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
@@ -276,7 +276,7 @@ public class JoinUtils {
      */
     public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
         if (ConnectContext.get() == null
-                ||ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+                || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
         if (leftHashSpec.getShuffleType() != ShuffleType.NATURAL
