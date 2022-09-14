@@ -47,6 +47,7 @@ public class BackendServiceClient {
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
+    private final long execPlanTimeout;
 
     public BackendServiceClient(TNetworkAddress address) {
         this.address = address;
@@ -56,21 +57,26 @@ public class BackendServiceClient {
                 .intercept(new OpenTelemetryClientInterceptor()).usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
+        // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
+        execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.execPlanFragment(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+            .execPlanFragment(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.execPlanFragmentPrepare(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+            .execPlanFragmentPrepare(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
-        return stub.execPlanFragmentStart(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+            .execPlanFragmentStart(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(

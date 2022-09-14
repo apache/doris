@@ -137,14 +137,26 @@ public class ExpressionUtils {
 
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
-                .orElse(new BooleanLiteral(type == And.class));
+                .orElse(BooleanLiteral.of(type == And.class));
     }
 
     /**
      * Check whether lhs and rhs are intersecting.
      */
-    public static boolean isIntersecting(Set<SlotReference> lhs, List<SlotReference> rhs) {
-        for (SlotReference rh : rhs) {
+    public static <T> boolean isIntersecting(Set<T> lhs, List<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check whether lhs and rhs are intersecting.
+     */
+    public static <T> boolean isIntersecting(Set<T> lhs, Set<T> rhs) {
+        for (T rh : rhs) {
             if (lhs.contains(rh)) {
                 return true;
             }

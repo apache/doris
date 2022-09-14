@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -33,6 +34,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -67,9 +69,15 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
      * Create newTopJoin.
      */
     public Plan newTopJoin() {
-        Pair<List<NamedExpression>, List<NamedExpression>> projectPair = splitProjectExprs(bOutput);
-        List<NamedExpression> newLeftProjectExpr = projectPair.second;
-        List<NamedExpression> newRightProjectExprs = projectPair.first;
+        // Split inside-project into two part.
+        Map<Boolean, List<NamedExpression>> projectExprsMap = allProjects.stream()
+                .collect(Collectors.partitioningBy(projectExpr -> {
+                    Set<Slot> usedSlots = projectExpr.collect(Slot.class::isInstance);
+                    return bOutput.containsAll(usedSlots);
+                }));
+
+        List<NamedExpression> newLeftProjectExpr = projectExprsMap.get(Boolean.FALSE);
+        List<NamedExpression> newRightProjectExprs = projectExprsMap.get(Boolean.TRUE);
 
         // If add project to B, we should add all slotReference used by hashOnCondition.
         // TODO: Does nonHashOnCondition also need to be considered.

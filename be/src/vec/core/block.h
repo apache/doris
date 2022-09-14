@@ -351,6 +351,7 @@ public:
     doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int,
                                   bool padding_char = false);
 
+    // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
     int64_t get_decompress_time() const { return _decompress_time_ns; }
@@ -503,6 +504,25 @@ public:
         return res;
     }
 };
+
+struct IteratorRowRef {
+    std::shared_ptr<Block> block;
+    int row_pos;
+    bool is_same;
+
+    template <typename T>
+    int compare(const IteratorRowRef& rhs, const T& compare_arguments) const {
+        return block->compare_at(row_pos, rhs.row_pos, compare_arguments, *rhs.block, -1);
+    }
+
+    void reset() {
+        block = nullptr;
+        row_pos = -1;
+        is_same = false;
+    }
+};
+
+using BlockView = std::vector<IteratorRowRef>;
 
 } // namespace vectorized
 } // namespace doris

@@ -15,33 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
- * A file scan provider for hudi.
- * HudiProvier is extended with hive since they both use input format interface to get the split.
+ * Eliminate limit = 0.
  */
-public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
-
-    public ExternalHudiScanProvider(HMSExternalTable hmsTable) {
-        super(hmsTable);
-    }
-
+public class EliminateLimit extends OneRewriteRuleFactory {
     @Override
-    public TFileFormatType getTableFormatType() throws DdlException {
-        return TFileFormatType.FORMAT_PARQUET;
-    }
-
-    @Override
-    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return Collections.emptyList();
+    public Rule build() {
+        return logicalLimit()
+                .when(limit -> limit.getLimit() == 0)
+                .then(limit -> new LogicalEmptyRelation((List) limit.getOutput()))
+                .toRule(RuleType.ELIMINATE_LIMIT);
     }
 }

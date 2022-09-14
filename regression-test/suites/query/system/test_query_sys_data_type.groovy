@@ -15,25 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+suite("test_query_sys_data_type", 'query,p0') {
+    def tbName = "test_data_type"
+    def dbName = "test_query_db"
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+    sql "USE ${dbName}"
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+    sql """ DROP TABLE IF EXISTS ${tbName} """
+    sql """
+        create table ${tbName} (dt date, id int, name char(10), province char(10), os char(1), set1 hll hll_union, set2 bitmap bitmap_union)
+        distributed by hash(id) buckets 1 properties("replication_num"="1");
+    """
 
-import java.util.List;
-
-/**
- * e.g.
- * LogicalLimit(limit=0)   => LogicalEmptyRelation(projects=[limit.output()])
- */
-public class LogicalLimitZeroToLogicalEmptyRelation extends OneRewriteRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalLimit()
-                .when(limit -> limit.getLimit() == 0)
-                .then(limit -> new LogicalEmptyRelation((List) limit.getOutput()))
-                .toRule(RuleType.LOGICAL_LIMIT_TO_LOGICAL_EMPTY_RELATION_RULE);
-    }
+    qt_sql "select column_name, data_type from information_schema.columns where table_schema = '${dbName}' and table_name = '${tbName}'"
 }

@@ -47,9 +47,7 @@ FileScanNode::FileScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _scan_finished(false),
           _max_buffered_batches(32),
           _wait_scanner_timer(nullptr),
-          _runtime_filter_descs(tnode.runtime_filters) {
-    LOG(WARNING) << "file scan node runtime filter size=" << _runtime_filter_descs.size();
-}
+          _runtime_filter_descs(tnode.runtime_filters) {}
 
 Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode, state));

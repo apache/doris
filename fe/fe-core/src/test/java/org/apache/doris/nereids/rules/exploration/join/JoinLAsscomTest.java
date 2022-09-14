@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -30,13 +29,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Optional;
 
 public class JoinLAsscomTest {
@@ -44,10 +41,6 @@ public class JoinLAsscomTest {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-
-    private final List<SlotReference> t1Output = Utils.getOutputSlotReference(scan1);
-    private final List<SlotReference> t2Output = Utils.getOutputSlotReference(scan2);
-    private final List<SlotReference> t3Output = Utils.getOutputSlotReference(scan3);
 
     @Test
     public void testStarJoinLAsscom() {
@@ -66,8 +59,8 @@ public class JoinLAsscomTest {
          * t1      t2               t1      t3
          */
 
-        Expression bottomJoinOnCondition = new EqualTo(t1Output.get(0), t2Output.get(0));
-        Expression topJoinOnCondition = new EqualTo(t1Output.get(1), t3Output.get(1));
+        Expression bottomJoinOnCondition = new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0));
+        Expression topJoinOnCondition = new EqualTo(scan1.getOutput().get(1), scan3.getOutput().get(1));
 
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(bottomJoinOnCondition),
@@ -112,8 +105,8 @@ public class JoinLAsscomTest {
          * t1      t2               t1      t3
          */
 
-        Expression bottomJoinOnCondition = new EqualTo(t1Output.get(0), t2Output.get(0));
-        Expression topJoinOnCondition = new EqualTo(t2Output.get(0), t3Output.get(0));
+        Expression bottomJoinOnCondition = new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0));
+        Expression topJoinOnCondition = new EqualTo(scan2.getOutput().get(0), scan3.getOutput().get(0));
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(bottomJoinOnCondition),
                 Optional.empty(), scan1, scan2);

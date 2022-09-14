@@ -269,8 +269,7 @@ public class VariableMgr {
     }
 
     private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
-        // set global variable should not affect variables of current session.
-        // global variable will only make effect when connecting in.
+        // global variable will make effect when is set immediately.
         wlock.lock();
         try {
             setValue(ctx.getObj(), ctx.getField(), value);

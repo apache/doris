@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -27,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -46,9 +44,9 @@ abstract class ThreeJoinHelper {
     protected final GroupPlan b;
     protected final GroupPlan c;
 
-    protected final List<SlotReference> aOutput;
-    protected final List<SlotReference> bOutput;
-    protected final List<SlotReference> cOutput;
+    protected final Set<Slot> aOutput;
+    protected final Set<Slot> bOutput;
+    protected final Set<Slot> cOutput;
 
     protected final List<NamedExpression> allProjects = Lists.newArrayList();
 
@@ -72,9 +70,9 @@ abstract class ThreeJoinHelper {
         this.b = b;
         this.c = c;
 
-        aOutput = Utils.getOutputSlotReference(a);
-        bOutput = Utils.getOutputSlotReference(b);
-        cOutput = Utils.getOutputSlotReference(c);
+        aOutput = a.getOutputSet();
+        bOutput = b.getOutputSet();
+        cOutput = c.getOutputSet();
 
         Preconditions.checkArgument(!topJoin.getHashJoinConjuncts().isEmpty(), "topJoin hashJoinConjuncts must exist.");
         Preconditions.checkArgument(!bottomJoin.getHashJoinConjuncts().isEmpty(),
@@ -103,7 +101,7 @@ abstract class ThreeJoinHelper {
         // Join C = B + A for above example.
         // TODO: also need for otherJoinCondition
         for (Expression topJoinOnClauseConjunct : topJoin.getHashJoinConjuncts()) {
-            Set<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
+            Set<Slot> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
             if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutput) && ExpressionUtils.isIntersecting(
                     topJoinUsedSlot, bOutput) && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutput)) {
                 return false;
@@ -139,27 +137,5 @@ abstract class ThreeJoinHelper {
         }
 
         return true;
-    }
-
-    /**
-     * Split inside-project into two part.
-     *
-     * @param topJoinChild output of topJoin groupPlan child.
-     */
-    protected Pair<List<NamedExpression>, List<NamedExpression>> splitProjectExprs(List<SlotReference> topJoinChild) {
-        List<NamedExpression> newTopJoinChildProjectExprs = Lists.newArrayList();
-        List<NamedExpression> newBottomJoinProjectExprs = Lists.newArrayList();
-
-        HashSet<SlotReference> topJoinOutputSlotsSet = new HashSet<>(topJoinChild);
-
-        for (NamedExpression projectExpr : allProjects) {
-            Set<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
-            if (topJoinOutputSlotsSet.containsAll(usedSlotRefs)) {
-                newTopJoinChildProjectExprs.add(projectExpr);
-            } else {
-                newBottomJoinProjectExprs.add(projectExpr);
-            }
-        }
-        return Pair.of(newTopJoinChildProjectExprs, newBottomJoinProjectExprs);
     }
 }

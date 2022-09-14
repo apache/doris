@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickS
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -48,6 +49,7 @@ public class RuleSet {
             .add(JoinCommute.OUTER_LEFT_DEEP)
             .add(JoinLAsscom.INNER)
             .add(JoinLAsscomProject.INNER)
+            .add(new PushdownFilterThroughProject())
             .add(new MergeConsecutiveProjects())
             .build();
 

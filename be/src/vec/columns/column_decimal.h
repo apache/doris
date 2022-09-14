@@ -156,6 +156,8 @@ public:
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hash,
                                   const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,

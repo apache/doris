@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/exception.h"
 #include "vec/common/pod_array_fwd.h"
@@ -41,6 +42,18 @@ class SipHash;
         for (size_t i = 0; i < s; i++) {                                 \
             if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
         }                                                                \
+    }
+
+#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
+    if (null_data == nullptr) {                                                      \
+        for (size_t i = 0; i < s; i++) {                                             \
+            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
+        }                                                                            \
+    } else {                                                                         \
+        for (size_t i = 0; i < s; i++) {                                             \
+            if (null_data[i] == 0)                                                   \
+                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
+        }                                                                            \
     }
 
 namespace doris::vectorized {
@@ -107,6 +120,12 @@ public:
     /// If size is less current size, then data is cut.
     /// If size is greater, than default values are appended.
     virtual MutablePtr clone_resized(size_t s) const {
+        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        return nullptr;
+    }
+
+    // shrink the end zeros for CHAR type or ARRAY<CHAR> type
+    virtual MutablePtr get_shinked_column() {
         LOG(FATAL) << "Cannot clone_resized() column " << get_name();
         return nullptr;
     }
@@ -322,6 +341,14 @@ public:
         LOG(FATAL) << "update_hashes_with_value not supported";
     };
 
+    /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
+    /// null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    virtual void update_crcs_with_value(std::vector<uint32_t>& hash, PrimitiveType type,
+                                        const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_crcs_with_value not supported";
+    };
+
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
       * If result_size_hint > 0, then makes advance reserve(result_size_hint) for the result column;
@@ -523,6 +550,8 @@ public:
     virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
+
+    virtual bool is_column_array() const { return false; }
 
     /// If the only value column can contain is NULL.
     /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))

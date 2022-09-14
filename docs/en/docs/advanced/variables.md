@@ -526,3 +526,9 @@ Translated with www.DeepL.com/Translator (free version)
 * `trim_tailing_spaces_for_external_table_query`
 
   Used to control whether trim the tailing spaces while quering Hive external tables. The default is false.
+
+* `skip_storage_engine_merge`
+  For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
+
+* `skip_delete_predicate`
+  For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.

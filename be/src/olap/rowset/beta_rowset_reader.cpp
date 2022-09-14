@@ -24,7 +24,6 @@
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
 #include "olap/tablet_meta.h"
 #include "vec/core/block.h"
@@ -119,7 +118,9 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
             auto d = read_context->delete_bitmap->get_agg(
                     {rowset_id, seg_id, read_context->version.second});
-            if (d->isEmpty()) continue; // Empty delete bitmap for the segment
+            if (d->isEmpty()) {
+                continue; // Empty delete bitmap for the segment
+            }
             VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
                        << ", segment id:" << seg_id << ", size:" << d->cardinality();
             read_options.delete_bitmap.emplace(seg_id, std::move(d));
@@ -318,6 +319,27 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
             is_first = false;
         } while (block->rows() <
                  _context->batch_size); // here we should keep block.rows() < batch_size
+    }
+
+    return Status::OK();
+}
+
+Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    if (config::enable_storage_vectorization && _context->is_vec) {
+        do {
+            auto s = _iterator->next_block_view(block_view);
+            if (!s.ok()) {
+                if (s.is_end_of_file()) {
+                    return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+                } else {
+                    LOG(WARNING) << "failed to read next block: " << s.to_string();
+                    return Status::OLAPInternalError(OLAP_ERR_ROWSET_READ_FAILED);
+                }
+            }
+        } while (block_view->empty());
+    } else {
+        return Status::NotSupported("block view only support enable_storage_vectorization");
     }
 
     return Status::OK();

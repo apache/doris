@@ -64,6 +64,18 @@ MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     return res;
 }
 
+MutableColumnPtr ColumnString::get_shinked_column() {
+    auto shrinked_column = ColumnString::create();
+    shrinked_column->get_offsets().reserve(offsets.size());
+    shrinked_column->get_chars().reserve(chars.size());
+    for (int i = 0; i < size(); i++) {
+        StringRef str = get_data_at(i);
+        reinterpret_cast<ColumnString*>(shrinked_column.get())
+                ->insert_data(str.data, strnlen(str.data, str.size));
+    }
+    return shrinked_column;
+}
+
 void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 
@@ -100,6 +112,26 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
             ColumnString::insert_default();
         } else {
             ColumnString::insert_from(src, *x);
+        }
+    }
+}
+
+void ColumnString::update_crcs_with_value(std::vector<uint32_t>& hashes, doris::PrimitiveType type,
+                                          const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+            }
         }
     }
 }
