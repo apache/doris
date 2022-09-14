@@ -80,11 +80,8 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
-        status = _writer->append(_table_name, &output_block, _output_vexpr_ctxs, start_send_row,
-                                 &num_row_sent);
-        if (UNLIKELY(!status.ok())) {
-            return status;
-        }
+        RETURN_IF_ERROR(_writer->append(_table_name, &output_block, _output_vexpr_ctxs,
+                                        start_send_row, &num_row_sent));
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }
