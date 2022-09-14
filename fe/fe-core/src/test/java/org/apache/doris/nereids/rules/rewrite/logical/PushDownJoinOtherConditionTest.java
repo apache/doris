@@ -19,11 +19,8 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -45,11 +42,8 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.util.Optional;
 
-/**
- * plan rewrite ut.
- */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushPredicateThroughJoinTest {
+public class PushDownJoinOtherConditionTest {
 
     private Plan rStudent;
     private Plan rScore;
@@ -59,27 +53,27 @@ public class PushPredicateThroughJoinTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
-        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
+        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of(""));
     }
 
     @Test
     public void oneSide() {
         oneSide(JoinType.CROSS_JOIN, false);
         oneSide(JoinType.INNER_JOIN, false);
-        oneSide(JoinType.LEFT_OUTER_JOIN, false);
-        oneSide(JoinType.LEFT_SEMI_JOIN, false);
-        oneSide(JoinType.LEFT_ANTI_JOIN, false);
-        oneSide(JoinType.RIGHT_OUTER_JOIN, true);
-        oneSide(JoinType.RIGHT_SEMI_JOIN, true);
-        oneSide(JoinType.RIGHT_ANTI_JOIN, true);
+        oneSide(JoinType.LEFT_OUTER_JOIN, true);
+        oneSide(JoinType.LEFT_SEMI_JOIN, true);
+        oneSide(JoinType.LEFT_ANTI_JOIN, true);
+        oneSide(JoinType.RIGHT_OUTER_JOIN, false);
+        oneSide(JoinType.RIGHT_SEMI_JOIN, false);
+        oneSide(JoinType.RIGHT_ANTI_JOIN, false);
     }
 
     private void oneSide(JoinType joinType, boolean testRight) {
 
-        Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
-        Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
-        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
+        Expression pushSide1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
+        Expression pushSide2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
+        Expression condition = ExpressionUtils.and(pushSide1, pushSide2);
 
         Plan left = rStudent;
         Plan right = rScore;
@@ -88,9 +82,8 @@ public class PushPredicateThroughJoinTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.empty(), left, right);
-        Plan filter = new LogicalFilter<>(whereCondition, join);
-        Plan root = new LogicalProject<>(Lists.newArrayList(), filter);
+        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.of(condition), left, right);
+        Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
@@ -102,7 +95,7 @@ public class PushPredicateThroughJoinTest {
                 .child(1).getLogicalExpression().getPlan();
         if (testRight) {
             shouldFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-               .child(1).getLogicalExpression().getPlan();
+                    .child(1).getLogicalExpression().getPlan();
             shouldScan = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
                     .child(0).getLogicalExpression().getPlan();
         }
@@ -112,7 +105,7 @@ public class PushPredicateThroughJoinTest {
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
 
-        Assertions.assertEquals(whereCondition, actualFilter.getPredicates());
+        Assertions.assertEquals(condition, actualFilter.getPredicates());
     }
 
     @Test
@@ -123,15 +116,12 @@ public class PushPredicateThroughJoinTest {
 
     private void bothSideToBothSide(JoinType joinType) {
 
-        Expression bothSideEqualTo = new EqualTo(new Add(rStudent.getOutput().get(0), Literal.of(1)),
-                new Subtract(rScore.getOutput().get(0), Literal.of(2)));
         Expression leftSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(bothSideEqualTo, leftSide, rightSide);
+        Expression condition = ExpressionUtils.and(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.empty(), rStudent, rScore);
-        Plan filter = new LogicalFilter<>(whereCondition, join);
-        Plan root = new LogicalProject<>(Lists.newArrayList(), filter);
+        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.of(condition), rStudent, rScore);
+        Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
@@ -145,29 +135,27 @@ public class PushPredicateThroughJoinTest {
         Assertions.assertTrue(shouldJoin instanceof LogicalJoin);
         Assertions.assertTrue(leftFilter instanceof LogicalFilter);
         Assertions.assertTrue(rightFilter instanceof LogicalFilter);
-        LogicalJoin<Plan, Plan> actualJoin = (LogicalJoin<Plan, Plan>) shouldJoin;
         LogicalFilter<Plan> actualLeft = (LogicalFilter<Plan>) leftFilter;
         LogicalFilter<Plan> actualRight = (LogicalFilter<Plan>) rightFilter;
-        Assertions.assertEquals(bothSideEqualTo, actualJoin.getOtherJoinCondition().get());
         Assertions.assertEquals(leftSide, actualLeft.getPredicates());
         Assertions.assertEquals(rightSide, actualRight.getPredicates());
     }
 
     @Test
     public void bothSideToOneSide() {
-        bothSideToOneSide(JoinType.LEFT_OUTER_JOIN, false);
-        bothSideToOneSide(JoinType.LEFT_ANTI_JOIN, false);
-        bothSideToOneSide(JoinType.LEFT_SEMI_JOIN, false);
-        bothSideToOneSide(JoinType.RIGHT_OUTER_JOIN, true);
-        bothSideToOneSide(JoinType.RIGHT_ANTI_JOIN, true);
-        bothSideToOneSide(JoinType.RIGHT_SEMI_JOIN, true);
+        bothSideToOneSide(JoinType.LEFT_OUTER_JOIN, true);
+        bothSideToOneSide(JoinType.LEFT_ANTI_JOIN, true);
+        bothSideToOneSide(JoinType.LEFT_SEMI_JOIN, true);
+        bothSideToOneSide(JoinType.RIGHT_OUTER_JOIN, false);
+        bothSideToOneSide(JoinType.RIGHT_ANTI_JOIN, false);
+        bothSideToOneSide(JoinType.RIGHT_SEMI_JOIN, false);
     }
 
     private void bothSideToOneSide(JoinType joinType, boolean testRight) {
 
         Expression pushSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression reserveSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(pushSide, reserveSide);
+        Expression condition = ExpressionUtils.and(pushSide, reserveSide);
 
         Plan left = rStudent;
         Plan right = rScore;
@@ -176,23 +164,22 @@ public class PushPredicateThroughJoinTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.empty(), left, right);
-        Plan filter = new LogicalFilter<>(whereCondition, join);
-        Plan root = new LogicalProject<>(Lists.newArrayList(), filter);
+        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.of(condition), left, right);
+        Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
 
-        Plan shouldJoin = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
+        Plan shouldJoin = rootGroup.getLogicalExpression()
                 .child(0).getLogicalExpression().getPlan();
-        Plan shouldFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
+        Plan shouldFilter = rootGroup.getLogicalExpression()
                 .child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan shouldScan = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
+        Plan shouldScan = rootGroup.getLogicalExpression()
                 .child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
         if (testRight) {
-            shouldFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
+            shouldFilter = rootGroup.getLogicalExpression()
                     .child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
-            shouldScan = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
+            shouldScan = rootGroup.getLogicalExpression()
                     .child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
         }
 
@@ -204,6 +191,6 @@ public class PushPredicateThroughJoinTest {
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicatesThroughJoin());
+        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushDownJoinOtherCondition());
     }
 }
