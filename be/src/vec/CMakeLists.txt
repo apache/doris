@@ -54,6 +54,8 @@ set(VEC_FILES
   common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
+  common/sort/sorter.cpp
+  common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
   core/block_info.cpp
@@ -86,7 +88,6 @@ set(VEC_FILES
   exec/ves_http_scanner.cpp
   exec/volap_scan_node.cpp
   exec/vsort_node.cpp
-  exec/vsort_exec_exprs.cpp
   exec/volap_scanner.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
