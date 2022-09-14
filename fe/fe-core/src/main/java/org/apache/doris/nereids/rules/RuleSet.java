@@ -21,6 +21,9 @@ import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.JoinLAsscomProject;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
@@ -55,6 +58,9 @@ public class RuleSet {
             .add(JoinCommuteProject.LEFT_DEEP)
             .add(JoinLAsscom.INNER)
             .add(JoinLAsscomProject.INNER)
+            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
+            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
+            .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(new PushdownFilterThroughProject())
             .add(new MergeConsecutiveProjects())
             .build();
@@ -137,6 +143,11 @@ public class RuleSet {
 
         public RuleFactories add(RuleFactory ruleFactory) {
             rules.addAll(ruleFactory.buildRules());
+            return this;
+        }
+
+        public RuleFactories addAll(List<Rule> rules) {
+            this.rules.addAll(rules);
             return this;
         }
 
