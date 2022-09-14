@@ -78,6 +78,15 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testWithClause() {
+//        String sql = "with t1 as (select * from supplier where s_suppkey < 10) select * from t1";
+        String sql = "select * from supplier where s_Suppkey < 10";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof LogicalPlanAdapter);
+    }
+
+    @Test
     public void testExplainNormal() {
         String sql = "explain select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();

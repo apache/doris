@@ -49,8 +49,9 @@ singleStatement
     ;
 
 statement
-    : query                                                            #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query       #explain
+    : cte? query                                                            #statementDefault
+    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)?
+        query                                                          #explain
     ;
 
 //  -----------------Query-----------------
@@ -74,6 +75,18 @@ querySpecification
       whereClause?
       aggClause?
       havingClause?                                                         #regularQuerySpecification
+    ;
+
+cte
+    : WITH withClause (COMMA withClause)*
+    ;
+
+withClause
+    : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
+    ;
+
+columnAliases
+    : LEFT_PAREN identifier (COMMA identifier)* RIGHT_PAREN
     ;
 
 selectClause

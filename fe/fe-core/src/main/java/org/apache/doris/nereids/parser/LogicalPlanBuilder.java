@@ -28,6 +28,7 @@ import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
+import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
@@ -71,6 +73,7 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
+import org.apache.doris.nereids.DorisParser.WithClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -113,6 +116,8 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WithClause;
+import org.apache.doris.nereids.trees.expressions.WithSubquery;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -131,6 +136,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -195,6 +201,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(ctx.statement()));
     }
 
+    @Override
+    public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
+        System.out.println("single stmt");
+        LogicalPlan plan = visitQuery(ctx.query());
+        return ctx.cte() == null ? plan : withCte(ctx.cte(), plan);
+    }
+
     /**
      * Visit multi-statements.
      */
@@ -216,6 +229,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Plan parsing
      * ******************************************************************************************** */
 
+    /**
+     * process withClauses and store the results in a logical plan node LogicalCTE
+     */
+    public LogicalPlan withCte(CteContext ctx, LogicalPlan plan) {
+        System.out.println("CTE");
+        // withClause list
+        List<WithClause> list = ctx.withClause().stream()
+                .map(withClauseCtx -> (WithClause) visitWithClause(withClauseCtx))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalCTE<>(list, plan);
+    }
+
+    @Override
+    public Expression visitWithClause(WithClauseContext ctx) {
+        System.out.println("withClause");
+        LogicalPlan plan = visitQuery(ctx.query());
+        // todo: support column aliases
+        return new WithClause(ctx.identifier().getText(), new WithSubquery(plan));
+    }
+
     @Override
     public Command visitExplain(ExplainContext ctx) {
         LogicalPlan logicalPlan = plan(ctx.query());
@@ -229,7 +262,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitQuery(QueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: need to add withQueryResultClauses and withCTE
+            // TODO: need to add withQueryResultClauses and withCTE -> Doing!
             LogicalPlan query = plan(ctx.queryTerm());
             return withQueryOrganization(query, ctx.queryOrganization());
         });
