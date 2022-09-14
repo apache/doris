@@ -70,7 +70,7 @@ import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.Maps;
 
-import java.util.AbstractMap;
+import java.util.AbstractMap.SimpleEntry;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -341,14 +341,23 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
         Map<Slot, ColumnStats> childColumnStats = statsDeriveResult.getSlotToColumnStats();
         Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
+            ColumnStats value = null;
             Set<Slot> slots = projection.getInputSlots();
             if (slots.isEmpty()) {
-                return new AbstractMap.SimpleEntry<>(projection.toSlot(), ColumnStats.createDefaultColumnStats());
+                value = ColumnStats.createDefaultColumnStats();
             } else {
                 // TODO: just a trick here, need to do real project on column stats
-                return new AbstractMap.SimpleEntry<>(projection.toSlot(),
-                        childColumnStats.get(slots.iterator().next()));
+                for (Slot slot : slots) {
+                    if (childColumnStats.containsKey(slot)) {
+                        value = childColumnStats.get(slot);
+                        break;
+                    }
+                }
+                if (value == null) {
+                    value = ColumnStats.createDefaultColumnStats();
+                }
             }
+            return new SimpleEntry<>(projection.toSlot(), value);
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
         statsDeriveResult.setSlotToColumnStats(columnsStats);
         return statsDeriveResult;
