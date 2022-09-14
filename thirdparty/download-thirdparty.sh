@@ -329,7 +329,7 @@ echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 if [[ "${JEMALLOC_SOURCE}" = "jemalloc-5.2.1" ]]; then
     cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 < "${TP_PATCH_DIR}/jemalloc_hook.patch"
+        patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
