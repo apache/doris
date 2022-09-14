@@ -75,10 +75,10 @@ public class RuntimeFilterTest extends SSBTestBase {
         String sql = SSBUtils.Q4_1;
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 4
-                && checkRuntimeFilterExpr(filters.get(0), "p_partkey", "lo_partkey")
-                && checkRuntimeFilterExpr(filters.get(1), "s_suppkey", "lo_suppkey")
-                && checkRuntimeFilterExpr(filters.get(2), "c_custkey", "lo_custkey")
-                && checkRuntimeFilterExpr(filters.get(3), "lo_orderdate", "d_datekey"));
+                && checkRuntimeFilterExpr(filters.get(0), "d_datekey", "lo_orderdate")
+                && checkRuntimeFilterExpr(filters.get(1), "p_partkey", "lo_partkey")
+                && checkRuntimeFilterExpr(filters.get(2), "s_suppkey", "lo_suppkey")
+                && checkRuntimeFilterExpr(filters.get(3), "c_custkey", "lo_custkey"));
     }
 
     @Test
