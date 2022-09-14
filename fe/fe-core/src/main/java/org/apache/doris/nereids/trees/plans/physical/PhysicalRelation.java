@@ -83,7 +83,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 }

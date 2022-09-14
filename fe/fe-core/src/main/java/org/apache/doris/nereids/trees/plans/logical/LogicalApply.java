@@ -140,7 +140,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         if (correlationFilter.isPresent()) {
             return new ImmutableList.Builder<Expression>()
                     .addAll(correlationSlot)

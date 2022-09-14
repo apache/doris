@@ -91,7 +91,7 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         Builder<Expression> builder = new Builder<Expression>()
                 .addAll(hashJoinConjuncts);
         otherJoinCondition.ifPresent(builder::add);
