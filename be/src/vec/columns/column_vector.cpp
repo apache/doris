@@ -112,6 +112,16 @@ void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
+void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
+                                               const uint8_t* __restrict null_data) const {
+    auto s = size();
+    for (int i = 0; i < s; i++) {
+        hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                               hashes[i]);
+    }
+}
+
+template <typename T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
                                   bool last_column) const {
@@ -119,7 +129,7 @@ void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 template <typename T>
-void ColumnVector<T>::update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                              const uint8_t* __restrict null_data) const {
     auto s = hashes.size();
     DCHECK(s == size());

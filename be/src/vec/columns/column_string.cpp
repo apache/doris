@@ -116,7 +116,7 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
-void ColumnString::update_crcs_with_value(std::vector<uint32_t>& hashes, doris::PrimitiveType type,
+void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
                                           const uint8_t* __restrict null_data) const {
     auto s = hashes.size();
     DCHECK(s == size());

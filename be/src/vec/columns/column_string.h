@@ -258,8 +258,19 @@ public:
         SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
-    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override {
+        auto s = size();
+        for (int i = 0; i < s; i++) {
+            size_t string_size = size_at(i);
+            size_t offset = offset_at(i);
+            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                   string_size, hashes[i]);
+        }
+    }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -329,19 +340,31 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
+    bool can_be_inside_nullable() const override {
+        return true;
+    }
 
-    bool is_column_string() const override { return true; }
+    bool is_column_string() const override {
+        return true;
+    }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnString);
     }
 
-    Chars& get_chars() { return chars; }
-    const Chars& get_chars() const { return chars; }
+    Chars& get_chars() {
+        return chars;
+    }
+    const Chars& get_chars() const {
+        return chars;
+    }
 
-    Offsets& get_offsets() { return offsets; }
-    const Offsets& get_offsets() const { return offsets; }
+    Offsets& get_offsets() {
+        return offsets;
+    }
+    const Offsets& get_offsets() const {
+        return offsets;
+    }
 
     void clear() override {
         chars.clear();
