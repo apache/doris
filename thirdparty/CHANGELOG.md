@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20220914
+
+- Added: xxhash 0.8.1
+- Added: jemalloc 5.2.1, Build jemalloc separately, and name it as jemalloc_doris, to distinguish it from jemalloc in arrow.
+
 ## v20220811
 - Modified: brpc 1.1.0 -> 1.2.0 fix _dl_sym undefined reference on Ubuntu22.04
 

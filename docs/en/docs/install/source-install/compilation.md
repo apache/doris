@@ -59,31 +59,34 @@ This document focuses on how to code Doris through source code.
 | apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
 | apache/doris:build-env-for-1.0.0| | 1.0.0 |
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
-| apache/doris:build-env-ldb-toolchain-latest | trunk | trunk |
+| apache/doris:build-env-ldb-toolchain-latest | | 1.1.x, trunk |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | 1.1.x, trunk |
 
 **note**:
 
-> 1. Dev docker image [ChangeLog](https://github.com/apache/doris/blob/master/thirdparty/CHANGELOG.md)
+> 1. Third-party libraries in images with no-avx2 in their names that can run on CPUs that do not support avx2 instructions. Doris can be compiled with the USE_AVX2=0 option.
 
-> 2. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the 0.14.x code will use apache/incubator-doris:build-env-1.3.1.
+> 2. Dev docker image [ChangeLog](https://github.com/apache/doris/blob/master/thirdparty/CHANGELOG.md)
 
-> 3. From docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
->
->   Switch to JDK 8:
->
->   ```
->   $ alternatives --set java java-1.8.0-openjdk.x86_64
->   $ alternatives --set javac java-1.8.0-openjdk.x86_64
->   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
->   ```
->
->   Switch to JDK 11:
->
->   ```
->   $ alternatives --set java java-11-openjdk.x86_64
->   $ alternatives --set javac java-11-openjdk.x86_64
->   $ export JAVA_HOME=/usr/lib/jvm/java-11
->   ```
+> 3. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the 0.14.x code will use apache/incubator-doris:build-env-1.3.1.
+
+> 4. Since the docker image of build-env-1.3.1 includes both OpenJDK 8 and OpenJDK 11, please confirm the default JDK version with `java -version`. You can also switch versions in the following ways (it is recommended to use JDK8 by default)
+    >
+    >   Switch to JDK 8:
+    >
+    >   ```
+    >   alternatives --set java java-1.8.0-openjdk.x86_64
+    >   alternatives --set javac java-1.8.0-openjdk.x86_64
+    >   export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+    >   ```
+    >
+    >   Switch to JDK 11:
+    >
+    >   ```
+    >   alternatives --set java java-11-openjdk.x86_64
+    >   alternatives --set javac java-11-openjdk.x86_64
+    >   export JAVA_HOME=/usr/lib/jvm/java-11
+    >   ```
 
 2. Running Mirror
 

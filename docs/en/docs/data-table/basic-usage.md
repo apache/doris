@@ -614,7 +614,7 @@ The default way to implement Join is to filter the small table conditionally, br
 
 In this case, it is recommended to explicitly specify Shuffle Join, also known as Partitioned Join, where both the small and large tables are Hashed according to the key of the join and then perform a distributed join, with the memory consumption being spread across all compute nodes in the cluster.
 
-Doris will automatically attempt a Broadcast Join and switch to a Shuffle Join if the small table is estimated to be too large; note that if a Broadcast Join is explicitly specified at this point, it will also switch to a Shuffle Join.
+Doris will automatically attempt a Broadcast Join and switch to a Shuffle Join if the small table is estimated to be too large; note that if a Broadcast Join is explicitly specified at this point, it will enforce Broadcast Join.
 
 Use Broadcast Join (default):
 
