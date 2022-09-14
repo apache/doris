@@ -59,6 +59,11 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
             JoinType.CROSS_JOIN
     );
 
+    private static final ImmutableList<JoinType> COULD_PUSH_EQUAL_TO = ImmutableList.of(
+            JoinType.INNER_JOIN,
+            JoinType.CROSS_JOIN
+    );
+
     /*
      * For example:
      * select a.k1, b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5
@@ -99,7 +104,8 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
 
             ExpressionUtils.extractConjunction(filterPredicates)
                     .forEach(predicate -> {
-                        if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
+                        if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))
+                            && COULD_PUSH_EQUAL_TO.contains(join.getJoinType())) {
                             joinConditions.add(predicate);
                         } else {
                             filterConditions.add(predicate);
