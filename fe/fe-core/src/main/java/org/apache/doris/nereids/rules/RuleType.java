@@ -99,7 +99,6 @@ public enum RuleType {
     // Eliminate plan
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
     ELIMINATE_FILTER(RuleTypeClass.REWRITE),
-
     FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     ROLLUP_AGG_SCAN(RuleTypeClass.REWRITE),
     ROLLUP_AGG_FILTER_SCAN(RuleTypeClass.REWRITE),
@@ -107,8 +106,9 @@ public enum RuleType {
     ROLLUP_AGG_PROJECT_FILTER_SCAN(RuleTypeClass.REWRITE),
     ROLLUP_AGG_FILTER_PROJECT_SCAN(RuleTypeClass.REWRITE),
     OLAP_SCAN_PARTITION_PRUNE(RuleTypeClass.REWRITE),
-    // Swap plan
-    SWAP_FILTER_AND_PROJECT(RuleTypeClass.REWRITE),
+    // Pushdown filter
+    PUSHDOWN_FILTER_THROUGH_PROJET(RuleTypeClass.REWRITE),
+    LOGICAL_LIMIT_TO_LOGICAL_EMPTY_RELATION_RULE(RuleTypeClass.REWRITE),
     SWAP_LIMIT_PROJECT(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
@@ -152,8 +152,8 @@ public enum RuleType {
         return ruleTypeClass;
     }
 
-    public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> Rule build(
-            PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
+    public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan>
+            Rule build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
         return patternMatcher.toRule(this);
     }
 

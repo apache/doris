@@ -50,11 +50,11 @@ public class JoinCommute extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin()
+        return logicalJoin()
                 .when(this::check)
                 .then(join -> {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
-                            join.getJoinType(),
+                            join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
                             join.getOtherJoinCondition(),
                             join.right(), join.left(),
