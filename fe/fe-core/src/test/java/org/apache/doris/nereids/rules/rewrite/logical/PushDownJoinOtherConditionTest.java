@@ -112,6 +112,8 @@ public class PushDownJoinOtherConditionTest {
     public void bothSideToBothSide() {
         bothSideToBothSide(JoinType.CROSS_JOIN);
         bothSideToBothSide(JoinType.INNER_JOIN);
+        bothSideToBothSide(JoinType.LEFT_SEMI_JOIN);
+        bothSideToBothSide(JoinType.RIGHT_SEMI_JOIN);
     }
 
     private void bothSideToBothSide(JoinType joinType) {
@@ -145,10 +147,8 @@ public class PushDownJoinOtherConditionTest {
     public void bothSideToOneSide() {
         bothSideToOneSide(JoinType.LEFT_OUTER_JOIN, true);
         bothSideToOneSide(JoinType.LEFT_ANTI_JOIN, true);
-        bothSideToOneSide(JoinType.LEFT_SEMI_JOIN, true);
         bothSideToOneSide(JoinType.RIGHT_OUTER_JOIN, false);
         bothSideToOneSide(JoinType.RIGHT_ANTI_JOIN, false);
-        bothSideToOneSide(JoinType.RIGHT_SEMI_JOIN, false);
     }
 
     private void bothSideToOneSide(JoinType joinType, boolean testRight) {
