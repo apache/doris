@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -29,33 +28,42 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.alibaba.google.common.base.Preconditions;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class ChildrenPropertiesRegulator extends PlanVisitor<Double, PlanContext> {
+/**
+ * ensure child add enough distribute.
+ */
+public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
 
+    private final GroupExpression parent;
     private final List<GroupExpression> children;
     private final List<PhysicalProperties> childrenProperties;
     private final JobContext jobContext;
     private double enforceCost = 0.0;
 
-    public ChildrenPropertiesRegulator(List<GroupExpression> children,
+    public ChildrenPropertiesRegulator(GroupExpression parent, List<GroupExpression> children,
             List<PhysicalProperties> childrenProperties, JobContext jobContext) {
+        this.parent = parent;
         this.children = children;
         this.childrenProperties = childrenProperties;
         this.jobContext = jobContext;
     }
 
+    public double adjustChildrenProperties() {
+        return parent.getPlan().accept(this, null);
+    }
+
     @Override
-    public Double visit(Plan plan, PlanContext context) {
+    public Double visit(Plan plan, Void context) {
         return null;
     }
 
     @Override
     public Double visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
-            PlanContext context) {
+            Void context) {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(childrenProperties.size() == 2);
         DistributionSpec leftDistributionSpec = childrenProperties.get(0).getDistributionSpec();

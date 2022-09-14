@@ -198,6 +198,9 @@ public class Group {
         return null;
     }
 
+    /**
+     * replace best plan with new properties
+     */
     public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
         Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;

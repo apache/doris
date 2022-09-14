@@ -117,7 +117,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         for (; requestPropertiesIndex < requestChildrenPropertiesList.size(); requestPropertiesIndex++) {
             // Get one from List<request property to children>
             // like: [ Properties {"", ANY}, Properties {"", BROADCAST} ],
-            List<PhysicalProperties> requestChildrenProperties = requestChildrenPropertiesList.get(requestPropertiesIndex);
+            List<PhysicalProperties> requestChildrenProperties
+                    = requestChildrenPropertiesList.get(requestPropertiesIndex);
 
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
@@ -171,7 +172,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
                 // to ensure distributionSpec has been added sufficiently.
                 ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(
-                        lowestCostChildren, childrenOutputProperties, context);
+                        groupExpression, lowestCostChildren, childrenOutputProperties, context);
+                double enforceCost = regulator.adjustChildrenProperties();
+                curTotalCost += enforceCost;
 
                 // Not need to do pruning here because it has been done when we get the
                 // best expr from the child group

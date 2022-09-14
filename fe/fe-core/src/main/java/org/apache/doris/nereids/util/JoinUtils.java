@@ -269,6 +269,9 @@ public class JoinUtils {
         return joinDistributionSpec.satisfy(leftDistributionSpec);
     }
 
+    /**
+     * could do colocate join with left and right child distribution spec.
+     */
     public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
