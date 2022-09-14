@@ -110,7 +110,8 @@ public class LogicalOlapScan extends LogicalRelation {
         if (o == null || getClass() != o.getClass() || !super.equals(o)) {
             return false;
         }
-        return Objects.equals(selectedPartitionIds, ((LogicalOlapScan) o).selectedPartitionIds);
+        return Objects.equals(selectedPartitionIds, ((LogicalOlapScan) o).selectedPartitionIds)
+                && Objects.equals(candidateIndexIds, ((LogicalOlapScan) o).candidateIndexIds);
     }
 
     @Override
