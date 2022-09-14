@@ -46,6 +46,8 @@ suite("view") {
         on v1.c_custkey = t.lo_custkey
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     qt_select_1 """
         select * 
         from v1

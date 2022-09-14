@@ -195,6 +195,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
 
+    public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
+
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
@@ -539,6 +541,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
     public boolean enableLocalExchange = false;
 
+
     /**
      * For debugg purpose, dont' merge unique key and agg key when reading data.
      */
@@ -550,6 +553,13 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
     public boolean skipDeletePredicate = false;
+
+    // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
+    // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
+    // in nereids for some mistaken modification. You should set it on the
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER)
+    public boolean enableFallbackToOriginalPlanner = true;
+
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
