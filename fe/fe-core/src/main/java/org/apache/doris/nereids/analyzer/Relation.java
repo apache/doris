@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.trees.plans.RelationId;
+
 /**
  * Relation base interface
  */
 public interface Relation {
+    RelationId getId();
 }

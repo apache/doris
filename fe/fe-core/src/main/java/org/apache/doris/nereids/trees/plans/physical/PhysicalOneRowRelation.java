@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -41,6 +42,8 @@ import java.util.Optional;
  */
 public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelation {
     private final List<NamedExpression> projects;
+
+    private RelationId id;
 
     public PhysicalOneRowRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
         this(projects, Optional.empty(), logicalProperties, null);
@@ -109,5 +112,10 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     public PhysicalOneRowRelation withPhysicalProperties(PhysicalProperties physicalProperties) {
         return new PhysicalOneRowRelation(projects, Optional.empty(),
                 logicalPropertiesSupplier.get(), physicalProperties);
+    }
+
+    @Override
+    public RelationId getId() {
+        return id;
     }
 }
