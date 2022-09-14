@@ -43,21 +43,27 @@ import java.util.Set;
  */
 public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
 
-    private static final ImmutableList<JoinType> NEED_RESERVE_LEFT = ImmutableList.of(
-            JoinType.RIGHT_OUTER_JOIN,
-            JoinType.RIGHT_ANTI_JOIN,
-            JoinType.FULL_OUTER_JOIN
+    private static final ImmutableList<JoinType> COULD_PUSH_THROUGH_LEFT = ImmutableList.of(
+            JoinType.INNER_JOIN,
+            JoinType.LEFT_OUTER_JOIN,
+            JoinType.LEFT_SEMI_JOIN,
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.CROSS_JOIN
     );
 
-    private static final ImmutableList<JoinType> NEED_RESERVE_RIGHT = ImmutableList.of(
-            JoinType.LEFT_OUTER_JOIN,
-            JoinType.LEFT_ANTI_JOIN,
-            JoinType.FULL_OUTER_JOIN
+    private static final ImmutableList<JoinType> COULD_PUSH_THROUGH_RIGHT = ImmutableList.of(
+            JoinType.INNER_JOIN,
+            JoinType.RIGHT_OUTER_JOIN,
+            JoinType.RIGHT_SEMI_JOIN,
+            JoinType.RIGHT_ANTI_JOIN,
+            JoinType.CROSS_JOIN
     );
 
     /*
      * For example:
-     * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
+     * select a.k1, b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5
+     *     where a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2
+     *
      * Logical plan tree:
      *                 project
      *                   |
@@ -110,20 +116,16 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
                     rightPredicates.add(p);
                     continue;
                 }
-                if (leftInput.containsAll(slots) && !NEED_RESERVE_LEFT.contains(join.getJoinType())) {
+                if (leftInput.containsAll(slots) && COULD_PUSH_THROUGH_LEFT.contains(join.getJoinType())) {
                     leftPredicates.add(p);
                 }
-                if (rightInput.containsAll(slots) && !NEED_RESERVE_RIGHT.contains(join.getJoinType())) {
+                if (rightInput.containsAll(slots) && COULD_PUSH_THROUGH_RIGHT.contains(join.getJoinType())) {
                     rightPredicates.add(p);
                 }
             }
 
-            if (!NEED_RESERVE_LEFT.contains(join.getJoinType())) {
-                filterConditions.removeAll(leftPredicates);
-            }
-            if (!NEED_RESERVE_RIGHT.contains(join.getJoinType())) {
-                filterConditions.removeAll(rightPredicates);
-            }
+            filterConditions.removeAll(leftPredicates);
+            filterConditions.removeAll(rightPredicates);
             join.getOtherJoinCondition().map(joinConditions::add);
 
             return PlanUtils.filterOrSelf(filterConditions,
