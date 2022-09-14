@@ -107,8 +107,6 @@ public:
         return _footer.primary_key_index_meta().max_key();
     };
 
-    io::FileReaderSPtr get_file_reader() { return _file_reader; }
-
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema);
