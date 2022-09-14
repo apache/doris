@@ -91,7 +91,7 @@ protected:
     }
 
     template <typename Channels>
-    Status channel_add_rows(Channels& channels, int num_channels, uint64_t* hash_vals, int rows,
+    Status channel_add_rows(Channels& channels, int num_channels, uint64_t* channel_ids, int rows,
                             Block* block);
 
     struct hash_128 {
@@ -320,11 +320,12 @@ private:
 
 template <typename Channels>
 Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
-                                           uint64_t* __restrict hash_vals, int rows, Block* block) {
+                                           uint64_t* __restrict channel_ids, int rows,
+                                           Block* block) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
-        channel2rows[hash_vals[i]].emplace_back(i);
+        channel2rows[channel_ids[i]].emplace_back(i);
     }
 
     for (int i = 0; i < num_channels; ++i) {
