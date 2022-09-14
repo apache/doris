@@ -115,12 +115,12 @@ Transactions ensure the atomicity of JDBC external table writing, but it will re
 | ------------------ | ------------------------------ |
 | 14.5               | postgresql-42.5.0.jar          |
 
-#### 2 SQLServer
+#### 3.SQLServer
 | SQLserver Version | SQLserver JDBC Driver Version     |
 | ------------- | -------------------------- |
 | 2022          | mssql-jdbc-11.2.0.jre8.jar |
 
-#### 2.oracle
+#### 4.oracle
 | Oracle Version | Oracle JDBC Driver Version |
 | ---------- | ------------------- |
 | 11         | ojdbc6.jar          |
