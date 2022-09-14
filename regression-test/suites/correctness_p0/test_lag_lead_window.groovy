@@ -54,4 +54,15 @@ suite("test_lag_lead_window") {
                                   lead(cc,1,'') over (PARTITION by cc  order by aa) as lead_cc 
                            from ${tableName} 
                            order by aa; """
+    sql """ DROP TABLE IF EXISTS test1 """
+    sql """ CREATE TABLE IF NOT EXISTS test1 (id varchar(255), create_time datetime)
+            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1"); """
+    sql """ INSERT INTO test1 VALUES
+            ('a','2022-09-06 00:00:00'),
+            ('b','2022-09-06 00:00:01'),
+            ('c','2022-09-06 00:00:02') """
+    qt_select_default """ select id, create_time, lead(create_time, 1, '2022-09-06 00:00:00') over
+                          (order by create_time desc) as "prev_time" from test1; """
+    qt_select_default """ select id, create_time, lead(create_time, 1, date_sub(now(), interval 7 day)) over (order by create_time desc) as "prev_time" from test1; """
+    sql """ DROP TABLE IF EXISTS test1 """
 }
