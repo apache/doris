@@ -125,6 +125,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return join;
     }
 
+    // TODO: support src key is agg slot.
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
