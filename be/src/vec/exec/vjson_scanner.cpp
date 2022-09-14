@@ -232,8 +232,9 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
         return Status::OK();
     }
 
-    int nullcount = 0;
     int ctx_idx = 0;
+    bool has_valid_value = false;
+    size_t cur_row_count = columns[0]->size();
     for (auto slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -259,12 +260,11 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
             if (!(*valid)) {
                 return Status::OK();
             }
+            has_valid_value = true;
         } else { // not found
-            if (slot_desc->is_nullable()) {
-                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-                nullable_column->insert_default();
-                nullcount++;
-            } else {
+            // When the entire row has no valid value, this row should be filtered,
+            // so the default value cannot be directly inserted here
+            if (!slot_desc->is_nullable()) {
                 RETURN_IF_ERROR(_append_error_msg(
                         objectValue,
                         "The column `{}` is not nullable, but it's not found in jsondata.",
@@ -273,12 +273,29 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
             }
         }
     }
-
-    if (nullcount == slot_descs.size()) {
+    if (!has_valid_value) {
         RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
                                           "", valid));
         return Status::OK();
     }
+    ctx_idx = 0;
+    int nullcount = 0;
+    // fill missing slot
+    for (auto slot_desc : slot_descs) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        int dest_index = ctx_idx++;
+        auto* column_ptr = columns[dest_index].get();
+        if (column_ptr->size() < cur_row_count + 1) {
+            assert(column_ptr->size() == cur_row_count);
+            column_ptr->assume_mutable()->insert_default();
+            ++nullcount;
+        }
+        assert(column_ptr->size() == cur_row_count + 1);
+    }
+    // There is at least one valid value here
+    assert(nullcount < columns.size());
     *valid = true;
     return Status::OK();
 }
@@ -583,6 +600,7 @@ Status VSIMDJsonReader::_set_column_value(simdjson::ondemand::value objectValue,
 
     auto object_val = objectValue.get_object();
     size_t cur_row_count = block.rows();
+    bool has_valid_value = false;
     // iterate through object, simdjson::ondemond will parsing on the fly
     for (auto field : object_val) {
         std::string_view key;
@@ -596,6 +614,11 @@ Status VSIMDJsonReader::_set_column_value(simdjson::ondemand::value objectValue,
         if (!(*valid)) {
             return Status::OK();
         }
+        has_valid_value = true;
+    }
+    if (!has_valid_value) {
+        RETURN_IF_ERROR(_append_error_msg("All fields is null, this is a invalid row.", "", valid));
+        return Status::OK();
     }
 
     int nullcount = 0;
