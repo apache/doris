@@ -21,22 +21,18 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Planner rule that pushes a SemoJoin down in a tree past a LogicalJoin
@@ -74,7 +70,6 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     GroupPlan c = topSemiJoin.right();
 
                     Set<Slot> aOutputSet = a.getOutputSet();
-                    Set<Slot> bOutputSet = b.getOutputSet();
 
                     List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
 
@@ -86,68 +81,40 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
 
                     if (lasscom) {
                         /*-
-                         *     topSemiJoin                   newTopProject
-                         *      /     \                          |
+                         *     topSemiJoin                    project
+                         *      /     \                         |
                          *   project   C                    newTopJoin
                          *      |            ->            /         \
-                         *  bottomJoin                project      project
-                         *   /    \                      |            |
-                         *  A      B             newBottomSemiJoin    B
-                         *                           /      \
-                         *                          A        C
+                         *  bottomJoin            newBottomSemiJoin   B
+                         *   /    \                    /      \
+                         *  A      B                  A        C
                          */
-                        // Split inside-project into two part.
-                        Map<Boolean, List<NamedExpression>> projectExprsMap = project.getProjects().stream()
-                                .collect(Collectors.partitioningBy(projectExpr -> {
-                                    Set<Slot> usedSlots = projectExpr.collect(Slot.class::isInstance);
-                                    return bOutputSet.containsAll(usedSlots);
-                                }));
-
-                        List<NamedExpression> newLeftProjectExpr = projectExprsMap.get(Boolean.FALSE);
-                        List<NamedExpression> newRightProjectExprs = projectExprsMap.get(Boolean.TRUE);
-
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
                                 topSemiJoin.getOtherJoinCondition(), a, c);
-                        Plan newLeftPlan = PlanUtils.projectOrSelf(newLeftProjectExpr, newBottomSemiJoin);
-                        Plan newRightPlan = PlanUtils.projectOrSelf(newRightProjectExprs, b);
 
                         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                                 bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinCondition(),
-                                newLeftPlan, newRightPlan);
+                                newBottomSemiJoin, b);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     } else {
                         /*-
-                         *     topSemiJoin              newTopProject
-                         *       /     \                     |
-                         *    project   C                newTopJoin
-                         *       |                      /          \
-                         *  bottomJoin  C     -->   project      project
-                         *   /    \                   |             |
-                         *  A      B                  A      newBottomSemiJoin
-                         *                                      /      \
-                         *                                     B       C
+                         *     topSemiJoin                  project
+                         *       /     \                       |
+                         *    project   C                  newTopJoin
+                         *       |                        /         \
+                         *  bottomJoin  C     -->       A     newBottomSemiJoin
+                         *   /    \                               /      \
+                         *  A      B                             B       C
                          */
-                        // Split inside-project into two part.
-                        Map<Boolean, List<NamedExpression>> projectExprsMap = project.getProjects().stream()
-                                .collect(Collectors.partitioningBy(projectExpr -> {
-                                    Set<Slot> usedSlots = projectExpr.collect(Slot.class::isInstance);
-                                    return aOutputSet.containsAll(usedSlots);
-                                }));
-
-                        List<NamedExpression> newLeftProjectExpr = projectExprsMap.get(Boolean.TRUE);
-                        List<NamedExpression> newRightProjectExprs = projectExprsMap.get(Boolean.FALSE);
-
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
                                 topSemiJoin.getOtherJoinCondition(), b, c);
-                        Plan newLeftPlan = PlanUtils.projectOrSelf(newLeftProjectExpr, a);
-                        Plan newRightPlan = PlanUtils.projectOrSelf(newRightProjectExprs, newBottomSemiJoin);
 
                         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                                 bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinCondition(),
-                                newLeftPlan, newRightPlan);
+                                a, newBottomSemiJoin);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     }
