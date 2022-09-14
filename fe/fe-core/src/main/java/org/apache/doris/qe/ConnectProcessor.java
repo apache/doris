@@ -21,6 +21,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -234,11 +235,14 @@ public class ConnectProcessor {
         boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = null;
-            if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+            Exception nereidsParseException = null;
+            // ctx could be null in some unit tests
+            if (ctx != null && ctx.getSessionVariable().isEnableNereidsPlanner()) {
                 NereidsParser nereidsParser = new NereidsParser();
                 try {
                     stmts = nereidsParser.parseSQL(originStmt);
                 } catch (Exception e) {
+                    nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
                     LOG.warn(" Fallback to stale planner."
                             + " Nereids cannot process this statement: \"{}\".", originStmt, e);
@@ -255,6 +259,11 @@ public class ConnectProcessor {
                     ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
+                if (parsedStmt instanceof SelectStmt) {
+                    if (!ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                        throw new Exception(String.format("SQL: {}", parsedStmt.toSql()), nereidsParseException);
+                    }
+                }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);

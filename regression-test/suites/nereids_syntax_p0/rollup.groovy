@@ -67,6 +67,8 @@ suite("rollup") {
 
     sql "set enable_nereids_planner=true"
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     explain {
         sql("select k2, sum(v1) from rollup_t1 group by k2")
         contains("rollup_t1(r1)")
