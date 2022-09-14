@@ -99,7 +99,7 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
     return Status::OK();
 }
 
-Status ParquetReader::read_next_batch(Block* block, bool* eof) {
+Status ParquetReader::get_next_block(Block* block, bool* eof) {
     int32_t num_of_readers = _row_group_readers.size();
     DCHECK(num_of_readers <= _read_row_groups.size());
     if (_read_row_groups.empty()) {
