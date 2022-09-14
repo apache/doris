@@ -219,7 +219,8 @@ public class JoinUtils {
      * return true if we should do colocate join when translate plan.
      */
     public static boolean shouldColocateJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+        if (ConnectContext.get() == null
+                ||ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
@@ -242,7 +243,8 @@ public class JoinUtils {
      * return true if we should do bucket shuffle join when translate plan.
      */
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+        if (ConnectContext.get() == null
+                ||!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
@@ -273,7 +275,8 @@ public class JoinUtils {
      * could do colocate join with left and right child distribution spec.
      */
     public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
-        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+        if (ConnectContext.get() == null
+                ||ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
         if (leftHashSpec.getShuffleType() != ShuffleType.NATURAL
