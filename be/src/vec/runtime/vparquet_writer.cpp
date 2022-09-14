@@ -28,8 +28,10 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 
@@ -45,8 +47,6 @@ VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
           _output_object_data(output_object_data) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
     parse_properties(properties);
-    parse_schema(schema);
-    init_parquet_writer();
 }
 
 void VParquetWriterWrapper::parse_properties(
@@ -138,6 +138,159 @@ Status VParquetWriterWrapper::parse_schema(const std::vector<std::vector<std::st
     return Status::OK();
 }
 
+Status VParquetWriterWrapper::init() {
+    RETURN_IF_ERROR(parse_schema(_str_schema));
+    RETURN_IF_ERROR(init_parquet_writer());
+    RETURN_IF_ERROR(validate_schema());
+    return Status::OK();
+}
+
+Status VParquetWriterWrapper::validate_schema() {
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        switch (_output_vexpr_ctxs[i]->root()->type().type) {
+        case TYPE_BOOLEAN: {
+            if (_str_schema[i][1] != "boolean") {
+                return Status::InvalidArgument(
+                        "project field type is boolean, "
+                        "but the definition type of column {} is {}",
+                        _str_schema[i][2], _str_schema[i][1]);
+            }
+            break;
+        }
+        case TYPE_TINYINT:
+        case TYPE_SMALLINT:
+        case TYPE_INT: {
+            if (_str_schema[i][1] != "int32") {
+                return Status::InvalidArgument(
+                        "project field type is {}, should use int32,"
+                        " but the definition type of column {} is {}",
+                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
+                        _str_schema[i][1]);
+            }
+            break;
+        }
+        case TYPE_LARGEINT: {
+            return Status::InvalidArgument("do not support large int type.");
+        }
+        case TYPE_FLOAT: {
+            if (_str_schema[i][1] != "float") {
+                return Status::InvalidArgument(
+                        "project field type is float, "
+                        "but the definition type of column {} is {}",
+                        _str_schema[i][2], _str_schema[i][1]);
+            }
+            break;
+        }
+        case TYPE_DOUBLE: {
+            if (_str_schema[i][1] != "double") {
+                return Status::InvalidArgument(
+                        "project field type is double, "
+                        "but the definition type of column {} is {}",
+                        _str_schema[i][2], _str_schema[i][1]);
+            }
+            break;
+        }
+        case TYPE_BIGINT:
+        case TYPE_DATETIME:
+        case TYPE_DATE:
+        case TYPE_DATEV2:
+        case TYPE_DATETIMEV2: {
+            if (_str_schema[i][1] != "int64") {
+                return Status::InvalidArgument(
+                        "project field type is {}, should use int64, "
+                        "but the definition type of column {} is {}",
+                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
+                        _str_schema[i][1]);
+            }
+            break;
+        }
+        case TYPE_HLL:
+        case TYPE_OBJECT: {
+            if (!_output_object_data) {
+                return Status::InvalidArgument(
+                        "Invalid expression type: {}",
+                        _output_vexpr_ctxs[i]->root()->type().debug_string());
+            }
+            [[fallthrough]];
+        }
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING:
+        case TYPE_DECIMALV2:
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
+            if (_str_schema[i][1] != "byte_array") {
+                return Status::InvalidArgument(
+                        "project field type is {}, should use byte_array, "
+                        "but the definition type of column {} is {}",
+                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
+                        _str_schema[i][1]);
+            }
+            break;
+        }
+        default: {
+            return Status::InvalidArgument("Invalid expression type: {}",
+                                           _output_vexpr_ctxs[i]->root()->type().debug_string());
+        }
+        }
+    }
+    return Status::OK();
+}
+
+#define RETURN_WRONG_TYPE \
+    return Status::InvalidArgument("Invalid column type: {}", raw_column->get_name());
+
+#define DISPATCH_PARQUET_NUMERIC_WRITER(WRITER, COLUMN_TYPE, NATIVE_TYPE)                         \
+    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                          \
+    parquet::WRITER* col_writer = static_cast<parquet::WRITER*>(rgWriter->column(i));             \
+    __int128 default_value = 0;                                                                   \
+    if (null_map != nullptr) {                                                                    \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                          \
+            col_writer->WriteBatch(1, nullptr, nullptr,                                           \
+                                   (*null_map)[row_id] != 0                                       \
+                                           ? reinterpret_cast<const NATIVE_TYPE*>(&default_value) \
+                                           : reinterpret_cast<const NATIVE_TYPE*>(                \
+                                                     assert_cast<const COLUMN_TYPE&>(*col)        \
+                                                             .get_data_at(row_id)                 \
+                                                             .data));                             \
+        }                                                                                         \
+    } else if (const auto* not_nullable_column = check_and_get_column<const COLUMN_TYPE>(col)) {  \
+        col_writer->WriteBatch(                                                                   \
+                sz, nullptr, nullptr,                                                             \
+                reinterpret_cast<const NATIVE_TYPE*>(not_nullable_column->get_data().data()));    \
+    } else {                                                                                      \
+        RETURN_WRONG_TYPE                                                                         \
+    }
+
+#define DISPATCH_PARQUET_DECIMAL_WRITER(DECIMAL_TYPE)                                            \
+    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                         \
+    parquet::ByteArrayWriter* col_writer =                                                       \
+            static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));                         \
+    parquet::ByteArray value;                                                                    \
+    auto decimal_type =                                                                          \
+            check_and_get_data_type<DataTypeDecimal<DECIMAL_TYPE>>(remove_nullable(type).get()); \
+    DCHECK(decimal_type);                                                                        \
+    if (null_map != nullptr) {                                                                   \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            if ((*null_map)[row_id] != 0) {                                                      \
+                col_writer->WriteBatch(1, nullptr, nullptr, &value);                             \
+            } else {                                                                             \
+                auto s = decimal_type->to_string(*col, row_id);                                  \
+                value.ptr = reinterpret_cast<const uint8_t*>(s.data());                          \
+                value.len = s.size();                                                            \
+                col_writer->WriteBatch(1, nullptr, nullptr, &value);                             \
+            }                                                                                    \
+        }                                                                                        \
+    } else {                                                                                     \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            auto s = decimal_type->to_string(*col, row_id);                                      \
+            value.ptr = reinterpret_cast<const uint8_t*>(s.data());                              \
+            value.len = s.size();                                                                \
+            col_writer->WriteBatch(1, nullptr, nullptr, &value);                                 \
+        }                                                                                        \
+    }
+
 Status VParquetWriterWrapper::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
@@ -164,50 +317,27 @@ Status VParquetWriterWrapper::write(const Block& block) {
             auto& type = block.get_by_position(i).type;
             switch (_output_vexpr_ctxs[i]->root()->type().type) {
             case TYPE_BOOLEAN: {
-                if (_str_schema[i][1] != "boolean") {
-                    return Status::InvalidArgument(
-                            "project field type is boolean, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::BoolWriter* col_writer =
-                        static_cast<parquet::BoolWriter*>(rgWriter->column(i));
-                bool default_bool = false;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        col_writer->WriteBatch(
-                                1, nullptr, nullptr,
-                                (*null_map)[row_id] != 0
-                                        ? &default_bool
-                                        : reinterpret_cast<const bool*>(
-                                                  assert_cast<const ColumnVector<UInt8>&>(*col)
-                                                          .get_data_at(row_id)
-                                                          .data));
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<UInt8>>(col)) {
-                    col_writer->WriteBatch(
-                            sz, nullptr, nullptr,
-                            reinterpret_cast<const bool*>(not_nullable_column->get_data().data()));
-                } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
-                }
+                DISPATCH_PARQUET_NUMERIC_WRITER(BoolWriter, ColumnVector<UInt8>, bool)
+                break;
+            }
+            case TYPE_BIGINT: {
+                DISPATCH_PARQUET_NUMERIC_WRITER(Int64Writer, ColumnVector<Int64>, int64_t)
+                break;
+            }
+            case TYPE_LARGEINT: {
+                return Status::InvalidArgument("do not support large int type.");
+            }
+            case TYPE_FLOAT: {
+                DISPATCH_PARQUET_NUMERIC_WRITER(FloatWriter, ColumnVector<Float32>, float_t)
+                break;
+            }
+            case TYPE_DOUBLE: {
+                DISPATCH_PARQUET_NUMERIC_WRITER(DoubleWriter, ColumnVector<Float64>, double_t)
                 break;
             }
             case TYPE_TINYINT:
             case TYPE_SMALLINT:
             case TYPE_INT: {
-                if (_str_schema[i][1] != "int32") {
-                    return Status::InvalidArgument(
-                            "project field type is tiny int/small int/int, should use int32,"
-                            " but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int32Writer* col_writer =
                         static_cast<parquet::Int32Writer*>(rgWriter->column(i));
@@ -244,10 +374,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                             : reinterpret_cast<const int32_t*>(&tmp));
                         }
                     } else {
-                        std::stringstream ss;
-                        ss << "Invalid column type: ";
-                        ss << raw_column->get_name();
-                        return Status::InvalidArgument(ss.str());
+                        RETURN_WRONG_TYPE
                     }
                 } else if (const auto* not_nullable_column =
                                    check_and_get_column<const ColumnVector<Int32>>(col)) {
@@ -269,138 +396,12 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                                reinterpret_cast<const int32_t*>(&tmp));
                     }
                 } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
-                }
-                break;
-            }
-            case TYPE_BIGINT: {
-                if (_str_schema[i][1] != "int64") {
-                    return Status::InvalidArgument(
-                            "project field type is big int, should use int64, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::Int64Writer* col_writer =
-                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
-                int64_t default_int64 = 0;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        col_writer->WriteBatch(
-                                1, nullptr, nullptr,
-                                (*null_map)[row_id] != 0
-                                        ? &default_int64
-                                        : reinterpret_cast<const int64_t*>(
-                                                  assert_cast<const ColumnVector<Int64>&>(*col)
-                                                          .get_data_at(row_id)
-                                                          .data));
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<Int64>>(col)) {
-                    col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const int64_t*>(
-                                                   not_nullable_column->get_data().data()));
-                } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
-                }
-                break;
-            }
-            case TYPE_LARGEINT: {
-                // TODO: not support int_128
-                // It is better write a default value, because rg_writer need all columns has value before flush to disk.
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::Int64Writer* col_writer =
-                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
-                int64_t default_int64 = 0;
-                for (size_t row_id = 0; row_id < sz; row_id++) {
-                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
-                }
-                return Status::InvalidArgument("do not support large int type.");
-            }
-            case TYPE_FLOAT: {
-                if (_str_schema[i][1] != "float") {
-                    return Status::InvalidArgument(
-                            "project field type is float, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::FloatWriter* col_writer =
-                        static_cast<parquet::FloatWriter*>(rgWriter->column(i));
-                float_t default_float = 0.0;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        col_writer->WriteBatch(
-                                1, nullptr, nullptr,
-                                (*null_map)[row_id] != 0
-                                        ? &default_float
-                                        : reinterpret_cast<const float_t*>(
-                                                  assert_cast<const ColumnVector<Float32>&>(*col)
-                                                          .get_data_at(row_id)
-                                                          .data));
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<Float32>>(col)) {
-                    col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const float_t*>(
-                                                   not_nullable_column->get_data().data()));
-                } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
-                }
-                break;
-            }
-            case TYPE_DOUBLE: {
-                if (_str_schema[i][1] != "double") {
-                    return Status::InvalidArgument(
-                            "project field type is double, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::DoubleWriter* col_writer =
-                        static_cast<parquet::DoubleWriter*>(rgWriter->column(i));
-                double_t default_double = 0.0;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        col_writer->WriteBatch(
-                                1, nullptr, nullptr,
-                                (*null_map)[row_id] != 0
-                                        ? &default_double
-                                        : reinterpret_cast<const double_t*>(
-                                                  assert_cast<const ColumnVector<Float64>&>(*col)
-                                                          .get_data_at(row_id)
-                                                          .data));
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<Float64>>(col)) {
-                    col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const double_t*>(
-                                                   not_nullable_column->get_data().data()));
-                } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
+                    RETURN_WRONG_TYPE
                 }
                 break;
             }
             case TYPE_DATETIME:
             case TYPE_DATE: {
-                if (_str_schema[i][1] != "int64") {
-                    return Status::InvalidArgument(
-                            "project field type is date/datetime, should use int64, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
@@ -429,20 +430,11 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     col_writer->WriteBatch(sz, nullptr, nullptr,
                                            reinterpret_cast<const int64_t*>(res.data()));
                 } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
+                    RETURN_WRONG_TYPE
                 }
                 break;
             }
             case TYPE_DATEV2: {
-                if (_str_schema[i][1] != "int64") {
-                    return Status::InvalidArgument(
-                            "project field type is datev2, should use int32, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
@@ -471,20 +463,11 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     col_writer->WriteBatch(sz, nullptr, nullptr,
                                            reinterpret_cast<const int64_t*>(res.data()));
                 } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
+                    RETURN_WRONG_TYPE
                 }
                 break;
             }
             case TYPE_DATETIMEV2: {
-                if (_str_schema[i][1] != "int64") {
-                    return Status::InvalidArgument(
-                            "project field type is datetimev2, should use int64, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
@@ -513,112 +496,15 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     col_writer->WriteBatch(sz, nullptr, nullptr,
                                            reinterpret_cast<const int64_t*>(res.data()));
                 } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
+                    RETURN_WRONG_TYPE
                 }
                 break;
             }
-            case TYPE_OBJECT: {
-                if (!_output_object_data) {
-                    std::stringstream ss;
-                    ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
-                    return Status::InvalidArgument(ss.str());
-                }
-                if (_str_schema[i][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is bitmap, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::ByteArrayWriter* col_writer =
-                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if ((*null_map)[row_id] != 0) {
-                            parquet::ByteArray value;
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        } else {
-                            const auto& tmp = col->get_data_at(row_id);
-                            parquet::ByteArray value;
-                            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
-                            value.len = tmp.size;
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        }
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnBitmap>(col)) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        const auto& tmp = not_nullable_column->get_data_at(row_id);
-                        parquet::ByteArray value;
-                        value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
-                        value.len = tmp.size;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
-                }
-                break;
-            }
-            case TYPE_HLL: {
-                if (!_output_object_data) {
-                    std::stringstream ss;
-                    ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
-                    return Status::InvalidArgument(ss.str());
-                }
-                if (_str_schema[i][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is hll, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::ByteArrayWriter* col_writer =
-                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if ((*null_map)[row_id] != 0) {
-                            parquet::ByteArray value;
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        } else {
-                            const auto& tmp = col->get_data_at(row_id);
-                            parquet::ByteArray value;
-                            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
-                            value.len = tmp.size;
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        }
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnHLL>(col)) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        const auto& tmp = not_nullable_column->get_data_at(row_id);
-                        parquet::ByteArray value;
-                        value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);
-                        value.len = tmp.size;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
-                }
-                break;
-            }
+            case TYPE_OBJECT:
+            case TYPE_HLL:
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING: {
-                if (_str_schema[i][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is string, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
@@ -645,20 +531,11 @@ Status VParquetWriterWrapper::write(const Block& block) {
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
                     }
                 } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
+                    RETURN_WRONG_TYPE
                 }
                 break;
             }
             case TYPE_DECIMALV2: {
-                if (_str_schema[i][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is decimal v2, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
@@ -692,51 +569,26 @@ Status VParquetWriterWrapper::write(const Block& block) {
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
                     }
                 } else {
-                    std::stringstream ss;
-                    ss << "Invalid column type: ";
-                    ss << raw_column->get_name();
-                    return Status::InvalidArgument(ss.str());
+                    RETURN_WRONG_TYPE
                 }
                 break;
             }
-            case TYPE_DECIMAL32:
-            case TYPE_DECIMAL64:
+            case TYPE_DECIMAL32: {
+                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal32)
+                break;
+            }
+            case TYPE_DECIMAL64: {
+                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal64)
+                break;
+            }
             case TYPE_DECIMAL128: {
-                if (_str_schema[i][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is decimal v2, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[i][2], _str_schema[i][1]);
-                }
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::ByteArrayWriter* col_writer =
-                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                parquet::ByteArray value;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if ((*null_map)[row_id] != 0) {
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        } else {
-                            auto s = type->to_string(*col, row_id);
-                            value.ptr = reinterpret_cast<const uint8_t*>(s.data());
-                            value.len = s.size();
-                            col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                        }
-                    }
-                } else {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        auto s = type->to_string(*col, row_id);
-                        value.ptr = reinterpret_cast<const uint8_t*>(s.data());
-                        value.len = s.size();
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                }
+                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal128)
                 break;
             }
             default: {
-                std::stringstream ss;
-                ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
-                return Status::InvalidArgument(ss.str());
+                return Status::InvalidArgument(
+                        "Invalid expression type: {}",
+                        _output_vexpr_ctxs[i]->root()->type().debug_string());
             }
             }
         }

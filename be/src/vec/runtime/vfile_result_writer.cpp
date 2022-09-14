@@ -121,6 +121,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         _vparquet_writer.reset(new VParquetWriterWrapper(
                 _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->file_properties,
                 _file_opts->schema, _output_object_data));
+        RETURN_IF_ERROR(_vparquet_writer->init());
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);

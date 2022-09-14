@@ -50,6 +50,10 @@ public:
                           bool output_object_data);
     virtual ~VParquetWriterWrapper();
 
+    Status init();
+
+    Status validate_schema();
+
     Status write(const Block& block);
 
     Status init_parquet_writer();
