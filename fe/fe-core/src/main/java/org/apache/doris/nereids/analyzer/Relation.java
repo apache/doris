@@ -23,5 +23,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
  * Relation base interface
  */
 public interface Relation {
-    RelationId getId();
+    default RelationId getId() {
+        return null;
+    }
 }

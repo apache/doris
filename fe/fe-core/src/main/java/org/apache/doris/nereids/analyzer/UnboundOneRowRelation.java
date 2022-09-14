@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -45,8 +44,6 @@ import java.util.Optional;
  */
 public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRowRelation {
     private final List<NamedExpression> projects;
-
-    private RelationId id;
 
     public UnboundOneRowRelation(List<NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());
@@ -120,10 +117,5 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
     @Override
     public int hashCode() {
         return Objects.hash(projects);
-    }
-
-    @Override
-    public RelationId getId() {
-        return id;
     }
 }
