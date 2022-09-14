@@ -103,7 +103,7 @@ PROPERTIES (
 
 ```
 cd /path/to/be/storage/snapshot/20220830101353.2.3600
-tar xzf 10020.tar.gz 10020/
+tar czf 10020.tar.gz 10020/
 ```
 
 该命令还会同时生成这个 tablet 对应的建表语句。注意，这个建表语句并不是原始的建表语句，他的分桶数和副本数都是1，并且指定了 `versionInfo` 字段。该建表语句是用于之后在本地加载 tablet 时使用的。
