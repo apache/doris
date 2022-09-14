@@ -107,7 +107,7 @@ public:
     void init(const std::vector<DataDir*>& data_dirs);
 
     Status create_flush_token(std::unique_ptr<FlushToken>* flush_token, RowsetTypePB rowset_type,
-                              bool is_high_priority);
+                              bool should_serial, bool is_high_priority);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
