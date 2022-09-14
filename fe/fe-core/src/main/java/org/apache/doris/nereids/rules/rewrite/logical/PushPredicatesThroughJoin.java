@@ -105,7 +105,7 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
             ExpressionUtils.extractConjunction(filterPredicates)
                     .forEach(predicate -> {
                         if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))
-                            && COULD_PUSH_EQUAL_TO.contains(join.getJoinType())) {
+                                && COULD_PUSH_EQUAL_TO.contains(join.getJoinType())) {
                             joinConditions.add(predicate);
                         } else {
                             filterConditions.add(predicate);
