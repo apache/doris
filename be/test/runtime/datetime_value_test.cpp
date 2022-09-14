@@ -249,13 +249,13 @@ TEST_F(DateTimeValueTest, check_date) {
     EXPECT_TRUE(value.from_date_int64(19880201));
 
     value._month = 0;
-    EXPECT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+    EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
                                             value.minute(), value.second(), value.microsecond(),
                                             value.type()));
     value._month = 2;
 
     value._day = 0;
-    EXPECT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+    EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
                                             value.minute(), value.second(), value.microsecond(),
                                             value.type()));
     value._year = 1987;
