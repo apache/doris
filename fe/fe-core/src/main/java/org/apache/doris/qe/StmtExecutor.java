@@ -141,6 +141,7 @@ import org.apache.thrift.TException;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -160,6 +161,9 @@ public class StmtExecutor implements ProfileWriter {
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
+    private static final String READ_SEGMENT_CACHE_FILES_NUM = "FragmentReadSegmentCacheFileNum";
+    private static final String DOWNLOAD_SEGMENT_CACHE_FILES_NUM = "FragmentDownloadSegmentCacheFileNum";
+    private static final String HIT_SEGMENT_CACHE_FILES_NUM = "FragmentHitSegmentCacheFileNum";
 
     private ConnectContext context;
     private StatementContext statementContext;
@@ -170,6 +174,7 @@ public class StmtExecutor implements ProfileWriter {
     private RuntimeProfile profile;
     private RuntimeProfile summaryProfile;
     private RuntimeProfile plannerRuntimeProfile;
+    private RuntimeProfile segmentCacheProfile;
     private final Object writeProfileLock = new Object();
     private volatile boolean isFinishedProfile = false;
     private String queryType = "Query";
@@ -238,11 +243,32 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addInfoString(ProfileManager.TRACE_ID, context.getSessionVariable().getTraceId());
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
+            segmentCacheProfile = new RuntimeProfile("Segment Cache Statistics");
+            summaryProfile.addChild(segmentCacheProfile);
             profile.addChild(queryProfile);
         } else {
             updateSummaryProfile(waiteBeReport);
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
+        if (waiteBeReport && coord != null) {
+            long readSegmentCacheFilesNum = coord.getSegmentCacheFilesStatistics(READ_SEGMENT_CACHE_FILES_NUM);
+            long downloadSegmentCacheFilesNum = coord.getSegmentCacheFilesStatistics(DOWNLOAD_SEGMENT_CACHE_FILES_NUM);
+            long hitSegmentCacheFilesNum = coord.getSegmentCacheFilesStatistics(HIT_SEGMENT_CACHE_FILES_NUM);
+            double hitSegmentCacheFilesPercent = 0.00;
+            if (readSegmentCacheFilesNum != 0L) {
+                hitSegmentCacheFilesPercent = Double.valueOf(hitSegmentCacheFilesNum)
+                    / Double.valueOf(readSegmentCacheFilesNum);
+            }
+            DecimalFormat df = new DecimalFormat("0.00%");
+            String strHitSegmentCacheFilesPercent = df.format(hitSegmentCacheFilesPercent);
+            segmentCacheProfile.addInfoString("ReadSegmentCacheFilesNum",
+                    Long.toString(readSegmentCacheFilesNum));
+            segmentCacheProfile.addInfoString("DownloadSegmentCacheFilesNum",
+                    Long.toString(downloadSegmentCacheFilesNum));
+            segmentCacheProfile.addInfoString("HitSegmentCacheFilesNum",
+                    Long.toString(hitSegmentCacheFilesNum));
+            segmentCacheProfile.addInfoString("HitSegmentCacheFilesPercent", strHitSegmentCacheFilesPercent);
+        }
 
         queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
         endProfile(waiteBeReport);

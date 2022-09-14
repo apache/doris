@@ -117,6 +117,9 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             }
             *bytes_read += sub_bytes_read;
             _last_match_times[*iter] = time(nullptr);
+            if (_is_query) {
+                _stats->read_segments_num += 1;
+            }
         }
     }
     return Status::OK();
@@ -163,6 +166,9 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                             download_cache_to_local(cache_file, cache_done_file,
                                                     _remote_file_reader, req_size, offset),
                             "Download cache from remote to local failed.");
+                    if (_is_query) {
+                        _stats->download_segments_num += 1;
+                    }
                     return Status::OK();
                 };
                 download_st.set_value(func());

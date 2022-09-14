@@ -187,6 +187,12 @@ void VOlapScanNode::_init_counter(RuntimeState* state) {
     // time of node to wait for batch/block queue
     _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
 
+    _read_segments_num_counter = ADD_COUNTER(_runtime_profile, "ReadSegmentsNum", TUnit::UNIT);
+    _download_segments_num_counter =
+            ADD_COUNTER(_runtime_profile, "DownloadSegmentsNum", TUnit::UNIT);
+    _hit_cache_segments_num_counter =
+            ADD_COUNTER(_runtime_profile, "HitCacheSegmentsNum", TUnit::UNIT);
+
     // for the purpose of debugging or profiling
     for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
         char name[64];

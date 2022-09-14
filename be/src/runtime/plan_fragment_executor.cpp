@@ -49,6 +49,7 @@
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vexchange_node.h"
+#include "vec/exec/volap_scan_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
@@ -210,6 +211,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
+    _fragment_read_segment_cache_files_num_counter =
+            ADD_COUNTER(profile(), "FragmentReadSegmentCacheFileNum", TUnit::UNIT);
+    _fragment_download_segment_cache_files_num_counter =
+            ADD_COUNTER(profile(), "FragmentDownloadSegmentCacheFileNum", TUnit::UNIT);
+    _fragment_hit_segment_cache_files_num_counter =
+            ADD_COUNTER(profile(), "FragmentHitSegmentCacheFileNum", TUnit::UNIT);
 
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size()));
     _block.reset(new doris::vectorized::Block());
@@ -325,6 +332,21 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(nullptr);
     _done = true;
+
+    std::vector<ExecNode*> scan_nodes;
+    _plan->collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, &scan_nodes);
+    if (!scan_nodes.empty()) {
+        for (int i = 0; i < scan_nodes.size(); ++i) {
+            vectorized::VOlapScanNode* scan_node =
+                    static_cast<vectorized::VOlapScanNode*>(scan_nodes[i]);
+            COUNTER_UPDATE(_fragment_read_segment_cache_files_num_counter,
+                           scan_node->get_read_segments_num_counter()->value());
+            COUNTER_UPDATE(_fragment_download_segment_cache_files_num_counter,
+                           scan_node->get_download_segments_num_counter()->value());
+            COUNTER_UPDATE(_fragment_hit_segment_cache_files_num_counter,
+                           scan_node->get_hit_cache_segments_num_counter()->value());
+        }
+    }
 
     stop_report_thread();
     send_report(true);

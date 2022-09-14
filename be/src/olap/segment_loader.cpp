@@ -58,7 +58,8 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                    SegmentCacheHandle* cache_handle, bool use_cache) {
+                                    SegmentCacheHandle* cache_handle, bool use_cache, bool is_query,
+                                    OlapReaderStatistics* stats) {
     SegmentLoader::CacheKey cache_key(rowset->rowset_id());
     if (_lookup(cache_key, cache_handle)) {
         cache_handle->owned = false;
@@ -67,7 +68,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     cache_handle->owned = !use_cache;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_NOT_OK(rowset->load_segments(&segments));
+    RETURN_NOT_OK(rowset->load_segments(&segments, is_query, stats));
 
     if (use_cache) {
         // memory of SegmentLoader::CacheValue will be handled by SegmentLoader

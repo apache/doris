@@ -337,6 +337,9 @@ struct OlapReaderStatistics {
     // usage example:
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
+
+    int64_t read_segments_num = 0;
+    int64_t download_segments_num = 0;
 };
 
 using ColumnId = uint32_t;

@@ -30,6 +30,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.ScopedSpan;
 import org.apache.doris.common.telemetry.Telemetry;
+import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.ProfileWriter;
@@ -405,6 +406,22 @@ public class Coordinator {
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return errorTabletInfos;
+    }
+
+    public long getSegmentCacheFilesStatistics(String key) {
+        long resultNum = 0L;
+        for (int i = 0; i < fragmentProfile.size(); ++i) {
+            Map<String, RuntimeProfile> instanceMap = fragmentProfile.get(i).getChildMap();
+            for (RuntimeProfile instanceProfile : instanceMap.values()) {
+                Map<String, Counter> counterMap = instanceProfile.getCounterMap();
+                if (!counterMap.isEmpty()) {
+                    if (counterMap.containsKey(key)) {
+                        resultNum += counterMap.get(key).getValue();
+                    }
+                }
+            }
+        }
+        return resultNum;
     }
 
     // Initialize

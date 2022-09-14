@@ -25,6 +25,7 @@
 #include "util/slice.h"
 
 namespace doris {
+struct OlapReaderStatistics;
 namespace io {
 
 class FileReader {
@@ -43,6 +44,10 @@ public:
     virtual size_t size() const = 0;
 
     virtual bool closed() const = 0;
+
+    virtual Status init_cache_stats(bool is_query, OlapReaderStatistics* stats) {
+        return Status::NotSupported("not support");
+    }
 };
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;

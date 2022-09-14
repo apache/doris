@@ -43,7 +43,7 @@ using io::FileCacheManager;
 
 Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
                      uint32_t segment_id, TabletSchemaSPtr tablet_schema,
-                     std::shared_ptr<Segment>* output) {
+                     std::shared_ptr<Segment>* output, bool is_query, OlapReaderStatistics* stats) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
@@ -52,6 +52,7 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
         segment->_file_reader = cache_reader;
+        cache_reader->init_cache_stats(is_query, stats);
         FileCacheManager::instance()->add_file_cache(cache_path, cache_reader);
     } else {
         segment->_file_reader = std::move(file_reader);

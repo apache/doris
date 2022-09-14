@@ -64,6 +64,14 @@ public:
 
     std::string get_name() override;
 
+    RuntimeProfile::Counter* get_read_segments_num_counter() { return _read_segments_num_counter; }
+    RuntimeProfile::Counter* get_download_segments_num_counter() {
+        return _download_segments_num_counter;
+    }
+    RuntimeProfile::Counter* get_hit_cache_segments_num_counter() {
+        return _hit_cache_segments_num_counter;
+    }
+
 private:
     // In order to ensure the accuracy of the query result
     // only key column conjuncts will be remove as idle conjunct
@@ -319,6 +327,10 @@ private:
 
     // for debugging or profiling, record any info as you want
     RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
+
+    RuntimeProfile::Counter* _read_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _download_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _hit_cache_segments_num_counter = nullptr;
 
     std::vector<Block*> _scan_blocks;
     std::vector<Block*> _materialized_blocks;

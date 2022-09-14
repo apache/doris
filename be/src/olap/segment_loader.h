@@ -83,7 +83,8 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false);
+                         bool use_cache = false, bool is_query = false,
+                         OlapReaderStatistics* stats = nullptr);
 
     // Try to prune the segment cache if expired.
     Status prune();

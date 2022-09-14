@@ -465,6 +465,12 @@ void VOlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(_parent->_total_segment_counter, stats.total_segment_number);
 
+    COUNTER_UPDATE(_parent->_read_segments_num_counter, stats.read_segments_num);
+    COUNTER_UPDATE(_parent->_download_segments_num_counter, stats.download_segments_num);
+
+    COUNTER_UPDATE(_parent->_hit_cache_segments_num_counter,
+                   stats.read_segments_num - stats.download_segments_num);
+
     DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
     DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
 

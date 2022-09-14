@@ -79,7 +79,8 @@ public:
 
     bool check_file_exist() override;
 
-    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments, bool is_query = false,
+                         OlapReaderStatistics* stats = nullptr);
 
     Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
 

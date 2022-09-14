@@ -49,6 +49,12 @@ public:
     Status download_cache_to_local(const Path& cache_file, const Path& cache_done_file,
                                    io::FileReaderSPtr remote_file_reader, size_t req_size,
                                    size_t offset = 0);
+
+    Status init_cache_stats(bool is_query, OlapReaderStatistics* stats);
+
+protected:
+    bool _is_query = false;
+    OlapReaderStatistics* _stats = nullptr;
 };
 
 using FileCachePtr = std::shared_ptr<FileCache>;

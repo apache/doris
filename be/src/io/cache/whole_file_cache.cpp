@@ -113,6 +113,9 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                             download_cache_to_local(cache_file, cache_done_file,
                                                     _remote_file_reader, req_size),
                             "Download cache from remote to local failed.");
+                    if (_is_query) {
+                        _stats->download_segments_num += 1;
+                    }
                     return Status::OK();
                 };
                 download_st.set_value(func());
@@ -133,6 +136,9 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
     _last_match_time = time(nullptr);
+    if (_is_query) {
+        _stats->read_segments_num += 1;
+    }
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << " -> " << cache_file.native();
     return Status::OK();

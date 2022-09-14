@@ -63,7 +63,8 @@ class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
                        uint32_t segment_id, TabletSchemaSPtr tablet_schema,
-                       std::shared_ptr<Segment>* output);
+                       std::shared_ptr<Segment>* output, bool is_query = false,
+                       OlapReaderStatistics* stats = nullptr);
 
     ~Segment();
 
@@ -105,6 +106,8 @@ public:
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().max_key();
     };
+
+    io::FileReaderSPtr get_file_reader() { return _file_reader; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

@@ -83,5 +83,11 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
     return Status::OK();
 }
 
+Status FileCache::init_cache_stats(bool is_query, OlapReaderStatistics* stats) {
+    _is_query = is_query;
+    _stats = stats;
+    return Status::OK();
+}
+
 } // namespace io
 } // namespace doris
