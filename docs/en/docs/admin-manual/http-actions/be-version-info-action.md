@@ -1,7 +1,7 @@
 ---
 {
     "title": "Be Version Info Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
