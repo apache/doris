@@ -519,24 +519,25 @@ ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::uniqu
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
           _item_writer(std::move(item_writer)),
           _opts(opts) {
-    _length_writer.reset(length_writer);
+    _offset_writer.reset(length_writer);
     if (is_nullable()) {
         _null_writer.reset(null_writer);
     }
 }
 
 Status ArrayColumnWriter::init() {
-    RETURN_IF_ERROR(_length_writer->init());
+    RETURN_IF_ERROR(_offset_writer->init());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->init());
     }
     RETURN_IF_ERROR(_item_writer->init());
-    _length_writer->register_flush_page_callback(this);
+    _offset_writer->register_flush_page_callback(this);
+
     return Status::OK();
 }
 
 Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
-    footer->set_first_array_item_ordinal(_current_length_page_first_ordinal);
+    footer->set_next_array_item_ordinal(_item_writer->get_next_rowid());
     return Status::OK();
 }
 
@@ -547,14 +548,12 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     while (remaining > 0) {
         // TODO llj: bulk write
         size_t num_written = 1;
-        auto size_ptr = col_cursor->length();
-        RETURN_IF_ERROR(_length_writer->append_data_in_current_page(
-                reinterpret_cast<uint8_t*>(&size_ptr), &num_written));
+        ordinal_t next_item_ordinal = _item_writer->get_next_rowid();
+        RETURN_IF_ERROR(_offset_writer->append_data_in_current_page(
+                reinterpret_cast<uint8_t*>(&next_item_ordinal), &num_written));
         if (num_written <
             1) { // page is full, write first item offset and update current length page's start ordinal
-            RETURN_IF_ERROR(_length_writer->finish_current_page());
-            _current_length_page_first_ordinal += _length_sum_in_cur_page;
-            _length_sum_in_cur_page = 0;
+            RETURN_IF_ERROR(_offset_writer->finish_current_page());
         } else {
             // write child item.
             if (_item_writer->is_nullable()) {
@@ -568,7 +567,6 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                 RETURN_IF_ERROR(_item_writer->append_data(reinterpret_cast<const uint8_t**>(&data),
                                                           col_cursor->length()));
             }
-            _length_sum_in_cur_page += col_cursor->length();
         }
         remaining -= num_written;
         col_cursor += num_written;
@@ -582,13 +580,13 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 }
 
 uint64_t ArrayColumnWriter::estimate_buffer_size() {
-    return _length_writer->estimate_buffer_size() +
+    return _offset_writer->estimate_buffer_size() +
            (is_nullable() ? _null_writer->estimate_buffer_size() : 0) +
            _item_writer->estimate_buffer_size();
 }
 
 Status ArrayColumnWriter::finish() {
-    RETURN_IF_ERROR(_length_writer->finish());
+    RETURN_IF_ERROR(_offset_writer->finish());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->finish());
     }
@@ -597,7 +595,7 @@ Status ArrayColumnWriter::finish() {
 }
 
 Status ArrayColumnWriter::write_data() {
-    RETURN_IF_ERROR(_length_writer->write_data());
+    RETURN_IF_ERROR(_offset_writer->write_data());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_data());
     }
@@ -606,7 +604,7 @@ Status ArrayColumnWriter::write_data() {
 }
 
 Status ArrayColumnWriter::write_ordinal_index() {
-    RETURN_IF_ERROR(_length_writer->write_ordinal_index());
+    RETURN_IF_ERROR(_offset_writer->write_ordinal_index());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_ordinal_index());
     }
@@ -618,11 +616,11 @@ Status ArrayColumnWriter::write_ordinal_index() {
 
 Status ArrayColumnWriter::append_nulls(size_t num_rows) {
     size_t num_lengths = num_rows;
-    const ordinal_t zero = 0;
+    const ordinal_t offset = _item_writer->get_next_rowid();
     while (num_lengths > 0) {
         // TODO llj bulk write
-        const auto* zero_ptr = reinterpret_cast<const uint8_t*>(&zero);
-        RETURN_IF_ERROR(_length_writer->append_data(&zero_ptr, 1));
+        const auto* offset_ptr = reinterpret_cast<const uint8_t*>(&offset);
+        RETURN_IF_ERROR(_offset_writer->append_data(&offset_ptr, 1));
         --num_lengths;
     }
     return write_null_column(num_rows, true);
