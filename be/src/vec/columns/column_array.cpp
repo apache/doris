@@ -77,6 +77,10 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
+MutableColumnPtr ColumnArray::get_shinked_column() {
+    return ColumnArray::create(data->get_shinked_column(), offsets->assume_mutable());
+}
+
 std::string ColumnArray::get_name() const {
     return "Array(" + get_data().get_name() + ")";
 }
