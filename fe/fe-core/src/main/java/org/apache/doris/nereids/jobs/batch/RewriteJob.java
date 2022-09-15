@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
@@ -62,7 +63,7 @@ public class RewriteJob extends BatchRulesJob {
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
-                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
+                .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
@@ -73,6 +74,7 @@ public class RewriteJob extends BatchRulesJob {
                         new MergeConsecutiveFilters(),
                         new MergeConsecutiveLimits())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
+                .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
