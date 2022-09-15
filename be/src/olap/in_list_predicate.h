@@ -375,7 +375,8 @@ private:
             }
         } else {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(column);
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
+                            column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {

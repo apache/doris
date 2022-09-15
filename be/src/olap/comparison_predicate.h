@@ -552,7 +552,8 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(column)
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
+                            column)
                             ->get_data()
                             .data();
 
