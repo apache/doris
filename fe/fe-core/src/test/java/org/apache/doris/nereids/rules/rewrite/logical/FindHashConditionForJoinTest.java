@@ -57,8 +57,8 @@ import java.util.Optional;
 class FindHashConditionForJoinTest {
     @Test
     public void testFindHashCondition() {
-        Plan student = new LogicalOlapScan(PlanConstructor.getNextId(), PlanConstructor.student, ImmutableList.of(""));
-        Plan score = new LogicalOlapScan(PlanConstructor.getNextId(), PlanConstructor.score, ImmutableList.of(""));
+        Plan student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
+        Plan score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
 
         Slot studentId = student.getOutput().get(0);
         Slot gender = student.getOutput().get(1);
