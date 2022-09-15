@@ -47,11 +47,10 @@ public class MergeConsecutiveLimits extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalLimit(logicalLimit()).whenNot(Limit::hasValidOffset).then(upperLimit -> {
             LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
-            List<Plan> children = bottomLimit.children();
             return new LogicalLimit<>(
                     Math.min(upperLimit.getLimit(), bottomLimit.getLimit()),
                     bottomLimit.getOffset(),
-                    children.get(0)
+                    bottomLimit.child()
             );
         }).toRule(RuleType.MERGE_CONSECUTIVE_LIMITS);
     }
