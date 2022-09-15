@@ -88,20 +88,15 @@ public:
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(&chars[offset_at(n)], size_at(n) - 1);
+        return Field(&chars[offset_at(n)], size_at(n));
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        res.assign_string(&chars[offset_at(n)], size_at(n) - 1);
+        res.assign_string(&chars[offset_at(n)], size_at(n));
     }
 
     StringRef get_data_at(size_t n) const override {
-        assert(n < size());
-        return StringRef(&chars[offset_at(n)], size_at(n) - 1);
-    }
-
-    StringRef get_data_at_with_terminating_zero(size_t n) const override {
         assert(n < size());
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
@@ -115,7 +110,7 @@ public:
     void insert(const Field& x) override {
         const String& s = doris::vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
-        const size_t size_to_append = s.size() + 1;
+        const size_t size_to_append = s.size();
         const size_t new_size = old_size + size_to_append;
 
         chars.resize(new_size);
@@ -132,9 +127,8 @@ public:
         const size_t size_to_append =
                 src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
 
-        if (size_to_append == 1) {
+        if (!size_to_append) {
             /// shortcut for empty string
-            chars.push_back(0);
             offsets.push_back(chars.size());
         } else {
             const size_t old_size = chars.size();
@@ -150,13 +144,12 @@ public:
 
     void insert_data(const char* pos, size_t length) override {
         const size_t old_size = chars.size();
-        const size_t new_size = old_size + length + 1;
+        const size_t new_size = old_size + length;
 
-        chars.resize(new_size);
         if (length) {
+            chars.resize(new_size);
             memcpy(chars.data() + old_size, pos, length);
         }
-        chars[old_size + length] = 0;
         offsets.push_back(new_size);
     }
 
@@ -164,7 +157,7 @@ public:
                                  uint32_t* start_offset_array, size_t num) override {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
-            new_size += len_array[i] + 1;
+            new_size += len_array[i];
         }
 
         const size_t old_size = chars.size();
@@ -175,9 +168,10 @@ public:
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];
-            if (len) memcpy(data + offset, data_array + start_offset, len);
-            data[offset + len] = 0;
-            offset += len + 1;
+            if (len) {
+                memcpy(data + offset, data_array + start_offset, len);
+            }
+            offset += len;
             offsets.push_back(offset);
         }
     };
@@ -185,7 +179,7 @@ public:
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
-            new_size += strings[i].size + 1;
+            new_size += strings[i].size;
         }
 
         const size_t old_size = chars.size();
@@ -195,9 +189,10 @@ public:
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
             uint32_t len = strings[i].size;
-            if (len) memcpy(data + offset, strings[i].data, len);
-            data[offset + len] = 0;
-            offset += len + 1;
+            if (len) {
+                memcpy(data + offset, strings[i].data, len);
+            }
+            offset += len;
             offsets.push_back(offset);
         }
     }
@@ -208,16 +203,6 @@ public:
             int32_t codeword = data_array[start_index];
             insert_data(dict[codeword].data, dict[codeword].size);
         }
-    }
-
-    /// Like getData, but inserting data should be zero-ending (i.e. length is 1 byte greater than real string size).
-    void insert_data_with_terminating_zero(const char* pos, size_t length) {
-        const size_t old_size = chars.size();
-        const size_t new_size = old_size + length;
-
-        chars.resize(new_size);
-        memcpy(chars.data() + old_size, pos, length);
-        offsets.push_back(new_size);
     }
 
     void pop_back(size_t n) override {
@@ -258,8 +243,19 @@ public:
         SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
-    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override {
+        auto s = size();
+        for (int i = 0; i < s; i++) {
+            size_t string_size = size_at(i);
+            size_t offset = offset_at(i);
+            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                   string_size, hashes[i]);
+        }
+    }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -278,31 +274,17 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
-    void insert_default() override {
-        chars.push_back(0);
-        offsets.push_back(offsets.back() + 1);
-    }
+    void insert_default() override { offsets.push_back(chars.size()); }
 
     void insert_many_defaults(size_t length) override {
-        size_t chars_old_size = chars.size();
-        chars.resize(chars_old_size + length);
-        memset(chars.data() + chars_old_size, 0, length);
-
-        const size_t old_size = offsets.size();
-        const size_t new_size = old_size + length;
-        const auto num = offsets.back() + 1;
-        offsets.resize_fill(new_size, num);
-        for (size_t i = old_size, j = 0; i < new_size; i++, j++) {
-            offsets[i] += j;
-        }
+        offsets.resize_fill(offsets.size() + length, chars.size());
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
                    int /*nan_direction_hint*/) const override {
         const ColumnString& rhs = assert_cast<const ColumnString&>(rhs_);
-        return memcmp_small_allow_overflow15(chars.data() + offset_at(n), size_at(n) - 1,
-                                             rhs.chars.data() + rhs.offset_at(m),
-                                             rhs.size_at(m) - 1);
+        return memcmp_small_allow_overflow15(chars.data() + offset_at(n), size_at(n),
+                                             rhs.chars.data() + rhs.offset_at(m), rhs.size_at(m));
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -355,12 +337,12 @@ public:
 
         if (!self_row) {
             chars.clear();
-            offsets[self_row] = data.size + 1;
+            offsets[self_row] = data.size;
         } else {
-            offsets[self_row] = offsets[self_row - 1] + data.size + 1;
+            offsets[self_row] = offsets[self_row - 1] + data.size;
         }
 
-        chars.insert(data.data, data.data + data.size + 1);
+        chars.insert(data.data, data.data + data.size);
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
@@ -369,12 +351,10 @@ public:
 
         if (!self_row) {
             chars.clear();
-            offsets[self_row] = 1;
+            offsets[self_row] = 0;
         } else {
-            offsets[self_row] = offsets[self_row - 1] + 1;
+            offsets[self_row] = offsets[self_row - 1];
         }
-
-        chars.emplace_back(0);
     }
 };
 

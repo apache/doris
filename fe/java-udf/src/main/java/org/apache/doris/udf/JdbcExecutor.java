@@ -76,7 +76,6 @@ public class JdbcExecutor {
         }
     }
 
-
     public int querySQL(String sql) throws UdfRuntimeException {
         try {
             boolean res = stmt.execute(sql);
@@ -84,11 +83,41 @@ public class JdbcExecutor {
                 resultSet = stmt.getResultSet();
                 resultSetMetaData = resultSet.getMetaData();
                 return resultSetMetaData.getColumnCount();
-            } else { //TODO: update query
-                return 0;
+            } else {
+                return stmt.getUpdateCount();
             }
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+        }
+    }
+
+    public void openTrans() throws UdfRuntimeException {
+        try {
+            if (conn != null) {
+                conn.setAutoCommit(false);
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor open transaction has error: ", e);
+        }
+    }
+
+    public void commitTrans() throws UdfRuntimeException {
+        try {
+            if (conn != null) {
+                conn.commit();
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor commit transaction has error: ", e);
+        }
+    }
+
+    public void rollbackTrans() throws UdfRuntimeException {
+        try {
+            if (conn != null) {
+                conn.rollback();
+            }
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor rollback transaction has error: ", e);
         }
     }
 

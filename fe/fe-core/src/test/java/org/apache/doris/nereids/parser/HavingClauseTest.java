@@ -360,9 +360,9 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
         Alias pk11 = new Alias(new ExprId(8), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(9), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
         Alias sumA1 = new Alias(new ExprId(10), new Sum(a1), "SUM(a1)");
-        Alias countA11 = new Alias(new ExprId(11), new Add(new Count(a1), Literal.of((byte) 1)), "(COUNT(a1) + 1)");
+        Alias countA11 = new Alias(new ExprId(11), new Add(new Count(a1, false), Literal.of((byte) 1)), "(COUNT(a1) + 1)");
         Alias sumA1A2 = new Alias(new ExprId(12), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
-        Alias v1 = new Alias(new ExprId(0), new Count(a2), "v1");
+        Alias v1 = new Alias(new ExprId(0), new Count(a2, false), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
                     logicalProject(

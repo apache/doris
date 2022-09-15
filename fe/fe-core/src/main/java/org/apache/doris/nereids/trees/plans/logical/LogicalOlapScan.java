@@ -115,24 +115,29 @@ public class LogicalOlapScan extends LogicalRelation {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(id, selectedPartitionIds, candidateIndexIds);
+    }
+
+    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(getId(), table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, rollupSelected);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
                 partitionPruned, candidateIndexIds, rollupSelected);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionId, true, candidateIndexIds, rollupSelected);
     }
 
     public LogicalOlapScan withCandidateIndexIds(List<Long> candidateIndexIds) {
-        return new LogicalOlapScan(getId(), table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, true);
     }
 

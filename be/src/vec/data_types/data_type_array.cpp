@@ -21,10 +21,9 @@
 #include "vec/data_types/data_type_array.h"
 
 #include "gen_cpp/data.pb.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/string_utils/string_utils.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -55,14 +54,16 @@ size_t DataTypeArray::get_number_of_dimensions() const {
                    ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
 }
 
-int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                         int data_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
-           get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data());
+           get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
+                                                                data_version);
 }
 
-char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
+char* DataTypeArray::serialize(const IColumn& column, char* buf, int data_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
@@ -73,10 +74,10 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
     memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
     buf += column.size() * sizeof(ColumnArray::Offset64);
     // children
-    return get_nested_type()->serialize(data_column.get_data(), buf);
+    return get_nested_type()->serialize(data_column.get_data(), buf, data_version);
 }
 
-const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeArray::deserialize(const char* buf, IColumn* column, int data_version) const {
     auto* data_column = assert_cast<ColumnArray*>(column);
     auto& offsets = data_column->get_offsets();
 
@@ -88,7 +89,8 @@ const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
     memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
     buf += sizeof(ColumnArray::Offset64) * row_num;
     // children
-    return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable());
+    return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable(),
+                                          data_version);
 }
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {

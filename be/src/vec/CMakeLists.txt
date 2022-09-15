@@ -56,7 +56,6 @@ set(VEC_FILES
   common/pod_array.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
-  core/block_info.cpp
   core/column_with_type_and_name.cpp
   core/field.cpp
   core/field.cpp
@@ -213,11 +212,14 @@ set(VEC_FILES
   sink/vmysql_table_sink.cpp
   sink/vodbc_table_sink.cpp
   sink/vresult_file_sink.cpp
+  sink/vjdbc_table_sink.cpp
+  sink/vtable_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
+  runtime/vparquet_writer.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
   exec/file_arrow_scanner.cpp
@@ -245,7 +247,7 @@ set(VEC_FILES
   exec/scan/new_file_scan_node.cpp
   exec/scan/new_file_scanner.cpp
   exec/scan/new_file_text_scanner.cpp
-)
+  )
 
 add_library(Vec STATIC
         ${VEC_FILES}

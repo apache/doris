@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.mv.SelectRollup;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
@@ -26,14 +27,9 @@ import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
-import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 
 import com.google.common.collect.ImmutableList;
@@ -62,17 +58,12 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
-                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
-                .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
-                .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
+                .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
-                .add(topDownBatch(ImmutableList.of(new PushPredicateThroughJoin(),
-                        new PushdownProjectThroughLimit(),
-                        new PushdownFilterThroughProject(),
-                        new MergeConsecutiveProjects(),
-                        new MergeConsecutiveFilters(),
-                        new MergeConsecutiveLimits())))
+                .add(topDownBatch(RuleSet.PUSH_DOWN_JOIN_CONDITION_RULES))
+                .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new AggregateDisassemble())))
+                .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))

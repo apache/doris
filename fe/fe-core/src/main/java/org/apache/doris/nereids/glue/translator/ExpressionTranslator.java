@@ -256,6 +256,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             Count count = (Count) function;
             if (count.isStar()) {
                 return new FunctionCallExpr(function.getName(), FunctionParams.createStarParam());
+            } else if (count.isDistinct()) {
+                return new FunctionCallExpr(function.getName(), new FunctionParams(true, paramList));
             }
         }
         return new FunctionCallExpr(function.getName(), paramList);

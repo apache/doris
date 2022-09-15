@@ -19,12 +19,7 @@
 
 #include "runtime/string_value.h"
 #include "runtime/string_value.hpp"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_set.h"
 #include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -226,10 +221,10 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
 
             /// Determine which index it refers to.
             /// begin + value_offsets[i] is the start offset of string at i+1
-            while (begin + value_offsets[i] <= pos) ++i;
+            while (begin + value_offsets[i] < pos) ++i;
 
             /// We check that the entry does not pass through the boundaries of strings.
-            if (pos + needle_size < begin + value_offsets[i]) {
+            if (pos + needle_size <= begin + value_offsets[i]) {
                 result[i] = 1;
             }
 
@@ -245,10 +240,10 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
 
     for (int i = 0; i < size; ++i) {
         char* val_raw_str = (char*)(&values[value_offsets[i - 1]]);
-        UInt32 val_str_size = value_offsets[i] - value_offsets[i - 1] - 1;
+        UInt32 val_str_size = value_offsets[i] - value_offsets[i - 1];
 
         char* pattern_raw_str = (char*)(&patterns[pattern_offsets[i - 1]]);
-        UInt32 patter_str_size = pattern_offsets[i] - pattern_offsets[i - 1] - 1;
+        UInt32 patter_str_size = pattern_offsets[i] - pattern_offsets[i - 1];
         RETURN_IF_ERROR((function)(search_state, StringValue(val_raw_str, val_str_size),
                                    StringValue(pattern_raw_str, patter_str_size), &result[i]));
     }

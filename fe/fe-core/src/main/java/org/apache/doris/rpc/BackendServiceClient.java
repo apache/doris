@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit;
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
 
-    private static final int MAX_RETRY_NUM = 0;
+    private static final int MAX_RETRY_NUM = 10;
     private final TNetworkAddress address;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
@@ -53,6 +53,7 @@ public class BackendServiceClient {
         this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
+                .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
                 .intercept(new OpenTelemetryClientInterceptor()).usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);

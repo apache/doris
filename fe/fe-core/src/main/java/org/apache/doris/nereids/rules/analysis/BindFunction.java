@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -100,7 +101,7 @@ public class BindFunction implements AnalysisRuleFactory {
         );
     }
 
-    private <E extends Expression> List<E> bind(List<E> exprList, Env env) {
+    private <E extends Expression> List<E> bind(List<? extends E> exprList, Env env) {
         return exprList.stream()
             .map(expr -> FunctionBinder.INSTANCE.bind(expr, env))
             .collect(Collectors.toList());
@@ -115,6 +116,17 @@ public class BindFunction implements AnalysisRuleFactory {
 
         @Override
         public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+            // FunctionRegistry can't support boolean arg now, tricky here.
+            if (unboundFunction.getName().equalsIgnoreCase("count")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if ((arguments.size() == 0 && unboundFunction.isStar()) || arguments.stream()
+                        .allMatch(Expression::isConstant)) {
+                    return new Count();
+                }
+                if (arguments.size() == 1) {
+                    return new Count(unboundFunction.getArguments().get(0), unboundFunction.isDistinct());
+                }
+            }
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
             String functionName = unboundFunction.getName();
             FunctionBuilder builder = functionRegistry.findFunctionBuilder(

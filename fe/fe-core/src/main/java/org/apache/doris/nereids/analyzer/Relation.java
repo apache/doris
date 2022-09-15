@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.expressions.Slot;
+
+import java.util.List;
 
 /**
  * Relation base interface
  */
 public interface Relation {
-    default RelationId getId() {
-        return null;
-    }
+    List<Slot> getOutput();
 }

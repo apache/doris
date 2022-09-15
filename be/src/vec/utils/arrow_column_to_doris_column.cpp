@@ -23,10 +23,8 @@
 
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
-#include "arrow/scalar.h"
 #include "arrow/type.h"
 #include "arrow/type_fwd.h"
-#include "arrow/type_traits.h"
 #include "gutil/casts.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -114,7 +112,6 @@ static Status convert_column_with_string_data(const arrow::Array* array, size_t 
             const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
             column_chars_t.insert(raw_data, raw_data + concrete_array->value_length(offset_i));
         }
-        column_chars_t.emplace_back('\0');
 
         column_offsets.emplace_back(column_chars_t.size());
     }
@@ -136,7 +133,6 @@ static Status convert_column_with_fixed_size_data(const arrow::Array* array, siz
             const auto* raw_data = array_data + (offset_i * width);
             column_chars_t.insert(raw_data, raw_data + width);
         }
-        column_chars_t.emplace_back('\0');
         column_offsets.emplace_back(column_chars_t.size());
     }
     return Status::OK();

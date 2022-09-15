@@ -219,6 +219,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
 
+    public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -560,6 +562,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER)
     public boolean enableFallbackToOriginalPlanner = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
+    public boolean enableNewShffleHashMethod = true;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1166,6 +1170,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
+        tResult.setEnableNewShuffleHashMethod(enableNewShffleHashMethod);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 

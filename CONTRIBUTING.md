@@ -23,7 +23,7 @@ Thank you very much for your interest in the Doris project. We welcome your sugg
 
 Your suggestions, comments and comments on Doris can be made directly through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose).
 
-There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Commiter of Apache with Apache mailbox and be included in the list of [Apache Commiters](http://people.apache.org/committer-index.html).
+There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Committer of Apache with Apache mailbox and be included in the list of [Apache Committers](http://people.apache.org/committer-index.html).
 
 Any questions, you can contact us to get timely answers, including dev mail list or Slack.
 
@@ -31,7 +31,7 @@ Any questions, you can contact us to get timely answers, including dev mail list
 
 For the first time in Doris community, you can:
 
-* Follow [Doris Github](https://github.com/apache/doris)
+* Follow [Doris GitHub](https://github.com/apache/doris)
 * Subscribe to our [mailing list](./docs/en/community/subscribe-mail-list.md);
 * Join Doris [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
@@ -58,7 +58,7 @@ Browse the document, you can deepen your understanding of Doris, can also help y
 
 If you are interested in improving the quality of documents, whether it is revising the address of a page, correcting a link, and writing a better introductory document, we are very welcome!
 
-Most of our documents are written in markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/doris). If you submit code changes, you can refer to [Pull Request](./docs/en/community/how-to-contribute/pull-request.md).
+Most of our documents are written in Markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/doris). If you submit code changes, you can refer to [Pull Request](./docs/en/community/how-to-contribute/pull-request.md).
 
 ## If a Bug or problem is found
 

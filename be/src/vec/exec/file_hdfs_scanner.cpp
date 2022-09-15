@@ -50,7 +50,7 @@ Status ParquetFileHdfsScanner::get_next(vectorized::Block* block, bool* eof) {
     }
     RETURN_IF_ERROR(init_block(block));
     bool range_eof = false;
-    RETURN_IF_ERROR(_reader->read_next_batch(block, &range_eof));
+    RETURN_IF_ERROR(_reader->get_next_block(block, &range_eof));
     if (block->rows() > 0) {
         _fill_columns_from_path(block, block->rows());
     }

@@ -210,7 +210,8 @@ public class SlotRef extends Expr {
         } else if (label != null) {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
-                    && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                    && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()
+                    && desc != null) {
                 return label + "[#" + desc.getId().asInt() + "]";
             } else {
                 return label;

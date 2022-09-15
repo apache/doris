@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
+import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.JoinLAsscomProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
@@ -32,9 +33,13 @@ import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhys
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownJoinOtherCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -46,16 +51,22 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(JoinCommute.OUTER_LEFT_DEEP)
+            .add(JoinCommute.LEFT_DEEP)
+            .add(JoinCommuteProject.LEFT_DEEP)
             .add(JoinLAsscom.INNER)
             .add(JoinLAsscomProject.INNER)
             .add(new PushdownFilterThroughProject())
             .add(new MergeConsecutiveProjects())
             .build();
 
-    public static final List<Rule> REWRITE_RULES = planRuleFactories()
-            .add(new AggregateDisassemble())
-            .build();
+    public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
+            new PushDownJoinOtherCondition(),
+            new PushPredicatesThroughJoin(),
+            new PushdownProjectThroughLimit(),
+            new PushdownFilterThroughProject(),
+            new MergeConsecutiveProjects(),
+            new MergeConsecutiveFilters(),
+            new MergeConsecutiveLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalAggToPhysicalHashAgg())
@@ -73,7 +84,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.OUTER_LEFT_DEEP)
+            .add(JoinCommute.LEFT_DEEP)
             .add(JoinLAsscom.INNER)
             .add(JoinLAsscomProject.INNER)
             .add(JoinLAsscom.OUTER)
@@ -82,7 +93,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.OUTER_ZIG_ZAG)
+            .add(JoinCommute.ZIG_ZAG)
             .add(JoinLAsscom.INNER)
             .add(JoinLAsscomProject.INNER)
             .add(JoinLAsscom.OUTER)
@@ -91,7 +102,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.OUTER_BUSHY)
+            .add(JoinCommute.BUSHY)
             // TODO: add more rule
             // .add(JoinLeftAssociate.INNER)
             // .add(JoinLeftAssociateProject.INNER)

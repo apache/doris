@@ -125,11 +125,14 @@ public class StreamLoadPlanner {
             throw new UserException("There is no sequence column in the table " + destTable.getName());
         }
         resetAnalyzer();
-        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
-        // construct tuple descriptor, used for scanNode
-        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
+        TupleDescriptor scanTupleDesc = tupleDesc;
+        if (Config.enable_vectorized_load) {
+            // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+            // construct tuple descriptor, used for scanNode
+            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        }
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -138,20 +141,22 @@ public class StreamLoadPlanner {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
 
-            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            scanSlotDesc.setIsMaterialized(true);
-            scanSlotDesc.setColumn(col);
-            scanSlotDesc.setIsNullable(col.isAllowNull());
-            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
-                try {
-                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
-                        scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
-                        break;
+            if (Config.enable_vectorized_load) {
+                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+                scanSlotDesc.setIsMaterialized(true);
+                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setIsNullable(col.isAllowNull());
+                for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                    try {
+                        if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                && importColumnDesc.getColumnName().equals(col.getName())) {
+                            scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                            break;
+                        }
+                    } catch (Exception e) {
+                        // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                        // We just skip this case here.
                     }
-                } catch (Exception e) {
-                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
-                    // We just skip this case here.
                 }
             }
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {

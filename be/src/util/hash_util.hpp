@@ -33,6 +33,7 @@
 #elif __aarch64__
 #include <sse2neon.h>
 #endif
+#include <xxh3.h>
 #include <zlib.h>
 
 #include "gen_cpp/Types_types.h"
@@ -362,6 +363,18 @@ public:
     static inline void hash_combine(std::size_t& seed, const T& v) {
         std::hash<T> hasher;
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
+    // xxHash function for a byte array.  For convenience, a 64-bit seed is also
+    // hashed into the result.  The mapping may change from time to time.
+    static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH3_64bits_withSeed(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
 };
 

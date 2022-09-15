@@ -105,12 +105,19 @@ public class PhysicalOlapScan extends PhysicalRelation {
         if (this == o) {
             return true;
         }
-        return o != null && getClass() == o.getClass() && super.equals(o);
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        PhysicalOlapScan that = ((PhysicalOlapScan) o);
+        return Objects.equals(selectedIndexId, that.selectedIndexId)
+                && Objects.equals(selectedTabletIds, that.selectedPartitionIds)
+                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
+                && Objects.equals(olapTable, that.olapTable);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(selectedIndexId, selectedPartitionIds, selectedTabletIds, olapTable);
+        return Objects.hash(id, selectedIndexId, selectedPartitionIds, selectedTabletIds, olapTable);
     }
 
     @Override
@@ -120,19 +127,19 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(getId(), olapTable, qualifier, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, groupExpression, getLogicalProperties());
     }
 
     @Override
     public PhysicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(getId(), olapTable, qualifier, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, Optional.empty(), logicalProperties.get());
     }
 
     @Override
     public PhysicalOlapScan withPhysicalProperties(PhysicalProperties physicalProperties) {
-        return new PhysicalOlapScan(getId(), olapTable, qualifier, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, Optional.empty(), getLogicalProperties(), physicalProperties);
     }
 }

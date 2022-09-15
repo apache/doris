@@ -95,7 +95,7 @@ Status VDataStreamSender::Channel::send_current_block(bool eos) {
         return send_local_block(eos);
     }
     auto block = _mutable_block->to_block();
-    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block, &_compressed_data_buffer));
+    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
     block.clear_column_data();
     _mutable_block->set_muatable_columns(block.mutate_columns());
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
@@ -410,6 +410,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        if (_state->query_options().__isset.enable_new_shuffle_hash_method) {
+            _new_shuffle_hash_method = _state->query_options().enable_new_shuffle_hash_method;
+        }
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
     } else {
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
@@ -472,8 +475,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else {
-            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, &_compressed_data_buffer,
-                                            _channels.size()));
+            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
             for (auto channel : _channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_block(block));
@@ -491,13 +493,13 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_block(block));
         } else {
-            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block(),
-                                            &_compressed_data_buffer));
+            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
             RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block()));
             current_channel->ch_roll_pb_block();
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
-    } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
+    } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
+               _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         // will only copy schema
         // we don't want send temp columns
         auto column_to_keep = block->columns();
@@ -508,45 +510,49 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 
         // vectorized calculate hash
         int rows = block->rows();
-        // for each row, we have a siphash val
-        std::vector<SipHash> siphashs(rows);
-        // result[j] means column index, i means rows index
-        for (int j = 0; j < result_size; ++j) {
-            block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
+        auto element_size = _channels.size();
+        std::vector<uint64_t> hash_vals(rows);
+        auto* __restrict hashes = hash_vals.data();
+
+        // TODO: after we support new shuffle hash method, should simple the code
+        if (_part_type == TPartitionType::HASH_PARTITIONED) {
+            if (!_new_shuffle_hash_method) {
+                // for each row, we have a siphash val
+                std::vector<SipHash> siphashs(rows);
+                // result[j] means column index, i means rows index
+                for (int j = 0; j < result_size; ++j) {
+                    block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
+                }
+                for (int i = 0; i < rows; i++) {
+                    hashes[i] = siphashs[i].get64() % element_size;
+                }
+            } else {
+                // result[j] means column index, i means rows index, here to calculate the xxhash value
+                for (int j = 0; j < result_size; ++j) {
+                    block->get_by_position(result[j]).column->update_hashes_with_value(hashes);
+                }
+
+                for (int i = 0; i < rows; i++) {
+                    hashes[i] = hashes[i] % element_size;
+                }
+            }
+
+            Block::erase_useless_column(block, column_to_keep);
+            RETURN_IF_ERROR(channel_add_rows(_channels, element_size, hashes, rows, block));
+        } else {
+            for (int j = 0; j < result_size; ++j) {
+                block->get_by_position(result[j]).column->update_crcs_with_value(
+                        hash_vals, _partition_expr_ctxs[j]->root()->type().type);
+            }
+            element_size = _channel_shared_ptrs.size();
+            for (int i = 0; i < rows; i++) {
+                hashes[i] = hashes[i] % element_size;
+            }
+
+            Block::erase_useless_column(block, column_to_keep);
+            RETURN_IF_ERROR(
+                    channel_add_rows(_channel_shared_ptrs, element_size, hashes, rows, block));
         }
-
-        // channel2rows' subscript means channel id
-        std::vector<vectorized::UInt64> hash_vals(rows);
-        for (int i = 0; i < rows; i++) {
-            hash_vals[i] = siphashs[i].get64();
-        }
-
-        Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(channel_add_rows(_channels, _channels.size(), hash_vals, rows, block));
-    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        // will only copy schema
-        // we don't want send temp columns
-        auto column_to_keep = block->columns();
-        // 1. calculate hash
-        // 2. dispatch rows to channel
-        int result_size = _partition_expr_ctxs.size();
-        int result[result_size];
-        RETURN_IF_ERROR(get_partition_column_result(block, result));
-
-        // vectorized calculate hash val
-        int rows = block->rows();
-        // for each row, we have a hash_val
-        std::vector<uint32_t> hash_vals(rows);
-
-        // result[j] means column index, i means rows index
-        for (int j = 0; j < result_size; ++j) {
-            block->get_by_position(result[j]).column->update_crcs_with_value(
-                    hash_vals, _partition_expr_ctxs[j]->root()->type().type);
-        }
-
-        Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(),
-                                         hash_vals, rows, block));
     } else {
         // Range partition
         // 1. calculate range
@@ -582,18 +588,12 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
 }
 
 Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_receivers) {
-    return serialize_block(src, dest, &_compressed_data_buffer, num_receivers);
-}
-
-Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, std::string* compressed_buffer,
-                                          int num_receivers) {
     {
         SCOPED_TIMER(_serialize_batch_timer);
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, compressed_buffer, &uncompressed_bytes,
-                                       &compressed_bytes, _compression_type,
-                                       _transfer_large_data_by_brpc));
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
+                                       _compression_type, _transfer_large_data_by_brpc));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
         COUNTER_UPDATE(_compress_timer, src->get_compress_time());
