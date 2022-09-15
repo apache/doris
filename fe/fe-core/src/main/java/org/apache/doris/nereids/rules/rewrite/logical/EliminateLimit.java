@@ -22,8 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 
-import java.util.List;
-
 /**
  * Eliminate limit = 0.
  */
@@ -32,7 +30,7 @@ public class EliminateLimit extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalLimit()
                 .when(limit -> limit.getLimit() == 0)
-                .then(limit -> new LogicalEmptyRelation((List) limit.getOutput()))
+                .then(limit -> new LogicalEmptyRelation(limit.getOutput()))
                 .toRule(RuleType.ELIMINATE_LIMIT);
     }
 }

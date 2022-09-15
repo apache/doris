@@ -65,8 +65,8 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return (List) projects;
+    public List<? extends Expression> getExpressions() {
+        return projects;
     }
 
     @Override

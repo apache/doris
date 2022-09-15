@@ -83,12 +83,12 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalProject((LogicalProject<Plan>) this, context);
+        return visitor.visitLogicalProject(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(projects).build();
+    public List<? extends Expression> getExpressions() {
+        return projects;
     }
 
     @Override

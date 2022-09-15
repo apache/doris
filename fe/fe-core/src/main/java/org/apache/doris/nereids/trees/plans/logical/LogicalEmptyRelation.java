@@ -40,13 +40,13 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation {
-    private final List<NamedExpression> projects;
+    private final List<? extends NamedExpression> projects;
 
-    public LogicalEmptyRelation(List<NamedExpression> projects) {
+    public LogicalEmptyRelation(List<? extends NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());
     }
 
-    public LogicalEmptyRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
+    public LogicalEmptyRelation(List<? extends NamedExpression> projects, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
@@ -58,12 +58,12 @@ public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation {
     }
 
     @Override
-    public List<NamedExpression> getProjects() {
+    public List<? extends NamedExpression> getProjects() {
         return projects;
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 

@@ -23,8 +23,6 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 
-import java.util.List;
-
 /**
  * Eliminate filter false.
  */
@@ -33,7 +31,7 @@ public class EliminateFilter extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter()
                 .when(filter -> filter.getPredicates() == BooleanLiteral.FALSE)
-                .then(filter -> new LogicalEmptyRelation((List) filter.getOutput()))
+                .then(filter -> new LogicalEmptyRelation(filter.getOutput()))
                 .toRule(RuleType.ELIMINATE_FILTER);
     }
 }

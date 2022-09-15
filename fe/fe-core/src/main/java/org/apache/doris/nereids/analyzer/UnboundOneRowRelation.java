@@ -68,7 +68,7 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 

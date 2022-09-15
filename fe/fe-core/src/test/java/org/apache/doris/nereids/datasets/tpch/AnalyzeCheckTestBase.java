@@ -48,7 +48,7 @@ public abstract class AnalyzeCheckTestBase extends TestWithFeService {
             }
         }
 
-        List<Expression> expressions = plan.getExpressions();
+        List<? extends Expression> expressions = plan.getExpressions();
         return expressions.stream().allMatch(this::checkExpressionBound);
     }
 
