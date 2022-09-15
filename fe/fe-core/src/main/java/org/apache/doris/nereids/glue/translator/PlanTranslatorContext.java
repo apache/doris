@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.planner.PlanFragment;
@@ -33,6 +34,7 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -48,6 +50,8 @@ public class PlanTranslatorContext {
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private final DescriptorTable descTable = new DescriptorTable();
+
+    private final RuntimeFilterTranslator translator;
 
     /**
      * index from Nereids' slot to legacy slot.
@@ -65,12 +69,25 @@ public class PlanTranslatorContext {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
+    public PlanTranslatorContext(CascadesContext ctx) {
+        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+    }
+
+    @VisibleForTesting
+    public PlanTranslatorContext() {
+        translator = null;
+    }
+
     public List<PlanFragment> getPlanFragments() {
         return planFragments;
     }
 
     public TupleDescriptor generateTupleDesc() {
         return descTable.createTupleDescriptor();
+    }
+
+    public Optional<RuntimeFilterTranslator> getRuntimeTranslator() {
+        return Optional.ofNullable(translator);
     }
 
     public PlanFragmentId nextFragmentId() {

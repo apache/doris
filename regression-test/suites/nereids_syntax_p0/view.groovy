@@ -43,7 +43,7 @@ suite("view") {
             select *
             from v2
             ) t 
-        on v1.c_custkey = t.lo_custkey;
+        on v1.c_custkey = t.lo_custkey
     """
 
     sql "SET enable_fallback_to_original_planner=false"

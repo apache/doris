@@ -331,6 +331,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         Utils.execWithUncheckedException(olapScanNode::init);
         context.addScanNode(olapScanNode);
+        // translate runtime filter
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(olapScan.getId()).forEach(
+                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
+                )
+        );
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
         if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
@@ -522,6 +528,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(outputDescriptor));
         hashJoinNode.setvOutputTupleDesc(outputDescriptor);
         hashJoinNode.setvSrcToOutputSMap(srcToOutput);
+        // translate runtime filter
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
+                .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
+                .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
         return currentFragment;
     }
 

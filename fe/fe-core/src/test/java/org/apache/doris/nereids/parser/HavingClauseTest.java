@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMatchSupported {
 
     @Override
-    protected void runBeforeAll() throws Exception {
+    public void runBeforeAll() throws Exception {
         createDatabase("test_having");
         connectContext.setDatabase("default_cluster:test_having");
         createTables(
@@ -76,7 +76,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
     }
 
     @Override
-    protected void runBeforeEach() throws Exception {
+    public void runBeforeEach() throws Exception {
         NamedExpressionUtil.clear();
     }
 
