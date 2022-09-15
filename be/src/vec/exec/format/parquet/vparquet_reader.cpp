@@ -271,7 +271,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
         return Status::OK();
     }
 
-    std::sort(skipped_row_ranges->begin(), skipped_row_ranges->end(),
+    std::sort(skipped_row_ranges.begin(), skipped_row_ranges.end(),
               [](const RowRange& lhs, const RowRange& rhs) {
                   return std::tie(lhs.first_row, lhs.last_row) <
                          std::tie(rhs.first_row, rhs.last_row);
@@ -279,7 +279,6 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
     int skip_end = -1;
     for (auto& skip_range : skipped_row_ranges) {
         LOG(WARNING) << skip_range.first_row << " " << skip_range.last_row << " | ";
-        std::vector<RowRange> skipped_ranges = skipped_row_ranges[i];
         if (skip_end + 1 >= skip_range.first_row) {
             if (skip_end < skip_range.last_row) {
                 skip_end = skip_range.last_row;
