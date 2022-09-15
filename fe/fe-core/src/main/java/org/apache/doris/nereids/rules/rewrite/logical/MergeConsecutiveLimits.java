@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
-import java.util.List;
-
 /**
  * This rule aims to merge consecutive limits.
  * <pre>
