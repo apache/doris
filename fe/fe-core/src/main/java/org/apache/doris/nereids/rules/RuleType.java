@@ -112,6 +112,10 @@ public enum RuleType {
     SWAP_LIMIT_PROJECT(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
+    // limit push down
+    PUSH_LIMIT_THROUGH_JOIN(RuleTypeClass.REWRITE),
+    PUSH_LIMIT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),
+
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
     LOGICAL_JOIN_COMMUTATE(RuleTypeClass.EXPLORATION),
