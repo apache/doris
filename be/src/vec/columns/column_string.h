@@ -200,7 +200,7 @@ public:
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
         size_t new_size = 0;
-        for (size_t i = start_index; i < start_index+num; i++) {
+        for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
             new_size += dict[codeword].size;
         }
@@ -210,8 +210,8 @@ public:
 
         Char* data = chars.data();
         size_t offset = old_size;
-        for (size_t i = start_index; i < start_index+num; i++) {
-            int32_t codeword = data_array[start_index];
+        for (size_t i = start_index; i < start_index + num; i++) {
+            int32_t codeword = data_array[i];
             uint32_t len = dict[codeword].size;
             if (len) {
                 memcpy(data + offset, dict[codeword].data, len);
