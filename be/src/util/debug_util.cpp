@@ -59,6 +59,19 @@ std::string get_build_version(bool compact) {
        << " RELEASE"
 #else
        << " DEBUG"
+#if defined(ADDRESS_SANITIZER)
+       << " with ASAN"
+#elif defined(LEAK_SANITIZER)
+       << " with LSAN"
+#elif defined(THREAD_SANITIZER)
+       << " with TSAN"
+#elif defined(UNDEFINED_BEHAVIOR_SANITIZER)
+       << " with UBSAN"
+#elif defined(MEMORY_SANITIZER)
+       << " with MSAN"
+#elif defined(BLACKLIST_SANITIZER)
+       << " with BLSAN"
+#endif
 #endif
        << " (build " << DORIS_BUILD_HASH << ")";
 
