@@ -30,10 +30,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
-import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughLeftSemiJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 
 import com.google.common.collect.ImmutableList;
@@ -60,9 +56,6 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
-                //TODO: remove following rules: MergeConsecutiveProjects and PushPredicateThroughLeftSemiJoin
-                .add(bottomUpBatch(ImmutableList.of(new MergeConsecutiveProjects())))
-                .add(topDownBatch(ImmutableList.of(new PushPredicateThroughLeftSemiJoin())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
