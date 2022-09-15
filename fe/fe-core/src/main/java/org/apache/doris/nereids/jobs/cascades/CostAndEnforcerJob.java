@@ -191,17 +191,14 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
                 curTotalCost += curNodeCost;
 
-                // colocate join and bucket shuffle join cannot add enforce to satisfy required property.
-                if (enforce(outputProperty, requestChildrenProperties)) {
+                // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
+                recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY,
+                        requestChildrenProperties);
+                recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperties);
+                enforce(outputProperty, requestChildrenProperties);
 
-                    // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
-                    recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperties);
-                    recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY,
-                            requestChildrenProperties);
-
-                    if (curTotalCost < context.getCostUpperBound()) {
-                        context.setCostUpperBound(curTotalCost);
-                    }
+                if (curTotalCost < context.getCostUpperBound()) {
+                    context.setCostUpperBound(curTotalCost);
                 }
             }
 
@@ -209,7 +206,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         }
     }
 
-    private boolean enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
+    private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
         PhysicalProperties requiredProperties = context.getRequiredProperties();
 
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
@@ -229,8 +226,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 recordPropertyAndCost(groupExpression, outputProperty, requiredProperties, requestChildrenProperty);
             }
         }
-
-        return true;
     }
 
     private void recordPropertyAndCost(GroupExpression groupExpression,
