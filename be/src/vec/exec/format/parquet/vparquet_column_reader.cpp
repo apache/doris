@@ -123,6 +123,58 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
     return Status::OK();
 }
 
+Status ScalarColumnReader::read_column_data2(ColumnPtr& doris_column, DataTypePtr& type,
+                                            size_t batch_size, size_t* read_rows, bool* eof) {
+    size_t has_read_rows = 0;
+    while (has_read_rows < batch_size) {
+        if (_chunk_reader->remaining_num_values() == 0) {
+            if (!_chunk_reader->has_next_page()) {
+                *eof = true;
+                *read_rows = has_read_rows;
+                return Status::OK();
+            }
+            // 加载和解析header
+            RETURN_IF_ERROR(_chunk_reader->next_page());
+        }
+
+        // 根据PageLocation, 计算当前page的行号范围
+        size_t start_row_idx = _offset_index->page_locations[_current_page_location].first_row_index;
+        size_t end_row_idx = start_row_idx + _chunk_reader->remaining_num_values();
+        // 根据_row_ranges，计算当前page需要读取的行号范围，可能是多个小范围，表示为 vector<(read_start_idx, read_end_idx)>
+        if (vector<(read_start_idx, read_end_idx)>.size() == 0) {
+            // 表示当前page被完全过滤，可以省掉load和decompress的时间
+            _chunk_reader->skip_page();
+            continue;
+        }
+        // 加载数据，只能省掉往block填充，和后期filter的时间
+        RETURN_IF_ERROR(_chunk_reader->load_page_data());
+
+        size_t current_row_idx = start_row_idx; // 当前需要处理的行号
+        // 遍历每个需要读取的小范围
+        for ((read_start_idx, read_end_idx) : vector<(read_start_idx, read_end_idx)>) {
+            // 需要跳过的行数
+            size_t skip_values = read_start_idx - current_row_idx;
+            // 处理跳过的情况
+            do_skip_values(skip_values);
+            current_row_idx = read_start_idx;
+            // 需要读取的行数
+            size_t read_values = read_end_idx - read_start_idx;
+            // 处理读取的情况
+            do_read_values(read_values);
+            has_read_rows += read_values;
+            current_row_idx= read_end_idx;
+        }
+        // 如果当前page还剩数据，也是要skip掉的，不然状态不对
+        // 也可以调用_chunk_reader->skip_page()，内部有个状态检查，可以删掉。
+        do_skip_values(_chunk_reader->remaining_num_values());
+    }
+    *read_rows = has_read_rows;
+    if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
+        *eof = true;
+    }
+    return Status::OK();
+}
+
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, size_t* read_rows, bool* eof) {
     if (_chunk_reader->remaining_num_values() == 0 || _has_filtered_pages) {

@@ -94,6 +94,8 @@ public:
                 std::vector<RowRange>& row_ranges);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
                             size_t* read_rows, bool* eof) override;
+    Status read_column_data2(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
+                             size_t* read_rows, bool* eof);
     void close() override;
 };
 
