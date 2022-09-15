@@ -15,20 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-#include <vector>
-
+#ifdef LIBJVM
 #include "common/status.h"
-#include "vec/sink/vmysql_table_writer.h"
+#include "vec/exec/vjdbc_connector.h"
 #include "vec/sink/vtable_sink.h"
 
 namespace doris {
 namespace vectorized {
 
-// This class is a sinker, which put input data to mysql table
-class VMysqlTableSink : public VTableSink {
+// This class is a sinker, which put input data to jdbc table
+class VJdbcTableSink : public VTableSink {
 public:
-    VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                    const std::vector<TExpr>& t_exprs);
+    VJdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
+                   const std::vector<TExpr>& t_exprs);
 
     Status init(const TDataSink& thrift_sink) override;
 
@@ -39,8 +38,9 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
-    MysqlConnInfo _conn_info;
-    std::unique_ptr<VMysqlTableWriter> _writer;
+    JdbcConnectorParam _jdbc_param;
+    std::unique_ptr<JdbcConnector> _writer;
 };
 } // namespace vectorized
 } // namespace doris
+#endif

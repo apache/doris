@@ -92,7 +92,7 @@ Status VJdbcScanNode::open(RuntimeState* state) {
 
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_jdbc_connector->open());
-    RETURN_IF_ERROR(_jdbc_connector->query_exec());
+    RETURN_IF_ERROR(_jdbc_connector->query());
     return Status::OK();
 }
 
