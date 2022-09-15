@@ -38,57 +38,31 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
 
 Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index,
                                              std::vector<ExprContext*> conjuncts,
-                                             std::unordered_set<int> skipped_ranges) {
-    //    int first_not_null_page_idx = -1;
-    //    for (int page_id = 0; page_id < column_index->null_pages.size(); ++page_id) {
-    //        bool is_null_page = column_index->null_pages[page_id];
-    //        if (is_null_page) {
-    //             skipped_ranges.emplace(page_id);
-    //        } else {
-    //             if (first_not_null_page_idx == -1) {
-    //                  first_not_null_page_idx = page_idx;
-    //             }
-    //        }
-    //    }
-    //    int start_page_idx = first_not_null_page_idx;
-    //    int end_page_idx = column_index->null_pages.size() - 1;
+                                             std::vector<int> skipped_ranges) {
+    const vector<std::string>& encoded_min_vals = column_index->min_values;
+    const vector<std::string>& encoded_max_vals = column_index->max_values;
+    DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
 
-    //    const vector<std::string>& encoded_min_vals = column_index->min_values;
-    //    const vector<std::string>& encoded_max_vals = column_index->max_values;
-
-    //    DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
-    //    DCHECK(skipped_ranges && skipped_ranges.size() == 0);
-    //    if (start_page_idx > end_page_idx) return;
-    //    DCHECK_LE(0, start_page_idx);
-    //    DCHECK_LT(end_page_idx, encoded_max_vals .size());
-    //
-    //    if (_filter_page_by_min_max(conjuncts, encoded_min_vals[start_page_idx], encoded_max_vals[end_page_idx])) {
-    //        skipped_ranges.emplace(PageRange(start_page_idx, end_page_idx));
-    //        return;
-    //    }
-    //
-    //    vector<std::string>::const_iterator begin = encoded_max_vals.begin() + start_page_idx;
-    //    vector<std::string>::const_iterator end = encoded_max_vals.begin() + end_page_idx + 1;
-    //    auto it = std::lower_bound(begin, end, filter_min, compare_less);
-    //
-    //    int idx = start_page_idx;
-    //    if (it != end && it != begin) {
-    //        idx = it - begin + start_page_idx;
-    //        // skip from start_page_idx to idx - 1
-    //        skipped_ranges.emplace(PageRange(start_page_idx, idx - 1));
-    //    }
-    //
-    //    begin = encoded_min_vals.begin() + idx;
-    //    end = encoded_min_vals.begin() + end_page_idx + 1;
-    //    it = std::upper_bound(begin, end, filter_max, compare_less);
-    //
-    //    if (it != end) {
-    //        idx += it - begin;
-    //        // skip from idx to end_page_idx
-    //        skipped_ranges.emplace(PageRange(idx, end_page_idx));
-    //    }
-    //    LOG(WARNING) << "skipped_ranges.size()=" << skipped_ranges.size();
-    return Status();
+    const int num_of_pages = column_index->null_pages.size();
+    for (int page_id = 0; page_id < num_of_pages; page_id++) {
+        for (int i = 0; i < conjuncts.size(); i++) {
+            ExprContext* conjunct_expr = conjuncts[i];
+            if (conjunct_expr->root()->get_child(1) == nullptr) {
+                // conjunct value is null
+                continue;
+            }
+            //        bool is_null_page = column_index->null_pages[page_id];
+            //        if (UNLIKELY(is_null_page) && is_not_null_predicate()) {
+            //             skipped_ranges.emplace_back(page_id);
+            //        }
+            if (_filter_page_by_min_max(conjunct_expr, encoded_min_vals[page_id], encoded_max_vals[page_id])) {
+                skipped_ranges.emplace_back(page_id);
+                break;
+            }
+        }
+    }
+    LOG(WARNING) << "skipped_ranges.size()=" << skipped_ranges.size();
+    return Status::OK();
 }
 
 bool PageIndex::check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns) {

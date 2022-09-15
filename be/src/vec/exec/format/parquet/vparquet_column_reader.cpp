@@ -67,7 +67,46 @@ void ParquetColumnReader::_reserve_def_levels_buf(size_t size) {
     }
 }
 
-void ParquetColumnReader::_skipped_pages() {}
+Status ParquetColumnReader::_filter_and_load_page() {
+    for(auto& row_range : _row_ranges) {
+        auto& page_locations = _offset_index->page_locations;
+
+        for (int64_t i = _current_page_location; i < page_locations.size(); i++) {
+            LOG(WARNING) << "_current_page_location: " << _current_page_location;
+            auto& page_location = page_locations[i];
+            LOG(WARNING) << "seek_to_page offset: " << page_location.offset;
+            uint32_t remaining_num_values = _chunk_reader->remaining_num_values();
+            int32_t skip_num_values;
+            if (page_location.first_row_index >= row_range.first_row) {
+                RETURN_IF_ERROR(_chunk_reader->seek_to_page(page_location.offset));
+                int32_t skip_num_values = row_range.last_row - page_location.first_row_index;
+                // skip whole range
+                LOG(WARNING) << "skip_num_values: " << skip_num_values;
+                LOG(WARNING) << "remaining_num_values: " << remaining_num_values;
+                if (skip_num_values <= remaining_num_values) {
+                    RETURN_IF_ERROR(_chunk_reader->skip_values(skip_num_values, true));
+                } else {
+                    skip_num_values -= remaining_num_values;
+                    RETURN_IF_ERROR(_chunk_reader->skip_values(remaining_num_values, true));
+                    DCHECK(remaining_num_values == 0);
+                    continue;
+                }
+                RETURN_IF_ERROR(_chunk_reader->load_page_data());
+                // filter next row range
+                _current_page_location = i;
+                break;
+            } else {
+                // if page_location.first_row_index < row_range.first_row
+                // read rows from page_location.first_row_index to row_range.first_row
+
+                // 1. load data
+                // 2. read top_rows = row_range.first_row - page_location.first_row_index
+                // 3. seek next page, set _has_filtered_pages
+            }
+        }
+    }
+    return Status::OK();
+}
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                                 std::vector<RowRange>& row_ranges) {
@@ -87,18 +126,20 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, size_t* read_rows, bool* eof) {
-    if (_chunk_reader->remaining_num_values() == 0) {
+    if (_chunk_reader->remaining_num_values() == 0 || _has_filtered_pages) {
         if (!_chunk_reader->has_next_page()) {
             *eof = true;
             *read_rows = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_chunk_reader->next_page());
         if (_row_ranges.size() != 0) {
-            _skipped_pages();
+            RETURN_IF_ERROR(_filter_and_load_page());
+        } else {
+            RETURN_IF_ERROR(_chunk_reader->next_page());
+            RETURN_IF_ERROR(_chunk_reader->load_page_data());
         }
-        RETURN_IF_ERROR(_chunk_reader->load_page_data());
     }
+
     size_t read_values = _chunk_reader->remaining_num_values() < batch_size
                                  ? _chunk_reader->remaining_num_values()
                                  : batch_size;
@@ -191,9 +232,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             return Status::OK();
         }
         RETURN_IF_ERROR(_chunk_reader->next_page());
-        if (_row_ranges.size() != 0) {
-            _skipped_pages();
-        }
+        //        if (_row_ranges.size() != 0) {
+        //          todo: process complex type filter
+        //        }
         RETURN_IF_ERROR(_chunk_reader->load_page_data());
         _init_rep_levels_buf();
     }

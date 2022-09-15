@@ -481,23 +481,16 @@ void _eval_binary(Expr* conjunct, void* conjunct_value, const char* min_bytes,
     }
 }
 
-bool PageIndex::_filter_page_by_min_max(const std::vector<ExprContext*>& conjuncts,
+bool PageIndex::_filter_page_by_min_max(ExprContext* conjunct_expr,
                                         const std::string& encoded_min,
                                         const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;
-    for (int i = 0; i < conjuncts.size(); i++) {
-        Expr* conjunct = conjuncts[i]->root();
-        if (conjunct->get_child(1) != nullptr) {
-            void* conjunct_value = conjuncts[i]->get_value(conjunct->get_child(1), nullptr);
-            if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
-                _eval_binary(conjunct, conjunct_value, min_bytes, max_bytes, need_filter);
-            }
-            //        } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
-            //            _eval_in_predicate(conjunct, min_bytes, max_bytes, need_filter);
-            //        }
-        }
+    Expr* conjunct = conjunct_expr->root();
+    void* conjunct_value = conjunct_expr->get_value(conjunct->get_child(1), nullptr);
+    if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
+        _eval_binary(conjunct, conjunct_value, min_bytes, max_bytes, need_filter);
     }
     return need_filter;
 }

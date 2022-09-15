@@ -54,10 +54,12 @@ class ParquetReadColumn {
 public:
     friend class ParquetReader;
     friend class RowGroupReader;
-    ParquetReadColumn(SlotDescriptor* slot_desc) : _slot_desc(slot_desc) {};
+    ParquetReadColumn(int parquet_col_id, SlotDescriptor* slot_desc) : _parquet_col_id(parquet_col_id),
+                                                                       _slot_desc(slot_desc) {};
     ~ParquetReadColumn() = default;
 
 private:
+    int _parquet_col_id;
     SlotDescriptor* _slot_desc;
     //    int64_t start_offset;
     //    int64_t chunk_size;
@@ -130,6 +132,7 @@ private:
     int64_t _range_size;
     cctz::time_zone* _ctz;
     std::vector<RowRange> _skipped_row_ranges;
+    std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 
     const TupleDescriptor* _tuple_desc; // get all slot info
 };
