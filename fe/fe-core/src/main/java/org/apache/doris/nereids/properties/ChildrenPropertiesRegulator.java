@@ -137,10 +137,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         double enforceCost = CostCalculator.calculateCost(enforcer);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
-                Lists.newArrayList(childOutput), enforceCost + currentCost, true)) {
+                Lists.newArrayList(childOutput), enforceCost + currentCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
         }
-        child.getOwnerGroup().setBestPlan(enforcer, enforceCost + currentCost, newOutputProperty, true);
+        child.getOwnerGroup().setBestPlan(enforcer, enforceCost + currentCost, newOutputProperty);
         return enforceCost;
     }
 }

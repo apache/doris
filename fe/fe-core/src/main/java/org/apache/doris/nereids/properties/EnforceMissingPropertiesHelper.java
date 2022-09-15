@@ -141,9 +141,9 @@ public class EnforceMissingPropertiesHelper {
         curTotalCost += CostCalculator.calculateCost(enforcer);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
-                Lists.newArrayList(oldOutputProperty), curTotalCost, false)) {
+                Lists.newArrayList(oldOutputProperty), curTotalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
         }
-        groupExpression.getOwnerGroup().setBestPlan(enforcer, curTotalCost, newOutputProperty, false);
+        groupExpression.getOwnerGroup().setBestPlan(enforcer, curTotalCost, newOutputProperty);
     }
 }

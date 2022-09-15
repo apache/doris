@@ -58,8 +58,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     // index of List<request property to children>
     private int requestPropertiesIndex = 0;
 
-    private List<GroupExpression> lowestCostChildren = Lists.newArrayList();
-    private final List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList();
+    private final List<GroupExpression> lowestCostChildren = Lists.newArrayList();
 
     // current child index of travsing all children
     private int curChildIndex = -1;
@@ -158,7 +157,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
                 lowestCostChildren.add(lowestCostExpr);
                 PhysicalProperties outputProperties = lowestCostExpr.getOutputProperties(requestChildProperty);
-                childrenOutputProperties.add(outputProperties);
                 requestChildrenProperties.set(curChildIndex, outputProperties);
 
                 curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
@@ -172,14 +170,14 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
                 // to ensure distributionSpec has been added sufficiently.
                 ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
-                        lowestCostChildren, childrenOutputProperties, requestChildrenProperties, context);
+                        lowestCostChildren, requestChildrenProperties, requestChildrenProperties, context);
                 double enforceCost = regulator.adjustChildrenProperties();
                 curTotalCost += enforceCost;
 
                 // Not need to do pruning here because it has been done when we get the
                 // best expr from the child group
                 ChildOutputPropertyDeriver childOutputPropertyDeriver
-                        = new ChildOutputPropertyDeriver(childrenOutputProperties);
+                        = new ChildOutputPropertyDeriver(requestChildrenProperties);
                 PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
 
                 // update current group statistics and re-compute costs.
@@ -239,15 +237,14 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             PhysicalProperties outputProperty,
             PhysicalProperties requestProperty,
             List<PhysicalProperties> inputProperties) {
-        if (groupExpression.updateLowestCostTable(requestProperty, inputProperties, curTotalCost, false)) {
+        if (groupExpression.updateLowestCostTable(requestProperty, inputProperties, curTotalCost)) {
             // Each group expression need to save { outputProperty --> requestProperty }
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
-        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty, false);
+        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
     }
 
     private void clear() {
-        childrenOutputProperties.clear();
         lowestCostChildren.clear();
         prevChildIndex = -1;
         curChildIndex = 0;
