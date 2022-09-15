@@ -18,36 +18,23 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.BindFunction;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference;
-import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
-import org.apache.doris.nereids.rules.analysis.ResolveHaving;
-import org.apache.doris.nereids.rules.analysis.Scope;
+import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.Optional;
-
 /**
- * Execute the analysis rules.
+ * Job to register logical plans of CTEs
  */
-public class AnalyzeRulesJob extends BatchRulesJob {
+public class PreprocessAnalyzeJob extends BatchRulesJob {
 
     /**
-     * Execute the analysis job with scope.
-     * @param cascadesContext planner context for execute job
-     * @param scope Parse the symbolic scope of the field
+     * constructor
+     * @param cascadesContext ctx
      */
-    public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
+    public PreprocessAnalyzeJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(
-                        new BindRelation(),
-                        new BindSlotReference(scope),
-                        new BindFunction(),
-                        new ResolveHaving(),
-                        new ProjectToGlobalAggregate())
-                )));
+                bottomUpBatch(ImmutableList.of(new RegisterCTE()))
+        ));
     }
 }
