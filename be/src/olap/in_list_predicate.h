@@ -375,7 +375,7 @@ private:
             }
         } else {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column);
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -410,6 +410,10 @@ private:
     mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
     T _min_value;
     T _max_value;
+    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 };
+
+template <PrimitiveType Type, PredicateType PT>
+constexpr PrimitiveType InListPredicateBase<Type, PT>::EvalType;
 
 } //namespace doris
