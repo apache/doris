@@ -38,7 +38,7 @@ import java.util.Optional;
  */
 public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
-    private final List<WithClause> withQueries;
+    private final List<WithClause> withClauses;
 
     public LogicalCTE(List<WithClause> withQueries, CHILD_TYPE child) {
         this(withQueries, Optional.empty(), Optional.empty(), child);
@@ -47,11 +47,11 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     public LogicalCTE(List<WithClause> withQueries, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
-        this.withQueries = withQueries;
+        this.withClauses = withQueries;
     }
 
-    public List<WithClause> getWithQueries() {
-        return withQueries;
+    public List<WithClause> getWithClauses() {
+        return withClauses;
     }
 
     @Override
@@ -73,18 +73,18 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
             return false;
         }
         LogicalCTE that = (LogicalCTE) o;
-        return withQueries.equals(that.withQueries);
+        return withClauses.equals(that.withClauses);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(withQueries);
+        return Objects.hash(withClauses);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(withQueries.size() > 0);
-        return new LogicalCTE<>(withQueries, children.get(0));
+        Preconditions.checkArgument(withClauses.size() > 0);
+        return new LogicalCTE<>(withClauses, children.get(0));
     }
 
     @Override
@@ -99,11 +99,11 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(withQueries, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTE<>(withClauses, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(withQueries, Optional.empty(), logicalProperties, child());
+        return new LogicalCTE<>(withClauses, Optional.empty(), logicalProperties, child());
     }
 }

@@ -233,7 +233,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * process withClauses and store the results in a logical plan node LogicalCTE
      */
     public LogicalPlan withCte(CteContext ctx, LogicalPlan plan) {
-        System.out.println("CTE");
         // withClause list
         List<WithClause> list = ctx.withClause().stream()
                 .map(withClauseCtx -> (WithClause) visitWithClause(withClauseCtx))
@@ -243,7 +242,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitWithClause(WithClauseContext ctx) {
-        System.out.println("withClause");
         LogicalPlan plan = visitQuery(ctx.query());
         // todo: support column aliases
         return new WithClause(ctx.identifier().getText(), new WithSubquery(plan));

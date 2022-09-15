@@ -32,6 +32,14 @@ public class WithClause extends Expression {
         this.query = query;
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public WithSubquery getQuery() {
+        return query;
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitWithClause(this, context);

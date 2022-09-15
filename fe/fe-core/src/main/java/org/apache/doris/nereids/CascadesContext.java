@@ -34,7 +34,9 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -56,6 +58,7 @@ public class CascadesContext {
     private JobContext currentJobContext;
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
+    private Map<String, LogicalPlan> withQueries;
 
     private RuntimeFilterContext runtimeFilterContext;
 
@@ -74,6 +77,7 @@ public class CascadesContext {
         this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
+        this.withQueries = new HashMap<>();
     }
 
     public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
@@ -151,6 +155,14 @@ public class CascadesContext {
             return false;
         }
         return subqueryExprIsAnalyzed.get(subqueryExpr);
+    }
+
+    public Map<String, LogicalPlan> getWithQueries() {
+        return withQueries;
+    }
+
+    public void registerWithQuery(WithClause withClause) {
+        withQueries.put(withClause.getName(), withClause.getQuery().getQueryPlan());
     }
 
     public CascadesContext bottomUpRewrite(RuleFactory... rules) {

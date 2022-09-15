@@ -74,6 +74,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, List<String> nameParts) {
+        // check if it is a with reference
+        LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts.get(0));
+        if (ctePlan != null) {
+            // if there exists the same name between a cte-alias and a table, we use cte first
+            CascadesContext cteContext = new Memo(ctePlan).newCascadesContext(cascadesContext.getStatementContext());
+            cteContext.newAnalyzer().analyze();
+            return new LogicalSubQueryAlias<>(nameParts.get(0), cteContext.getMemo().copyOut(false));
+        }
+
         String dbName = cascadesContext.getConnectContext().getDatabase();
         Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
