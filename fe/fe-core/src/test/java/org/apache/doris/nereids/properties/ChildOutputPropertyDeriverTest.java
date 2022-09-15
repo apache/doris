@@ -182,7 +182,7 @@ public class ChildOutputPropertyDeriverTest {
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
-        Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
+        Assertions.assertEquals(2, actual.getExprIdToEquivalenceSet().size());
     }
 
     @Test
