@@ -53,8 +53,8 @@ public class PushDownJoinOtherConditionTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
-        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of(""));
+        rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
+        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
     }
 
     @Test
