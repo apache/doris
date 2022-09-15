@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
@@ -162,7 +163,11 @@ public class CascadesContext {
     }
 
     public void registerWithQuery(WithClause withClause) {
-        withQueries.put(withClause.getName(), withClause.getQuery().getQueryPlan());
+        String name = withClause.getName();
+        if (withQueries.containsKey(name)) {
+            throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
+        }
+        withQueries.put(name, withClause.getQuery().getQueryPlan());
     }
 
     public CascadesContext bottomUpRewrite(RuleFactory... rules) {
