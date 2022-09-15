@@ -141,8 +141,11 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
+    // unique key merge on write should flush serial cause calc delete bitmap should load segment serial
+    bool should_serial = (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                          _tablet->enable_unique_key_merge_on_write());
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
-            &_flush_token, _rowset_writer->type(), _req.is_high_priority));
+            &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
     return Status::OK();
@@ -281,7 +284,7 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
-    if (_tablet->enable_unique_key_merge_on_write()) {
+    if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
         _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
     }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
