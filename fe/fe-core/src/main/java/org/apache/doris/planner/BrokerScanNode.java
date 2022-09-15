@@ -283,9 +283,11 @@ public class BrokerScanNode extends LoadScanNode {
         }
 
         if (targetTable != null) {
+            List<Integer> srcSlotIds = Lists.newArrayList();
             Load.initColumns(targetTable, columnDescs, context.fileGroup.getColumnToHadoopFunction(), context.exprMap,
-                    analyzer, context.srcTupleDescriptor, context.slotDescByName, context.params.getSrcSlotIds(),
+                    analyzer, context.srcTupleDescriptor, context.slotDescByName, srcSlotIds,
                     formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
+            context.params.setSrcSlotIds(srcSlotIds);
         }
     }
 
