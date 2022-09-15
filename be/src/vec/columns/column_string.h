@@ -243,8 +243,19 @@ public:
         SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
-    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override {
+        auto s = size();
+        for (int i = 0; i < s; i++) {
+            size_t string_size = size_at(i);
+            size_t offset = offset_at(i);
+            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                   string_size, hashes[i]);
+        }
+    }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 

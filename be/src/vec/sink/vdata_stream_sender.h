@@ -88,9 +88,9 @@ protected:
         return Status::OK();
     }
 
-    template <typename Channels, typename HashVals>
-    Status channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals,
-                            int rows, Block* block);
+    template <typename Channels>
+    Status channel_add_rows(Channels& channels, int num_channels, uint64_t* channel_ids, int rows,
+                            Block* block);
 
     struct hash_128 {
         uint64_t high;
@@ -152,6 +152,8 @@ protected:
     bool _transfer_large_data_by_brpc = false;
 
     segment_v2::CompressionTypePB _compression_type;
+
+    bool _new_shuffle_hash_method = false;
 };
 
 // TODO: support local exechange
@@ -311,14 +313,14 @@ private:
     bool _enable_local_exchange = false;
 };
 
-template <typename Channels, typename HashVals>
+template <typename Channels>
 Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
-                                           const HashVals& hash_vals, int rows, Block* block) {
+                                           uint64_t* __restrict channel_ids, int rows,
+                                           Block* block) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
-        auto cid = hash_vals[i] % num_channels;
-        channel2rows[cid].emplace_back(i);
+        channel2rows[channel_ids[i]].emplace_back(i);
     }
 
     for (int i = 0; i < num_channels; ++i) {

@@ -104,7 +104,7 @@ void ColumnConst::update_hashes_with_value(std::vector<SipHash>& hashes,
     }
 }
 
-void ColumnConst::update_crcs_with_value(std::vector<uint32_t>& hashes, doris::PrimitiveType type,
+void ColumnConst::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
                                          const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);
     DCHECK(hashes.size() == size());
@@ -117,6 +117,22 @@ void ColumnConst::update_crcs_with_value(std::vector<uint32_t>& hashes, doris::P
         for (int i = 0; i < hashes.size(); ++i) {
             hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, TypeDescriptor {type},
                                              hashes[i]);
+        }
+    }
+}
+
+void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
+                                           const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto real_data = data->get_data_at(0);
+    auto real_size = size();
+    if (real_data.data == nullptr) {
+        for (int i = 0; i < real_size; ++i) {
+            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
+        }
+    } else {
+        for (int i = 0; i < real_size; ++i) {
+            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
         }
     }
 }
