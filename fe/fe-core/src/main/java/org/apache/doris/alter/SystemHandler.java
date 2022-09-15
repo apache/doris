@@ -96,7 +96,7 @@ public class SystemHandler extends AlterHandler {
             }
 
             LOG.info("backend {} lefts {} replicas to decommission: {}", beId, backendTabletIds.size(),
-                    backendTabletIds.size() <= 20 ? backendTabletIds : "too many");
+                    backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())));
         }
     }
 
