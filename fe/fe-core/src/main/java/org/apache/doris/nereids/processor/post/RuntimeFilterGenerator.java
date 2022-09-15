@@ -97,6 +97,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             AtomicInteger cnt = new AtomicInteger();
             join.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast)
+                    // TODO: we will support it in later version.
                     /*.peek(expr -> {
                         // target is always the expr at the two side of equal of hash conjunctions.
                         // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.

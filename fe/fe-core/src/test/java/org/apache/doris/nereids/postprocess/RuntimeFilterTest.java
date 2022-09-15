@@ -81,7 +81,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " left outer join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 4);
+        Assertions.assertTrue(filters.size() == 3);
     }
 
     @Test
@@ -91,7 +91,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 4);
+        Assertions.assertTrue(filters.size() == 3);
     }
 
     @Test
@@ -156,7 +156,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + "        on t1.p_partkey = t2.lo_partkey\n"
                 + "        order by t1.lo_custkey, t1.p_partkey, t2.s_suppkey, t2.c_custkey, t2.lo_orderkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 5);
+        Assertions.assertTrue(filters.size() == 4);
 
     }
 
@@ -168,7 +168,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 8);
+        Assertions.assertTrue(filters.size() == 5);
     }
 
     @Test
@@ -179,7 +179,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 7);
+        Assertions.assertTrue(filters.size() == 5);
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {
