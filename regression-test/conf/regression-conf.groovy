@@ -20,13 +20,13 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://rd-dev-hk-ali02:9118/?"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?"
 jdbcUser = "root"
-jdbcPassword = "Liqf@051116_Bigdata"
+jdbcPassword = ""
 
-feHttpAddress = "rd-dev-hk-ali02:8019"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
-feHttpPassword = "Liqf@051116_Bigdata"
+feHttpPassword = ""
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
