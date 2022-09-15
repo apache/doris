@@ -37,8 +37,8 @@ public class Count extends AggregateFunction {
         this.isStar = true;
     }
 
-    public Count(Expression child) {
-        super("count", child);
+    public Count(Expression child, boolean isDistinct) {
+        super("count", isDistinct, child);
         this.isStar = false;
     }
 
@@ -62,7 +62,7 @@ public class Count extends AggregateFunction {
         if (children.size() == 0) {
             return new Count();
         }
-        return new Count(children.get(0));
+        return new Count(children.get(0), isDistinct());
     }
 
     @Override
@@ -79,6 +79,9 @@ public class Count extends AggregateFunction {
                 .stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
+        if (isDistinct()) {
+            return "count(distinct " + args + ")";
+        }
         return "count(" + args + ")";
     }
 
@@ -91,6 +94,9 @@ public class Count extends AggregateFunction {
                 .stream()
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
+        if (isDistinct()) {
+            return "count(distinct " + args + ")";
+        }
         return "count(" + args + ")";
     }
 }
