@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -269,24 +268,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        if (childType.matchesType(type)) {
-            if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
-                // For types which has precision and scale, we also need to check quality between precisions and scales
-                if ((((ScalarType) type).decimalPrecision()
-                        == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
-                        == ((ScalarType) childType).decimalScale())) {
-                    noOp = true;
-                }
-            } else if (type.isArrayType()) {
-                // For types array, we also need to check contains null for case like
-                // cast(array<not_null(int)> as array<int>)
-                if (((ArrayType) type).getContainsNull() == ((ArrayType) childType).getContainsNull()) {
-                    noOp = true;
-                }
-            } else {
-                noOp = true;
-            }
-        }
+        noOp = Type.matchExactType(childType, type);
 
         if (noOp) {
             return;

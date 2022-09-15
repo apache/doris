@@ -38,7 +38,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -99,7 +98,6 @@ inline size_t get_char_len(const StringValue& str, size_t end_pos) {
 struct StringOP {
     static void push_empty_string(int index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
-        chars.push_back('\0');
         offsets[index] = chars.size();
     }
 
@@ -112,7 +110,6 @@ struct StringOP {
     static void push_value_string(const std::string_view& string_value, int index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
         chars.insert(string_value.data(), string_value.data() + string_value.size());
-        chars.push_back('\0');
         offsets[index] = chars.size();
     }
 };
@@ -167,7 +164,7 @@ private:
 
         for (int i = 0; i < size; ++i) {
             auto* raw_str = reinterpret_cast<const unsigned char*>(&chars[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1] - 1;
+            int str_size = offsets[i] - offsets[i - 1];
             // return empty string if start > src.length
             if (start[i] > str_size) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
@@ -360,7 +357,7 @@ public:
         auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
         for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1] - 1;
+            strlen_data[i] = str_offset[i] - str_offset[i - 1];
         }
 
         for (int i = 0; i < input_rows_count; ++i) {
@@ -407,7 +404,7 @@ public:
 
         auto& res_map_data = res_map->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            int size = offsets[i] - offsets[i - 1] - 1;
+            int size = offsets[i] - offsets[i - 1];
             res_map_data[i] |= (size == 0);
         }
 
@@ -464,7 +461,7 @@ public:
         // but it's not necessary to ignore it
         for (size_t i = 0; i < offsets_list.size(); ++i) {
             for (size_t j = 0; j < input_rows_count; ++j) {
-                res_reserve_size += (*offsets_list[i])[j] - (*offsets_list[i])[j - 1] - 1;
+                res_reserve_size += (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
             }
         }
         // for each terminal zero
@@ -478,14 +475,11 @@ public:
                 auto& current_offsets = *offsets_list[j];
                 auto& current_chars = *chars_list[j];
 
-                int size = current_offsets[i] - current_offsets[i - 1] - 1;
+                int size = current_offsets[i] - current_offsets[i - 1];
                 memcpy(&res_data[res_offset[i - 1]] + current_length,
                        &current_chars[current_offsets[i - 1]], size);
                 current_length += size;
             }
-            // add terminal zero
-            *(&res_data[res_offset[i - 1]] + current_length) = '\0';
-            current_length++;
             res_offset[i] = res_offset[i - 1] + current_length;
         }
 
@@ -526,7 +520,6 @@ public:
             auto& res_offset = res->get_offsets();
             res_offset.resize(input_rows_count);
             for (size_t i = 0; i < input_rows_count; ++i) {
-                res_data.push_back('\0');
                 res_offset[i] = res_data.size();
             }
             block.get_by_position(result).column =
@@ -554,10 +547,11 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const IDataType* first_type = arguments[0].get();
-        if (first_type->is_nullable())
+        if (first_type->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeString>());
-        else
+        } else {
             return std::make_shared<DataTypeString>();
+        }
     }
     bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -679,7 +673,7 @@ private:
                 continue;
             }
 
-            int sep_size = sep_offsets[i] - sep_offsets[i - 1] - 1;
+            int sep_size = sep_offsets[i] - sep_offsets[i - 1];
             const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
 
             std::string_view sep(sep_data, sep_size);
@@ -691,8 +685,8 @@ private:
                 const auto current_src_string_offset =
                         current_src_array_offset ? src_string_offsets[current_src_array_offset - 1]
                                                  : 0;
-                size_t bytes_to_copy = src_string_offsets[current_src_array_offset] -
-                                       current_src_string_offset - 1;
+                size_t bytes_to_copy =
+                        src_string_offsets[current_src_array_offset] - current_src_string_offset;
                 const char* ptr =
                         reinterpret_cast<const char*>(&string_src_chars[current_src_string_offset]);
 
@@ -725,7 +719,7 @@ private:
                 continue;
             }
 
-            int sep_size = sep_offsets[i] - sep_offsets[i - 1] - 1;
+            int sep_size = sep_offsets[i] - sep_offsets[i - 1];
             const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
 
             std::string_view sep(sep_data, sep_size);
@@ -735,7 +729,7 @@ private:
                 auto& current_offsets = *offsets_list[j];
                 auto& current_chars = *chars_list[j];
                 auto& current_nullmap = *null_list[j];
-                int size = current_offsets[i] - current_offsets[i - 1] - 1;
+                int size = current_offsets[i] - current_offsets[i - 1];
                 const char* ptr =
                         reinterpret_cast<const char*>(&current_chars[current_offsets[i - 1]]);
                 if (!current_nullmap[i]) {
@@ -793,7 +787,7 @@ public:
         for (ssize_t i = 0; i < input_row_size; ++i) {
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int size = offsets[i] - offsets[i - 1] - 1;
+            int size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
             // assert size * repeat won't exceed
             DCHECK_LE(static_cast<int64_t>(size) * repeat, std::numeric_limits<int32_t>::max());
@@ -873,11 +867,11 @@ public:
                 null_map_data[i] = true;
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
-                int str_len = strcol_offsets[i] - strcol_offsets[i - 1] - 1;
+                int str_len = strcol_offsets[i] - strcol_offsets[i - 1];
                 const char* str_data =
                         reinterpret_cast<const char*>(&strcol_chars[strcol_offsets[i - 1]]);
 
-                int pad_len = padcol_offsets[i] - padcol_offsets[i - 1] - 1;
+                int pad_len = padcol_offsets[i] - padcol_offsets[i - 1];
                 const char* pad_data =
                         reinterpret_cast<const char*>(&padcol_chars[padcol_offsets[i - 1]]);
 
@@ -1019,7 +1013,7 @@ public:
                 int32_t num = 0;
                 while (num < part_number) {
                     pre_offset = offset;
-                    size_t n = str.size - offset - 1;
+                    size_t n = str.size - offset;
                     const char* pos = reinterpret_cast<const char*>(
                             memchr(str.data + offset + 1, delimiter_str[0], n));
                     if (pos != nullptr) {
@@ -1137,7 +1131,7 @@ public:
                 auto& current_offsets = *offsets_list[j];
                 auto& current_chars = *chars_list[j];
 
-                int size = current_offsets[i] - current_offsets[i - 1] - 1;
+                int size = current_offsets[i] - current_offsets[i - 1];
                 if (size < 1) {
                     continue;
                 }
@@ -1491,7 +1485,7 @@ struct ReverseImpl {
         res_data.reserve(data.size());
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int64_t src_len = offsets[i] - offsets[i - 1] - 1;
+            int64_t src_len = offsets[i] - offsets[i - 1];
             char dst[src_len];
             simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
                                             StringVal((uint8_t*)dst, src_len));

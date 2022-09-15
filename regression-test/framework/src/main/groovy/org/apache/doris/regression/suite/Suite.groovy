@@ -29,11 +29,13 @@ import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
+import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import groovy.util.logging.Slf4j
 
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
@@ -45,6 +47,7 @@ import static org.apache.doris.regression.util.DataUtils.sortByToString
 
 import java.io.File
 
+@Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
     final String name
@@ -357,6 +360,10 @@ class Suite implements GroovyInterceptable {
 
     void restore(Closure actionSupplier) {
         runAction(new RestoreAction(context), actionSupplier)
+    }
+
+    void httpTest(Closure actionSupplier) {
+        runAction(new HttpCliAction(context), actionSupplier)
     }
 
     void runAction(SuiteAction action, Closure actionSupplier) {

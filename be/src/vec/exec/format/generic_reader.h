@@ -14,29 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/BlockInfo.cpp
-// and modified by Doris
 
-#include "vec/core/block_info.h"
+#pragma once
 
-#include "vec/common/exception.h"
-#include "vec/core/types.h"
+#include "common/status.h"
 
 namespace doris::vectorized {
 
-void BlockMissingValues::set_bit(size_t column_idx, size_t row_idx) {
-    RowsBitMask& mask = rows_mask_by_column_id[column_idx];
-    mask.resize(row_idx + 1);
-    mask[row_idx] = true;
-}
-
-const BlockMissingValues::RowsBitMask& BlockMissingValues::get_defaults_bitmask(
-        size_t column_idx) const {
-    static RowsBitMask none;
-    auto it = rows_mask_by_column_id.find(column_idx);
-    if (it != rows_mask_by_column_id.end()) return it->second;
-    return none;
-}
+class Block;
+// This a reader interface for all file readers.
+// A GenericReader is responsible for reading a file and return
+// a set of blocks with specified schema,
+class GenericReader {
+public:
+    virtual Status get_next_block(Block* block, bool* eof) = 0;
+};
 
 } // namespace doris::vectorized
