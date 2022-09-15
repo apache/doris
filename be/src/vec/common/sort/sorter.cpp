@@ -210,6 +210,7 @@ Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
+    *mem_reuse = false;
     RETURN_IF_ERROR(partial_sort(*block));
     // dispose TOP-N logic
     if (_limit != -1) {
@@ -224,7 +225,6 @@ Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
             _state->num_rows += sorted_block.rows();
             _block_priority_queue.emplace(_pool->add(
                     new SortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
-            *mem_reuse = false;
         } else {
             Block sorted_block;
             sorted_block.swap(*block);
@@ -233,7 +233,6 @@ Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
                 _state->sorted_blocks.emplace_back(std::move(sorted_block));
                 _block_priority_queue.push(block_cursor);
-                *mem_reuse = false;
             } else {
                 *mem_reuse = true;
                 block->clear_column_data();
@@ -244,7 +243,6 @@ Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
         sorted_block.swap(*block);
         // dispose normal sort logic
         _state->sorted_blocks.emplace_back(std::move(sorted_block));
-        *mem_reuse = false;
     }
     return Status::OK();
 }
