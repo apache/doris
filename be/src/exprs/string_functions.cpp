@@ -700,7 +700,7 @@ IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& s
     do {
         end = start;
         // Position end.
-        while (str_set.ptr[end] != ',' && end < str_set.len) {
+        while (end < str_set.len && str_set.ptr[end] != ',') {
             ++end;
         }
         StringValue token(reinterpret_cast<char*>(str_set.ptr) + start, end - start);
