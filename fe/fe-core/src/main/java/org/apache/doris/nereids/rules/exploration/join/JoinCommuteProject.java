@@ -28,25 +28,29 @@ import org.apache.doris.nereids.util.PlanUtils;
 import java.util.ArrayList;
 
 /**
- * Join Commute
+ * Project-Join Commute.
+ * This rule can prevent double JoinCommute cause dead-loop in Memo.
  */
-public class JoinCommute extends OneExplorationRuleFactory {
+public class JoinCommuteProject extends OneExplorationRuleFactory {
 
-    public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP);
-    public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG);
-    public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY);
+    public static final JoinCommuteProject LEFT_DEEP = new JoinCommuteProject(SwapType.LEFT_DEEP);
+    public static final JoinCommuteProject ZIG_ZAG = new JoinCommuteProject(SwapType.ZIG_ZAG);
+    public static final JoinCommuteProject BUSHY = new JoinCommuteProject(SwapType.BUSHY);
 
     private final SwapType swapType;
 
-    public JoinCommute(SwapType swapType) {
+    public JoinCommuteProject(SwapType swapType) {
         this.swapType = swapType;
     }
 
     @Override
     public Rule build() {
-        return logicalJoin()
-                .when(join -> JoinCommuteHelper.check(swapType, join))
-                .then(join -> {
+        return logicalProject(logicalJoin())
+                .when(project -> JoinCommuteHelper.check(swapType, project.child()))
+                .then(project -> {
+                    LogicalJoin<GroupPlan, GroupPlan> join = project.child();
+                    // prevent this join match by JoinCommute.
+                    join.getGroupExpression().get().setApplied(RuleType.LOGICAL_JOIN_COMMUTATE);
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
@@ -58,7 +62,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
 
-                    return PlanUtils.project(new ArrayList<>(join.getOutput()), newJoin).get();
+                    return PlanUtils.project(new ArrayList<>(project.getProjects()), newJoin).get();
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTATE);
     }
 }
