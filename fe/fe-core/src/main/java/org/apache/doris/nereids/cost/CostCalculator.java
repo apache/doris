@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -70,7 +71,8 @@ public class CostCalculator {
 
         @Override
         public CostEstimate visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-            return CostEstimate.ofCpu(1);
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.computeSize());
         }
 
         @Override
@@ -126,10 +128,14 @@ public class CostCalculator {
 
             // replicate
             if (spec instanceof DistributionSpecReplicated) {
+                int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
+                int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                beNumber = Math.max(1, beNumber);
+
                 return new CostEstimate(
-                        0,
-                        0,
-                        childStatistics.computeSize());
+                        childStatistics.computeSize() * beNumber,
+                        childStatistics.computeSize() * beNumber * instanceNumber,
+                        childStatistics.computeSize() * beNumber * instanceNumber);
             }
 
             // gather
