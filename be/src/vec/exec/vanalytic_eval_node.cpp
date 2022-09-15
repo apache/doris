@@ -573,7 +573,7 @@ Status VAnalyticEvalNode::_output_current_block(Block* block) {
     if (_origin_cols.size() < block->columns()) {
         block->erase_not_in(_origin_cols);
     }
-    
+
     DCHECK(_change_to_nullable_flags.size() == _result_window_columns.size());
     for (size_t i = 0; i < _result_window_columns.size(); ++i) {
         if (_change_to_nullable_flags[i]) {
