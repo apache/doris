@@ -250,14 +250,14 @@ TEST_F(DateTimeValueTest, check_date) {
 
     value._month = 0;
     EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
-                                            value.minute(), value.second(), value.microsecond(),
-                                            value.type()));
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._month = 2;
 
     value._day = 0;
     EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
-                                            value.minute(), value.second(), value.microsecond(),
-                                            value.type()));
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._year = 1987;
     value._day = 29;
     EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),

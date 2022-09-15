@@ -51,7 +51,7 @@ bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, 
     if (type == TIME_TIME) {
         return time;
     } else {
-        return time || (type != TIME_TIME && check_date(year, month, day));
+        return time || check_date(year, month, day);
     }
 }
 
