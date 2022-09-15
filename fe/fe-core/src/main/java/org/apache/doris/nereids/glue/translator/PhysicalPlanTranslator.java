@@ -516,11 +516,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setvOutputTupleDesc(outputDescriptor);
         hashJoinNode.setvSrcToOutputSMap(srcToOutput);
         // translate runtime filter
-        context.getRuntimeTranslator().ifPresent(runtimeFilterGenerator ->
-                hashJoin.getOutput().stream()
-                        .filter(slot -> runtimeFilterGenerator.getHashJoinNodeExistRuntimeFilter(slot) != null)
-                        .forEach(slot -> runtimeFilterGenerator.translateRuntimeFilter(runtimeFilterGenerator
-                                .getHashJoinNodeExistRuntimeFilter(slot), hashJoinNode, context)));
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
+                .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
+                .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
         return currentFragment;
     }
 

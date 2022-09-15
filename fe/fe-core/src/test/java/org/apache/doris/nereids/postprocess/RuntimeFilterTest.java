@@ -190,7 +190,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 7);
+        Assertions.assertTrue(filters.size() == 8);
     }
 
     @Test

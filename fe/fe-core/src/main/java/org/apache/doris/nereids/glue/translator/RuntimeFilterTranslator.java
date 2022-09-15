@@ -19,9 +19,9 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * translate runtime filter
@@ -44,29 +43,15 @@ public class RuntimeFilterTranslator {
 
     public RuntimeFilterTranslator(RuntimeFilterContext context) {
         this.context = context;
+        context.generatePhysicalHashJoinToRuntimeFilter();
     }
 
-    /**
-     * Translate nereids runtime filter on hash join node
-     * translate the runtime filter whose target expression id is one of the output slot reference of the left child of
-     * the physical hash join.
-     * @param node hash join node
-     * @param ctx plan translator context
-     */
-    public void translateRuntimeFilter(Slot slot, HashJoinNode node, PlanTranslatorContext ctx) {
-        ExprId id = slot.getExprId();
-        context.getLegacyFilters().addAll(context.getFiltersByTargetExprId(id).stream()
-                .filter(RuntimeFilter::isUninitialized)
-                .map(filter -> createLegacyRuntimeFilter(filter, node, ctx))
-                .collect(Collectors.toList()));
+    public List<RuntimeFilter> getRuntimeFilterOfHashJoinNode(PhysicalHashJoin join) {
+        return context.getRuntimeFilterOnHashJoinNode(join);
     }
 
     public List<Slot> getTargetOnScanNode(RelationId id) {
         return context.getTargetOnOlapScanNodeMap().getOrDefault(id, Collections.emptyList());
-    }
-
-    public Slot getHashJoinNodeExistRuntimeFilter(Slot slot) {
-        return context.getHashJoinExprToOlapScanSlot().get(slot.getExprId());
     }
 
     /**
@@ -80,8 +65,13 @@ public class RuntimeFilterTranslator {
         context.setKVInNormalMap(context.getScanNodeOfLegacyRuntimeFilterTarget(), slot, node);
     }
 
-    private org.apache.doris.planner.RuntimeFilter createLegacyRuntimeFilter(RuntimeFilter filter,
-            HashJoinNode node, PlanTranslatorContext ctx) {
+    /**
+     * generate legacy runtime filter
+     * @param filter nereids runtime filter
+     * @param node hash join node
+     * @param ctx plan translator context
+     */
+    public void createLegacyRuntimeFilter(RuntimeFilter filter, HashJoinNode node, PlanTranslatorContext ctx) {
         SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
         SlotRef target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
         org.apache.doris.planner.RuntimeFilter origFilter
@@ -97,7 +87,7 @@ public class RuntimeFilterTranslator {
                 target,
                 true,
                 scanNode.getFragmentId().equals(node.getFragmentId())));
-        return finalize(origFilter);
+        context.getLegacyFilters().add(finalize(origFilter));
     }
 
     private org.apache.doris.planner.RuntimeFilter finalize(org.apache.doris.planner.RuntimeFilter origFilter) {

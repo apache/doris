@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
@@ -30,11 +31,14 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -56,7 +60,7 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    private final Map<ExprId, Slot> hashJoinExprToOlapScanSlot = Maps.newHashMap();
+    private final Map<PhysicalHashJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
 
     // Alias's child to itself.
     private final Map<Slot, NamedExpression> aliasChildToSelf = Maps.newHashMap();
@@ -80,8 +84,11 @@ public class RuntimeFilterContext {
         return limits;
     }
 
-    public void setTargetExprIdToFilters(ExprId id, RuntimeFilter filter) {
-        this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
+    public void setTargetExprIdToFilters(ExprId id, RuntimeFilter... filters) {
+        Preconditions.checkArgument(Arrays.stream(filters)
+                .allMatch(filter -> filter.getTargetExpr().getExprId() == id));
+        this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList())
+                .addAll(Arrays.asList(filters));
     }
 
     public List<RuntimeFilter> getFiltersByTargetExprId(ExprId id) {
@@ -92,20 +99,13 @@ public class RuntimeFilterContext {
         targetExprIdToFilter.remove(id);
     }
 
-    public void setTargetsOnScanNode(RelationId id, Slot slot) {
-        this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
-    }
-
-    public List<Slot> getTargetsOfScanNode(RelationId id) {
-        return targetOnOlapScanNodeMap.get(id);
+    public void setTargetsOnScanNode(RelationId id, Slot... slots) {
+        this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList())
+                .addAll(Arrays.asList(slots));
     }
 
     public <K, V> void setKVInNormalMap(@NotNull Map<K, V> map, K key, V value) {
         map.put(key, value);
-    }
-
-    public Map<ExprId, Slot> getHashJoinExprToOlapScanSlot() {
-        return hashJoinExprToOlapScanSlot;
     }
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {
@@ -118,6 +118,15 @@ public class RuntimeFilterContext {
 
     public Map<Slot, OlapScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
         return scanNodeOfLegacyRuntimeFilterTarget;
+    }
+
+    public List<RuntimeFilter> getRuntimeFilterOnHashJoinNode(PhysicalHashJoin join) {
+        return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptyList());
+    }
+
+    public void generatePhysicalHashJoinToRuntimeFilter() {
+        targetExprIdToFilter.values().forEach(filters -> filters.forEach(filter -> runtimeFilterOnHashJoinNode
+                .computeIfAbsent(filter.getBuilderNode(), k -> Lists.newArrayList()).add(filter)));
     }
 
     public Map<ExprId, List<RuntimeFilter>> getTargetExprIdToFilter() {

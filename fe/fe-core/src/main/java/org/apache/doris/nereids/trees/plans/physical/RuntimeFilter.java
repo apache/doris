@@ -43,22 +43,32 @@ public class RuntimeFilter {
 
     private boolean finalized = false;
 
+    private PhysicalHashJoin builderNode;
+
+    /**
+     * constructor
+     */
     public RuntimeFilter(RuntimeFilterId id, Slot src, Slot target, TRuntimeFilterType type,
-            int exprOrder) {
+            int exprOrder, PhysicalHashJoin builderNode) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlot = target;
         this.type = type;
         this.exprOrder = exprOrder;
+        this.builderNode = builderNode;
     }
 
+    /**
+     * create RF
+     */
     public static RuntimeFilter createRuntimeFilter(RuntimeFilterId id, EqualTo conjunction,
             TRuntimeFilterType type, int exprOrder, PhysicalHashJoin node) {
         Pair<Expression, Expression> srcs = checkAndMaybeSwapChild(conjunction, node);
         if (srcs == null) {
             return null;
         }
-        return new RuntimeFilter(id, ((SlotReference) srcs.second), ((SlotReference) srcs.first), type, exprOrder);
+        return new RuntimeFilter(id, ((SlotReference) srcs.second), ((SlotReference) srcs.first), type, exprOrder,
+                node);
     }
 
     private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
@@ -97,6 +107,10 @@ public class RuntimeFilter {
 
     public int getExprOrder() {
         return exprOrder;
+    }
+
+    public PhysicalHashJoin getBuilderNode() {
+        return builderNode;
     }
 
     public void setTargetSlot(Slot targetSlot) {

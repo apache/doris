@@ -99,6 +99,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     .map(EqualTo.class::cast)
                     .peek(expr -> {
                         // target is always the expr at the two side of equal of hash conjunctions.
+                        // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                         List<SlotReference> slots = expr.children().stream().filter(SlotReference.class::isInstance)
                                 .map(SlotReference.class::cast).collect(Collectors.toList());
                         if (slots.size() != 2
@@ -107,18 +108,21 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             return;
                         }
                         int tag = ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId()) ? 0 : 1;
-                        ctx.setKVInNormalMap(ctx.getTargetExprIdToFilter(), slots.get(tag ^ 1).getExprId(),
-                                ctx.getFiltersByTargetExprId(slots.get(tag).getExprId()).stream()
-                                        .map(filter -> new RuntimeFilter(generator.getNextId(), filter.getSrcExpr(),
-                                        slots.get(tag ^ 1), filter.getType(), filter.getExprOrder()))
-                                        .collect(Collectors.toList()));
+                        // generate runtime filter to associated expr. for example, a = b and a = c, RF b -> a can
+                        // generate RF b -> c
+                        List<RuntimeFilter> copiedRuntimeFilter = ctx.getFiltersByTargetExprId(slots.get(tag)
+                                        .getExprId()).stream()
+                                .map(filter -> new RuntimeFilter(generator.getNextId(), filter.getSrcExpr(),
+                                        slots.get(tag ^ 1), filter.getType(), filter.getExprOrder(), join))
+                                .collect(Collectors.toList());
+                        ctx.setTargetExprIdToFilters(slots.get(tag ^ 1).getExprId(),
+                                copiedRuntimeFilter.toArray(new RuntimeFilter[0]));
                     })
                     .forEach(expr -> legalTypes.stream()
                             .map(type -> RuntimeFilter.createRuntimeFilter(generator.getNextId(), expr,
                                     type, cnt.getAndIncrement(), join))
                             .filter(Objects::nonNull)
-                            .forEach(filter -> ctx.setTargetExprIdToFilters(
-                                    filter.getTargetExpr().getExprId(), filter)));
+                            .forEach(filter -> ctx.setTargetExprIdToFilters(filter.getTargetExpr().getExprId(), filter)));
         }
         join.left().accept(this, context);
         join.right().accept(this, context);
@@ -144,11 +148,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 .filter(slot -> ctx.getSlotListOfTheSameSlotAtOlapScanNode(slot).stream()
                         .filter(expr -> ctx.checkExistKey(ctx.getTargetExprIdToFilter(), expr.getExprId()))
                         .peek(expr -> {
+                            if (expr.getExprId() == slot.getExprId()) {
+                                return;
+                            }
                             List<RuntimeFilter> filters = ctx.getFiltersByTargetExprId(expr.getExprId());
                             ctx.removeFilters(expr.getExprId());
                             filters.forEach(filter -> filter.setTargetSlot(slot));
                             ctx.setKVInNormalMap(ctx.getTargetExprIdToFilter(), slot.getExprId(), filters);
-                            ctx.setKVInNormalMap(ctx.getHashJoinExprToOlapScanSlot(), expr.getExprId(), slot);
                         })
                         .count() > 0)
                 .forEach(slot -> ctx.setTargetsOnScanNode(scan.getId(), slot));
