@@ -115,6 +115,11 @@ public class LogicalOlapScan extends LogicalRelation {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(id, selectedPartitionIds, candidateIndexIds);
+    }
+
+    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, rollupSelected);
