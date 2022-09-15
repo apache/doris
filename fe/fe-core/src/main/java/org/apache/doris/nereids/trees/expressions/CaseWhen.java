@@ -65,7 +65,11 @@ public class CaseWhen extends Expression {
     }
 
     public List<DataType> dataTypesForCoercion() {
-        return whenClauses.stream().map(WhenClause::getDataType).collect(Collectors.toList());
+        List<DataType> result = whenClauses.stream().map(WhenClause::getDataType).collect(Collectors.toList());
+        if (defaultValue.isPresent()) {
+            result.add(defaultValue.get().getDataType());
+        }
+        return result;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
