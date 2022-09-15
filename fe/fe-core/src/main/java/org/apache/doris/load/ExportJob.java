@@ -38,6 +38,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -55,6 +56,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
+import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.MysqlScanNode;
 import org.apache.doris.planner.OdbcScanNode;
 import org.apache.doris.planner.OlapScanNode;
@@ -417,6 +419,9 @@ public class ExportJob implements Writable {
             case MYSQL:
                 scanNode = new MysqlScanNode(new PlanNodeId(0), exportTupleDesc, (MysqlTable) this.exportTable);
                 break;
+            case JDBC:
+                scanNode = new JdbcScanNode(new PlanNodeId(0), exportTupleDesc, (JdbcTable) this.exportTable);
+                break;
             default:
                 break;
         }
@@ -446,6 +451,7 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
                 break;
             case ODBC:
+            case JDBC:
             case MYSQL:
                 fragment = new PlanFragment(
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);

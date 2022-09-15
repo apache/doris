@@ -18,10 +18,8 @@
 #pragma once
 #ifdef LIBJVM
 
-#include <string>
-
+#include "exec/table_connector.h"
 #include "jni.h"
-#include "runtime/descriptors.h"
 
 namespace doris {
 namespace vectorized {
@@ -38,17 +36,25 @@ struct JdbcConnectorParam {
     const TupleDescriptor* tuple_desc;
 };
 
-class JdbcConnector {
+class JdbcConnector : public TableConnector {
 public:
     JdbcConnector(const JdbcConnectorParam& param);
 
-    ~JdbcConnector();
+    ~JdbcConnector() override;
 
-    Status open();
+    Status open() override;
 
-    Status query_exec();
+    Status query() override;
+
+    Status exec_write_sql(const std::u16string& insert_stmt,
+                          const fmt::memory_buffer& insert_stmt_buffer) override;
 
     Status get_next(bool* eos, std::vector<MutableColumnPtr>& columns, int batch_size);
+
+    // use in JDBC transaction
+    Status begin_trans() override; // should be call after connect and before query or init_to_write
+    Status abort_trans() override; // should be call after transaction abort
+    Status finish_trans() override; // should be call after transaction commit
 
 private:
     Status _register_func_id(JNIEnv* env);
@@ -58,10 +64,7 @@ private:
     int64_t _jobject_to_date(JNIEnv* env, jobject jobj);
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
 
-    bool _is_open;
-    std::string _query_string;
-    const TupleDescriptor* _tuple_desc;
-    const JdbcConnectorParam _conn_param;
+    const JdbcConnectorParam& _conn_param;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
@@ -78,6 +81,9 @@ private:
     jmethodID _executor_convert_datetime_id;
     jmethodID _get_bytes_id;
     jmethodID _to_string_id;
+    jmethodID _executor_begin_trans_id;
+    jmethodID _executor_finish_trans_id;
+    jmethodID _executor_abort_trans_id;
 
 #define FUNC_VARI_DECLARE(RETURN_TYPE)                                \
     RETURN_TYPE _jobject_to_##RETURN_TYPE(JNIEnv* env, jobject jobj); \

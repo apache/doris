@@ -15,49 +15,59 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vodbc_table_sink.h"
+#include "vec/sink/vjdbc_table_sink.h"
+
+#ifdef LIBJVM
+#include <gen_cpp/DataSinks_types.h>
 
 #include <sstream>
 
-#include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
 #include "vec/core/materialize_block.h"
 #include "vec/sink/vtable_sink.h"
 
 namespace doris {
 namespace vectorized {
 
-VOdbcTableSink::VOdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
+VJdbcTableSink::VJdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& t_exprs)
         : VTableSink(pool, row_desc, t_exprs) {
-    _name = "VOdbcTableSink";
+    _name = "VJdbcTableSink";
 }
 
-Status VOdbcTableSink::init(const TDataSink& t_sink) {
+Status VJdbcTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(VTableSink::init(t_sink));
-    const TOdbcTableSink& t_odbc_sink = t_sink.odbc_table_sink;
-    _odbc_param.connect_string = t_odbc_sink.connect_string;
-    _table_name = t_odbc_sink.table;
-    _use_transaction = t_odbc_sink.use_transaction;
+    const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
+
+    _jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
+    _jdbc_param.user = t_jdbc_sink.jdbc_table.jdbc_user;
+    _jdbc_param.passwd = t_jdbc_sink.jdbc_table.jdbc_password;
+    _jdbc_param.driver_class = t_jdbc_sink.jdbc_table.jdbc_driver_class;
+    _jdbc_param.driver_path = t_jdbc_sink.jdbc_table.jdbc_driver_url;
+    _jdbc_param.driver_checksum = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
+    _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
+    _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
+    _use_transaction = t_jdbc_sink.use_transaction;
+
     return Status::OK();
 }
 
-Status VOdbcTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcTableSink::open");
+Status VJdbcTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::open");
     RETURN_IF_ERROR(VTableSink::open(state));
 
     // create writer
-    _writer.reset(new ODBCConnector(_odbc_param));
+    _writer.reset(new JdbcConnector(_jdbc_param));
     RETURN_IF_ERROR(_writer->open());
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
-    RETURN_IF_ERROR(_writer->init_to_write(_profile));
+
+    _writer->init_profile(_profile);
     return Status::OK();
 }
 
-Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOdbcTableSink::send");
+Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VJdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {
         return status;
@@ -79,8 +89,8 @@ Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
     return Status::OK();
 }
 
-Status VOdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcTableSink::close");
+Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::close");
     RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
@@ -89,3 +99,4 @@ Status VOdbcTableSink::close(RuntimeState* state, Status exec_status) {
 }
 } // namespace vectorized
 } // namespace doris
+#endif
