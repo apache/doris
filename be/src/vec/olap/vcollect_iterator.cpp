@@ -23,7 +23,12 @@
 namespace doris {
 namespace vectorized {
 
-VCollectIterator::~VCollectIterator() {}
+VCollectIterator::VCollectIterator() {
+}
+
+VCollectIterator::~VCollectIterator() {
+    DCHECK(_children.empty());
+}
 
 #define RETURN_IF_NOT_EOF_AND_OK(stmt)                                                  \
     do {                                                                                \
@@ -100,12 +105,12 @@ OLAPStatus VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_r
                 }
                 ++i;
             }
-            Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader,
-                                                           cumu_children.size() > 1, _skip_same);
+            std::unique_ptr<Level1Iterator> cumu_iter(new Level1Iterator(cumu_children, _reader,
+                                                         cumu_children.size() > 1, _skip_same));
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
-            children.push_back(cumu_iter);
+            children.push_back(cumu_iter.release());
             _inner_iter.reset(new Level1Iterator(children, _reader, _merge, _skip_same));
         } else {
             // _children.size() == 1
@@ -251,10 +256,12 @@ VCollectIterator::Level1Iterator::Level1Iterator(
 
 VCollectIterator::Level1Iterator::~Level1Iterator() {
     for (auto child : _children) {
-        if (child != nullptr) {
-            delete child;
-            child = nullptr;
-        }
+        delete child;
+    }
+    while (_heap != nullptr && !_heap->empty()) {
+        LevelIterator* it = _heap->top();
+        delete it;
+        _heap->pop();
     }
 }
 
@@ -323,6 +330,7 @@ OLAPStatus VCollectIterator::Level1Iterator::init() {
         _cur_child = *_children.begin();
     }
     _ref = *_cur_child->current_row_ref();
+    DCHECK(_ref.row_pos != -1);
     return OLAP_SUCCESS;
 }
 

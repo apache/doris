@@ -42,6 +42,7 @@ struct IteratorRowRef {
 
 class VCollectIterator {
 public:
+    VCollectIterator();
     // Hold reader point to get reader params
     ~VCollectIterator();
 
@@ -122,7 +123,7 @@ private:
     class Level0Iterator : public LevelIterator {
     public:
         Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
-        ~Level0Iterator() {}
+        virtual ~Level0Iterator() {}
 
         OLAPStatus init() override;
 
@@ -154,7 +155,7 @@ private:
 
         OLAPStatus next(Block* block) override;
 
-        ~Level1Iterator();
+        virtual ~Level1Iterator();
 
     private:
         inline OLAPStatus _merge_next(IteratorRowRef* ref);
