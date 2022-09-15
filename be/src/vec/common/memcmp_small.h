@@ -38,7 +38,142 @@ inline int cmp(T a, T b) {
 /// Results don't depend on the values inside uninitialized memory but Memory Sanitizer cannot see it.
 /// Disable optimized functions if compile with Memory Sanitizer.
 
-#if (defined(__SSE2__) || defined(__aarch64__)) && !defined(MEMORY_SANITIZER)
+#if defined(__AVX512BW__) && defined(__AVX512VL__) && !defined(MEMORY_SANITIZER)
+#include <immintrin.h>
+
+/** All functions works under the following assumptions:
+  * - it's possible to read up to 15 excessive bytes after end of 'a' and 'b' region;
+  * - memory regions are relatively small and extra loop unrolling is not worth to do.
+  */
+
+/** Variant when memory regions may have different sizes.
+  */
+template <typename Char>
+inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
+                                         size_t b_size) {
+    size_t min_size = std::min(a_size, b_size);
+
+    for (size_t offset = 0; offset < min_size; offset += 16) {
+        uint16_t mask = _mm_cmp_epi8_mask(
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)), _MM_CMPINT_NE);
+
+        if (mask) {
+            offset += __builtin_ctz(mask);
+
+            if (offset >= min_size) break;
+
+            return detail::cmp(a[offset], b[offset]);
+        }
+    }
+
+    return detail::cmp(a_size, b_size);
+}
+
+/** Variant when memory regions have same size.
+  * TODO Check if the compiler can optimize previous function when the caller pass identical sizes.
+  */
+template <typename Char>
+inline int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t size) {
+    for (size_t offset = 0; offset < size; offset += 16) {
+        uint16_t mask = _mm_cmp_epi8_mask(
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)), _MM_CMPINT_NE);
+
+        if (mask) {
+            offset += __builtin_ctz(mask);
+
+            if (offset >= size) return 0;
+
+            return detail::cmp(a[offset], b[offset]);
+        }
+    }
+
+    return 0;
+}
+
+/** Compare memory regions for equality.
+  */
+template <typename Char>
+inline bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
+                                            size_t b_size) {
+    if (a_size != b_size) return false;
+
+    for (size_t offset = 0; offset < a_size; offset += 16) {
+        uint16_t mask = _mm_cmp_epi8_mask(
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)), _MM_CMPINT_NE);
+
+        if (mask) {
+            offset += __builtin_ctz(mask);
+            return offset >= a_size;
+        }
+    }
+
+    return true;
+}
+
+/** Variant when the caller know in advance that the size is a multiple of 16.
+  */
+template <typename Char>
+inline int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
+    for (size_t offset = 0; offset < size; offset += 16) {
+        uint16_t mask = _mm_cmp_epi8_mask(
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
+                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)), _MM_CMPINT_NE);
+
+        if (mask) {
+            offset += __builtin_ctz(mask);
+            return detail::cmp(a[offset], b[offset]);
+        }
+    }
+
+    return 0;
+}
+
+/** Variant when the size is 16 exactly.
+  */
+template <typename Char>
+inline int memcmp16(const Char* a, const Char* b) {
+    uint16_t mask =
+            _mm_cmp_epi8_mask(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
+                              _mm_loadu_si128(reinterpret_cast<const __m128i*>(b)), _MM_CMPINT_NE);
+
+    if (mask) {
+        auto offset = __builtin_ctz(mask);
+        return detail::cmp(a[offset], b[offset]);
+    }
+
+    return 0;
+}
+
+/** Variant when the size is 16 exactly.
+  */
+inline bool memequal16(const void* a, const void* b) {
+    return 0xFFFF == _mm_cmp_epi8_mask(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
+                                       _mm_loadu_si128(reinterpret_cast<const __m128i*>(b)),
+                                       _MM_CMPINT_EQ);
+}
+
+/** Compare memory region to zero */
+inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size) {
+    const __m128i zero16 = _mm_setzero_si128();
+
+    for (size_t offset = 0; offset < size; offset += 16) {
+        uint16_t mask = _mm_cmp_epi8_mask(zero16,
+                                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(
+                                                  reinterpret_cast<const char*>(data) + offset)),
+                                          _MM_CMPINT_NE);
+
+        if (mask) {
+            offset += __builtin_ctz(mask);
+            return offset >= size;
+        }
+    }
+
+    return true;
+}
+#elif (defined(__SSE2__) || defined(__aarch64__)) && !defined(MEMORY_SANITIZER)
 #ifdef __SSE2__
 #include <emmintrin.h>
 #elif __aarch64__
