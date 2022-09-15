@@ -27,13 +27,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
-<<<<<<< HEAD
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
-=======
->>>>>>> 8ee739c97 ([feature](Nereids) add predicates push down on all join type)
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
@@ -65,8 +59,6 @@ public class RewriteJob extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
-                .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
-                .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_JOIN_CONDITION_RULES))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
