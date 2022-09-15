@@ -145,12 +145,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         // broadcast
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
             DistributionSpec parentDistributionSpec = leftOutputProperty.getDistributionSpec();
-            if (leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
-                DistributionSpecHash leftHash = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
-                List<ExprId> rightHashEqualSlots = JoinUtils.getOnClauseUsedSlots(hashJoin).second;
-                DistributionSpecHash rightHash = new DistributionSpecHash(rightHashEqualSlots, ShuffleType.BUCKETED);
-                parentDistributionSpec = DistributionSpecHash.merge(leftHash, rightHash);
-            }
             return new PhysicalProperties(parentDistributionSpec);
         }
 
