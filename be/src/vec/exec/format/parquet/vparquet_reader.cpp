@@ -137,7 +137,6 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
         std::shared_ptr<RowGroupReader> row_group_reader;
         row_group_reader.reset(
                 new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
-        // todo: can filter row with candidate ranges rather than skipped ranges
         RETURN_IF_ERROR(_process_page_index(row_group));
         RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), _candidate_row_ranges,
                                                _col_offsets));
@@ -284,6 +283,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
                 skip_end = skip_range.last_row;
             }
         } else {
+            // read row with candidate ranges rather than skipped ranges
             _candidate_row_ranges.push_back({skip_end + 1, skip_range.first_row - 1});
             skip_end = skip_range.last_row;
         }

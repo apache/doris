@@ -55,7 +55,8 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
             //        if (UNLIKELY(is_null_page) && is_not_null_predicate()) {
             //             skipped_ranges.emplace_back(page_id);
             //        }
-            if (_filter_page_by_min_max(conjunct_expr, encoded_min_vals[page_id], encoded_max_vals[page_id])) {
+            if (_filter_page_by_min_max(conjunct_expr, encoded_min_vals[page_id],
+                                        encoded_max_vals[page_id])) {
                 skipped_ranges.emplace_back(page_id);
                 break;
             }

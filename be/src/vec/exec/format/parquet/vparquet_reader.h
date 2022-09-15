@@ -55,8 +55,8 @@ class ParquetReadColumn {
 public:
     friend class ParquetReader;
     friend class RowGroupReader;
-    ParquetReadColumn(int parquet_col_id, SlotDescriptor* slot_desc) : _parquet_col_id(parquet_col_id),
-                                                                       _slot_desc(slot_desc) {};
+    ParquetReadColumn(int parquet_col_id, SlotDescriptor* slot_desc)
+            : _parquet_col_id(parquet_col_id), _slot_desc(slot_desc) {};
     ~ParquetReadColumn() = default;
 
 private:

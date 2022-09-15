@@ -67,9 +67,7 @@ void ParquetColumnReader::_reserve_def_levels_buf(size_t size) {
     }
 }
 
-Status ParquetColumnReader::_filter_and_load_page() {
-    return Status::OK();
-}
+void ParquetColumnReader::_skipped_pages() {}
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                                 std::vector<RowRange>& row_ranges) {
@@ -89,20 +87,18 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, size_t* read_rows, bool* eof) {
-    if (_chunk_reader->remaining_num_values() == 0 || _has_filtered_pages) {
+    if (_chunk_reader->remaining_num_values() == 0) {
         if (!_chunk_reader->has_next_page()) {
             *eof = true;
             *read_rows = 0;
             return Status::OK();
         }
+        RETURN_IF_ERROR(_chunk_reader->next_page());
         if (_row_ranges.size() != 0) {
-            RETURN_IF_ERROR(_filter_and_load_page());
-        } else {
-            RETURN_IF_ERROR(_chunk_reader->next_page());
-            RETURN_IF_ERROR(_chunk_reader->load_page_data());
+            _skipped_pages();
         }
+        RETURN_IF_ERROR(_chunk_reader->load_page_data());
     }
-
     size_t read_values = _chunk_reader->remaining_num_values() < batch_size
                                  ? _chunk_reader->remaining_num_values()
                                  : batch_size;
@@ -195,9 +191,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             return Status::OK();
         }
         RETURN_IF_ERROR(_chunk_reader->next_page());
-        //        if (_row_ranges.size() != 0) {
-        //          todo: process complex type filter
-        //        }
+        if (_row_ranges.size() != 0) {
+            _skipped_pages();
+        }
         RETURN_IF_ERROR(_chunk_reader->load_page_data());
         _init_rep_levels_buf();
     }

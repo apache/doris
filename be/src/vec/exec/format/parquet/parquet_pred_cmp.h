@@ -481,8 +481,7 @@ void _eval_binary(Expr* conjunct, void* conjunct_value, const char* min_bytes,
     }
 }
 
-bool PageIndex::_filter_page_by_min_max(ExprContext* conjunct_expr,
-                                        const std::string& encoded_min,
+bool PageIndex::_filter_page_by_min_max(ExprContext* conjunct_expr, const std::string& encoded_min,
                                         const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
