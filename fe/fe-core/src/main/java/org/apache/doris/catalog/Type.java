@@ -1193,4 +1193,27 @@ public abstract class Type {
             return this.getPrimitiveType().getOlapColumnIndexSize();
         }
     }
+
+    // Whether `type1` matches the exact type of `type2`.
+    public static boolean matchExactType(Type type1, Type type2) {
+        if (type1.matchesType(type2)) {
+            if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
+                // For types which has precision and scale, we also need to check quality between precisions and scales
+                if ((((ScalarType) type2).decimalPrecision()
+                        == ((ScalarType) type1).decimalPrecision()) && (((ScalarType) type2).decimalScale()
+                        == ((ScalarType) type1).decimalScale())) {
+                    return true;
+                }
+            } else if (type2.isArrayType()) {
+                // For types array, we also need to check contains null for case like
+                // cast(array<not_null(int)> as array<int>)
+                if (((ArrayType) type2).getContainsNull() == ((ArrayType) type1).getContainsNull()) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
 }
