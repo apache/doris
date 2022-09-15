@@ -97,7 +97,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             AtomicInteger cnt = new AtomicInteger();
             join.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast)
-                    .peek(expr -> {
+                    /*.peek(expr -> {
                         // target is always the expr at the two side of equal of hash conjunctions.
                         // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                         List<SlotReference> slots = expr.children().stream().filter(SlotReference.class::isInstance)
@@ -117,7 +117,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 .collect(Collectors.toList());
                         ctx.setTargetExprIdToFilters(slots.get(tag ^ 1).getExprId(),
                                 copiedRuntimeFilter.toArray(new RuntimeFilter[0]));
-                    })
+                    })*/
                     .forEach(expr -> legalTypes.stream()
                             .map(type -> RuntimeFilter.createRuntimeFilter(generator.getNextId(), expr,
                                     type, cnt.getAndIncrement(), join))
