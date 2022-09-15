@@ -22,7 +22,41 @@
 
 #include <string.h>
 
-#if defined(__SSE2__) || defined(__aarch64__)
+#if defined(__AVX512F__) && !defined(MEMORY_SANITIZER)
+#include <immintrin.h>
+
+namespace detail {
+inline void memcpy_small_allow_read_write_overflow15_impl(char* __restrict dst,
+                                                          const char* __restrict src, ssize_t n) {
+    while (n > 0) {
+        if (n >= 64) {
+            /// Load and store 512-bits of integer data from memory into dst. mem_addr
+            _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst),
+                                _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src)));
+
+            dst += 64;
+            src += 64;
+            n -= 64;
+        } else if (n >= 32) {
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst),
+                                _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src)));
+
+            dst += 32;
+            src += 32;
+            n -= 32;
+        } else {
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(dst),
+                             _mm_loadu_si128(reinterpret_cast<const __m128i*>(src)));
+
+            dst += 16;
+            src += 16;
+            n -= 16;
+        }
+    }
+}
+} // namespace detail
+
+#elif defined(__SSE2__) || defined(__aarch64__)
 #ifdef __SSE2__
 #include <emmintrin.h>
 #elif __aarch64__
