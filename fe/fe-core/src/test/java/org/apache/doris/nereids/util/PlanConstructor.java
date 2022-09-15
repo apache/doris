@@ -37,7 +37,7 @@ public class PlanConstructor {
     public static OlapTable student;
     public static OlapTable score;
     public static OlapTable course;
-    private static final IdGenerator<RelationId> GENERATOR = RelationId.createGenerator();
+    private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
 
     static {
         student = new OlapTable(0L, "student",
@@ -102,14 +102,14 @@ public class PlanConstructor {
     // With OlapTable.
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+        return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
 
     public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
         return new LogicalOlapScan(RelationId.createGenerator().getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
 
-    public static RelationId getNextId() {
-        return GENERATOR.getNextId();
+    public static RelationId getNextRelationId() {
+        return RELATION_ID_GENERATOR.getNextId();
     }
 }

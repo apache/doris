@@ -79,6 +79,7 @@ public enum RuleType {
     EXISTS_APPLY_TO_JOIN(RuleTypeClass.REWRITE),
     // predicate push down rules
     PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
+    PUSH_DOWN_JOIN_OTHER_CONDITION(RuleTypeClass.REWRITE),
     PUSH_DOWN_PREDICATE_THROUGH_AGGREGATION(RuleTypeClass.REWRITE),
     // column prune rules,
     COLUMN_PRUNE_AGGREGATION_CHILD(RuleTypeClass.REWRITE),
