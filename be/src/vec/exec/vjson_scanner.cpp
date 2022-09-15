@@ -288,14 +288,14 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
         int dest_index = ctx_idx++;
         auto* column_ptr = columns[dest_index].get();
         if (column_ptr->size() < cur_row_count + 1) {
-            assert(column_ptr->size() == cur_row_count);
+            DCHECK(column_ptr->size() == cur_row_count);
             column_ptr->assume_mutable()->insert_default();
             ++nullcount;
         }
-        assert(column_ptr->size() == cur_row_count + 1);
+        DCHECK(column_ptr->size() == cur_row_count + 1);
     }
     // There is at least one valid value here
-    assert(nullcount < columns.size());
+    DCHECK(nullcount < columns.size());
     *valid = true;
     return Status::OK();
 }
@@ -626,11 +626,11 @@ Status VSIMDJsonReader::_set_column_value(simdjson::ondemand::value objectValue,
     for (const auto& column_type_name : block) {
         auto column = column_type_name.column;
         if (column->size() < cur_row_count + 1) {
-            assert(column->size() == cur_row_count);
+            DCHECK(column->size() == cur_row_count);
             column->assume_mutable()->insert_default();
             ++nullcount;
         }
-        assert(column->size() == cur_row_count + 1);
+        DCHECK(column->size() == cur_row_count + 1);
     }
     if (nullcount == block.columns()) {
         RETURN_IF_ERROR(_append_error_msg("All fields is null, this is a invalid row.", "", valid));
