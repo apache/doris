@@ -58,10 +58,10 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
-    public LogicalPlanBuilder project(List<Integer> slots) {
+    public LogicalPlanBuilder project(List<Integer> slotsIndex) {
         List<NamedExpression> projectExprs = Lists.newArrayList();
-        for (int i = 0; i < slots.size(); i++) {
-            projectExprs.add(this.plan.getOutput().get(i));
+        for (Integer index : slotsIndex) {
+            projectExprs.add(this.plan.getOutput().get(index));
         }
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);

@@ -133,9 +133,10 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
 Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* flush_token,
-                                                 RowsetTypePB rowset_type, bool is_high_priority) {
+                                                 RowsetTypePB rowset_type, bool should_serial,
+                                                 bool is_high_priority) {
     if (!is_high_priority) {
-        if (rowset_type == BETA_ROWSET) {
+        if (rowset_type == BETA_ROWSET && !should_serial) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
             flush_token->reset(
                     new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
@@ -145,7 +146,7 @@ Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* fl
                     new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     } else {
-        if (rowset_type == BETA_ROWSET) {
+        if (rowset_type == BETA_ROWSET && !should_serial) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
             flush_token->reset(new FlushToken(
                     _high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));

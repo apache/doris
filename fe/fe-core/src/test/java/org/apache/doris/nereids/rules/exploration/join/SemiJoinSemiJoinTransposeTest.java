@@ -29,11 +29,10 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class SemiJoinTransposeTest {
+public class SemiJoinSemiJoinTransposeTest {
     public static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     public static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     public static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -41,21 +40,19 @@ public class SemiJoinTransposeTest {
     @Test
     public void testSemiJoinLogicalTransposeCommute() {
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .project(ImmutableList.of(0))
+                .hashJoinUsing(scan2, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0))
                 .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform((new SemiJoinLogicalJoinTransposeProject()).build())
+                .transform(SemiJoinSemiJoinTranspose.INSTANCE.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
-                    Plan plan = memo.copyOut(root.getLogicalExpressions().get(1), false);
+                    Plan join = memo.copyOut(root.getLogicalExpressions().get(1), false);
 
-                    Plan join = plan.child(0);
                     Assertions.assertTrue(join instanceof LogicalJoin);
-                    Assertions.assertEquals(JoinType.INNER_JOIN, ((LogicalJoin<?, ?>) join).getJoinType());
+                    Assertions.assertEquals(JoinType.LEFT_ANTI_JOIN, ((LogicalJoin<?, ?>) join).getJoinType());
                     Assertions.assertEquals(JoinType.LEFT_SEMI_JOIN,
                             ((LogicalJoin<?, ?>) ((LogicalJoin<?, ?>) join).left()).getJoinType());
                 });

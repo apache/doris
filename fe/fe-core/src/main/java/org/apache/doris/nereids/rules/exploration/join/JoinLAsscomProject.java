@@ -75,6 +75,6 @@ public class JoinLAsscomProject extends OneExplorationRuleFactory {
                         return null;
                     }
                     return helper.newTopJoin();
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM_PROJECT);
     }
 }
