@@ -127,6 +127,7 @@ public:
 private:
     // reuse LZ4 compress stream
     Status _acquire_compression_ctx(Context** out) {
+        std::lock_guard<std::mutex> l(_ctx_mutex);
         if (_ctx_pool.empty()) {
             Context* context = new (std::nothrow) Context();
             if (context == nullptr) {
@@ -140,7 +141,6 @@ private:
             *out = context;
             return Status::OK();
         }
-        std::lock_guard<std::mutex> l(_ctx_mutex);
         *out = _ctx_pool.back();
         _ctx_pool.pop_back();
         return Status::OK();
@@ -307,6 +307,7 @@ private:
     // acquire a compression ctx from pool, release while finish compress,
     // delete if compression failed
     Status _acquire_compression_ctx(CContext** out) {
+        std::lock_guard<std::mutex> l(_ctx_c_mutex);
         if (_ctx_c_pool.empty()) {
             CContext* context = new (std::nothrow) CContext();
             if (context == nullptr) {
@@ -320,7 +321,6 @@ private:
             *out = context;
             return Status::OK();
         }
-        std::lock_guard<std::mutex> l(_ctx_c_mutex);
         *out = _ctx_c_pool.back();
         _ctx_c_pool.pop_back();
         return Status::OK();
@@ -730,6 +730,7 @@ public:
 
 private:
     Status _acquire_compression_ctx(CContext** out) {
+        std::lock_guard<std::mutex> l(_ctx_c_mutex);
         if (_ctx_c_pool.empty()) {
             CContext* context = new (std::nothrow) CContext();
             if (context == nullptr) {
@@ -743,7 +744,6 @@ private:
             *out = context;
             return Status::OK();
         }
-        std::lock_guard<std::mutex> l(_ctx_c_mutex);
         *out = _ctx_c_pool.back();
         _ctx_c_pool.pop_back();
         return Status::OK();
