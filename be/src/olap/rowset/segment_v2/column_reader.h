@@ -329,7 +329,7 @@ private:
     ColumnReader* _reader;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    BlockCompressionCodec* _compress_codec;
 
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,

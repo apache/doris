@@ -36,7 +36,7 @@ Status ColumnChunkReader::init() {
     size_t chunk_size = _metadata.total_compressed_size;
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
     // get the block compression codec
-    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
+    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);

@@ -575,7 +575,7 @@ FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
-    RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+    RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
     if (config::enable_low_cardinality_optimize &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
         auto dict_encoding_type = _reader->get_dict_encoding_type();
@@ -860,8 +860,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
-    RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer,
-                                       _compress_codec.get()));
+    RETURN_IF_ERROR(
+            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
@@ -882,7 +882,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 _opts.type = INDEX_PAGE;
                 RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
                                                    &_dict_page_handle, &dict_data, &dict_footer,
-                                                   _compress_codec.get()));
+                                                   _compress_codec));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
                 _dict_decoder = std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(

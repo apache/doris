@@ -277,13 +277,6 @@ public:
                      segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
-    // serialize block to PBlock
-    // compressed_buffer reuse to avoid frequent allocation and deallocation,
-    // NOTE: compressed_buffer's data may be swapped with pblock->mutable_column_values
-    Status serialize(PBlock* pblock, std::string* compressed_buffer, size_t* uncompressed_bytes,
-                     size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
-                     bool allow_transfer_large_data = false) const;
-
     // serialize block to PRowbatch
     void serialize(RowBatch*, const RowDescriptor&);
 

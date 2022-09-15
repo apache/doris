@@ -75,8 +75,6 @@ public:
     RuntimeState* state() { return _state; }
 
     Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
-    Status serialize_block(Block* src, PBlock* dest, std::string* compressed_buffer,
-                           int num_receivers = 1);
 
 protected:
     void _roll_pb_block();
@@ -152,8 +150,6 @@ protected:
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
-
-    std::string _compressed_data_buffer;
 
     segment_v2::CompressionTypePB _compression_type;
 };
@@ -311,7 +307,6 @@ private:
     PBlock* _ch_cur_pb_block = nullptr;
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
-    std::string _compressed_data_buffer;
 
     bool _enable_local_exchange = false;
 };
