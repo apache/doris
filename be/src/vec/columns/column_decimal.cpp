@@ -128,7 +128,7 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                               const uint8_t* __restrict null_data) const {
     auto s = hashes.size();
     DCHECK(s == size());
@@ -157,6 +157,16 @@ void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint32_t>& hashes, Pri
         } else {
             DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
         }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
+                                                const uint8_t* __restrict null_data) const {
+    auto s = size();
+    for (int i = 0; i < s; i++) {
+        hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                               hashes[i]);
     }
 }
 

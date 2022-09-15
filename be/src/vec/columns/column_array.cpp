@@ -228,11 +228,6 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
     for (size_t i = 0; i < array_size; ++i) get_data().update_hash_with_value(offset + i, hash);
 }
 
-void ColumnArray::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                           const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
 void ColumnArray::insert(const Field& x) {
     const Array& array = doris::vectorized::get<const Array&>(x);
     size_t size = array.size();

@@ -130,8 +130,11 @@ public:
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;

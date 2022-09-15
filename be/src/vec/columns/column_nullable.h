@@ -163,8 +163,10 @@ public:
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crcs_with_value(std::vector<uint32_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
