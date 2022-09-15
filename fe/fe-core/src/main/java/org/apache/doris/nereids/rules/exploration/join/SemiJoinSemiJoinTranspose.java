@@ -37,6 +37,7 @@ import java.util.Set;
  * LEFT-Semi/ANTI(X, LEFT-Semi/ANTI(Y, Z))
  */
 public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
+    public static final SemiJoinSemiJoinTranspose INSTANCE = new SemiJoinSemiJoinTranspose();
 
     public static Set<Pair<JoinType, JoinType>> typeSet = ImmutableSet.of(
             Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_SEMI_JOIN),
@@ -69,7 +70,7 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
                             newBottomJoin, b);
 
                     return newTopJoin;
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE);
     }
 
     private boolean typeChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin) {
