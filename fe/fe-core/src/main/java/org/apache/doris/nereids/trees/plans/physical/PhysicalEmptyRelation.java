@@ -41,13 +41,13 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation {
-    private final List<NamedExpression> projects;
+    private final List<? extends NamedExpression> projects;
 
-    public PhysicalEmptyRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
+    public PhysicalEmptyRelation(List<? extends NamedExpression> projects, LogicalProperties logicalProperties) {
         this(projects, Optional.empty(), logicalProperties, null);
     }
 
-    public PhysicalEmptyRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
+    public PhysicalEmptyRelation(List<? extends NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties) {
         super(PlanType.PHYSICAL_EMPTY_RELATION, groupExpression, logicalProperties, physicalProperties);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
@@ -59,7 +59,7 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
@@ -110,7 +110,7 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     }
 
     @Override
-    public List<NamedExpression> getProjects() {
+    public List<? extends NamedExpression> getProjects() {
         return projects;
     }
 

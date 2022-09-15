@@ -114,7 +114,7 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 

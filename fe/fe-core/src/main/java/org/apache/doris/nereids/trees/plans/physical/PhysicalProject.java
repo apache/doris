@@ -91,8 +91,8 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return (List) projects;
+    public List<? extends Expression> getExpressions() {
+        return projects;
     }
 
     @Override

@@ -100,7 +100,7 @@ public class BindFunction implements AnalysisRuleFactory {
         );
     }
 
-    private <E extends Expression> List<E> bind(List<E> exprList, Env env) {
+    private <E extends Expression> List<E> bind(List<? extends E> exprList, Env env) {
         return exprList.stream()
             .map(expr -> FunctionBinder.INSTANCE.bind(expr, env))
             .collect(Collectors.toList());

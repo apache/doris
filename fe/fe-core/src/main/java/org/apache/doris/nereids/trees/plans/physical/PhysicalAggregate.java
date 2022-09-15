@@ -126,7 +126,7 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         // TODO: partitionExprList maybe null.
         return new ImmutableList.Builder<Expression>().addAll(groupByExpressions).addAll(outputExpressions)
                 .addAll(partitionExpressions).build();

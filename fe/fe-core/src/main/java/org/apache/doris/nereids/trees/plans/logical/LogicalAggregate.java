@@ -134,7 +134,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
                 .addAll(groupByExpressions)
                 .addAll(outputExpressions)
