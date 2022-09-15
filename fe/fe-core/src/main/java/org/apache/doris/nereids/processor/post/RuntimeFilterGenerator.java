@@ -122,7 +122,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             .map(type -> RuntimeFilter.createRuntimeFilter(generator.getNextId(), expr,
                                     type, cnt.getAndIncrement(), join))
                             .filter(Objects::nonNull)
-                            .forEach(filter -> ctx.setTargetExprIdToFilters(filter.getTargetExpr().getExprId(), filter)));
+                            .forEach(filter ->
+                                    ctx.setTargetExprIdToFilters(filter.getTargetExpr().getExprId(), filter)));
         }
         join.left().accept(this, context);
         join.right().accept(this, context);
