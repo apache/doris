@@ -23,7 +23,7 @@ under the License.
 
 您对 Doris 的各种建议、意见、评论可以直接通过 GitHub 的 [Issues](https://github.com/apache/doris/issues/new/choose) 提出。
 
-参与 Doris 项目并为其作出贡献的方法有很多：代码实现、测试编写、流程工具改进、文档完善等等。任何贡献我们都会非常欢迎，并将您加入贡献者列表，进一步，有了足够的贡献后，您还可以有机会成为 Apache 的 Commiter，拥有 Apache 邮箱，并被收录到 [Apache Commiter 列表中](http://people.apache.org/committer-index.html)。
+参与 Doris 项目并为其作出贡献的方法有很多：代码实现、测试编写、流程工具改进、文档完善等等。任何贡献我们都会非常欢迎，并将您加入贡献者列表，进一步，有了足够的贡献后，您还可以有机会成为 Apache 的 Committer，拥有 Apache 邮箱，并被收录到 [Apache Committer 列表中](http://people.apache.org/committer-index.html)。
 
 任何问题，您都可以联系我们得到及时解答，联系方式包括 dev 邮件组，Slack 等。
 
@@ -31,7 +31,7 @@ under the License.
 
 初次来到 Doris 社区，您可以：
 
-* 关注 Doris [Github 代码库](https://github.com/apache/doris)
+* 关注 Doris [GitHub 代码库](https://github.com/apache/doris)
 * 订阅我们的 [邮件列表](./docs/zh-CN/community/subscribe-mail-list.md)；
 * 加入 Doris 的 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
@@ -58,7 +58,7 @@ under the License.
 
 如果您对改进文档的质量感兴趣，不论是修订一个页面的地址、更正一个链接、以及写一篇更优秀的入门文档，我们都非常欢迎！
 
-我们的文档大多数是使用 markdown 格式编写的，您可以直接通过在 [GitHub](https://github.com/apache/doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./docs/zh-CN/community/how-to-contribute/pull-request.md)。
+我们的文档大多数是使用 Markdown 格式编写的，您可以直接通过在 [GitHub](https://github.com/apache/doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./docs/zh-CN/community/how-to-contribute/pull-request.md)。
 
 ## 如果发现了一个 Bug 或问题
 
