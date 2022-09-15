@@ -857,9 +857,7 @@ public class FileSystemManager {
         BrokerFileSystem brokerFileSystem;
         if (cachedFileSystem.containsKey(fileSystemIdentity)) {
             brokerFileSystem = cachedFileSystem.get(fileSystemIdentity);
-            if ((properties.containsKey(KERBEROS_KEYTAB) && properties.containsKey(KERBEROS_PRINCIPAL))
-                || (properties.containsKey(FS_KS3_ACCESS_KEY) && properties.containsKey(FS_KS3_SECRET_KEY))
-                || (properties.containsKey(FS_S3A_ACCESS_KEY) && properties.containsKey(FS_S3A_SECRET_KEY))) {
+            if (properties.containsKey(KERBEROS_KEYTAB) && properties.containsKey(KERBEROS_PRINCIPAL)) {
                 if (brokerFileSystem.isExpiredByCreateTime(BrokerConfig.client_expire_seconds)) {
                     logger.info("file system " + brokerFileSystem + " is expired, update it.");
                     try {
