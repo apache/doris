@@ -71,7 +71,6 @@ public class CostCalculator {
 
         @Override
         public CostEstimate visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(1);
         }
 
