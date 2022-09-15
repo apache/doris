@@ -54,9 +54,9 @@ Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
                                                     row_ranges, _ctz, reader));
-        auto col_iter = col_offsets.find(read_col.parquet_col_id);
+        auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
-            tparquet::OffsetIndex oi = col_iter.second;
+            tparquet::OffsetIndex oi = col_iter->second;
             reader->add_offset_index(&oi);
         }
         if (reader == nullptr) {

@@ -76,9 +76,8 @@ Status ParquetColumnReader::_filter_and_load_page() {
             auto& page_location = page_locations[i];
             LOG(WARNING) << "seek_to_page offset: " << page_location.offset;
             uint32_t remaining_num_values = _chunk_reader->remaining_num_values();
-            int32_t skip_num_values;
             if (page_location.first_row_index >= row_range.first_row) {
-                RETURN_IF_ERROR(_chunk_reader->seek_to_page(page_location.offset));
+                _chunk_reader->seek_to_page(page_location.offset);
                 int32_t skip_num_values = row_range.last_row - page_location.first_row_index;
                 // skip whole range
                 LOG(WARNING) << "skip_num_values: " << skip_num_values;
