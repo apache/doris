@@ -118,12 +118,12 @@ public class PlanEqualsTest {
 
     @Test
     public void testLogicalOlapScan() {
-        LogicalOlapScan actual = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+        LogicalOlapScan actual = PlanConstructor.newLogicalOlapScanWithSameId(0, "table", 0);
 
-        LogicalOlapScan expected = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+        LogicalOlapScan expected = PlanConstructor.newLogicalOlapScanWithSameId(0, "table", 0);
         Assertions.assertEquals(expected, actual);
 
-        LogicalOlapScan unexpected = PlanConstructor.newLogicalOlapScan(1, "table", 0);
+        LogicalOlapScan unexpected = PlanConstructor.newLogicalOlapScanWithSameId(1, "table", 0);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -242,16 +242,18 @@ public class PlanEqualsTest {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
 
-        PhysicalOlapScan actual = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"),
+        RelationId id = RelationId.createGenerator().getNextId();
+
+        PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 Optional.empty(), logicalProperties);
 
-        PhysicalOlapScan expected = new PhysicalOlapScan(olapTable, Lists.newArrayList("a"),
+        PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 Optional.empty(), logicalProperties);
         Assertions.assertEquals(expected, actual);
 
-        PhysicalOlapScan unexpected = new PhysicalOlapScan(olapTable, Lists.newArrayList("b"),
+        PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 Optional.empty(), logicalProperties);
         Assertions.assertNotEquals(unexpected, actual);

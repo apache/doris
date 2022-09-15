@@ -37,13 +37,13 @@ public class PlanPostProcessors {
 
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
-        for (PlanPostprocessor processor : getProcessors()) {
+        for (PlanPostProcessor processor : getProcessors()) {
             resultPlan = (PhysicalPlan) physicalPlan.accept(processor, cascadesContext);
         }
         return resultPlan;
     }
 
-    public List<PlanPostprocessor> getProcessors() {
+    public List<PlanPostProcessor> getProcessors() {
         // add processor if we need
         return ImmutableList.of();
     }
