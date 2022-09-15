@@ -43,10 +43,9 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
     return Status::OK();
 }
 
-Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
-                                            std::vector<RowRange>& row_ranges,
-                                            std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
-    // todo: merge row range
+Status RowGroupReader::_init_column_readers(
+        const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
+        std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col._slot_desc;
         TypeDescriptor col_type = slot_desc->type();

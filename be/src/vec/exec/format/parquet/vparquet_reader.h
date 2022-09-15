@@ -131,7 +131,7 @@ private:
     int64_t _range_start_offset;
     int64_t _range_size;
     cctz::time_zone* _ctz;
-    std::vector<RowRange> _skipped_row_ranges;
+    std::vector<RowRange> _candidate_row_ranges;
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 
     const TupleDescriptor* _tuple_desc; // get all slot info

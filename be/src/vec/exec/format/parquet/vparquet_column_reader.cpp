@@ -68,42 +68,6 @@ void ParquetColumnReader::_reserve_def_levels_buf(size_t size) {
 }
 
 Status ParquetColumnReader::_filter_and_load_page() {
-    for(auto& row_range : _row_ranges) {
-        auto& page_locations = _offset_index->page_locations;
-
-        for (int64_t i = _current_page_location; i < page_locations.size(); i++) {
-            LOG(WARNING) << "_current_page_location: " << _current_page_location;
-            auto& page_location = page_locations[i];
-            LOG(WARNING) << "seek_to_page offset: " << page_location.offset;
-            uint32_t remaining_num_values = _chunk_reader->remaining_num_values();
-            if (page_location.first_row_index >= row_range.first_row) {
-                _chunk_reader->seek_to_page(page_location.offset);
-                int32_t skip_num_values = row_range.last_row - page_location.first_row_index;
-                // skip whole range
-                LOG(WARNING) << "skip_num_values: " << skip_num_values;
-                LOG(WARNING) << "remaining_num_values: " << remaining_num_values;
-                if (skip_num_values <= remaining_num_values) {
-                    RETURN_IF_ERROR(_chunk_reader->skip_values(skip_num_values, true));
-                } else {
-                    skip_num_values -= remaining_num_values;
-                    RETURN_IF_ERROR(_chunk_reader->skip_values(remaining_num_values, true));
-                    DCHECK(remaining_num_values == 0);
-                    continue;
-                }
-                RETURN_IF_ERROR(_chunk_reader->load_page_data());
-                // filter next row range
-                _current_page_location = i;
-                break;
-            } else {
-                // if page_location.first_row_index < row_range.first_row
-                // read rows from page_location.first_row_index to row_range.first_row
-
-                // 1. load data
-                // 2. read top_rows = row_range.first_row - page_location.first_row_index
-                // 3. seek next page, set _has_filtered_pages
-            }
-        }
-    }
     return Status::OK();
 }
 
