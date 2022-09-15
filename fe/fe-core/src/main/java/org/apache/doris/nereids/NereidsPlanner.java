@@ -24,8 +24,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
-import org.apache.doris.nereids.jobs.batch.RewriteJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -71,7 +72,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
 
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodes();
@@ -146,7 +147,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new RewriteJob(cascadesContext).execute();
+        new NereidsRewriteJobExecutor(cascadesContext).execute();
     }
 
     private void deriveStats() {
@@ -209,5 +210,15 @@ public class NereidsPlanner extends Planner {
     @Override
     public void appendTupleInfo(StringBuilder str) {
         str.append(descTable.getExplainString());
+    }
+
+    @Override
+    public List<RuntimeFilter> getRuntimeFilters() {
+        return cascadesContext.getRuntimeFilterContext().getLegacyFilters();
+    }
+
+    @VisibleForTesting
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
     }
 }
