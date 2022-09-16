@@ -68,6 +68,7 @@ namespace doris {
 bool k_doris_exit = false;
 
 void Daemon::tcmalloc_gc_thread() {
+    // TODO All cache GC wish to be supported
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
