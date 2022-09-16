@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.PlanFragment;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -171,7 +172,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertTrue(filters.size() == 5);
     }
 
-    /*@Test
+    @Test
+    @Disabled
     public void testPushDownThroughUnsupportedJoinType() throws AnalysisException {
         String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
                 + " on lo_orderdate = d_datekey) a"
@@ -180,7 +182,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 5);
-    }*/
+    }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {
         NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
