@@ -64,7 +64,7 @@ protected:
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
-    std::shared_ptr<ParquetReader> _cur_reader;
+    ParquetReader* _cur_reader;
     bool _cur_reader_eof;
     TFileFormatType::type _file_format;
 

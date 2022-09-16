@@ -42,11 +42,13 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
+          _cur_reader(nullptr),
+          _cur_reader_eof(false),
           _file_format(format),
           _mem_pool(std::make_unique<MemPool>()),
           _profile(profile),
           _pre_filter_texprs(pre_filter_texprs),
-          _strict_mode(false) {}
+          _strict_mode(false){}
 
 Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
@@ -112,6 +114,10 @@ Status VFileScanner::_fill_columns_from_path(vectorized::Block* _block, size_t r
 
 Status VFileScanner::_get_next_reader() {
     //TODO: delete _cur_reader?
+    if (_cur_reader != nullptr) {
+        delete _cur_reader;
+        _cur_reader = nullptr;
+    }
     while (true) {
         if (_next_range >= _ranges.size()) {
             _scanner_eof = true;
@@ -127,9 +133,10 @@ Status VFileScanner::_get_next_reader() {
             file_reader->close();
             continue;
         }
-        _cur_reader.reset(new ParquetReader(
-                file_reader.release(), _file_slot_descs.size(), _state->query_options().batch_size,
-                range.start_offset, range.size, const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+        _cur_reader = new ParquetReader(file_reader.release(), _file_slot_descs.size(),
+                                                 _state->query_options().batch_size,range.start_offset, range.size,
+                                                 const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+//        _cur_reader.reset(reader);
         Status status =
                 _cur_reader->init_reader(_output_tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());
         return status;
