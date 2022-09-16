@@ -135,7 +135,7 @@ public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
 
             return PlanUtils.filterOrSelf(filterConditions,
                     pushDownPredicate(join, joinConditions, leftPredicates, rightPredicates));
-        }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_JOIN);
+        }).toRule(RuleType.PUSHDOWN_PREDICATE_THROUGH_JOIN);
     }
 
     private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> join,
