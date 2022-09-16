@@ -244,6 +244,7 @@ public class SlotDescriptor {
     }
 
     public void setSourceExpr(Expr expr) {
+        setIsNullable(isNullable || expr.isNullable());
         sourceExprs = Collections.singletonList(expr);
     }
 

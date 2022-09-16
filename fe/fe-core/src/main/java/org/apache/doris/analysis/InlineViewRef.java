@@ -218,6 +218,7 @@ public class InlineViewRef extends TableRef {
         // would alter the results of the analytic functions (see IMPALA-1243)
         // TODO: relax this a bit by allowing propagation out of the inline view (but
         // not into it)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         for (int i = 0; i < getColLabels().size(); ++i) {
             String colName = getColLabels().get(i);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
@@ -230,6 +231,7 @@ public class InlineViewRef extends TableRef {
                 analyzer.createAuxEquivPredicate(new SlotRef(slotDesc), colExpr.clone());
             }
         }
+        analyzer.changeSlotsToNotNullable(slots);
         if (LOG.isDebugEnabled()) {
             LOG.debug("inline view " + getUniqueAlias() + " smap: " + sMap.debugString());
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
