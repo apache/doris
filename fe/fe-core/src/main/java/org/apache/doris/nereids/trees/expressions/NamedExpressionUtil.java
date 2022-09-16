@@ -22,7 +22,6 @@ import org.apache.doris.common.IdGenerator;
 import com.google.common.annotations.VisibleForTesting;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 
 /**
  * The util of named expression.
@@ -42,11 +41,8 @@ public class NamedExpressionUtil {
      */
     @VisibleForTesting
     public static void clear() throws Exception {
-        Field f = NamedExpressionUtil.class.getDeclaredField("ID_GENERATOR");
-        f.setAccessible(true);
-        Field mf = Field.class.getDeclaredField("modifiers");
-        mf.setAccessible(true);
-        mf.setInt(f, f.getModifiers() & ~Modifier.FINAL);
-        f.set(NamedExpressionUtil.class, ExprId.createGenerator());
+        Field nextId = ID_GENERATOR.getClass().getSuperclass().getDeclaredField("nextId");
+        nextId.setAccessible(true);
+        nextId.setInt(ID_GENERATOR, 0);
     }
 }

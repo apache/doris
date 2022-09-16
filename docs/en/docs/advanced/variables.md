@@ -271,11 +271,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `load_mem_limit`
 
-    Used to specify the memory limit of the load operation. The default is 0, which means that this variable is not used, and `exec_mem_limit` is used as the memory limit for the load operation.
+    Used to specify the memory limit of the load operation. The default is 2GB.
 
-    This variable is usually used for INSERT operations. Because the INSERT operation has both query and load part. If the user does not set this variable, the respective memory limits of the query and load part are `exec_mem_limit`. Otherwise, the memory of query part of INSERT is limited to `exec_mem_limit`, and the load part is limited to` load_mem_limit`.
+    Broker Load, Stream Load and Routine Load use `load_mem_limit` by default; if the user specifies the task `exec_mem_limit` parameter when creating a load, the specified value is used.
 
-    For other load methods, such as BROKER LOAD, STREAM LOAD, the memory limit still uses `exec_mem_limit`.
+    The INSERT operation has two parts: query and import. The memory limit of the load part of INSERT is `load_mem_limit`, and the query part is limited to `exec_mem_limit`.
     
 * `lower_case_table_names`
 
@@ -526,3 +526,9 @@ Translated with www.DeepL.com/Translator (free version)
 * `trim_tailing_spaces_for_external_table_query`
 
   Used to control whether trim the tailing spaces while quering Hive external tables. The default is false.
+
+* `skip_storage_engine_merge`
+  For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
+
+* `skip_delete_predicate`
+  For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.

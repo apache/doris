@@ -152,7 +152,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         return;
     }
     Block* nblock = new Block(block->get_columns_with_type_and_name());
-    nblock->info = block->info;
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {

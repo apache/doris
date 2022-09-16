@@ -161,7 +161,7 @@ CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
-CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
@@ -256,6 +256,9 @@ CONF_mBool(disable_auto_compaction, "false");
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
+
+// serialize data version
+CONF_mInt32(block_data_version, "-1");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
@@ -859,6 +862,16 @@ CONF_Bool(enable_new_scan_node, "true");
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
+// Max waiting time to wait the "plan fragment start" rpc.
+// If timeout, the fragment will be cancelled.
+// This parameter is usually only used when the FE loses connection,
+// and the BE can automatically cancel the relevant fragment after the timeout,
+// so as to avoid occupying the execution thread for a long time.
+CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
+
+// Temp config. True to use new file scan node to do load job. Will remove after fully test.
+CONF_Bool(enable_new_load_scan_node, "false");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
@@ -869,7 +882,6 @@ CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
 CONF_String(test_s3_prefix, "prefix");
 #endif
-
 } // namespace config
 
 } // namespace doris

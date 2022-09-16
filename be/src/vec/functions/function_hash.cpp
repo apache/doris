@@ -101,7 +101,7 @@ struct MurmurHash2Impl64 {
             for (size_t i = 0; i < size; ++i) {
                 const ReturnType val = HashUtil::murmur_hash2_64(
                         reinterpret_cast<const char*>(&data[current_offset]),
-                        offsets[i] - current_offset - 1, 0);
+                        offsets[i] - current_offset, 0);
 
                 if (first)
                     col_to.insert_data(reinterpret_cast<const char*>(&val), 0);
@@ -187,14 +187,13 @@ struct MurmurHash3Impl32 {
                 if (first) {
                     UInt32 val = HashUtil::murmur_hash3_32(
                             reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset - 1, HashUtil::MURMUR3_32_SEED);
+                            offsets[i] - current_offset, HashUtil::MURMUR3_32_SEED);
                     col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 } else {
                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i] =
                             HashUtil::murmur_hash3_32(
                                     reinterpret_cast<const char*>(&data[current_offset]),
-                                    offsets[i] - current_offset - 1,
-                                    ext::bit_cast<UInt32>(col_to[i]));
+                                    offsets[i] - current_offset, ext::bit_cast<UInt32>(col_to[i]));
                 }
                 current_offset = offsets[i];
             }

@@ -19,9 +19,7 @@
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_hll.h"
-#include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
-#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -63,17 +61,11 @@ public:
 
 static void hex_encode(const unsigned char* source, size_t srclen, unsigned char*& dst_data_ptr,
                        size_t& offset) {
-    if (srclen == 0) {
-        DCHECK(*source == '\0');
-        *dst_data_ptr = '\0';
-        dst_data_ptr++;
-        offset++;
-    } else {
+    if (srclen != 0) {
         doris::simd::VStringFunctions::hex_encode(source, srclen,
                                                   reinterpret_cast<char*>(dst_data_ptr));
-        dst_data_ptr[srclen * 2] = '\0';
-        dst_data_ptr += (srclen * 2 + 1);
-        offset += (srclen * 2 + 1);
+        dst_data_ptr += (srclen * 2);
+        offset += (srclen * 2);
     }
 }
 
@@ -92,7 +84,7 @@ struct HexStringImpl {
         auto dst_data_ptr = dst_data.data();
         for (int i = 0; i < input_rows_count; ++i) {
             auto source = reinterpret_cast<const unsigned char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
             hex_encode(source, srclen, dst_data_ptr, offset);
             dst_offsets[i] = offset;
         }

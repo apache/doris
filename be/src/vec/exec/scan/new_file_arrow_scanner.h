@@ -29,20 +29,24 @@ class NewFileArrowScanner : public NewFileScanner {
 public:
     NewFileArrowScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                         const TFileScanRange& scan_range, MemTracker* tracker,
-                        RuntimeProfile* profile);
+                        RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
     Status open(RuntimeState* state) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
-    virtual ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+    virtual ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                               FileReader* file_reader,
                                                int32_t num_of_columns_from_file,
                                                int64_t range_start_offset, int64_t range_size) = 0;
+    // Convert input block to output block, if needed.
+    Status _convert_to_output_block(Block* output_block);
 
 private:
     Status _open_next_reader();
     Status _next_arrow_batch();
     Status _init_arrow_batch_if_necessary();
     Status _append_batch_to_block(Block* block);
+    Status _cast_src_block(Block* block);
 
 private:
     // Reader
@@ -56,14 +60,14 @@ class NewFileParquetScanner final : public NewFileArrowScanner {
 public:
     NewFileParquetScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                           const TFileScanRange& scan_range, MemTracker* tracker,
-                          RuntimeProfile* profile);
+                          RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
 
     ~NewFileParquetScanner() override = default;
 
 protected:
-    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                       int64_t range_size) override;
+    ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                       FileReader* file_reader, int32_t num_of_columns_from_file,
+                                       int64_t range_start_offset, int64_t range_size) override;
 
     void _init_profiles(RuntimeProfile* profile) override {};
 };
@@ -72,14 +76,14 @@ class NewFileORCScanner final : public NewFileArrowScanner {
 public:
     NewFileORCScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                       const TFileScanRange& scan_range, MemTracker* tracker,
-                      RuntimeProfile* profile);
+                      RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
 
     ~NewFileORCScanner() override = default;
 
 protected:
-    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                       int64_t range_size) override;
+    ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                       FileReader* file_reader, int32_t num_of_columns_from_file,
+                                       int64_t range_start_offset, int64_t range_size) override;
     void _init_profiles(RuntimeProfile* profile) override {};
 };
 } // namespace doris::vectorized

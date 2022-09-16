@@ -263,6 +263,7 @@ public class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(key),
                 AggPhase.LOCAL,
                 true,
+                true,
                 logicalProperties,
                 groupPlan
         );
@@ -285,6 +286,7 @@ public class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(partition),
                 AggPhase.GLOBAL,
+                true,
                 true,
                 logicalProperties,
                 groupPlan

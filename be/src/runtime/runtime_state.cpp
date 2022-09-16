@@ -443,6 +443,7 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
 }
 
 int64_t RuntimeState::get_load_mem_limit() {
+    // TODO: the code is abandoned, it can be deleted after v1.3
     if (_query_options.__isset.load_mem_limit && _query_options.load_mem_limit > 0) {
         return _query_options.load_mem_limit;
     } else {

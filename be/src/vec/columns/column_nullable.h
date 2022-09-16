@@ -67,6 +67,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    MutableColumnPtr get_shinked_column() override;
+
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -161,6 +163,10 @@ public:
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
@@ -197,6 +203,7 @@ public:
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
+    bool is_column_array() const override { return get_nested_column().is_column_array(); }
     bool is_fixed_and_contiguous() const override { return false; }
     bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
     size_t size_of_value_if_fixed() const override {
@@ -277,7 +284,7 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > 1);
+        DCHECK(size() > self_row);
         const ColumnNullable& nullable_rhs = assert_cast<const ColumnNullable&>(rhs);
         null_map->replace_column_data(*nullable_rhs.null_map, row, self_row);
 
@@ -304,6 +311,9 @@ public:
     void generate_hash_values_for_runtime_filter() override {
         get_nested_column().generate_hash_values_for_runtime_filter();
     }
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
 
 private:
     WrappedPtr nested_column;

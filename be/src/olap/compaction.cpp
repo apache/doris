@@ -236,7 +236,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy="
               << _tablet->cumulative_compaction_policy()->name()
-              << ", compact_row_per_second=" << _input_row_num / watch.get_elapse_second();
+              << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
 
     return Status::OK();
 }
@@ -336,7 +336,7 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
         LOG(WARNING) << "row_num does not match between cumulative input and output! "
-                     << "input_row_num=" << _input_row_num
+                     << "tablet=" << _tablet->full_name() << ", input_row_num=" << _input_row_num
                      << ", merged_row_num=" << stats.merged_rows
                      << ", filtered_row_num=" << stats.filtered_rows
                      << ", output_row_num=" << _output_rowset->num_rows();

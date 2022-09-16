@@ -64,7 +64,7 @@ public interface Command extends LogicalPlan {
     }
 
     @Override
-    default List<Expression> getExpressions() {
+    default List<? extends Expression> getExpressions() {
         throw new RuntimeException("Command do not implement getExpressions");
     }
 

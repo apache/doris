@@ -39,7 +39,7 @@ public class JoinReorderTest implements PatternMatchSupported {
         UnboundRelation relation1 = new UnboundRelation(Lists.newArrayList("db", "table1"));
         UnboundRelation relation2 = new UnboundRelation(Lists.newArrayList("db", "table2"));
         LogicalJoin outerJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, relation1, relation2);
-        LogicalFilter logicalFilter = new LogicalFilter<>(new BooleanLiteral(false), outerJoin);
+        LogicalFilter logicalFilter = new LogicalFilter<>(BooleanLiteral.FALSE, outerJoin);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), logicalFilter)
                 .applyBottomUp(new ReorderJoin())

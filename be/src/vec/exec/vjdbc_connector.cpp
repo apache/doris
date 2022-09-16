@@ -17,12 +17,15 @@
 
 #include "vec/exec/vjdbc_connector.h"
 #ifdef LIBJVM
+#include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/exprs/vexpr.h"
+
 namespace doris {
 namespace vectorized {
 const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
@@ -33,16 +36,17 @@ const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
+const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
-        : _is_open(false),
-          _query_string(param.query_string),
-          _tuple_desc(param.tuple_desc),
-          _conn_param(param) {}
+        : TableConnector(param.tuple_desc, param.query_string), _conn_param(param) {}
 
 JdbcConnector::~JdbcConnector() {
     if (!_is_open) {
         return;
+    }
+    if (_is_in_transaction) {
+        abort_trans();
     }
     JNIEnv* env;
     Status status;
@@ -101,7 +105,7 @@ Status JdbcConnector::open() {
     return Status::OK();
 }
 
-Status JdbcConnector::query_exec() {
+Status JdbcConnector::query() {
     if (!_is_open) {
         return Status::InternalError("Query before open of JdbcConnector.");
     }
@@ -115,7 +119,7 @@ Status JdbcConnector::query_exec() {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jstring query_sql = env->NewStringUTF(_query_string.c_str());
+    jstring query_sql = env->NewStringUTF(_sql_str.c_str());
     jint colunm_count = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_query_id, query_sql);
     env->DeleteLocalRef(query_sql);
@@ -129,7 +133,7 @@ Status JdbcConnector::query_exec() {
 
 Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns, int batch_size) {
     if (!_is_open) {
-        return Status::InternalError("get_next before open if jdbc.");
+        return Status::InternalError("get_next before open of jdbc connector.");
     }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -203,6 +207,12 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     RETURN_IF_ERROR(
             register_id(_executor_object_clazz, "toString", "()Ljava/lang/String;", _to_string_id));
 
+    RETURN_IF_ERROR(register_id(_executor_clazz, "openTrans", JDBC_EXECUTOR_TRANSACTION_SIGNATURE,
+                                _executor_begin_trans_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "commitTrans", JDBC_EXECUTOR_TRANSACTION_SIGNATURE,
+                                _executor_finish_trans_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "rollbackTrans",
+                                JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
     return Status::OK();
 }
 
@@ -301,6 +311,18 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     return Status::OK();
 }
 
+Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
+                                     const fmt::memory_buffer& insert_stmt_buffer) {
+    SCOPED_TIMER(_result_send_timer);
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
+    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_query_id, query_sql);
+    env->DeleteLocalRef(query_sql);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    return Status::OK();
+}
+
 std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
     jobject jstr = env->CallObjectMethod(jobj, _to_string_id);
     const jbyteArray stringJbytes =
@@ -321,6 +343,40 @@ int64_t JdbcConnector::_jobject_to_date(JNIEnv* env, jobject jobj) {
 int64_t JdbcConnector::_jobject_to_datetime(JNIEnv* env, jobject jobj) {
     return env->CallNonvirtualLongMethod(_executor_obj, _executor_clazz,
                                          _executor_convert_datetime_id, jobj);
+}
+
+Status JdbcConnector::begin_trans() {
+    if (!_is_open) {
+        return Status::InternalError("Begin transaction before open.");
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_begin_trans_id);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    _is_in_transaction = true;
+    return Status::OK();
+}
+
+Status JdbcConnector::abort_trans() {
+    if (!_is_in_transaction) {
+        return Status::InternalError("Abort transaction before begin trans.");
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_abort_trans_id);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+
+Status JdbcConnector::finish_trans() {
+    if (!_is_in_transaction) {
+        return Status::InternalError("Abort transaction before begin trans.");
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_finish_trans_id);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    _is_in_transaction = false;
+    return Status::OK();
 }
 
 #define FUNC_IMPL_TO_CONVERT_DATA(cpp_return_type, java_type, sig, java_return_type)          \

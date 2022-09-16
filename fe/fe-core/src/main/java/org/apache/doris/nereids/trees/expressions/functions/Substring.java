@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -31,11 +30,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * substring function.
  */
-public class Substring extends BoundFunction implements TernaryExpression, ImplicitCastInputTypes {
+public class Substring extends ScalarFunction implements ImplicitCastInputTypes {
 
     // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
@@ -49,10 +49,10 @@ public class Substring extends BoundFunction implements TernaryExpression, Impli
     }
 
     public Substring(Expression str, Expression pos) {
-        super("substring", str, pos, new IntegerLiteral(Integer.MAX_VALUE));
+        super("substring", str, pos);
     }
 
-    public Expression getTarget() {
+    public Expression getSource() {
         return child(0);
     }
 
@@ -60,21 +60,24 @@ public class Substring extends BoundFunction implements TernaryExpression, Impli
         return child(1);
     }
 
-    public Expression getLength() {
-        return child(2);
+    public Optional<Expression> getLength() {
+        return arity() == 3 ? Optional.of(child(2)) : Optional.empty();
     }
 
     @Override
     public DataType getDataType() {
-        if (getLength() instanceof IntegerLiteral) {
-            return VarcharType.createVarcharType(((IntegerLiteral) getLength()).getValue());
+        Optional<Expression> length = getLength();
+        if (length.isPresent() && length.get() instanceof IntegerLiteral) {
+            return VarcharType.createVarcharType(((IntegerLiteral) length.get()).getValue());
         }
         return VarcharType.SYSTEM_DEFAULT;
     }
 
     @Override
     public boolean nullable() {
-        return first().nullable();
+        //TODO: to be compatible with BE, we set true here.
+        //return children().stream().anyMatch(Expression::nullable);
+        return true;
     }
 
     @Override

@@ -43,7 +43,7 @@ public interface Plan extends TreeNode<Plan> {
 
     <R, C> R accept(PlanVisitor<R, C> visitor, C context);
 
-    List<Expression> getExpressions();
+    List<? extends Expression> getExpressions();
 
     LogicalProperties getLogicalProperties();
 

@@ -21,33 +21,34 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
-import java.util.List;
-
 /**
- * this rule aims to merge consecutive limits.
- *   LIMIT1(limit=10, offset=4)
+ * This rule aims to merge consecutive limits.
+ * <pre>
+ * input plan:
+ *   LIMIT1(limit=10, offset=0)
  *     |
  *   LIMIT2(limit=3, offset=5)
  *
- *   transformed to
- *    LIMITl(limit=3, offset=5)
- *   where
- *   LIMIT.limit = min(LIMIT1.limit, LIMIT2.limit)
- *   LIMIT.offset = LIMIT2.offset
- *   LIMIT1.offset is ignored
+ * output plan:
+ *    LIMIT(limit=3, offset=5)
+ *
+ * merged limit = min(LIMIT1.limit, LIMIT2.limit)
+ * merged offset = LIMIT2.offset
+ * </pre>
+ * Note that the top limit should not have valid offset info.
  */
 public class MergeConsecutiveLimits extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit(logicalLimit()).then(upperLimit -> {
-            LogicalLimit bottomLimit = upperLimit.child();
-            List<Plan> children = bottomLimit.children();
-            return new LogicalLimit(
+        return logicalLimit(logicalLimit()).whenNot(Limit::hasValidOffset).then(upperLimit -> {
+            LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
+            return new LogicalLimit<>(
                     Math.min(upperLimit.getLimit(), bottomLimit.getLimit()),
                     bottomLimit.getOffset(),
-                    children.get(0)
+                    bottomLimit.child()
             );
         }).toRule(RuleType.MERGE_CONSECUTIVE_LIMITS);
     }

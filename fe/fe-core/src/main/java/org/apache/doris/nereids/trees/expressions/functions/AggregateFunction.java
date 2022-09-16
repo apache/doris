@@ -21,16 +21,49 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
-/** AggregateFunction. */
+import java.util.Objects;
+
+/**
+ * The function which consume arguments in lots of rows and product one value.
+ */
 public abstract class AggregateFunction extends BoundFunction {
 
     private DataType intermediate;
+    private final boolean isDistinct;
 
     public AggregateFunction(String name, Expression... arguments) {
         super(name, arguments);
+        isDistinct = false;
+    }
+
+    public AggregateFunction(String name, boolean isDistinct, Expression... arguments) {
+        super(name, arguments);
+        this.isDistinct = isDistinct;
     }
 
     public abstract DataType getIntermediateType();
+
+    public boolean isDistinct() {
+        return isDistinct;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AggregateFunction that = (AggregateFunction) o;
+        return Objects.equals(isDistinct, that.isDistinct) && Objects.equals(intermediate, that.intermediate)
+                && Objects.equals(getName(), that.getName()) && Objects.equals(children, that.children);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(isDistinct, intermediate, getName(), children);
+    }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

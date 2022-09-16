@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -82,14 +83,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addToRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         }
-
+        if (agg.getAggPhase() == AggPhase.GLOBAL && !agg.isFinalPhase()) {
+            addToRequestPropertyToChildren(requestPropertyFromParent);
+            return null;
+        }
         // 2. second phase agg, need to return shuffle with partition key
         List<Expression> partitionExpressions = agg.getPartitionExpressions();
         if (partitionExpressions.isEmpty()) {
             addToRequestPropertyToChildren(PhysicalProperties.GATHER);
             return null;
         }
-
         // TODO: when parent is a join node,
         //    use requestPropertyFromParent to keep column order as join to avoid shuffle again.
         if (partitionExpressions.stream().allMatch(SlotReference.class::isInstance)) {

@@ -27,6 +27,7 @@
 #include "vec/common/exception.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -124,6 +125,49 @@ template <typename T>
 void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
                                                 const uint8_t* __restrict null_data) const {
     SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                              const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if constexpr (!std::is_same_v<T, Decimal128>) {
+        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+    } else {
+        if (type == TYPE_DECIMALV2) {
+            auto decimalv2_do_crc = [&](size_t i) {
+                const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+                int64_t int_val = dec_val.int_value();
+                int32_t frac_val = dec_val.frac_value();
+                hashes[i] = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hashes[i]);
+                hashes[i] = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hashes[i]);
+            };
+
+            if (null_data == nullptr) {
+                for (size_t i = 0; i < s; i++) {
+                    decimalv2_do_crc(i);
+                }
+            } else {
+                for (size_t i = 0; i < s; i++) {
+                    if (null_data[i] == 0) decimalv2_do_crc(i);
+                }
+            }
+        } else {
+            DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
+                                                const uint8_t* __restrict null_data) const {
+    auto s = size();
+    for (int i = 0; i < s; i++) {
+        hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                               hashes[i]);
+    }
 }
 
 template <typename T>
@@ -328,6 +372,13 @@ void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min, scale);
     max = NearestFieldType<T>(cur_max, scale);
+}
+
+template <typename T>
+void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                   IColumn::Permutation& perms, EqualRange& range,
+                                   bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <>

@@ -38,7 +38,7 @@ Apache Doris is an easy-to-use, high-performance and real-time analytical databa
 Based on this, Apache Doris can better meet the scenarios of report analysis, ad-hoc query, unified data warehouse, Data Lake Query Acceleration, etc. Users can build user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, order analysis, and other applications on top of this.
 
 
-🎉 Version 1.1.1 released now! Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.1.1) here. 
+🎉 Version 1.1.2 released now! Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.1.2) here. 
 
 👀 Have a look at the 🔗[Official Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
 

@@ -21,14 +21,16 @@
 #include "exec/arrow/parquet_reader.h"
 #include "io/file_factory.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/functions/simple_function_factory.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris::vectorized {
 
 NewFileArrowScanner::NewFileArrowScanner(RuntimeState* state, NewFileScanNode* parent,
                                          int64_t limit, const TFileScanRange& scan_range,
-                                         MemTracker* tracker, RuntimeProfile* profile)
-        : NewFileScanner(state, parent, limit, scan_range, tracker, profile),
+                                         MemTracker* tracker, RuntimeProfile* profile,
+                                         const std::vector<TExpr>& pre_filter_texprs)
+        : NewFileScanner(state, parent, limit, scan_range, tracker, profile, pre_filter_texprs),
           _cur_file_reader(nullptr),
           _cur_file_eof(false),
           _batch(nullptr),
@@ -57,7 +59,9 @@ Status NewFileArrowScanner::_get_block_impl(RuntimeState* state, Block* block, b
     }
 
     *eof = false;
-    RETURN_IF_ERROR(init_block(block));
+    if (!_is_load) {
+        RETURN_IF_ERROR(init_block(block));
+    }
     // convert arrow batch to block until reach the batch_size
     while (!_scanner_eof) {
         // cast arrow type to PT0 and append it to block
@@ -122,6 +126,46 @@ Status NewFileArrowScanner::_append_batch_to_block(Block* block) {
     return _fill_columns_from_path(block, num_elements);
 }
 
+Status NewFileArrowScanner::_convert_to_output_block(Block* output_block) {
+    if (!config::enable_new_load_scan_node) {
+        return Status::OK();
+    }
+    if (_input_block_ptr == output_block) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_cast_src_block(_input_block_ptr));
+    if (LIKELY(_input_block_ptr->rows() > 0)) {
+        RETURN_IF_ERROR(_materialize_dest_block(output_block));
+    }
+
+    return Status::OK();
+}
+
+// arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
+// primitive type(PT1) ==materialize_block==> dest primitive type
+Status NewFileArrowScanner::_cast_src_block(Block* block) {
+    // cast primitive type(PT0) to primitive type(PT1)
+    for (size_t i = 0; i < _num_of_columns_from_file; ++i) {
+        SlotDescriptor* slot_desc = _required_slot_descs[i];
+        if (slot_desc == nullptr) {
+            continue;
+        }
+        auto& arg = block->get_by_name(slot_desc->col_name());
+        // remove nullable here, let the get_function decide whether nullable
+        auto return_type = slot_desc->get_data_type_ptr();
+        ColumnsWithTypeAndName arguments {
+                arg,
+                {DataTypeString().create_column_const(
+                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
+                 std::make_shared<DataTypeString>(), ""}};
+        auto func_cast =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
+        RETURN_IF_ERROR(func_cast->execute(nullptr, *block, {i}, i, arg.column->size()));
+        block->get_by_position(i).type = std::move(return_type);
+    }
+    return Status::OK();
+}
+
 Status NewFileArrowScanner::_next_arrow_batch() {
     _arrow_batch_cur_idx = 0;
     // first, init file reader
@@ -171,13 +215,13 @@ Status NewFileArrowScanner::_open_next_reader() {
         int32_t num_of_columns_from_file = _file_slot_descs.size();
 
         _cur_file_reader =
-                _new_arrow_reader(file_reader.release(), _state->batch_size(),
-                                  num_of_columns_from_file, range.start_offset, range.size);
+                _new_arrow_reader(_file_slot_descs, file_reader.release(), num_of_columns_from_file,
+                                  range.start_offset, range.size);
 
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_parent->output_tuple_id());
         // TODO _conjunct_ctxs is empty for now. _conjunct_ctxs is not empty.
-        Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
-                                                      _state->timezone());
+        Status status =
+                _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {
@@ -195,30 +239,31 @@ Status NewFileArrowScanner::_open_next_reader() {
 
 NewFileParquetScanner::NewFileParquetScanner(RuntimeState* state, NewFileScanNode* parent,
                                              int64_t limit, const TFileScanRange& scan_range,
-                                             MemTracker* tracker, RuntimeProfile* profile)
-        : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile) {
+                                             MemTracker* tracker, RuntimeProfile* profile,
+                                             const std::vector<TExpr>& pre_filter_texprs)
+        : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile,
+                              pre_filter_texprs) {
     //        _init_profiles(profile);
 }
 
-ArrowReaderWrap* NewFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
-                                                          int64_t batch_size,
-                                                          int32_t num_of_columns_from_file,
-                                                          int64_t range_start_offset,
-                                                          int64_t range_size) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
+ArrowReaderWrap* NewFileParquetScanner::_new_arrow_reader(
+        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
+    return new ParquetReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
                                  range_start_offset, range_size, false);
 }
 
 NewFileORCScanner::NewFileORCScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                                      const TFileScanRange& scan_range, MemTracker* tracker,
-                                     RuntimeProfile* profile)
-        : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile) {}
+                                     RuntimeProfile* profile,
+                                     const std::vector<TExpr>& pre_filter_texprs)
+        : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile,
+                              pre_filter_texprs) {}
 
-ArrowReaderWrap* NewFileORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                      int32_t num_of_columns_from_file,
-                                                      int64_t range_start_offset,
-                                                      int64_t range_size) {
-    return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size, false);
+ArrowReaderWrap* NewFileORCScanner::_new_arrow_reader(
+        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
+    return new ORCReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
+                             range_start_offset, range_size, false);
 }
 } // namespace doris::vectorized

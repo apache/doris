@@ -19,6 +19,7 @@ suite("empty_relation") {
     // enable nereids and vectorized engine
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
     test {
         sql "select *, substring(s_name, 1, 2) from supplier limit 0"

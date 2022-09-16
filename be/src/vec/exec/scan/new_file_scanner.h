@@ -20,6 +20,7 @@
 #include "exec/text_converter.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
+#include "runtime/tuple.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
@@ -29,11 +30,17 @@ class NewFileScanNode;
 class NewFileScanner : public VScanner {
 public:
     NewFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                   const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
+                   const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile,
+                   const std::vector<TExpr>& pre_filter_texprs);
 
     Status open(RuntimeState* state) override;
 
     Status prepare(VExprContext** vconjunct_ctx_ptr);
+
+protected:
+    // Use prefilters to filter input block
+    Status _filter_input_block(Block* block);
+    Status _materialize_dest_block(vectorized::Block* output_block);
 
 protected:
     virtual void _init_profiles(RuntimeProfile* profile) = 0;
@@ -59,6 +66,14 @@ protected:
     // Partition slot id to index map
     std::map<SlotId, int> _partition_slot_index_map;
     std::unique_ptr<RowDescriptor> _row_desc;
+    doris::Tuple* _src_tuple;
+    TupleRow* _src_tuple_row;
+
+    // Mem pool used to allocate _src_tuple and _src_tuple_row
+    std::unique_ptr<MemPool> _mem_pool;
+
+    // Dest tuple descriptor and dest expr context
+    const TupleDescriptor* _dest_tuple_desc;
 
     // Profile
     RuntimeProfile* _profile;
@@ -68,6 +83,19 @@ protected:
     bool _scanner_eof = false;
     int _rows = 0;
     int _num_of_columns_from_file;
+
+    const std::vector<TExpr> _pre_filter_texprs;
+
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    // to filter src tuple directly.
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+
+    // the map values of dest slot id to src slot desc
+    // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
+    std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
+
+    bool _src_block_mem_reuse = false;
+    bool _strict_mode;
 
 private:
     Status _init_expr_ctxes();

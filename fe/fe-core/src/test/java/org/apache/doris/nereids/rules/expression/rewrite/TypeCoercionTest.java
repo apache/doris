@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
@@ -32,20 +33,25 @@ import org.apache.doris.nereids.trees.expressions.functions.Year;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 public class TypeCoercionTest {
@@ -104,16 +110,45 @@ public class TypeCoercionTest {
     }
 
     @Test
+    public void testBinaryPredicate() {
+        Expression left = new DecimalLiteral(new BigDecimal(2.4));
+        Expression right = new TinyIntLiteral((byte) 2);
+        Expression lessThanEq = new LessThanEqual(left, right);
+        Expression rewrittenPred =
+                new LessThanEqual(
+                        left,
+                        new Cast(right, left.getDataType()));
+        assertRewrite(rewrittenPred, lessThanEq);
+
+        rewrittenPred =
+                new LessThanEqual(
+                        new Cast(right, left.getDataType()),
+                        left
+                        );
+        lessThanEq = new LessThanEqual(right, left);
+        assertRewrite(rewrittenPred, lessThanEq);
+
+        left = new DecimalLiteral(new BigDecimal(1));
+        lessThanEq = new LessThanEqual(left, right);
+        rewrittenPred =
+                new LessThanEqual(
+                        new Cast(left, DecimalType.forType(TinyIntType.INSTANCE)),
+                        new Cast(right, DecimalType.forType(TinyIntType.INSTANCE))
+                );
+        assertRewrite(rewrittenPred, lessThanEq);
+    }
+
+    @Test
     public void testCaseWhenTypeCoercion() {
-        WhenClause actualWhenClause1 = new WhenClause(new BooleanLiteral(true), new SmallIntLiteral((short) 1));
-        WhenClause actualWhenClause2 = new WhenClause(new BooleanLiteral(true), new DoubleLiteral(1.5));
+        WhenClause actualWhenClause1 = new WhenClause(BooleanLiteral.TRUE, new SmallIntLiteral((short) 1));
+        WhenClause actualWhenClause2 = new WhenClause(BooleanLiteral.TRUE, new DoubleLiteral(1.5));
         List<WhenClause> actualWhenClauses = Lists.newArrayList(actualWhenClause1, actualWhenClause2);
         Expression actualDefaultValue = new IntegerLiteral(1);
         Expression actual = new CaseWhen(actualWhenClauses, actualDefaultValue);
 
-        WhenClause expectedWhenClause1 = new WhenClause(new BooleanLiteral(true),
+        WhenClause expectedWhenClause1 = new WhenClause(BooleanLiteral.TRUE,
                 new Cast(new SmallIntLiteral((short) 1), DoubleType.INSTANCE));
-        WhenClause expectedWhenClause2 = new WhenClause(new BooleanLiteral(true),
+        WhenClause expectedWhenClause2 = new WhenClause(BooleanLiteral.TRUE,
                 new DoubleLiteral(1.5));
         List<WhenClause> expectedWhenClauses = Lists.newArrayList(expectedWhenClause1, expectedWhenClause2);
         Expression expectedDefaultValue = new Cast(new IntegerLiteral(1), DoubleType.INSTANCE);

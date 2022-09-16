@@ -47,9 +47,9 @@ public class MergeConsecutiveProjectsTest {
         NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
         NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
         NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
-        LogicalProject project1 = new LogicalProject(Lists.newArrayList(colA, colB, colC), relation);
-        LogicalProject project2 = new LogicalProject(Lists.newArrayList(colA, colB), project1);
-        LogicalProject project3 = new LogicalProject(Lists.newArrayList(colA), project2);
+        LogicalProject project1 = new LogicalProject<>(Lists.newArrayList(colA, colB, colC), relation);
+        LogicalProject project2 = new LogicalProject<>(Lists.newArrayList(colA, colB), project1);
+        LogicalProject project3 = new LogicalProject<>(Lists.newArrayList(colA), project2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project3);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
@@ -57,7 +57,7 @@ public class MergeConsecutiveProjectsTest {
         Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan instanceof LogicalProject);
-        Assertions.assertTrue(((LogicalProject<?>) plan).getProjects().equals(Lists.newArrayList(colA)));
+        Assertions.assertEquals(((LogicalProject<?>) plan).getProjects(), Lists.newArrayList(colA));
         Assertions.assertTrue(plan.child(0) instanceof UnboundRelation);
     }
 
@@ -81,13 +81,13 @@ public class MergeConsecutiveProjectsTest {
         Alias alias = new Alias(new Add(colA, new IntegerLiteral(1)), "X");
         Slot aliasRef = alias.toSlot();
 
-        LogicalProject project1 = new LogicalProject(
+        LogicalProject project1 = new LogicalProject<>(
                 Lists.newArrayList(
                         colB,
                         colC,
                         alias),
                 relation);
-        LogicalProject project2 = new LogicalProject(
+        LogicalProject project2 = new LogicalProject<>(
                 Lists.newArrayList(
                         new Alias(new Add(aliasRef, new IntegerLiteral(2)), "Y")
                 ),
@@ -105,6 +105,6 @@ public class MergeConsecutiveProjectsTest {
                 new IntegerLiteral(2)
         );
         Assertions.assertEquals(1, finalProject.getProjects().size());
-        Assertions.assertTrue(((Alias) finalProject.getProjects().get(0)).child().equals(finalExpression));
+        Assertions.assertEquals(((Alias) finalProject.getProjects().get(0)).child(), finalExpression);
     }
 }

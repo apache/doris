@@ -20,8 +20,6 @@
 
 #include "vec/core/sort_block.h"
 
-#include <pdqsort.h>
-
 #include "vec/columns/column_string.h"
 #include "vec/common/typeid_cast.h"
 
@@ -100,12 +98,12 @@ void sort_block(Block& block, const SortDescription& description, UInt64 limit) 
         ColumnsWithSortDescriptions columns_with_sort_desc =
                 get_columns_with_sort_description(block, description);
         {
-            PartialSortingLess less(columns_with_sort_desc);
+            EqualFlags flags(size, 1);
+            EqualRange range {0, size};
 
-            if (limit) {
-                std::partial_sort(perm.begin(), perm.begin() + limit, perm.end(), less);
-            } else {
-                pdqsort(perm.begin(), perm.end(), less);
+            for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
+                ColumnSorter sorter(columns_with_sort_desc[i], limit);
+                sorter.operator()(flags, perm, range, i == columns_with_sort_desc.size() - 1);
             }
         }
 

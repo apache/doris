@@ -33,6 +33,7 @@
 #elif __aarch64__
 #include <sse2neon.h>
 #endif
+#include <xxh3.h>
 #include <zlib.h>
 
 #include "gen_cpp/Types_types.h"
@@ -47,6 +48,13 @@ public:
     static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
         return crc32(hash, (const unsigned char*)data, bytes);
     }
+
+    static uint32_t zlib_crc_hash_null(uint32_t hash) {
+        // null is treat as 0 when hash
+        static const int INT_VALUE = 0;
+        return crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+    }
+
 #if defined(__SSE4_2__) || defined(__aarch64__)
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.
@@ -355,6 +363,18 @@ public:
     static inline void hash_combine(std::size_t& seed, const T& v) {
         std::hash<T> hasher;
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
+    // xxHash function for a byte array.  For convenience, a 64-bit seed is also
+    // hashed into the result.  The mapping may change from time to time.
+    static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH3_64bits_withSeed(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
 };
 

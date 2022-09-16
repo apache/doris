@@ -34,6 +34,9 @@ protected:
     Status _process_conjuncts() override;
     Status _init_scanners(std::list<VScanner*>* scanners) override;
 
+protected:
+    std::vector<TExpr> _pre_filter_texprs;
+
 private:
     VScanner* _create_scanner(const TFileScanRange& scan_range);
 

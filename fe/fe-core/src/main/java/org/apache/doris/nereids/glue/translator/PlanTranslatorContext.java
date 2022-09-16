@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.planner.PlanFragment;
@@ -33,12 +34,14 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Context of physical plan.
@@ -47,6 +50,8 @@ public class PlanTranslatorContext {
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private final DescriptorTable descTable = new DescriptorTable();
+
+    private final RuntimeFilterTranslator translator;
 
     /**
      * index from Nereids' slot to legacy slot.
@@ -64,12 +69,25 @@ public class PlanTranslatorContext {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
+    public PlanTranslatorContext(CascadesContext ctx) {
+        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+    }
+
+    @VisibleForTesting
+    public PlanTranslatorContext() {
+        translator = null;
+    }
+
     public List<PlanFragment> getPlanFragments() {
         return planFragments;
     }
 
     public TupleDescriptor generateTupleDesc() {
         return descTable.createTupleDescriptor();
+    }
+
+    public Optional<RuntimeFilterTranslator> getRuntimeTranslator() {
+        return Optional.ofNullable(translator);
     }
 
     public PlanFragmentId nextFragmentId() {
@@ -132,15 +150,11 @@ public class PlanTranslatorContext {
         return slotDescriptor;
     }
 
-    /**
-     * in Nereids, all node only has one TupleDescriptor, so we can use the first one.
-     *
-     * @param planNode the node to get the TupleDescriptor
-     *
-     * @return plan node's tuple descriptor
-     */
-    public TupleDescriptor getTupleDesc(PlanNode planNode) {
-        return descTable.getTupleDesc(planNode.getOutputTupleIds().get(0));
+    public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {
+        if (planNode.getOutputTupleDesc() != null) {
+            return Lists.newArrayList(planNode.getOutputTupleDesc());
+        }
+        return planNode.getOutputTupleIds().stream().map(this::getTupleDesc).collect(Collectors.toList());
     }
 
     public TupleDescriptor getTupleDesc(TupleId tupleId) {

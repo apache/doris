@@ -43,6 +43,7 @@ suite("test_nereids_having") {
             (3, 3, 9)
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
 
     order_qt_select "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
     order_qt_select "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";

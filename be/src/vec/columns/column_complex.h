@@ -188,11 +188,6 @@ public:
         // TODO add hash function
     }
 
-    void update_hashes_with_value(std::vector<SipHash>& hash,
-                                  const uint8_t* __restrict null_data) const override {
-        // TODO add hash function
-    }
-
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";

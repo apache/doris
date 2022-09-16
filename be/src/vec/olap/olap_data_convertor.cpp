@@ -17,7 +17,6 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
-#include "common/consts.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
@@ -447,7 +446,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
         while (offset_cur != offset_end) {
             if (!*nullmap_cur) {
                 slice->data = const_cast<char*>(char_data + string_offset);
-                slice->size = *offset_cur - string_offset - 1;
+                slice->size = *offset_cur - string_offset;
                 if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
                              _check_length)) {
                     return Status::NotSupported(
@@ -468,7 +467,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
     } else {
         while (offset_cur != offset_end) {
             slice->data = const_cast<char*>(char_data + string_offset);
-            slice->size = *offset_cur - string_offset - 1;
+            slice->size = *offset_cur - string_offset;
             if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
                          _check_length)) {
                 return Status::NotSupported(

@@ -168,6 +168,7 @@ public class SlotDescriptor {
         }
         for (Expr expr : sourceExprs) {
             if (!(expr instanceof SlotRef)) {
+                expr.materializeSrcExpr();
                 continue;
             }
             SlotRef slotRef = (SlotRef) expr;
