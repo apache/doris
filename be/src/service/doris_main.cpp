@@ -496,7 +496,7 @@ int main(int argc, char** argv) {
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
-        doris::MemInfo::refresh_current_mem();
+        doris::MemInfo::refresh_allocator_mem();
 #endif
         doris::PerfCounters::refresh_proc_status();
 
