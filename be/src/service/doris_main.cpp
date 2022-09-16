@@ -504,6 +504,8 @@ int main(int argc, char** argv) {
         // this will cause coredump for ASAN build when running regression test,
         // disable temporarily.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
+        // The process tracker print log usage interval is 1s to avoid a large number of tasks being
+        // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
         doris::ExecEnv::GetInstance()->process_mem_tracker_raw()->enable_print_log_usage();
         sleep(1);
     }
