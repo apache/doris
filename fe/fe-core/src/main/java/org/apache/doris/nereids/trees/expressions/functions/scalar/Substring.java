@@ -35,8 +35,8 @@ import java.util.Optional;
 
 /**
  * substring function.
- * TODO: to be compatible with BE, we set true here.
  */
+// TODO: to be compatible with BE, we set AlwaysNullable here.
 public class Substring extends ScalarFunction implements ImplicitCastInputTypes, AlwaysNullable {
     // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
