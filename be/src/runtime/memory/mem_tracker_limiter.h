@@ -76,7 +76,7 @@ public:
         // TODO: In order to ensure no OOM, currently reserve 200M, and then use the free mem in /proc/meminfo to ensure no OOM.
         if (PerfCounters::get_vm_rss() - MemInfo::allocator_cache_mem() + bytes >=
                     MemInfo::mem_limit() ||
-            PerfCounters::get_vm_rss() + bytes >= MemInfo::physical_mem() - 209715200) {
+            PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
             auto st = Status::MemoryLimitExceeded(
                     "process memory used {}, tc/jemalloc cache {}, exceed limit {}, failed alloc "
                     "size {}",

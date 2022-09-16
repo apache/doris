@@ -68,6 +68,7 @@ public:
         DCHECK(_s_initialized);
         return _s_mem_limit;
     }
+    static inline int64_t hard_mem_limit() { return _s_hard_mem_limit; }
 
     static std::string debug_string();
 
@@ -75,6 +76,7 @@ private:
     static bool _s_initialized;
     static int64_t _s_physical_mem;
     static int64_t _s_mem_limit;
+    static int64_t _s_hard_mem_limit;
     static size_t _s_allocator_physical_mem;
     static size_t _s_tcmalloc_pageheap_free_bytes;
     static size_t _s_tcmalloc_central_bytes;
