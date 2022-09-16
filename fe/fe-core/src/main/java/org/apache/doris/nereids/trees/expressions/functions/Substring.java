@@ -75,7 +75,9 @@ public class Substring extends ScalarFunction implements ImplicitCastInputTypes 
 
     @Override
     public boolean nullable() {
-        return children().stream().anyMatch(Expression::nullable);
+        //TODO: to be compatible with BE, we set true here.
+        //return children().stream().anyMatch(Expression::nullable);
+        return true;
     }
 
     @Override
