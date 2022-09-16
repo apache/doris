@@ -110,6 +110,19 @@ public class CastExpr extends Expr {
     }
 
     /**
+     * Just use for nereids, put analyze() in finalizeImplForNereids
+     */
+    public CastExpr(Type targetType, Expr e, Void v) {
+        super();
+        Preconditions.checkArgument(targetType.isValid());
+        Preconditions.checkNotNull(e);
+        type = targetType;
+        targetTypeDef = null;
+        isImplicit = true;
+        children.add(e);
+    }
+
+    /**
      * Copy c'tor used in clone().
      */
     public CastExpr(TypeDef targetTypeDef, Expr e) {
@@ -531,6 +544,13 @@ public class CastExpr extends Expr {
 
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
+        }
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
         if (type.isScalarType()) {
