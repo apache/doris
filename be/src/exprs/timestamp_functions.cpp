@@ -165,7 +165,10 @@ IntVal TimestampFunctions::day_of_month(FunctionContext* context, const DateTime
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.day());
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.day());
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::day_of_year(FunctionContext* context, const DateTimeVal& ts_val) {
