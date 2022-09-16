@@ -151,35 +151,6 @@ Status DeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(Tuple* tuple) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
-    }
-
-    if (_is_cancelled) {
-        // The writer may be cancelled at any time by other thread.
-        // just return ERROR if writer is cancelled.
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
-    }
-
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-
-    _mem_table->insert(tuple);
-
-    // if memtable is full, push it to the flush executor,
-    // and create a new memtable for incoming data
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        if (++_segment_counter > config::max_segment_num_per_rowset) {
-            return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
-        }
-        RETURN_NOT_OK(_flush_memtable_async());
-        // create a new memtable for new incoming data
-        _reset_mem_table();
-    }
-    return Status::OK();
-}
-
 Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init && !_is_cancelled) {

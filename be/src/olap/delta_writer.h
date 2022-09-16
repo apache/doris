@@ -29,7 +29,6 @@ class MemTracker;
 class RowBatch;
 class Schema;
 class StorageEngine;
-class Tuple;
 class TupleDescriptor;
 class TupleRow;
 class SlotDescriptor;
@@ -64,7 +63,6 @@ public:
 
     Status init();
 
-    Status write(Tuple* tuple);
     Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
