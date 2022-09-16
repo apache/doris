@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
@@ -35,7 +36,7 @@ import java.util.List;
 /**
  * year function.
  */
-public class Year extends ScalarFunction implements UnaryExpression, ImplicitCastInputTypes {
+public class Year extends ScalarFunction implements UnaryExpression, ImplicitCastInputTypes, PropagateNullable {
 
     // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(

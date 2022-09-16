@@ -15,15 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.TypeCollection;
 
 import com.google.common.base.Preconditions;
@@ -31,39 +35,49 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * weekOfYear function
- */
-public class WeekOfYear extends ScalarFunction implements UnaryExpression, ImplicitCastInputTypes {
+/** avg agg function. */
+public class Avg extends AggregateFunction implements UnaryExpression, ImplicitCastInputTypes {
 
+    // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
-            new TypeCollection(DateTimeType.INSTANCE)
+            new TypeCollection(NumericType.INSTANCE, DateTimeType.INSTANCE, DateType.INSTANCE)
     );
 
-    public WeekOfYear(Expression child) {
-        super("weekofyear", child);
+    public Avg(Expression child) {
+        super("avg", child);
     }
 
     @Override
     public DataType getDataType() {
-        return IntegerType.INSTANCE;
+        if (child().getDataType() instanceof DecimalType) {
+            return child().getDataType();
+        } else if (child().getDataType().isDate()) {
+            return DateType.INSTANCE;
+        } else if (child().getDataType().isDateTime()) {
+            return DateTimeType.INSTANCE;
+        } else {
+            return DoubleType.INSTANCE;
+        }
     }
 
-    // Follow the return type of origin definition in the FunctionSet.
     @Override
     public boolean nullable() {
-        return true;
+        return child().nullable();
     }
 
     @Override
-    public WeekOfYear withChildren(List<Expression> children) {
+    public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new WeekOfYear(children.get(0));
+        return new Avg(children.get(0));
+    }
+
+    @Override
+    public DataType getIntermediateType() {
+        return VarcharType.createVarcharType(-1);
     }
 
     @Override
     public List<AbstractDataType> expectedInputTypes() {
         return EXPECTED_INPUT_TYPES;
     }
-
 }

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;

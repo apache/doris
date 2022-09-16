@@ -15,41 +15,45 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.base.Preconditions;
 
-import java.util.List;
+/**
+ * Datetime type in Nereids.
+ */
+public class DateTimeV2Type extends PrimitiveType {
+    public static final int MAX_SCALE = 6;
+    public static final DateTimeV2Type INSTANCE = new DateTimeV2Type(0);
 
-/** max agg function. */
-public class Max extends AggregateFunction implements UnaryExpression {
+    private static final int WIDTH = 8;
 
-    public Max(Expression child) {
-        super("max", child);
+    private int scale;
+
+    private DateTimeV2Type(int scale) {
+        Preconditions.checkArgument(0 <= scale && scale <= MAX_SCALE);
+        this.scale = scale;
     }
 
     @Override
-    public DataType getDataType() {
-        return child().getDataType();
+    public Type toCatalogDataType() {
+        return Type.DATETIME;
     }
 
     @Override
-    public boolean nullable() {
-        return child().nullable();
+    public boolean equals(Object o) {
+        return o instanceof DateTimeV2Type;
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Max(children.get(0));
+    public int width() {
+        return WIDTH;
     }
 
-    @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public int getScale() {
+        return scale;
     }
 }
