@@ -29,8 +29,10 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushProjectInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 
 import com.google.common.collect.ImmutableList;
@@ -71,6 +73,8 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
                 .add(topDownBatch(ImmutableList.of(new SelectRollup())))
+                .add(topDownBatch(ImmutableList.of(new MergeConsecutiveProjects(),
+                        PushProjectInsideJoin.INSTANCE)))
                 .build();
 
         rulesJob.addAll(jobs);

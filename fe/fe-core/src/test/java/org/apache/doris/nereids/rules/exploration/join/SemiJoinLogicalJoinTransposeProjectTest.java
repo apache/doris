@@ -56,7 +56,7 @@ public class SemiJoinLogicalJoinTransposeProjectTest {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP.build())
+                .applyExploration(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
@@ -86,7 +86,7 @@ public class SemiJoinLogicalJoinTransposeProjectTest {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP.build())
+                .applyExploration(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(1, root.getLogicalExpressions().size());
@@ -111,7 +111,7 @@ public class SemiJoinLogicalJoinTransposeProjectTest {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(SemiJoinLogicalJoinTransposeProject.ALL.build())
+                .applyExploration(SemiJoinLogicalJoinTransposeProject.ALL.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());

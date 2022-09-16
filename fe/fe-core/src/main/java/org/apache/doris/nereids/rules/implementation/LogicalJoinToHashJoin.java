@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 /**
@@ -30,13 +31,26 @@ public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .whenNot(JoinUtils::shouldNestedLoopJoin)
-                .then(join -> new PhysicalHashJoin<>(
-            join.getJoinType(),
-            join.getHashJoinConjuncts(),
-            join.getOtherJoinCondition(),
-            join.getLogicalProperties(),
-            join.left(),
-            join.right())
-        ).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+                .then(join -> {
+                    if (join.getProjects().isEmpty()) {
+                        return new PhysicalHashJoin<>(
+                                join.getJoinType(),
+                                join.getHashJoinConjuncts(),
+                                join.getOtherJoinCondition(),
+                                join.getLogicalProperties(),
+                                join.left(),
+                                join.right());
+                    } else {
+                        return new PhysicalProject<>(join.getProjects(), join.getLogicalProperties(),
+                                new PhysicalHashJoin<>(
+                                        join.getJoinType(),
+                                        join.getHashJoinConjuncts(),
+                                        join.getOtherJoinCondition(),
+                                        // notice: we shouldn't get getLogicalProperties(), which is projectOutput.
+                                        join.getJoinLogicalProperties(),
+                                        join.left(),
+                                        join.right()));
+                    }
+                }).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
     }
 }

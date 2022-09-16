@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -27,18 +30,21 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-public class PushdownProjectThroughLimitTest implements PatternMatchSupported {
+public class PushProjectInsideJoinTest implements PatternMatchSupported {
+    private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
     @Test
-    public void testPushdownProjectThroughLimit() {
-        LogicalPlan project = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0)).limit(1, 1)
+    public void testPushProjectInsideJoin() {
+        LogicalPlan project = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .project(ImmutableList.of(0)) // id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushdownProjectThroughLimit())
+                .applyTopDown(PushProjectInsideJoin.INSTANCE)
                 .matches(
-                        logicalLimit(logicalProject())
+                        logicalJoin(logicalOlapScan(), logicalOlapScan())
                 );
     }
 }
