@@ -23,13 +23,13 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 /**
  * Date type in Nereids.
  */
-public class DateType extends PrimitiveType {
+public class DateV2Type extends PrimitiveType {
 
-    public static final DateType INSTANCE = new DateType();
+    public static final DateV2Type INSTANCE = new DateV2Type();
 
-    private static final int WIDTH = 16;
+    private static final int WIDTH = 4;
 
-    private DateType() {
+    private DateV2Type() {
     }
 
     @Override

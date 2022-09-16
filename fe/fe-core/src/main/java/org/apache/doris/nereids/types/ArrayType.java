@@ -17,66 +17,79 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
 
 /**
- * Char type in Nereids.
+ * Bitmap type in Nereids.
  */
-public class CharType extends CharacterType {
+public class ArrayType extends DataType {
 
-    public static final CharType SYSTEM_DEFAULT = new CharType(-1);
+    public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE);
 
-    public CharType(int len) {
-        super(len);
+    public static final int WIDTH = 32;
+
+    private final DataType itemType;
+
+    public ArrayType(DataType itemType) {
+        this.itemType = Objects.requireNonNull(itemType, "itemType can not be null");
     }
 
-    public static CharType createCharType(int len) {
-        if (len == SYSTEM_DEFAULT.len) {
+    public static ArrayType of(DataType itemType) {
+        if (itemType.equals(NullType.INSTANCE)) {
             return SYSTEM_DEFAULT;
         }
-        return new CharType(len);
+        return new ArrayType(itemType);
     }
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createChar(len);
+        return Type.ARRAY;
     }
 
     @Override
     public boolean acceptsType(DataType other) {
-        return other instanceof CharType;
+        return other instanceof ArrayType;
     }
 
     @Override
     public String simpleString() {
-        return "char";
+        return "array";
     }
 
     @Override
     public DataType defaultConcreteType() {
-        return this;
+        return SYSTEM_DEFAULT;
     }
 
     @Override
     public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         if (!super.equals(o)) {
             return false;
         }
-        CharType charType = (CharType) o;
-        return len == charType.len;
+        ArrayType arrayType = (ArrayType) o;
+        return Objects.equals(itemType, arrayType.itemType);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), len);
+        return Objects.hash(super.hashCode(), itemType);
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 
     @Override
     public String toSql() {
-        return "CHAR(" + len + ")";
+        return "ARRAY<" + itemType.toSql() + ">";
     }
 }

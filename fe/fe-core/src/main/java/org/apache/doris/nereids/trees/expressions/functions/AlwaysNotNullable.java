@@ -15,31 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
-
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+package org.apache.doris.nereids.trees.expressions.functions;
 
 /**
- * Date type in Nereids.
+ * nullable is always false.
+ *
+ * e.g. `count(*)`, the output column is always not nullable
  */
-public class DateType extends PrimitiveType {
-
-    public static final DateType INSTANCE = new DateType();
-
-    private static final int WIDTH = 16;
-
-    private DateType() {
-    }
-
+public interface AlwaysNotNullable extends ComputeNullable {
     @Override
-    public Type toCatalogDataType() {
-        return Type.DATE;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
+    default boolean nullable() {
+        return true;
     }
 }
-

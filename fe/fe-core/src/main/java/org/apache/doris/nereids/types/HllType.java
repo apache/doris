@@ -18,28 +18,51 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
- * Date type in Nereids.
+ * Bitmap type in Nereids.
  */
-public class DateType extends PrimitiveType {
+public class HllType extends DataType {
 
-    public static final DateType INSTANCE = new DateType();
+    public static final HllType INSTANCE = new HllType();
 
-    private static final int WIDTH = 16;
+    public static final int WIDTH = 16;
 
-    private DateType() {
+    private HllType() {
     }
 
     @Override
     public Type toCatalogDataType() {
-        return Type.DATE;
+        return Type.HLL;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof HllType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "hll";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return INSTANCE;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof HllType;
     }
 
     @Override
     public int width() {
         return WIDTH;
     }
-}
 
+    @Override
+    public String toSql() {
+        return "BITMAP";
+    }
+}

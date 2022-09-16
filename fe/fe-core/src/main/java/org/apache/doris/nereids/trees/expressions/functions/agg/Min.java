@@ -15,49 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.DataType;
 
-/**
- * LargeInt type in Nereids.
- */
-public class LargeIntType extends IntegralType {
-    public static final LargeIntType INSTANCE = new LargeIntType();
+import com.google.common.base.Preconditions;
 
-    private static final int WIDTH = 16;
+import java.util.List;
 
-    private LargeIntType() {
+/** min agg function. */
+public class Min extends AggregateFunction implements UnaryExpression {
+
+    public Min(Expression child) {
+        super("min", child);
     }
 
     @Override
-    public Type toCatalogDataType() {
-        return Type.LARGEINT;
+    public DataType getDataType() {
+        return child().getDataType();
     }
 
     @Override
-    public boolean equals(Object o) {
-        return o instanceof LargeIntType;
+    public boolean nullable() {
+        return child().nullable();
     }
 
     @Override
-    public String simpleString() {
-        return "largeint";
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Min(children.get(0));
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof LargeIntType;
-    }
-
-    @Override
-    public DataType defaultConcreteType() {
-        return this;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
+    public DataType getIntermediateType() {
+        return getDataType();
     }
 }

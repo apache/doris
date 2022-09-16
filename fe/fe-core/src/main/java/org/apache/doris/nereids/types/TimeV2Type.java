@@ -21,20 +21,25 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
- * Date type in Nereids.
+ * Datetime type in Nereids.
  */
-public class DateType extends PrimitiveType {
+public class TimeV2Type extends PrimitiveType {
 
-    public static final DateType INSTANCE = new DateType();
+    public static final TimeV2Type INSTANCE = new TimeV2Type();
 
-    private static final int WIDTH = 16;
+    private static final int WIDTH = 8;
 
-    private DateType() {
+    private TimeV2Type() {
     }
 
     @Override
     public Type toCatalogDataType() {
-        return Type.DATE;
+        return Type.TIME;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TimeV2Type;
     }
 
     @Override
@@ -42,4 +47,3 @@ public class DateType extends PrimitiveType {
         return WIDTH;
     }
 }
-

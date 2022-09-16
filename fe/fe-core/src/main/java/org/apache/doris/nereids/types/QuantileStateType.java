@@ -18,28 +18,51 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
- * Date type in Nereids.
+ * Bitmap type in Nereids.
  */
-public class DateType extends PrimitiveType {
+public class QuantileStateType extends DataType {
 
-    public static final DateType INSTANCE = new DateType();
+    public static final QuantileStateType INSTANCE = new QuantileStateType();
 
-    private static final int WIDTH = 16;
+    public static final int WIDTH = 16;
 
-    private DateType() {
+    private QuantileStateType() {
     }
 
     @Override
     public Type toCatalogDataType() {
-        return Type.DATE;
+        return Type.QUANTILE_STATE;
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof QuantileStateType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "quantile_state";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return INSTANCE;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof QuantileStateType;
     }
 
     @Override
     public int width() {
         return WIDTH;
     }
-}
 
+    @Override
+    public String toSql() {
+        return "QUANTILE_STATE";
+    }
+}

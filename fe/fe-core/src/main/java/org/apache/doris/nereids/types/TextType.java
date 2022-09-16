@@ -17,38 +17,40 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import java.util.Objects;
 
 /**
- * LargeInt type in Nereids.
+ * Varchar type in Nereids.
  */
-public class LargeIntType extends IntegralType {
-    public static final LargeIntType INSTANCE = new LargeIntType();
+public class TextType extends CharacterType {
 
-    private static final int WIDTH = 16;
+    public static final TextType SYSTEM_DEFAULT = new TextType(-1);
 
-    private LargeIntType() {
+    public TextType(int len) {
+        super(len);
+    }
+
+    public static TextType createVarcharType(int len) {
+        return new TextType(len);
     }
 
     @Override
     public Type toCatalogDataType() {
-        return Type.LARGEINT;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof LargeIntType;
-    }
-
-    @Override
-    public String simpleString() {
-        return "largeint";
+        return ScalarType.createVarcharType(len);
     }
 
     @Override
     public boolean acceptsType(DataType other) {
-        return other instanceof LargeIntType;
+        return other instanceof TextType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "varchar";
     }
 
     @Override
@@ -57,7 +59,21 @@ public class LargeIntType extends IntegralType {
     }
 
     @Override
-    public int width() {
-        return WIDTH;
+    public String toSql() {
+        return "VARCHAR(" + len + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!super.equals(o)) {
+            return false;
+        }
+        TextType that = (TextType) o;
+        return len == that.len;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), len);
     }
 }

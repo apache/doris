@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
@@ -34,9 +35,9 @@ import java.util.Optional;
 
 /**
  * substring function.
+ * TODO: to be compatible with BE, we set true here.
  */
-public class Substring extends ScalarFunction implements ImplicitCastInputTypes {
-
+public class Substring extends ScalarFunction implements ImplicitCastInputTypes, AlwaysNullable {
     // used in interface expectedInputTypes to avoid new list in each time it be called
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
             TypeCollection.CHARACTER_TYPE_COLLECTION,
@@ -71,13 +72,6 @@ public class Substring extends ScalarFunction implements ImplicitCastInputTypes 
             return VarcharType.createVarcharType(((IntegerLiteral) length.get()).getValue());
         }
         return VarcharType.SYSTEM_DEFAULT;
-    }
-
-    @Override
-    public boolean nullable() {
-        //TODO: to be compatible with BE, we set true here.
-        //return children().stream().anyMatch(Expression::nullable);
-        return true;
     }
 
     @Override

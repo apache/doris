@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
  * TinyInt type in Nereids.
  */
 public class TinyIntType extends IntegralType {
-    public static TinyIntType INSTANCE = new TinyIntType();
+    public static final TinyIntType INSTANCE = new TinyIntType();
 
     private static final int WIDTH = 1;
 

@@ -15,31 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 
 /**
- * Date type in Nereids.
+ * The function which consume zero or more arguments in a row and product one value.
  */
-public class DateType extends PrimitiveType {
-
-    public static final DateType INSTANCE = new DateType();
-
-    private static final int WIDTH = 16;
-
-    private DateType() {
-    }
-
-    @Override
-    public Type toCatalogDataType() {
-        return Type.DATE;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
+public abstract class ScalarFunction extends BoundFunction {
+    public ScalarFunction(String name, Expression... arguments) {
+        super(name, arguments);
     }
 }
-

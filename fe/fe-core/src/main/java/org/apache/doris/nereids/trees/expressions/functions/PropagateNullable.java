@@ -15,31 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.List;
 
 /**
- * Date type in Nereids.
+ * nullable is true if any children is nullable, most functions is PropagateNullable.
+ *
+ * e.g. `substring(null, 1)` is nullable, `substring('abc', 1)` is not nullable.
  */
-public class DateType extends PrimitiveType {
-
-    public static final DateType INSTANCE = new DateType();
-
-    private static final int WIDTH = 16;
-
-    private DateType() {
-    }
-
+public interface PropagateNullable extends ComputeNullable {
     @Override
-    public Type toCatalogDataType() {
-        return Type.DATE;
+    default boolean nullable() {
+        return children().stream().anyMatch(Expression::nullable);
     }
 
-    @Override
-    public int width() {
-        return WIDTH;
-    }
+    List<Expression> children();
 }
-
