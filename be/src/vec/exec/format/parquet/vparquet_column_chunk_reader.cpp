@@ -46,10 +46,17 @@ Status ColumnChunkReader::init() {
         // seek to the first data page
         _page_reader->seek_to_page(_metadata.data_page_offset);
     }
+    _state = INITIALIZED;
     return Status::OK();
 }
 
 Status ColumnChunkReader::next_page() {
+    if (UNLIKELY(_state == NOT_INIT)) {
+        return Status::Corruption("Should initialize chunk reader");
+    }
+    if (UNLIKELY(_remaining_num_values != 0)) {
+        return Status::Corruption("Should skip current page");
+    }
     RETURN_IF_ERROR(_page_reader->next_page_header());
     if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
         // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
@@ -59,11 +66,15 @@ Status ColumnChunkReader::next_page() {
         return next_page();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
+        _state = HEADER_PARSED;
         return Status::OK();
     }
 }
 
 Status ColumnChunkReader::load_page_data() {
+    if (UNLIKELY(_state != HEADER_PARSED)) {
+        return Status::Corruption("Should parse page header");
+    }
     const auto& header = *_page_reader->get_page_header();
     // int32_t compressed_size = header.compressed_page_size;
     int32_t uncompressed_size = header.uncompressed_page_size;
@@ -113,6 +124,7 @@ Status ColumnChunkReader::load_page_data() {
     // Reset page data for each page
     _page_decoder->set_data(&_page_data);
 
+    _state = DATA_LOADED;
     return Status::OK();
 }
 
