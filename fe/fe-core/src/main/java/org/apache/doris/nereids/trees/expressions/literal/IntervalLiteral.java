@@ -19,13 +19,14 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 
 /**
  * Interval for timestamp calculation.
  */
-public class IntervalLiteral extends Expression {
+public class IntervalLiteral extends Expression implements AlwaysNotNullable {
     private final Expression value;
     private final TimeUnit timeUnit;
 

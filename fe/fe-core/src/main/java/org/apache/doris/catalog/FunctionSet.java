@@ -2655,6 +2655,10 @@ public class FunctionSet<T> {
 
     }
 
+    public Map<String, List<Function>> getVectorizedFunctions() {
+        return ImmutableMap.copyOf(vectorizedFunctions);
+    }
+
     public List<Function> getBulitinFunctions() {
         List<Function> builtinFunctions = Lists.newArrayList();
         for (Map.Entry<String, List<Function>> entry : functions.entrySet()) {

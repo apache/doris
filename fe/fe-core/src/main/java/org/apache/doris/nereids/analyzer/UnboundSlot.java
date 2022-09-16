@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -30,7 +31,7 @@ import java.util.Objects;
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot implements Unbound {
+public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     private final List<String> nameParts;
 
     public UnboundSlot(String... nameParts) {

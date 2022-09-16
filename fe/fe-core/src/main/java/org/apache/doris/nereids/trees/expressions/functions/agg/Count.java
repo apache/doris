@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -28,7 +29,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /** count agg function. */
-public class Count extends AggregateFunction {
+public class Count extends AggregateFunction implements AlwaysNotNullable {
 
     private final boolean isStar;
 
@@ -49,11 +50,6 @@ public class Count extends AggregateFunction {
     @Override
     public DataType getDataType() {
         return BigIntType.INSTANCE;
-    }
-
-    @Override
-    public boolean nullable() {
-        return false;
     }
 
     @Override

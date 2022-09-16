@@ -25,7 +25,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
  */
 public class BigIntType extends IntegralType {
 
-    public static BigIntType INSTANCE = new BigIntType();
+    public static final BigIntType INSTANCE = new BigIntType();
 
     private static final int WIDTH = 8;
 

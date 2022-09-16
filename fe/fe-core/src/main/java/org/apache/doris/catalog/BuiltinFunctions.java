@@ -17,14 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.nereids.trees.expressions.functions.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.Count;
-import org.apache.doris.nereids.trees.expressions.functions.Max;
-import org.apache.doris.nereids.trees.expressions.functions.Min;
-import org.apache.doris.nereids.trees.expressions.functions.Substring;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.WeekOfYear;
-import org.apache.doris.nereids.trees.expressions.functions.Year;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 
 import com.google.common.collect.ImmutableList;
 
