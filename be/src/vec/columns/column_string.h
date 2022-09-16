@@ -191,17 +191,33 @@ public:
             uint32_t len = strings[i].size;
             if (len) {
                 memcpy(data + offset, strings[i].data, len);
+                offset += len;
             }
-            offset += len;
             offsets.push_back(offset);
         }
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
-        for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
-            int32_t codeword = data_array[start_index];
-            insert_data(dict[codeword].data, dict[codeword].size);
+        size_t new_size = 0;
+        for (size_t i = start_index; i < start_index + num; i++) {
+            int32_t codeword = data_array[i];
+            new_size += dict[codeword].size;
+        }
+
+        const size_t old_size = chars.size();
+        chars.resize(old_size + new_size);
+
+        Char* data = chars.data();
+        size_t offset = old_size;
+        for (size_t i = start_index; i < start_index + num; i++) {
+            int32_t codeword = data_array[i];
+            uint32_t len = dict[codeword].size;
+            if (len) {
+                memcpy(data + offset, dict[codeword].data, len);
+                offset += len;
+            }
+            offsets.push_back(offset);
         }
     }
 
