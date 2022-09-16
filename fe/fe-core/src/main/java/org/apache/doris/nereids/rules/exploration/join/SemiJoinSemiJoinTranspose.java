@@ -39,7 +39,7 @@ import java.util.Set;
 public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
     public static final SemiJoinSemiJoinTranspose INSTANCE = new SemiJoinSemiJoinTranspose();
 
-    public static Set<Pair<JoinType, JoinType>> typeSet = ImmutableSet.of(
+    public static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
             Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_SEMI_JOIN),
             Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_ANTI_JOIN),
             Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_ANTI_JOIN),
@@ -74,6 +74,6 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
     }
 
     private boolean typeChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin) {
-        return typeSet.contains(Pair.of(topJoin.getJoinType(), topJoin.left().getJoinType()));
+        return VALID_TYPE_PAIR_SET.contains(Pair.of(topJoin.getJoinType(), topJoin.left().getJoinType()));
     }
 }
