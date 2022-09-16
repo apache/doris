@@ -176,7 +176,7 @@ struct TQueryOptions {
   // For debug purpose, skip delete predicates when reading data
   49: optional bool skip_delete_predicate = false
 
-  50: optional bool enable_new_shuffle_hash_method = true
+  50: optional bool enable_new_shuffle_hash_method
 }
     
 
