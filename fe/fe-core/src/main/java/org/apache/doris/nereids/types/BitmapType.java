@@ -15,41 +15,54 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.catalog.Type;
 
-import com.google.common.base.Preconditions;
+/**
+ * Bitmap type in Nereids.
+ */
+public class BitmapType extends DataType {
 
-import java.util.List;
+    public static final BitmapType INSTANCE = new BitmapType();
 
-/** min agg function. */
-public class Min extends AggregateFunction implements UnaryExpression {
+    public static final int WIDTH = 16;
 
-    public Min(Expression child) {
-        super("min", child);
+    private BitmapType() {
     }
 
     @Override
-    public DataType getDataType() {
-        return child().getDataType();
+    public Type toCatalogDataType() {
+        return Type.BITMAP;
     }
 
     @Override
-    public boolean nullable() {
-        return child().nullable();
+    public boolean acceptsType(DataType other) {
+        return other instanceof BitmapType;
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Min(children.get(0));
+    public String simpleString() {
+        return "bitmap";
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public DataType defaultConcreteType() {
+        return INSTANCE;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof BitmapType;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
+    }
+
+    @Override
+    public String toSql() {
+        return "BITMAP";
     }
 }

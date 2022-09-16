@@ -25,7 +25,7 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
  */
 public class DateType extends PrimitiveType {
 
-    public static DateType INSTANCE = new DateType();
+    public static final DateType INSTANCE = new DateType();
 
     private static final int WIDTH = 16;
 

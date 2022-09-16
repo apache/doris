@@ -17,13 +17,20 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-
 /**
- * The function which consume zero or more arguments in a row and product one value.
+ * you can implement this interface to simply compute nullable property.
+ * this interface migrated from NullableMode enum.
+ *
+ * nullable mode:
+ * 1. PropagateNullable: nullable = true if any children is nullable
+ * 2. AlwaysNullable: nullable = true
+ * 3. AlwaysNotNullable: nullable = false
+ * 4. Custom(No interface): if you want to custom compute nullable, you can not inherit the above three interfaces
+ *                          and override nullable function. e.g. `cast(string as bigint)` is AlwaysNullable and
+ *                          `cast(int as bigint)` is PropagateNullable. if you want to find the custom nullable
+ *                          functions, you can find the override nullable functions which is not the above three
+ *                          interfaces.
  */
-public abstract class ScalarFunction extends BoundFunction {
-    public ScalarFunction(String name, Expression... arguments) {
-        super(name, arguments);
-    }
+public interface ComputeNullable {
+    boolean nullable();
 }

@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
  * Boolean type in Nereids.
  */
 public class BooleanType extends PrimitiveType {
-    public static BooleanType INSTANCE = new BooleanType();
+    public static final BooleanType INSTANCE = new BooleanType();
 
     private static int WIDTH = 1;
 

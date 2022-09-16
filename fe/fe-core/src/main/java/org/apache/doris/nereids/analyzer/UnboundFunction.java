@@ -19,6 +19,7 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Joiner;
@@ -30,7 +31,7 @@ import java.util.stream.Collectors;
 /**
  * Expression for unbound function.
  */
-public class UnboundFunction extends Expression implements Unbound {
+public class UnboundFunction extends Expression implements Unbound, PropagateNullable {
 
     private final String name;
     private final boolean isDistinct;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.typecoercion;
 
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import java.util.List;
@@ -28,7 +29,7 @@ import java.util.List;
  * (e.g. {@link org.apache.doris.nereids.trees.expressions.Add})
  * to define expected input types without any implicit casting.
  *
- * Most function expressions (e.g. {@link org.apache.doris.nereids.trees.expressions.functions.Substring}
+ * Most function expressions (e.g. {@link Substring}
  * should extend {@link ImplicitCastInputTypes}) instead.
  */
 public interface ExpectsInputTypes {

@@ -22,8 +22,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.Substring;
-import org.apache.doris.nereids.trees.expressions.functions.Year;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -135,13 +136,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         });
     }
 
-    public static class ExtendFunction extends BoundFunction implements UnaryExpression {
+    public static class ExtendFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
         public ExtendFunction(Expression a1) {
             super("foo", a1);
         }
     }
 
-    public static class AmbiguousFunction extends BoundFunction implements UnaryExpression {
+    public static class AmbiguousFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
         public AmbiguousFunction(Expression a1) {
             super("abc", a1);
         }

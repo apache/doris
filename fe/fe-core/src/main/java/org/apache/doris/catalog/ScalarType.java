@@ -552,6 +552,9 @@ public class ScalarType extends Type {
             case DATETIMEV2:
                 stringBuilder.append("datetime").append("(").append(scale).append(")");
                 break;
+            case TIME:
+                stringBuilder.append("time");
+                break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
                 break;
@@ -581,6 +584,9 @@ public class ScalarType extends Type {
                 stringBuilder.append("text");
                 break;
             case ARRAY:
+                stringBuilder.append(type.toString().toLowerCase());
+                break;
+            case NULL_TYPE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
