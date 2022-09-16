@@ -97,7 +97,6 @@ public class OdbcTable extends Table {
             default:
                 return name;
         }
-        return name;
     }
 
     private String odbcCatalogResourceName;
