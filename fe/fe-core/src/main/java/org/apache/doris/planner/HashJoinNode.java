@@ -91,7 +91,7 @@ public class HashJoinNode extends PlanNode {
     private String colocateReason = ""; // if can not do colocate join, set reason here
     private boolean isBucketShuffle = false; // the flag for bucket shuffle join
 
-    private List<SlotId> hashOutputSlotIds;
+    private List<SlotId> hashOutputSlotIds = new ArrayList<>(); //init for nereids
     private TupleDescriptor vOutputTupleDesc;
     private ExprSubstitutionMap vSrcToOutputSMap;
     private List<TupleDescriptor> vIntermediateTupleDescList;
@@ -1039,6 +1039,11 @@ public class HashJoinNode extends PlanNode {
         for (Expr e : otherJoinConjuncts) {
             e.getIds(null, ids);
         }
+    }
+
+    //nereids only
+    public void addSlotIdToHashOutputSlotIds(SlotId slotId) {
+        hashOutputSlotIds.add(slotId);
     }
 
     @Override

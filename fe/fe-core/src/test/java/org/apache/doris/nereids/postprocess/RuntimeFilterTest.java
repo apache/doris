@@ -171,6 +171,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertTrue(filters.size() == 5);
     }
 
+    /*
     @Test
     public void testPushDownThroughUnsupportedJoinType() throws AnalysisException {
         String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
@@ -181,6 +182,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 5);
     }
+     */
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {
         NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
