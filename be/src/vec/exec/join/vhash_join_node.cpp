@@ -179,8 +179,7 @@ struct ProcessHashTableProbe {
     // output build side result column
     template <bool have_other_join_conjunct = false>
     void build_side_output_column(MutableColumns& mcol, int column_offset, int column_length,
-                                  const std::vector<bool>& output_slot_flags,
-                                  const std::vector<bool>& right_check_flags, int size) {
+                                  const std::vector<bool>& output_slot_flags, int size) {
         constexpr auto is_semi_anti_join = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
                                            JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
                                            JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
@@ -196,12 +195,6 @@ struct ProcessHashTableProbe {
                         auto& column = _build_blocks[0].get_by_position(i).column;
                         mcol[i + column_offset]->insert_indices_from(
                                 *column, _build_block_rows.data(), _build_block_rows.data() + size);
-                    } else if (right_check_flags[i] &&
-                               mcol[i + column_offset]->is_nullable()) {
-                        reinterpret_cast<ColumnNullable*>(mcol[i + column_offset].get())
-                                ->get_null_map_column()
-                                .insert_join_nullmap(_build_block_rows.data(),
-                                                     _build_block_rows.data() + size);
                     } else {
                         mcol[i + column_offset]->resize(size);
                     }
@@ -268,12 +261,6 @@ struct ProcessHashTableProbe {
                                 }
                             }
                         }
-                    } else if (right_check_flags[i] &&
-                               mcol[i + column_offset]->is_nullable()) {
-                        reinterpret_cast<ColumnNullable*>(mcol[i + column_offset].get())
-                                ->get_null_map_column()
-                                .insert_join_nullmap(_build_block_rows.data(),
-                                                     _build_block_rows.data() + size);
                     } else {
                         mcol[i + column_offset]->resize(size);
                     }
@@ -409,8 +396,7 @@ struct ProcessHashTableProbe {
         {
             SCOPED_TIMER(_build_side_output_timer);
             build_side_output_column(mcol, right_col_idx, right_col_len,
-                                     _join_node->_right_output_slot_flags,
-                                     _join_node->_right_check_slot_flags, current_offset);
+                                     _join_node->_right_output_slot_flags, current_offset);
         }
 
         if constexpr (JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN &&
@@ -519,8 +505,7 @@ struct ProcessHashTableProbe {
         {
             SCOPED_TIMER(_build_side_output_timer);
             build_side_output_column<true>(mcol, right_col_idx, right_col_len,
-                                           _join_node->_right_output_slot_flags,
-                                           _join_node->_right_check_slot_flags, current_offset);
+                                           _join_node->_right_output_slot_flags, current_offset);
         }
         {
             SCOPED_TIMER(_probe_side_output_timer);
@@ -830,26 +815,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     };
     init_output_slots_flags(child(0)->row_desc().tuple_descriptors(), _left_output_slot_flags);
     init_output_slots_flags(child(1)->row_desc().tuple_descriptors(), _right_output_slot_flags);
-
-    _right_check_slot_flags.resize(_right_output_slot_flags.size(), false);
-    if (_hash_output_slot_ids.size() != 0) {
-        auto is_semi_anti_join =
-                _join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN ||
-                _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
-        if (!is_semi_anti_join || _have_other_join_conjunct) {
-            auto& right_tuple_ids = child(1)->get_tuple_ids();
-            uint32_t loc = 0;
-            for (auto& tuple_id : right_tuple_ids) {
-                for (auto& tuple_desc : child(1)->row_desc().tuple_descriptors()) {
-                    if (tuple_desc->id() == tuple_id) {
-                        _right_check_slot_flags[loc] = true;
-                        loc += tuple_desc->slots().size();
-                        break;
-                    }
-                }
-            }
-        }
-    }
 
     return Status::OK();
 }

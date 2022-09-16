@@ -240,20 +240,6 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
 }
 
 template <typename T>
-void ColumnVector<T>::insert_join_nullmap(const int* indices_begin, const int* indices_end) {
-    auto origin_size = size();
-    auto new_size = indices_end - indices_begin;
-    data.resize(origin_size + new_size);
-
-    for (int i = 0; i < new_size; ++i) {
-        int offset = indices_begin[i];
-        if constexpr (std::is_same_v<T, UInt8>) {
-            data[origin_size + i] = (offset == -1) ? T{JOIN_NULL_HINT} : 0;
-        }
-    }
-}
-
-template <typename T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
     if (size != filt.size()) {
