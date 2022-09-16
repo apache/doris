@@ -64,7 +64,8 @@ public:
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
     // If force is true, even if this load channel does not exceeds limit, it will still
     // try to reduce memory.
-    void handle_mem_exceed_limit(bool force);
+    template <typename TabletWriterAddResult>
+    Status handle_mem_exceed_limit(bool force, TabletWriterAddResult* response);
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
@@ -141,7 +142,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
     }
 
     // 2. check if mem consumption exceed limit
-    handle_mem_exceed_limit(false);
+    RETURN_IF_ERROR(handle_mem_exceed_limit(false, response));
 
     // 3. add batch to tablets channel
     if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
@@ -170,6 +171,30 @@ inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channe
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
+}
+
+template <typename TabletWriterAddResult>
+Status LoadChannel::handle_mem_exceed_limit(bool force, TabletWriterAddResult* response) {
+    // lock so that only one thread can check mem limit
+    std::lock_guard<std::mutex> l(_lock);
+    if (!(force || _mem_tracker->limit_exceeded())) {
+        return Status::OK();
+    }
+
+    if (!force) {
+        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
+                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
+    }
+
+    std::shared_ptr<TabletsChannel> channel;
+    if (_find_largest_consumption_channel(&channel)) {
+        return channel->reduce_mem_usage(_mem_tracker->limit(), response);
+    } else {
+        // should not happen, add log to observe
+        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
+                     << "load_id=" << _load_id;
+    }
+    return Status::OK();
 }
 
 } // namespace doris
