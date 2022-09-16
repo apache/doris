@@ -216,6 +216,7 @@ Status ExecEnv::_init_mem_tracker() {
     }
 #endif
 
+    _allocator_cache_mem_tracker = std::make_shared<MemTracker>("(Tc/JemallocAllocatorCache");
     _query_pool_mem_tracker =
             std::make_shared<MemTrackerLimiter>(-1, "QueryPool", _process_mem_tracker);
     REGISTER_HOOK_METRIC(query_mem_consumption,

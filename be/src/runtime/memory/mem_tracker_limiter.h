@@ -69,9 +69,9 @@ public:
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
         // for fast, expect MemInfo::initialized() to be true.
-        // tcmalloc/jemalloc allocator cache does not participate in the check as part of the process physical memory,
-        // because `new/malloc` will trigger Hook when using tcmalloc/jemalloc allocator cache, but it may not actually
-        // apply for physical memory at this time, which is not expected in mem hook fail.
+        // tcmalloc/jemalloc allocator cache does not participate in the mem check as part of the process physical memory.
+        // because `new/malloc` will trigger mem hook when using tcmalloc/jemalloc allocator cache,
+        // but it may not actually alloc physical memory, which is not expected in mem hook fail.
         //
         // TODO: In order to ensure no OOM, currently reserve 200M, and then use the free mem in /proc/meminfo to ensure no OOM.
         if (PerfCounters::get_vm_rss() - MemInfo::allocator_cache_mem() + bytes >=

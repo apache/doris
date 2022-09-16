@@ -88,7 +88,7 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
               << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->limit(),
                                       TUnit::BYTES)
               << std::endl
-              << "Mem Consumption: "
+              << "Physical Mem From Perf: "
               << PrettyPrinter::print(PerfCounters::get_vm_rss(), TUnit::BYTES) << std::endl
               << "</pre>";
 
