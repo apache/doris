@@ -204,8 +204,8 @@ public:
         size_t new_size = old_size;
         offsets.resize(offsets.size() + num);
 
-        for (size_t i = start_index; i < start_index + num; i++) {
-            int32_t codeword = data_array[i];
+        for (size_t i = 0; i < num; i++) {
+            int32_t codeword = data_array[i + start_index];
             new_size += dict[codeword].size;
             offsets[offset_size + i] = new_size;
         }
