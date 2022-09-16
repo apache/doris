@@ -170,6 +170,10 @@ public class CascadesContext {
         withQueries.put(name, withClause.getQuery().getQueryPlan());
     }
 
+    public void copyWithQuery(CascadesContext parentCtx) {
+        this.withQueries = parentCtx.getWithQueries();
+    }
+
     public CascadesContext bottomUpRewrite(RuleFactory... rules) {
         return execute(new RewriteBottomUpJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
     }

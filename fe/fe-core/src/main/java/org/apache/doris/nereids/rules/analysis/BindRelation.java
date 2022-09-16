@@ -78,7 +78,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts.get(0));
         if (ctePlan != null) {
             // if there exists the same name between a cte-alias and a table, we use cte first
+            // todo: should also deliver the context-related infos(like withQueries)
             CascadesContext cteContext = new Memo(ctePlan).newCascadesContext(cascadesContext.getStatementContext());
+            cteContext.copyWithQuery(cascadesContext);
             cteContext.newAnalyzer().analyze();
             return new LogicalSubQueryAlias<>(nameParts.get(0), cteContext.getMemo().copyOut(false));
         }
