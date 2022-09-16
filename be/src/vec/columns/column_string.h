@@ -199,25 +199,24 @@ public:
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
-        size_t new_size = 0;
+        size_t offset_size = offsets.size();
+        size_t old_size = chars.size();
+        size_t new_size = old_size;
+        offsets.resize(offsets.size() + num);
+
         for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
             new_size += dict[codeword].size;
+            offsets[offset_size + i] = new_size;
         }
 
-        const size_t old_size = chars.size();
-        chars.resize(old_size + new_size);
+        chars.resize(new_size);
 
-        Char* data = chars.data();
-        size_t offset = old_size;
         for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
-            uint32_t len = dict[codeword].size;
-            if (len) {
-                memcpy(data + offset, dict[codeword].data, len);
-                offset += len;
-            }
-            offsets.push_back(offset);
+            auto& src = dict[codeword];
+            memcpy(chars.data() + old_size, src.data, src.size);
+            old_size += src.size;
         }
     }
 
