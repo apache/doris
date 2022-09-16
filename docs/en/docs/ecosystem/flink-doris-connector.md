@@ -253,6 +253,8 @@ env.fromSource(dorisSource, WatermarkStrategy.noWatermarks(), "doris source").pr
 ```java
 // enable checkpoint
 env.enableCheckpointing(10000);
+// using batch mode for bounded data
+env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 
 DorisSink.Builder<String> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
@@ -292,6 +294,8 @@ source.map((MapFunction<Tuple2<String, Integer>, String>) t -> t.f0 + "\t" + t.f
 ```java
 // enable checkpoint
 env.enableCheckpointing(10000);
+// using batch mode for bounded data
+env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 
 //doris sink option
 DorisSink.Builder<RowData> builder = DorisSink.builder();
