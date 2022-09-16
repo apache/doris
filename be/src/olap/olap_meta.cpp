@@ -90,7 +90,7 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
     rocksdb::Status s;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        s = _db->Get(ReadOptions(), handle, Slice(key), value);
+        s = _db->Get(ReadOptions(), handle, rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
     if (s.IsNotFound()) {
@@ -103,17 +103,17 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
 }
 
 bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
-                         std::string* value) {
+                             std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     bool is_exist = false;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        is_exist = _db->KeyMayExist(ReadOptions(), handle, Slice(key), value);
+        is_exist = _db->KeyMayExist(ReadOptions(), handle, rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
-    
+
     return is_exist;
 }
 
@@ -127,7 +127,7 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key,
         SCOPED_RAW_TIMER(&duration_ns);
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
-        s = _db->Put(write_options, handle, Slice(key), Slice(value));
+        s = _db->Put(write_options, handle, rocksdb::Slice(key), rocksdb::Slice(value));
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
@@ -146,7 +146,7 @@ OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& ke
         SCOPED_RAW_TIMER(&duration_ns);
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
-        s = _db->Delete(write_options, handle, Slice(key));
+        s = _db->Delete(write_options, handle, rocksdb::Slice(key));
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
