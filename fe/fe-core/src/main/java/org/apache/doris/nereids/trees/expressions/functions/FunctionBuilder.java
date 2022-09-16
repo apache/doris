@@ -81,8 +81,8 @@ public class FunctionBuilder {
                 .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
                 .filter(constructor ->
                         // all arguments must be Expression
-                        Arrays.stream(functionClass.getTypeParameters())
-                                .allMatch(Expression.class::isInstance)
+                        Arrays.stream(constructor.getParameterTypes())
+                                .allMatch(Expression.class::isAssignableFrom)
                 )
                 .map(constructor -> new FunctionBuilder((Constructor<BoundFunction>) constructor))
                 .collect(ImmutableList.toImmutableList());

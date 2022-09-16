@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
  * Integer data type in Nereids.
  */
 public class IntegerType extends IntegralType {
-    public static IntegerType INSTANCE = new IntegerType();
+    public static final IntegerType INSTANCE = new IntegerType();
 
     private static final int WIDTH = 4;
 

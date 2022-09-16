@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
  * LargeInt type in Nereids.
  */
 public class LargeIntType extends IntegralType {
-    public static LargeIntType INSTANCE = new LargeIntType();
+    public static final LargeIntType INSTANCE = new LargeIntType();
 
     private static final int WIDTH = 16;
 
