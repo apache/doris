@@ -71,6 +71,8 @@ public class RuntimeFilterContext {
 
     private final FilterSizeLimits limits;
 
+    private int targetNullRFCount = 0;
+
     public RuntimeFilterContext(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
@@ -177,5 +179,14 @@ public class RuntimeFilterContext {
             expr = aliasChildToSelf.get(expr.toSlot());
         } while (expr != null);
         return builder.build();
+    }
+
+    public void addTargetNullRFCount() {
+        targetNullRFCount++;
+    }
+
+    @VisibleForTesting
+    public int getTargetNullRFCount() {
+        return targetNullRFCount;
     }
 }

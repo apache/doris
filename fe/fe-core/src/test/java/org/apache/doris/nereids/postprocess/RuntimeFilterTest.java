@@ -26,10 +26,15 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.PlanFragment;
 
+import com.google.common.collect.Lists;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -173,13 +178,80 @@ public class RuntimeFilterTest extends SSBTestBase {
 
     @Test
     public void testPushDownThroughUnsupportedJoinType() throws AnalysisException {
+        new MockUp<RuleSet>() {
+            @Mock
+            public List<Rule> getExplorationRules() {
+                return Lists.newArrayList();
+            }
+        };
         String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
                 + " on lo_orderdate = d_datekey) a"
                 + " inner join (select c_custkey from customer left outer join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 5);
+        Assertions.assertTrue(filters.size() == 3);
+    }
+
+    @Test
+    public void testContainScalarSubQuery() throws Exception {
+        createTable("CREATE TABLE lineitem (\n"
+                + "    l_shipdate    DATE NOT NULL,\n"
+                + "    l_orderkey    bigint NOT NULL,\n"
+                + "    l_linenumber  int not null,\n"
+                + "    l_partkey     int NOT NULL,\n"
+                + "    l_suppkey     int not null,\n"
+                + "    l_quantity    decimal(15, 2) NOT NULL,\n"
+                + "    l_extendedprice  decimal(15, 2) NOT NULL,\n"
+                + "    l_discount    decimal(15, 2) NOT NULL,\n"
+                + "    l_tax         decimal(15, 2) NOT NULL,\n"
+                + "    l_returnflag  VARCHAR(1) NOT NULL,\n"
+                + "    l_linestatus  VARCHAR(1) NOT NULL,\n"
+                + "    l_commitdate  DATE NOT NULL,\n"
+                + "    l_receiptdate DATE NOT NULL,\n"
+                + "    l_shipinstruct VARCHAR(25) NOT NULL,\n"
+                + "    l_shipmode     VARCHAR(10) NOT NULL,\n"
+                + "    l_comment      VARCHAR(44) NOT NULL\n"
+                + ")ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`l_shipdate`, `l_orderkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96\n"
+                + "PROPERTIES (\n"
+                + "    \"replication_num\" = \"1\",\n"
+                + "    \"colocate_with\" = \"lineitem_orders\"\n"
+                + ")");
+        createView("create view revenue0 (supplier_no, total_revenue) as\n"
+                + "select\n"
+                + "    l_suppkey,\n"
+                + "    sum(l_extendedprice * (1 - l_discount))\n"
+                + "from\n"
+                + "    lineitem\n"
+                + "where\n"
+                + "    l_shipdate >= date '1996-01-01'\n"
+                + "    and l_shipdate < date '1996-01-01' + interval '3' month\n"
+                + "group by\n"
+                + "    l_suppkey;");
+        String sql = "select\n"
+                + "    s_suppkey,\n"
+                + "    s_name,\n"
+                + "    s_address,\n"
+                + "    s_phone,\n"
+                + "    total_revenue\n"
+                + "from\n"
+                + "    supplier,\n"
+                + "    revenue0\n"
+                + "where\n"
+                + "    s_suppkey = supplier_no\n"
+                + "    and total_revenue = (\n"
+                + "        select\n"
+                + "            max(total_revenue)\n"
+                + "        from\n"
+                + "            revenue0\n"
+                + "    )\n"
+                + "order by\n"
+                + "    s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertTrue(filters.size() == 0);
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {
@@ -191,7 +263,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         System.out.println(root.getFragmentId());
         if (context.getRuntimeTranslator().isPresent()) {
             RuntimeFilterContext ctx = planner.getCascadesContext().getRuntimeFilterContext();
-            Assertions.assertEquals(ctx.getNereidsRuntimeFilter().size(), ctx.getLegacyFilters().size());
+            Assertions.assertEquals(ctx.getNereidsRuntimeFilter().size(), ctx.getLegacyFilters().size() + ctx.getTargetNullRFCount());
             return Optional.of(ctx.getNereidsRuntimeFilter());
         }
         return Optional.empty();
