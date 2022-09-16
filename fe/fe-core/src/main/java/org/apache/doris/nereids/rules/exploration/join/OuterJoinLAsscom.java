@@ -21,37 +21,24 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.JoinType;
 
-import java.util.function.Predicate;
+import com.google.common.collect.ImmutableSet;
+
+import java.util.Set;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
  */
-public class JoinLAsscom extends OneExplorationRuleFactory {
-    // for inner-inner
-    public static final JoinLAsscom INNER = new JoinLAsscom(Type.INNER);
-    // for inner-leftOuter or leftOuter-leftOuter
-    public static final JoinLAsscom OUTER = new JoinLAsscom(Type.OUTER);
+public class OuterJoinLAsscom extends OneExplorationRuleFactory {
+    public static final OuterJoinLAsscom INSTANCE = new OuterJoinLAsscom();
 
-    private final Predicate<LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan>> typeChecker;
-
-    private final Type type;
-
-    /**
-     * Specify join type.
-     */
-    public JoinLAsscom(Type type) {
-        this.type = type;
-        if (type == Type.INNER) {
-            typeChecker = join -> join.getJoinType().isInnerJoin() && join.left().getJoinType().isInnerJoin();
-        } else {
-            typeChecker = join -> JoinLAsscomHelper.outerSet.contains(
-                    Pair.of(join.left().getJoinType(), join.getJoinType()));
-        }
-    }
+    // Pair<bottomJoin, topJoin>
+    // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
+    public static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
+            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN),
+            Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
+            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
 
     /*
      *      topJoin                newTopJoin
@@ -63,14 +50,14 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
-                .when(topJoin -> JoinLAsscomHelper.check(type, topJoin, topJoin.left()))
-                .when(typeChecker)
+                .when(topJoin -> JoinLAsscomHelper.checkOuter(topJoin, topJoin.left()))
+                .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
                     if (!helper.initJoinOnCondition()) {
                         return null;
                     }
                     return helper.newTopJoin();
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM);
     }
 }

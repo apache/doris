@@ -17,20 +17,15 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderCommon.Type;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,13 +44,6 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
      *  /    \                  /    \
      * A      B                A      C
      */
-
-    // Pair<bottomJoin, topJoin>
-    // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
-    public static Set<Pair<JoinType, JoinType>> outerSet = ImmutableSet.of(
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN),
-            Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
 
     /**
      * Init plan and output.
@@ -117,17 +105,18 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         return PlanUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
     }
 
-    public static boolean check(Type type, LogicalJoin<? extends Plan, GroupPlan> topJoin,
+    public static boolean checkInner(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
-        if (type == Type.INNER) {
-            return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
-                    && !topJoin.getJoinReorderContext().hasLAsscom();
-        } else {
-            // hasCommute will cause to lack of OuterJoinAssocRule:Left
-            return !topJoin.getJoinReorderContext().hasLeftAssociate()
-                    && !topJoin.getJoinReorderContext().hasRightAssociate()
-                    && !topJoin.getJoinReorderContext().hasExchange()
-                    && !bottomJoin.getJoinReorderContext().hasCommute();
-        }
+        return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                && !topJoin.getJoinReorderContext().hasLAsscom();
+    }
+
+    public static boolean checkOuter(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+        // hasCommute will cause to lack of OuterJoinAssocRule:Left
+        return !topJoin.getJoinReorderContext().hasLeftAssociate()
+                && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasExchange()
+                && !bottomJoin.getJoinReorderContext().hasCommute();
     }
 }
