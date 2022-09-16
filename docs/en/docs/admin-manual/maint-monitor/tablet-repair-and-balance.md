@@ -319,7 +319,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	` The ADMIN SHOW REPLICA STATUS `command is mainly used to view the health status of copies. Users can also view additional information about copies of a specified table by using the following commands:
 
-	`SHOW TABLET FROM tbl1;`
+	`SHOW TABLETS FROM tbl1;`
 
     ```
 	+----------+-----------+-----------+------------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+----------+----------+--------+-------------------------+--------------+----------------------+--------------+----------------------+----------------------+----------------------+
@@ -385,7 +385,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 	+-----------+-----------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+
     ```
    
-	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLET FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
+	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLETS FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
 
 ### Duplicate Scheduling Task
 

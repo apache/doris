@@ -104,10 +104,11 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
 }
 
 std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
-    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}, Peak={}", snapshot.label,
-                       snapshot.parent,
-                       PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
-                       PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
+    return fmt::format(
+            "MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)", snapshot.label,
+            snapshot.parent, PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
+            snapshot.cur_consumption, PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES),
+            snapshot.peak_consumption);
 }
 
 static std::unordered_map<std::string, std::shared_ptr<MemTracker>> global_mem_trackers;
