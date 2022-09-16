@@ -32,10 +32,18 @@ import java.util.stream.Collectors;
 public abstract class Job {
     protected JobType type;
     protected JobContext context;
+    protected boolean once;
 
     public Job(JobType type, JobContext context) {
         this.type = type;
         this.context = context;
+        this.once = true;
+    }
+
+    public Job(JobType type, JobContext context, boolean once) {
+        this.type = type;
+        this.context = context;
+        this.once = once;
     }
 
     public void pushJob(Job job) {
@@ -44,6 +52,10 @@ public abstract class Job {
 
     public RuleSet getRuleSet() {
         return context.getCascadesContext().getRuleSet();
+    }
+
+    public boolean isOnce() {
+        return once;
     }
 
     /**
