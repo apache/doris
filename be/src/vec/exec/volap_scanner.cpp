@@ -173,6 +173,7 @@ Status VOlapScanner::_init_tablet_reader_params(
 
     if (_runtime_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
+        _aggregation = true;
     } else {
         _tablet_reader_params.direct_mode = _aggregation || single_version;
     }
@@ -257,15 +258,17 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
     }
 
-    if (_parent->_olap_scan_node.__isset.sort_info &&
-        _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
-        _limit = _parent->_limit_per_scanner;
-        _tablet_reader_params.read_orderby_key = true;
-        if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
-            _tablet_reader_params.read_orderby_key_reverse = true;
+    if (!_runtime_state->skip_storage_engine_merge()) {
+        if (_parent->_olap_scan_node.__isset.sort_info &&
+            _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
+            _limit = _parent->_limit_per_scanner;
+            _tablet_reader_params.read_orderby_key = true;
+            if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
+                _tablet_reader_params.read_orderby_key_reverse = true;
+            }
+            _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                    _parent->_olap_scan_node.sort_info.is_asc_order.size();
         }
-        _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                _parent->_olap_scan_node.sort_info.is_asc_order.size();
     }
 
     return Status::OK();
