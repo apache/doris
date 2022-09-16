@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.trees.expressions.functions.Count;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.Lists;
