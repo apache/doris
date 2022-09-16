@@ -107,26 +107,6 @@ public class TableFunctionNode extends PlanNode {
                 dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
             }
         }
-        /**
-         * For case: WITH example1  AS ( select  6 AS k1 ,'a,b,c' AS k2) select  k1, e1 from example1
-         *           lateral view explode_split(k2, ',') tmp as  e1;
-         * baseTblResultExprs do not include SlotRef(K1), but resultExprs include it.
-         * So here we travel resultExprs to get correct outputSlotRef.
-         *
-         * TODO: maybe we should make sure baseTblResultExprs include SlotRef(k1),
-         *       after function SelectStmt::resolveInlineViewRefs called.
-         */
-        List<Expr> resultExprs = selectStmt.getResultExprs();
-        for (Expr resultExpr : resultExprs) {
-            // find all slotRef bound by tupleIds in resultExpr
-            resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
-
-            // For vec engine while lateral view involves subquery
-            Expr dst = outputSmap.get(resultExpr);
-            if (dst != null) {
-                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
-            }
-        }
         // case2
         List<Expr> remainConjuncts = analyzer.getRemainConjuncts(tupleIds);
         for (Expr expr : remainConjuncts) {
