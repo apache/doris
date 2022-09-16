@@ -42,6 +42,39 @@ enum TResultSinkType {
     FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 
+enum TParquetCompressionType {
+    SNAPPY,
+    GZIP,
+    BROTLI,
+    ZSTD,
+    LZ4,
+    LZO,
+    BZ2,
+    UNCOMPRESSED,
+}
+
+enum TParquetVersion {
+    PARQUET_1_0,
+    PARQUET_2_LATEST,
+}
+
+enum TParquetDataType {
+    BOOLEAN,
+    INT32,
+    INT64,
+    INT96,
+    BYTE_ARRAY,
+    FLOAT,
+    DOUBLE,
+    FIXED_LEN_BYTE_ARRAY,
+}
+
+enum TParquetRepetitionType {
+    REQUIRED,
+    REPEATED,
+    OPTIONAL,
+}
+
 struct TResultFileSinkOptions {
     1: required string file_path
     2: required PlanNodes.TFileFormatType file_format
@@ -51,8 +84,18 @@ struct TResultFileSinkOptions {
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
     8: optional string success_file_name
-    9: optional list<list<string>> schema            // for parquet/orc file
-    10: optional map<string, string> file_properties // for parquet/orc file
+    9: optional list<list<string>> schema            // for orc file
+    10: optional map<string, string> file_properties // for orc file
+
+    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
+    //because when this info thrift to BE, BE hava to find useful info in string,
+    //have to check by use string directly, and maybe not so efficient
+    11: optional list<TParquetRepetitionType> schemas_repetition_type
+    12: optional list<TParquetDataType> schemas_data_type
+    13: optional list<string> schemas_column_name
+    14: optional TParquetCompressionType parquet_compression_type
+    15: optional bool parquet_disable_dictionary
+    16: optional TParquetVersion parquet_version
 }
 
 struct TMemoryScratchSink {

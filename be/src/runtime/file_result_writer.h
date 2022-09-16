@@ -42,8 +42,15 @@ struct ResultFileOptions {
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
     std::string success_file_name = "";
-    std::vector<std::vector<std::string>> schema;
-    std::map<std::string, std::string> file_properties;
+    std::vector<std::vector<std::string>> schema;  //not use in outfile with parquet format
+    std::map<std::string, std::string> file_properties;//not use in outfile with parquet format
+
+    std::vector<TParquetRepetitionType::type> schemas_repetition_type;
+    std::vector<TParquetDataType::type> schemas_data_type;
+    std::vector<std::string> schemas_column_name;
+    TParquetCompressionType::type parquet_commpression_type;
+    TParquetVersion::type parquet_version;
+    bool parquert_disable_dictionary;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -69,6 +76,24 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.file_properties) {
             file_properties = t_opt.file_properties;
+        }
+        if (t_opt.__isset.schemas_repetition_type) {
+            schemas_repetition_type = t_opt.schemas_repetition_type;
+        }
+        if (t_opt.__isset.schemas_data_type) {
+            schemas_data_type = t_opt.schemas_data_type;
+        }
+        if (t_opt.__isset.schemas_column_name) {
+            schemas_column_name = t_opt.schemas_column_name;
+        }
+        if (t_opt.__isset.parquet_compression_type) {
+            parquet_commpression_type = t_opt.parquet_compression_type;
+        }
+        if(t_opt.__isset.parquet_disable_dictionary) {
+            parquert_disable_dictionary = t_opt.parquet_disable_dictionary;
+        }
+        if(t_opt.__isset.parquet_version) {
+            parquet_version = t_opt.parquet_version;
         }
     }
 };

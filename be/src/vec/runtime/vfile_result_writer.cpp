@@ -119,9 +119,11 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vparquet_writer.reset(new VParquetWriterWrapper(
-                _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->file_properties,
-                _file_opts->schema, _output_object_data));
-        RETURN_IF_ERROR(_vparquet_writer->init());
+                _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->schemas_repetition_type,
+                _file_opts->schemas_data_type, _file_opts->schemas_column_name,
+                _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                _file_opts->parquet_version, _output_object_data));
+        RETURN_IF_ERROR(_vparquet_writer->init_parquet_writer());
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);

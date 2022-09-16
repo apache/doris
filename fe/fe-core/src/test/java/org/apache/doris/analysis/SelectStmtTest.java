@@ -632,15 +632,19 @@ public class SelectStmtTest {
     public void testOutfile() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         Config.enable_outfile_to_local = true;
-        String sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,byte_array,col0\");";
+        String sql
+                = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,byte_array,col0\");";
         dorisAssert.query(sql).explainQuery();
         // if shema not set, gen schema
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET;";
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-            Assert.assertEquals(1, stmt.getOutFileClause().getSchema().size());
-            Assert.assertEquals(Lists.newArrayList("required", "byte_array", "col0"),
-                    stmt.getOutFileClause().getSchema().get(0));
+            Assert.assertEquals(1, stmt.getOutFileClause().getSchemasColumnName().size());
+            Assert.assertEquals(stmt.getOutFileClause().PARQUET_REPETITION_TYPE_MAP.get("required"),
+                    stmt.getOutFileClause().getSchemasRepetitionType().get(0));
+            Assert.assertEquals(stmt.getOutFileClause().PARQUET_DATA_TYPE_MAP.get("byte_array"),
+                    stmt.getOutFileClause().getSchemasDataType().get(0));
+            Assert.assertEquals("col0", stmt.getOutFileClause().getSchemasColumnName().get(0));
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }

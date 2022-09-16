@@ -115,9 +115,11 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
-                                                   _file_opts->file_properties, _file_opts->schema,
-                                                   _output_object_data);
+        _parquet_writer = new ParquetWriterWrapper(
+                _file_writer.get(), _output_expr_ctxs, _file_opts->schemas_repetition_type,
+                _file_opts->schemas_data_type, _file_opts->schemas_column_name,
+                _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                _file_opts->parquet_version, _output_object_data);
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
