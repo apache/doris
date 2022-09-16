@@ -106,6 +106,7 @@ Status DeltaWriter::init() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
         _rowset_ids = _tablet->all_rs_id();
+        _cur_max_version = _tablet->max_version_unlocked().second;
     }
 
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
@@ -289,7 +290,7 @@ void DeltaWriter::_reset_mem_table() {
     }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
-                                  _rowset_ids, _is_vec));
+                                  _rowset_ids, _cur_max_version, _is_vec));
 }
 
 Status DeltaWriter::close() {
