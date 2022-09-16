@@ -257,6 +257,10 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit, TabletWriterAddResult
     }
 
     for (int i = 0; i < counter; i++) {
+        if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
+            // skip broken tablets
+            continue;
+        }
         Status st = writers[i]->wait_flush();
         if (!st.ok()) {
             return Status::InternalError(
