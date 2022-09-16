@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Type;
 import java.util.Objects;
 
 /**
- * Bitmap type in Nereids.
+ * Array type in Nereids.
  */
 public class ArrayType extends DataType {
 
