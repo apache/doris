@@ -74,6 +74,9 @@ public class RuntimeFilterTranslator {
     public void createLegacyRuntimeFilter(RuntimeFilter filter, HashJoinNode node, PlanTranslatorContext ctx) {
         SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
         SlotRef target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
+        if (target == null) {
+            return;
+        }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
                 filter.getId(), node, src, filter.getExprOrder(), target,
