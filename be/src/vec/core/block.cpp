@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
+#include "agent/heartbeat_server.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
@@ -36,7 +37,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -697,10 +697,10 @@ Status Block::serialize(PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
-    CHECK(config::block_data_version <= Block::max_data_version)
-            << "invalid config::block_data_version=" << config::block_data_version
+    CHECK(HeartbeatServer::block_data_version <= Block::max_data_version)
+            << "invalid config::block_data_version=" << HeartbeatServer::block_data_version
             << ", max_data_version=" << max_data_version;
-    pblock->set_data_version(config::block_data_version);
+    pblock->set_data_version(HeartbeatServer::block_data_version);
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
@@ -708,8 +708,8 @@ Status Block::serialize(PBlock* pblock,
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
         // get serialized size
-        content_uncompressed_size +=
-                c.type->get_uncompressed_serialized_bytes(*(c.column), config::block_data_version);
+        content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
+                *(c.column), HeartbeatServer::block_data_version);
     }
 
     // serialize data values
@@ -728,7 +728,7 @@ Status Block::serialize(PBlock* pblock,
     char* buf = column_values.data();
 
     for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf, config::block_data_version);
+        buf = c.type->serialize(*(c.column), buf, HeartbeatServer::block_data_version);
     }
     *uncompressed_bytes = content_uncompressed_size;
 

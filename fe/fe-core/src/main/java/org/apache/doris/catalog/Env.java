@@ -1259,6 +1259,8 @@ public class Env {
 
         checkCurrentNodeExist();
 
+        checkBlockDataVersion();
+
         editLog.rollEditLog();
 
         // Log meta_version
@@ -1504,6 +1506,15 @@ public class Env {
         } else if (fe.getRole() != role) {
             LOG.error("current node role is {} not match with frontend recorded role {}. will exit", role,
                     fe.getRole());
+            System.exit(-1);
+        }
+    }
+
+    private void checkBlockDataVersion() {
+        if (Config.block_data_version < Config.min_block_data_version
+                || Config.block_data_version > Config.max_block_data_version) {
+            LOG.error("block_data_version={} is not supported, please set block_data_version in interval [{}, {}]",
+                    Config.block_data_version, Config.min_block_data_version, Config.max_block_data_version);
             System.exit(-1);
         }
     }

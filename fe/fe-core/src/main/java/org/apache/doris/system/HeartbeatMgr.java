@@ -87,6 +87,7 @@ public class HeartbeatMgr extends MasterDaemon {
         tMasterInfo.setHttpPort(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
+        tMasterInfo.setBlockDataVersion(Config.block_data_version);
         masterInfo.set(tMasterInfo);
     }
 
