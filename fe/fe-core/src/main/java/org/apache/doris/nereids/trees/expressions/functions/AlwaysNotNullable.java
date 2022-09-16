@@ -25,6 +25,6 @@ package org.apache.doris.nereids.trees.expressions.functions;
 public interface AlwaysNotNullable extends ComputeNullable {
     @Override
     default boolean nullable() {
-        return true;
+        return false;
     }
 }
