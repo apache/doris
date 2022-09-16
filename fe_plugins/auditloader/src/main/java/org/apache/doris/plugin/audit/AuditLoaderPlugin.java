@@ -162,7 +162,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.peakMemoryBytes).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        String stmt = truncateByBytes(event.stmt).replace("\t", " ");
+        String stmt = truncateByBytes(event.stmt).replace("\n", " ").replace("\t", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         auditBuffer.append(stmt).append("\n");
     }
