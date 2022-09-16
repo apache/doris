@@ -194,7 +194,8 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     }
 }
 
-Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
+template <typename TabletWriterAddResult>
+Status TabletsChannel::reduce_mem_usage(int64_t mem_limit, TabletWriterAddResult* response) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         // TabletsChannel is closed without LoadChannel's lock,
@@ -237,11 +238,29 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
         }
     }
     VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
+    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
+            response->mutable_tablet_errors();
     for (int i = 0; i < counter; i++) {
-        writers[i]->flush_memtable_and_wait(false);
+        Status st = writers[i]->flush_memtable_and_wait(false);
+        if (!st.ok()) {
+            auto err_msg = strings::Substitute(
+                    "tablet writer failed to reduce mem consumption by flushing memtable, "
+                    "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
+                    writers[i]->tablet_id(), _txn_id, st.code(), st.precise_code(),
+                    st.get_error_msg());
+            LOG(WARNING) << err_msg;
+            PTabletError* error = tablet_errors->Add();
+            error->set_tablet_id(writers[i]->tablet_id());
+            error->set_msg(err_msg);
+            _broken_tablets.insert(writers[i]->tablet_id());
+        }
     }
 
     for (int i = 0; i < counter; i++) {
+        if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
+            // skip broken tablets
+            continue;
+        }
         Status st = writers[i]->wait_flush();
         if (!st.ok()) {
             return Status::InternalError(
@@ -402,4 +421,8 @@ TabletsChannel::add_batch<PTabletWriterAddBatchRequest, PTabletWriterAddBatchRes
 template Status
 TabletsChannel::add_batch<PTabletWriterAddBlockRequest, PTabletWriterAddBlockResult>(
         PTabletWriterAddBlockRequest const&, PTabletWriterAddBlockResult*);
+template Status TabletsChannel::reduce_mem_usage<PTabletWriterAddBatchResult>(
+        int64_t, PTabletWriterAddBatchResult*);
+template Status TabletsChannel::reduce_mem_usage<PTabletWriterAddBlockResult>(
+        int64_t, PTabletWriterAddBlockResult*);
 } // namespace doris
