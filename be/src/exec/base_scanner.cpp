@@ -178,6 +178,11 @@ Status BaseScanner::init_expr_ctxes() {
                 if (_src_slot_it == std::end(src_slot_desc_map)) {
                     return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
+                auto src_slot_index = std::find(_src_slot_descs.cbegin(), _src_slot_descs.cend(),
+                                                _src_slot_it->second) -
+                                      _src_slot_descs.cbegin();
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     src_slot_index);
                 _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
@@ -332,7 +337,8 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
-                        !_src_block.get_by_position(dest_index).column->is_null_at(i)) {
+                        !_src_block.get_by_position(_dest_slot_to_src_slot_index[dest_index])
+                                 .column->is_null_at(i)) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block.dump_one_line(i, _num_of_columns_from_file);
