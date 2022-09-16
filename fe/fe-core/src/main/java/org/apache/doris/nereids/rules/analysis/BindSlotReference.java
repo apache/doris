@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -353,7 +354,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     }
 
     /** BoundStar is used to wrap list of slots for temporary. */
-    private class BoundStar extends NamedExpression {
+    private class BoundStar extends NamedExpression implements PropagateNullable {
         public BoundStar(List<Slot> children) {
             super(children.toArray(new Slot[0]));
             Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),

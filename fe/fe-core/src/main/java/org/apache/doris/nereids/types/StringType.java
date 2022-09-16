@@ -25,7 +25,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
  */
 public class StringType extends CharacterType {
 
-    public static StringType INSTANCE = new StringType();
+    public static final StringType INSTANCE = new StringType();
 
     private StringType() {
         super(-1);
