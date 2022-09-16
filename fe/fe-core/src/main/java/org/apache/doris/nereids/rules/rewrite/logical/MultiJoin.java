@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -188,10 +189,18 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             conjunctsForAllHashJoins.addAll(ExpressionUtils.extractConjunction(join.getOtherJoinCondition().get()));
         }
 
-        if (!(join.left() instanceof LogicalJoin)) {
+        Plan leftChild = join.left();
+        if (join.left() instanceof LogicalFilter) {
+            leftChild = join.left().child(0);
+        }
+        if (leftChild instanceof GroupPlan) {
             joinInputs.add(join.left());
         }
-        if (!(join.right() instanceof LogicalJoin)) {
+        Plan rightChild = join.right();
+        if (join.right() instanceof LogicalFilter) {
+            rightChild = join.right().child(0);
+        }
+        if (rightChild instanceof GroupPlan) {
             joinInputs.add(join.right());
         }
         return null;
