@@ -2718,48 +2718,61 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append("TABLE ");
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
         }
-        sb.append("`").append(table.getName()).append("` (\n");
-        int idx = 0;
-        List<Column> columns;
-        // when 'create table B like A', always return schema of A without hidden columns
-        if (getDdlForLike) {
-            columns = table.getBaseSchema(false);
-        } else {
-            columns = table.getBaseSchema();
-        }
-        for (Column column : columns) {
-            if (idx++ != 0) {
-                sb.append(",\n");
-            }
-            // There MUST BE 2 space in front of each column description line
-            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-            if (table.getType() == TableType.OLAP) {
-                sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+        sb.append("`").append(table.getName()).append("`");
+
+        if (table.getType() != TableType.MATERIALIZED_VIEW) {
+            sb.append(" (\n");
+            int idx = 0;
+            List<Column> columns;
+            // when 'create table B like A', always return schema of A without hidden columns
+            if (getDdlForLike) {
+                columns = table.getBaseSchema(false);
             } else {
-                sb.append("  ").append(column.toSql());
+                columns = table.getBaseSchema();
             }
-        }
-        if (table.getType() == TableType.OLAP) {
-            OlapTable olapTable = (OlapTable) table;
-            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
-                for (Index index : olapTable.getIndexes()) {
+            for (Column column : columns) {
+                if (idx++ != 0) {
                     sb.append(",\n");
-                    sb.append("  ").append(index.toSql());
+                }
+                // There MUST BE 2 space in front of each column description line
+                // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+                if (table.getType() == TableType.OLAP) {
+                    sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+                } else {
+                    sb.append("  ").append(column.toSql());
                 }
             }
+            if (table.getType() == TableType.OLAP) {
+                OlapTable olapTable = (OlapTable) table;
+                if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                    for (Index index : olapTable.getIndexes()) {
+                        sb.append(",\n");
+                        sb.append("  ").append(index.toSql());
+                    }
+                }
+            }
+            sb.append("\n) ENGINE=");
+            sb.append(table.getType().name());
+        } else {
+            MaterializedView materializedView = ((MaterializedView) table);
+            sb.append("\n").append("BUILD ").append(materializedView.getBuildMode())
+                    .append(materializedView.getRefreshInfo().toString());
         }
-        sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
 
-        if (table.getType() == TableType.OLAP) {
+        if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
             OlapTable olapTable = (OlapTable) table;
 
             // keys
-            sb.append("\n").append(olapTable.getKeysType().toSql()).append("(");
+            String keySql = olapTable.getKeysType().toSql();
+            sb.append("\n").append(table.getType() == TableType.OLAP
+                    ? keySql
+                    : keySql.substring("DUPLICATE ".length()))
+                    .append("(");
             List<String> keysColumnNames = Lists.newArrayList();
             for (Column column : olapTable.getBaseSchema()) {
                 if (column.isKey()) {
@@ -2778,8 +2791,9 @@ public class Env {
                 return;
             }
 
-
-            addTableComment(olapTable, sb);
+            if (table.getType() != TableType.MATERIALIZED_VIEW) {
+                addTableComment(olapTable, sb);
+            }
 
             // partition
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -3064,6 +3078,10 @@ public class Env {
             sb.append("\"resource\" = \"").append(jdbcTable.getResourceName()).append("\",\n");
             sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\"");
             sb.append("\n)");
+        }
+
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            sb.append("\nAS ").append(((MaterializedView) table).getQuery());
         }
 
         createTableStmt.add(sb + ";");
