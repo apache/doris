@@ -89,14 +89,14 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
         auto parquet_col_id = iter->second;
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(parquet_col_id);
+            ParquetReadColumn column(parquet_col_id, slot_desc);
+            _read_columns.emplace_back(column);
         } else {
             std::stringstream str_error;
             str_error << "Invalid Column Name:" << slot_desc->col_name();
             VLOG_DEBUG << str_error.str();
             return Status::InvalidArgument(str_error.str());
         }
-        ParquetReadColumn column(parquet_col_id, slot_desc);
-        _read_columns.emplace_back(column);
     }
     return Status::OK();
 }
@@ -237,12 +237,12 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
             _file_reader->readat(_page_index->_column_index_start, buffer_size, &bytes_read, buff));
 
     std::vector<RowRange> skipped_row_ranges;
-    for (auto col_id : _include_column_ids) {
-        auto conjunct_iter = _slot_conjuncts.find(col_id);
+    for (auto& read_col : _read_columns) {
+        auto conjunct_iter = _slot_conjuncts.find(read_col._slot_desc->id());
         if (_slot_conjuncts.end() == conjunct_iter) {
             continue;
         }
-        auto& chunk = row_group.columns[col_id];
+        auto& chunk = row_group.columns[read_col._parquet_col_id];
         tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff, &column_index));
         const int num_of_pages = column_index.null_pages.size();
@@ -264,7 +264,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets.emplace(col_id, offset_index);
+        _col_offsets.emplace(read_col._parquet_col_id, offset_index);
     }
     if (skipped_row_ranges.empty()) {
         return Status::OK();
