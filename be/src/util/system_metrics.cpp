@@ -25,6 +25,7 @@
 #include "gutil/strtoint.h"      //  for atoi64
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/perf_counters.h"
 
 namespace doris {
 
@@ -369,7 +370,7 @@ void SystemMetrics::_install_memory_metrics(MetricEntity* entity) {
 }
 
 void SystemMetrics::_update_memory_metrics() {
-    _memory_metrics->memory_allocated_bytes->set_value(MemInfo::current_mem());
+    _memory_metrics->memory_allocated_bytes->set_value(PerfCounters::get_vm_rss());
     get_metrics_from_proc_vmstat();
 }
 
