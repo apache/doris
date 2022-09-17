@@ -44,7 +44,8 @@ public:
     MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
-             const RowsetIdUnorderedSet& rowset_ids, bool support_vec = false);
+             const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
+             bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
@@ -210,6 +211,7 @@ private:
 
     DeleteBitmapPtr _delete_bitmap;
     RowsetIdUnorderedSet _rowset_ids;
+    int64_t _cur_max_version;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

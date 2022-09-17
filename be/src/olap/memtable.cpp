@@ -33,7 +33,8 @@ namespace doris {
 MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
-                   const RowsetIdUnorderedSet& rowset_ids, bool support_vec)
+                   const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
+                   bool support_vec)
         : _tablet(std::move(tablet)),
           _schema(schema),
           _tablet_schema(tablet_schema),
@@ -50,7 +51,8 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _total_size_of_aggregate_states(0),
           _mem_usage(0),
           _delete_bitmap(delete_bitmap),
-          _rowset_ids(rowset_ids) {
+          _rowset_ids(rowset_ids),
+          _cur_max_version(cur_max_version) {
     if (support_vec) {
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
@@ -413,9 +415,8 @@ Status MemTable::_generate_delete_bitmap() {
     RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
     segments.push_back(segment);
     std::shared_lock meta_rlock(_tablet->get_header_lock());
-    int64_t end_version = _tablet->max_version_unlocked().second;
     RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, &_rowset_ids,
-                                                _delete_bitmap, end_version));
+                                                _delete_bitmap, _cur_max_version));
     return Status::OK();
 }
 
