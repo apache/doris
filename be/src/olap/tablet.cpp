@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
@@ -99,6 +100,18 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
+    // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
+    // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
+    // Before doris 1.2 version, rowset metas don't have tablet schema.
+    // And when upgrade to doris 1.2 version,
+    // all rowset metas will be set the tablet schmea from tablet meta.
+    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
+        _max_version_schema = BaseTablet::tablet_schema();
+    } else {
+        _max_version_schema =
+                rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas())->tablet_schema();
+    }
+    DCHECK(_max_version_schema);
 
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
@@ -1865,12 +1878,20 @@ Status Tablet::remove_all_remote_rowsets() {
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
-    if (UNLIKELY(_tablet_meta->all_rs_metas().empty())) {
-        return BaseTablet::tablet_schema();
+    return _max_version_schema;
+}
+
+void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
+    std::lock_guard wrlock(_meta_lock);
+    // Double Check for concurrent update
+    if (!_max_version_schema ||
+        tablet_schema->schema_version() > _max_version_schema->schema_version()) {
+        _max_version_schema = tablet_schema;
     }
-    const RowsetMetaSharedPtr rowset_meta =
-            rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
-    return rowset_meta->tablet_schema();
+}
+
+TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mutex>&) {
+    return _max_version_schema;
 }
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
