@@ -101,7 +101,10 @@ Status BaseScanner::init_expr_ctxes() {
     }
 
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
-    for (auto slot_desc : src_tuple_desc->slots()) {
+    std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
+    for (int i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
+        auto* slot_desc = src_tuple_desc->slots()[i];
+        src_slot_desc_to_index.emplace(slot_desc, i);
         src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
     }
     for (auto slot_id : _params.src_slot_ids) {
@@ -178,11 +181,8 @@ Status BaseScanner::init_expr_ctxes() {
                 if (_src_slot_it == std::end(src_slot_desc_map)) {
                     return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
-                auto src_slot_index = std::find(_src_slot_descs.cbegin(), _src_slot_descs.cend(),
-                                                _src_slot_it->second) -
-                                      _src_slot_descs.cbegin();
                 _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                     src_slot_index);
+                                                     src_slot_desc_to_index[_src_slot_it->second]);
                 _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
