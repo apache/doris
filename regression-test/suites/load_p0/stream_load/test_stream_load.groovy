@@ -63,7 +63,7 @@ suite("test_stream_load", "p0") {
         time 10000 // limit inflight 10s
     }
 
-    qt_sql "select * from ${tableName}"
+    qt_sql "select * from ${tableName} order by k1, k2"
 
     // test strict_mode fail
     streamLoad {
