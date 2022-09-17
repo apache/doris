@@ -496,9 +496,15 @@ int main(int argc, char** argv) {
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
-        doris::MemInfo::refresh_current_mem();
+        doris::MemInfo::refresh_allocator_mem();
 #endif
         doris::PerfCounters::refresh_proc_status();
+        int64_t allocator_cache_mem_diff =
+                doris::MemInfo::allocator_cache_mem() -
+                doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consumption();
+        doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consume(
+                allocator_cache_mem_diff);
+        CONSUME_THREAD_MEM_TRACKER(allocator_cache_mem_diff);
 
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         // this will cause coredump for ASAN build when running regression test,
