@@ -90,11 +90,14 @@ private:
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size,
                                      vectorized::ColumnString* res_ptr) {
+        StringRef refs[sel_size];
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& sv = reinterpret_cast<StringValue&>(data[n]);
-            res_ptr->insert_data(sv.ptr, sv.len);
+            refs[i].data = sv.ptr;
+            refs[i].size = sv.len;
         }
+        res_ptr->insert_many_strings(refs, sel_size);
     }
 
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
