@@ -119,6 +119,9 @@ protected:
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
+    // dest slot desc index to src slot desc index
+    std::unordered_map<int, int> _dest_slot_to_src_slot_index;
+
     // to filter src tuple directly
     // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
     // and will be converted to `_pre_filter_ctxs` when scanner is open.
