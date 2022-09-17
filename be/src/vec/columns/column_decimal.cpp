@@ -381,6 +381,32 @@ void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags
     sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
+template <typename T>
+void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
+                                        int nan_direction_hint, int direction,
+                                        std::vector<uint8>& cmp_res,
+                                        uint8* __restrict filter) const {
+    auto sz = this->size();
+    DCHECK(cmp_res.size() == sz);
+    const auto& cmp_base = assert_cast<const ColumnDecimal<T>&>(rhs).get_data()[rhs_row_id];
+
+    size_t begin = simd::find_zero(cmp_res, 0);
+    while (begin < sz) {
+        size_t end = simd::find_nonzero(cmp_res, begin + 1);
+        for (size_t row_id = begin; row_id < end; row_id++) {
+            auto value_a = get_data()[row_id];
+            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            if (res * direction < 0) {
+                filter[row_id] = 1;
+                cmp_res[row_id] = 1;
+            } else if (res * direction > 0) {
+                cmp_res[row_id] = 1;
+            }
+        }
+        begin = simd::find_zero(cmp_res, end + 1);
+    }
+}
+
 template <>
 Decimal32 ColumnDecimal<Decimal32>::get_scale_multiplier() const {
     return common::exp10_i32(scale);

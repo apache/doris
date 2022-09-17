@@ -55,6 +55,7 @@ set(VEC_FILES
   common/mremap.cpp
   common/pod_array.cpp
   common/sort/sorter.cpp
+  common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp

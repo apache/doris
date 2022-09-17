@@ -220,6 +220,7 @@ public:
                      EqualRange& range, bool last_column) const {
         if (!column.has_null()) {
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
+            return;
         } else {
             const auto& null_map = column.get_null_map_data();
             EqualRangeIterator iterator(flags, range.first, range.second);

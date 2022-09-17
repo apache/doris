@@ -402,6 +402,10 @@ public:
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
 
+    virtual void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                                  int direction, std::vector<uint8>& cmp_res,
+                                  uint8* __restrict filter) const;
+
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
       * reverse - reverse ordering (acsending).
