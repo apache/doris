@@ -574,7 +574,10 @@ public class AnalyticExpr extends Expr {
             Type type = getFnCall().getChildren().get(2).getType();
 
             try {
-                getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
+                if (!getFnCall().getChildren().get(0).getType()
+                        .matchesType(getFnCall().getChildren().get(2).getType())) {
+                    getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
+                }
             }  catch (Exception e) {
                 LOG.warn("" , e);
                 throw new AnalysisException("Convert type error in offset fn(default value); old_type="
