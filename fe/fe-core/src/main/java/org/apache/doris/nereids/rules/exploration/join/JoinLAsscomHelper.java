@@ -56,42 +56,35 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
      * Create newTopJoin.
      */
     public Plan newTopJoin() {
-        // Split inside-project into two part.
+        // Split bottomJoinProject into two part.
         Map<Boolean, List<NamedExpression>> projectExprsMap = bottomJoin.getProjects().stream()
                 .collect(Collectors.partitioningBy(projectExpr -> {
                     Set<Slot> usedSlots = projectExpr.collect(Slot.class::isInstance);
                     return bOutputSet.containsAll(usedSlots);
                 }));
-
-        List<NamedExpression> newBottomJoinProjects = projectExprsMap.get(Boolean.FALSE);
+        List<NamedExpression> newLeftProjects = projectExprsMap.get(Boolean.FALSE);
         List<NamedExpression> newRightProjects = projectExprsMap.get(Boolean.TRUE);
-        Set<NamedExpression> newBottomJoinProjectsSet = new HashSet<>(newBottomJoinProjects);
-        Set<NamedExpression> newRightProjectsSet = new HashSet<>(newRightProjects);
 
-        // If add project to B, we should add all slotReference used by hashOnCondition.
+        // Add all slots used by hashOnCondition when projects not empty.
         // TODO: Does nonHashOnCondition also need to be considered.
-        Set<Slot> onUsedSlots = bottomJoin.getHashJoinConjuncts().stream()
-                .flatMap(expr -> {
-                    Set<Slot> usedSlotRefs = expr.collect(Slot.class::isInstance);
+        Map<Boolean, List<Slot>> onUsedSlots = bottomJoin.getHashJoinConjuncts().stream()
+                .flatMap(onExpr -> {
+                    Set<Slot> usedSlotRefs = onExpr.collect(Slot.class::isInstance);
                     return usedSlotRefs.stream();
-                }).filter(bottomJoinOutputSet::contains).collect(Collectors.toSet());
-        boolean existRightProject = !newRightProjects.isEmpty();
-        boolean existLeftProject = !newBottomJoinProjects.isEmpty();
-        onUsedSlots.forEach(slot -> {
-            if (existRightProject && bOutputSet.contains(slot) && !newRightProjectsSet.contains(slot)) {
-                newRightProjects.add(slot);
-            } else if (existLeftProject && aOutputSet.contains(slot) && !newBottomJoinProjectsSet.contains(slot)) {
-                newBottomJoinProjects.add(slot);
-            }
-        });
+                }).collect(Collectors.partitioningBy(bOutputSet::contains));
+        List<Slot> leftUsedSlots = onUsedSlots.get(Boolean.FALSE);
+        List<Slot> rightUsedSlots = onUsedSlots.get(Boolean.TRUE);
 
-        if (existLeftProject) {
-            newBottomJoinProjects.addAll(cOutputSet);
+        addSlotsUsedByOn(rightUsedSlots, newRightProjects);
+        addSlotsUsedByOn(leftUsedSlots, newLeftProjects);
+
+        if (!newLeftProjects.isEmpty()) {
+            newLeftProjects.addAll(cOutputSet);
         }
 
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                 newBottomHashJoinConjuncts, ExpressionUtils.optionalAnd(newBottomNonHashJoinConjuncts),
-                newBottomJoinProjects, a, c, bottomJoin.getJoinReorderContext());
+                newLeftProjects, a, c, bottomJoin.getJoinReorderContext());
         newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
         newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
@@ -105,5 +98,18 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
         return newTopJoin;
+    }
+
+    // When project not empty, we add all slots used by hashOnCondition into projects.
+    private void addSlotsUsedByOn(List<Slot> usedSlots, List<NamedExpression> projects) {
+        if (projects.isEmpty()) {
+            return;
+        }
+        Set<NamedExpression> projectsSet = new HashSet<>(projects);
+        usedSlots.forEach(slot -> {
+            if (!projectsSet.contains(slot)) {
+                projects.add(slot);
+            }
+        });
     }
 }

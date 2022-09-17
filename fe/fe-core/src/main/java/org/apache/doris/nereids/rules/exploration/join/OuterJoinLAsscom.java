@@ -67,7 +67,8 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     private boolean checkOuter(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         // hasCommute will cause to lack of OuterJoinAssocRule:Left
-        return !topJoin.getJoinReorderContext().hasLeftAssociate()
+        return !topJoin.getJoinReorderContext().hasLAsscom()
+                && !topJoin.getJoinReorderContext().hasLeftAssociate()
                 && !topJoin.getJoinReorderContext().hasRightAssociate()
                 && !topJoin.getJoinReorderContext().hasExchange()
                 && !bottomJoin.getJoinReorderContext().hasCommute();
