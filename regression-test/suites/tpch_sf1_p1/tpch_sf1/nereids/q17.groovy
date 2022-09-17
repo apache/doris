@@ -29,25 +29,25 @@ suite("tpch_sf1_q17_nereids") {
 
     sql 'set enable_bucket_shuffle_join=false'
 
-//    qt_select """
-//    select
-//        sum(l_extendedprice) / 7.0 as avg_yearly
-//    from
-//        lineitem,
-//        part
-//    where
-//        p_partkey = l_partkey
-//        and p_brand = 'Brand#23'
-//        and p_container = 'MED BOX'
-//        and l_quantity < (
-//            select
-//                0.2 * avg(l_quantity)
-//            from
-//                lineitem
-//            where
-//                l_partkey = p_partkey
-//        );
-//    """
+    qt_select """
+    select
+        sum(l_extendedprice) / 7.0 as avg_yearly
+    from
+        lineitem,
+        part
+    where
+        p_partkey = l_partkey
+        and p_brand = 'Brand#23'
+        and p_container = 'MED BOX'
+        and l_quantity < (
+            select
+                0.2 * avg(l_quantity)
+            from
+                lineitem
+            where
+                l_partkey = p_partkey
+        );
+    """
 
     qt_select """
     select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
