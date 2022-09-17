@@ -40,7 +40,13 @@ namespace doris {
 bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
-size_t MemInfo::_s_current_mem = 0;
+int64_t MemInfo::_s_hard_mem_limit = -1;
+size_t MemInfo::_s_allocator_physical_mem = 0;
+size_t MemInfo::_s_tcmalloc_pageheap_free_bytes = 0;
+size_t MemInfo::_s_tcmalloc_central_bytes = 0;
+size_t MemInfo::_s_tcmalloc_transfer_bytes = 0;
+size_t MemInfo::_s_tcmalloc_thread_bytes = 0;
+size_t MemInfo::_s_allocator_cache_mem = 0;
 
 void MemInfo::init() {
     // Read from /proc/meminfo
@@ -88,6 +94,7 @@ void MemInfo::init() {
 
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    _s_hard_mem_limit = _s_physical_mem - std::min(209715200.0, _s_physical_mem * 0.1); // 200M
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;
@@ -100,7 +107,8 @@ std::string MemInfo::debug_string() {
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "Current Usage: " << PrettyPrinter::print(_s_current_mem, TUnit::BYTES) << std::endl;
+    stream << "Current Usage: " << PrettyPrinter::print(_s_allocator_physical_mem, TUnit::BYTES)
+           << std::endl;
     stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();
 }
