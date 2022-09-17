@@ -39,10 +39,10 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
-                .when(topJoin -> JoinLAsscomHelper.checkInner(topJoin, topJoin.left().child()))
+                .when(topJoin -> InnerJoinLAsscom.check(topJoin, topJoin.left().child()))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left().child());
-                    helper.initAllProject(topJoin.left());
+                    helper.initProject(topJoin.left());
                     if (!helper.initJoinOnCondition()) {
                         return null;
                     }
