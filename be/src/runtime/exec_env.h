@@ -41,6 +41,7 @@ class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
 class ResultCache;
+class NewMemTracker;
 class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
@@ -123,6 +124,13 @@ public:
     std::shared_ptr<MemTrackerLimiter> new_process_mem_tracker() { return _process_mem_tracker; }
     MemTrackerLimiter* process_mem_tracker_raw() { return _process_mem_tracker_raw; }
 
+    void set_process_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
+        _process_mem_tracker = tracker;
+        _process_mem_tracker_raw = tracker.get();
+    }
+    std::shared_ptr<NewMemTracker> allocator_cache_mem_tracker() {
+        return _allocator_cache_mem_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
     MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
@@ -199,6 +207,7 @@ private:
     // The ancestor for all trackers. Every tracker is visible from the process down.
     // Not limit total memory by process tracker, and it's just used to track virtual memory of process.
     std::shared_ptr<MemTrackerLimiter> _process_mem_tracker;
+    std::shared_ptr<NewMemTracker> _allocator_cache_mem_tracker;
     MemTrackerLimiter* _process_mem_tracker_raw;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;

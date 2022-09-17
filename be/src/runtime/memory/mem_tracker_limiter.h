@@ -70,10 +70,19 @@ public:
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
         // for fast, expect MemInfo::initialized() to be true.
-        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
+        // tcmalloc/jemalloc allocator cache does not participate in the mem check as part of the process physical memory.
+        // because `new/malloc` will trigger mem hook when using tcmalloc/jemalloc allocator cache,
+        // but it may not actually alloc physical memory, which is not expected in mem hook fail.
+        //
+        // TODO: In order to ensure no OOM, currently reserve 200M, and then use the free mem in /proc/meminfo to ensure no OOM.
+        if (PerfCounters::get_vm_rss() - MemInfo::allocator_cache_mem() + bytes >=
+                    MemInfo::mem_limit() ||
+            PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
             auto st = Status::MemoryLimitExceeded(
-                    fmt::format("process memory used {}, exceed limit {}, failed alloc size {}",
-                    print_bytes(PerfCounters::get_vm_rss()), print_bytes(MemInfo::mem_limit()),
+                    fmt::format("process memory used {}, tc/jemalloc cache {}, exceed limit {}, failed alloc "
+                    "size {}",
+                    print_bytes(PerfCounters::get_vm_rss()),
+                    print_bytes(MemInfo::allocator_cache_mem()), print_bytes(MemInfo::mem_limit()),
                     print_bytes(bytes)));
             ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(st.get_error_msg());
             return st;
