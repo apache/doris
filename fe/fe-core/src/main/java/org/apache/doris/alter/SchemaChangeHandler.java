@@ -386,6 +386,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 while (iter.hasNext()) {
                     Column column = iter.next();
                     if (column.getName().equalsIgnoreCase(dropColName)) {
+                        if (column.isKey()) {
+                            lightSchemaChange = false;
+                        }
                         iter.remove();
                         break;
                     }

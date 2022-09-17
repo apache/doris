@@ -31,13 +31,17 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,5 +113,61 @@ public class TableSchemaAction extends RestBaseController {
         }
 
         return ResponseEntityBuilder.ok(resultMap);
+    }
+
+    private static class DDLRequestBody {
+        public Boolean isDropColumn;
+        public String columnName;
+    }
+
+    /**
+     * Request body:
+     * {
+     * "isDropColumn": 1,   // optional
+     * "columnName" : "value1"   // optional
+     * }
+     */
+    @RequestMapping(path = "/api/enable_light_schema_change/{" + DB_KEY
+                    + "}/{" + TABLE_KEY + "}", method = { RequestMethod.GET })
+    public Object columnChangeCanSync(
+            @PathVariable(value = DB_KEY) String dbName,
+            @PathVariable(value = TABLE_KEY) String tableName,
+            HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
+        executeCheckPassword(request, response);
+        String fullDbName = getFullDbName(dbName);
+        OlapTable table;
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+        if (!table.getEnableLightSchemaChange()) {
+            return ResponseEntityBuilder.okWithCommonError("table " + tableName + " disable light schema change");
+        }
+        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {}.getType();
+        DDLRequestBody ddlRequestBody = new Gson().fromJson(body, type);
+        if (ddlRequestBody.isDropColumn) {
+            boolean enableLightSchemaChange = true;
+            // column should be dropped from both base and rollup indexes.
+            for (Map.Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
+                List<Column> baseSchema = entry.getValue();
+                Iterator<Column> baseIter = baseSchema.iterator();
+                while (baseIter.hasNext()) {
+                    Column column = baseIter.next();
+                    if (column.getName().equalsIgnoreCase(ddlRequestBody.columnName)) {
+                        if (column.isKey()) {
+                            enableLightSchemaChange = false;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!enableLightSchemaChange) {
+                return ResponseEntityBuilder.okWithCommonError("Column " + ddlRequestBody.columnName
+                                + " is primary key in materializedIndex that can't do the light schema change");
+            }
+        }
+        return ResponseEntityBuilder.ok();
     }
 }
