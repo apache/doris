@@ -261,6 +261,9 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
+        if (num == 0) {
+            return;
+        }
         if constexpr (std::is_same_v<T, StringValue>) {
             if (_pool == nullptr) {
                 _pool.reset(new MemPool());
@@ -272,13 +275,14 @@ public:
             }
 
             char* destination = (char*)_pool->allocate(total_mem_size);
+            memcpy(destination, data_array, total_mem_size);
+            // Resize the underline data to allow data copy directly
+            size_t org_elem_num = data.size();
+            data.resize(org_elem_num + num);
             for (size_t i = 0; i < num; i++) {
-                uint32_t len = len_array[i];
-                uint32_t start_offset = start_offset_array[i];
-                memcpy(destination, data_array + start_offset, len);
-                StringValue sv(destination, len);
-                data.push_back_without_reserve(sv);
-                destination += len;
+                data[org_elem_num + i].ptr = destination;
+                data[org_elem_num + i].len = len_array[i];
+                destination += len_array[i];
             }
         }
     }
