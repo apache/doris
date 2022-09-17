@@ -64,6 +64,7 @@ public:
         pb1->set_start_version(start);
         pb1->set_end_version(end);
         pb1->set_creation_time(10000);
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
     void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -304,6 +305,7 @@ public:
         pb1->set_end_version(end);
         pb1->set_total_disk_size(41);
         pb1->set_creation_time(10000);
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
     void init_rs_meta_small_base(std::vector<RowsetMetaSharedPtr>* rs_metas) {

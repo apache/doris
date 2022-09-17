@@ -33,6 +33,8 @@ public:
         DCHECK(_s_instance == nullptr);
         static TabletSchemaCache instance;
         _s_instance = &instance;
+        std::thread t(&TabletSchemaCache::_recycle, _s_instance);
+        t.detach();
     }
 
     static TabletSchemaCache* instance() { return _s_instance; }
@@ -50,6 +52,25 @@ public:
             return tablet_schema_ptr;
         }
         return iter->second;
+    }
+
+private:
+    /**
+     * @brief recycle when TabletSchemaSPtr use_count equals 1.
+     */
+    void _recycle() {
+        int64_t tablet_schema_cache_recycle_interval = 86400; // s, one day
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(tablet_schema_cache_recycle_interval));
+            std::lock_guard guard(_mtx);
+            for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
+                if (iter->second.unique()) {
+                    iter = _cache.erase(iter);
+                } else {
+                    ++iter;
+                }
+            }
+        }
     }
 
 private:
