@@ -838,7 +838,7 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+* Default value: 90%
 
 ### `memory_limitation_per_thread_for_schema_change`
 
