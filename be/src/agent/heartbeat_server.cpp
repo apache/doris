@@ -41,9 +41,6 @@ using apache::thrift::TProcessor;
 
 namespace doris {
 
-// For support rolling upgrade, we send data as second newest version.
-int HeartbeatServer::block_data_version = vectorized::Block::max_data_version - 1;
-
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info)
         : _master_info(master_info), _fe_epoch(0) {
     _olap_engine = StorageEngine::instance();
@@ -165,10 +162,21 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     if (master_info.__isset.block_data_version &&
-        block_data_version != master_info.block_data_version) {
-        LOG(INFO) << fmt::format("block_data_version changed from {} to {}", block_data_version,
-                                 master_info.block_data_version);
-        block_data_version = master_info.block_data_version;
+        vectorized::Block::current_serialize_data_version != master_info.block_data_version) {
+        if (master_info.block_data_version > vectorized::Block::max_data_version ||
+            master_info.block_data_version < vectorized::Block::min_data_version) {
+            LOG(WARNING) << fmt::format(
+                    "Received block_data_version is not supported, block_data_version={}, "
+                    "min_data_version={}, max_data_version={}, maybe due to FE version not match "
+                    "with BE.",
+                    master_info.block_data_version, vectorized::Block::min_data_version,
+                    vectorized::Block::max_data_version);
+        } else {
+            LOG(INFO) << fmt::format("block_data_version changed from {} to {}",
+                                     vectorized::Block::current_serialize_data_version,
+                                     master_info.block_data_version);
+            vectorized::Block::current_serialize_data_version = master_info.block_data_version;
+        }
     }
 
     if (need_report) {
