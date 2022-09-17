@@ -1,0 +1,26 @@
+# This file records the version info of thirdparty,
+# the format is white space separated, and defined as following:
+#
+# ${verison_num} ${date} ${dep1} ${dep2} ${dep3} ...
+# 
+# e.g.
+# 1 20220917 lz4 curl tcmalloc
+#
+# where
+# ${version_num} is a monotonic consecutive integer indicates how many
+# times the third-party is upgraded.
+# ${depx} is the dependency updated, if you want a full rebuild when
+# updating third-party, specify no ${depx}, say,
+#
+# ${version_num} ${date}
+# 
+# e.g.
+# 1 20220917
+#
+# Once all third-parties are installed, build-thirdparty.sh will copy
+# version.txt to "installed" folder, and it will check version.txt for
+# incremental or full build automatically.
+#
+# **Note that no empty lines are allowed in this file.**
+#
+1 20220917 jemalloc arrow xxhash

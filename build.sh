@@ -230,6 +230,10 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     rm -rf "${DORIS_THIRDPARTY}/installed"
     "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
 fi
+# For soft upgrade, to minimize complaints of build issues, enable it by default in the future
+if [[ "${ENABLE_INCREMENTAL_THIRD_PARTY_BUILD}" == "1" ]]; then
+    "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+fi
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
