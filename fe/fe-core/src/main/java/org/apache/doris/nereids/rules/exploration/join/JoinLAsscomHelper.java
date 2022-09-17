@@ -19,15 +19,14 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,65 +57,53 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
      */
     public Plan newTopJoin() {
         // Split inside-project into two part.
-        Map<Boolean, List<NamedExpression>> projectExprsMap = allProjects.stream()
+        Map<Boolean, List<NamedExpression>> projectExprsMap = bottomJoin.getProjects().stream()
                 .collect(Collectors.partitioningBy(projectExpr -> {
                     Set<Slot> usedSlots = projectExpr.collect(Slot.class::isInstance);
-                    return bOutput.containsAll(usedSlots);
+                    return bOutputSet.containsAll(usedSlots);
                 }));
 
-        List<NamedExpression> newLeftProjectExpr = projectExprsMap.get(Boolean.FALSE);
-        List<NamedExpression> newRightProjectExprs = projectExprsMap.get(Boolean.TRUE);
+        List<NamedExpression> newBottomJoinProjects = projectExprsMap.get(Boolean.FALSE);
+        List<NamedExpression> newRightProjects = projectExprsMap.get(Boolean.TRUE);
+        Set<NamedExpression> newBottomJoinProjectsSet = new HashSet<>(newBottomJoinProjects);
+        Set<NamedExpression> newRightProjectsSet = new HashSet<>(newRightProjects);
 
         // If add project to B, we should add all slotReference used by hashOnCondition.
         // TODO: Does nonHashOnCondition also need to be considered.
-        Set<SlotReference> onUsedSlotRef = bottomJoin.getHashJoinConjuncts().stream()
+        Set<Slot> onUsedSlots = bottomJoin.getHashJoinConjuncts().stream()
                 .flatMap(expr -> {
-                    Set<SlotReference> usedSlotRefs = expr.collect(SlotReference.class::isInstance);
+                    Set<Slot> usedSlotRefs = expr.collect(Slot.class::isInstance);
                     return usedSlotRefs.stream();
-                }).filter(Utils.getOutputSlotReference(bottomJoin)::contains).collect(Collectors.toSet());
-        boolean existRightProject = !newRightProjectExprs.isEmpty();
-        boolean existLeftProject = !newLeftProjectExpr.isEmpty();
-        onUsedSlotRef.forEach(slotRef -> {
-            if (existRightProject && bOutput.contains(slotRef) && !newRightProjectExprs.contains(slotRef)) {
-                newRightProjectExprs.add(slotRef);
-            } else if (existLeftProject && aOutput.contains(slotRef) && !newLeftProjectExpr.contains(slotRef)) {
-                newLeftProjectExpr.add(slotRef);
+                }).filter(bottomJoinOutputSet::contains).collect(Collectors.toSet());
+        boolean existRightProject = !newRightProjects.isEmpty();
+        boolean existLeftProject = !newBottomJoinProjects.isEmpty();
+        onUsedSlots.forEach(slot -> {
+            if (existRightProject && bOutputSet.contains(slot) && !newRightProjectsSet.contains(slot)) {
+                newRightProjects.add(slot);
+            } else if (existLeftProject && aOutputSet.contains(slot) && !newBottomJoinProjectsSet.contains(slot)) {
+                newBottomJoinProjects.add(slot);
             }
         });
 
         if (existLeftProject) {
-            newLeftProjectExpr.addAll(cOutput);
+            newBottomJoinProjects.addAll(cOutputSet);
         }
+
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                newBottomHashJoinConjuncts, ExpressionUtils.optionalAnd(newBottomNonHashJoinConjuncts), a, c,
-                bottomJoin.getJoinReorderContext());
+                newBottomHashJoinConjuncts, ExpressionUtils.optionalAnd(newBottomNonHashJoinConjuncts),
+                newBottomJoinProjects, a, c, bottomJoin.getJoinReorderContext());
         newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
         newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-        Plan left = PlanUtils.projectOrSelf(newLeftProjectExpr, newBottomJoin);
-        Plan right = PlanUtils.projectOrSelf(newRightProjectExprs, b);
+        Plan right = PlanUtils.projectOrSelf(newRightProjects, b);
 
-        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                newTopHashJoinConjuncts,
-                ExpressionUtils.optionalAnd(newTopNonHashJoinConjuncts), left, right,
+        List<NamedExpression> newTopProjects = JoinReorderUtil.mergeProjects(topJoin.getProjects(),
+                new ArrayList<>(topJoin.getOutput()));
+        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(), newTopHashJoinConjuncts,
+                ExpressionUtils.optionalAnd(newTopNonHashJoinConjuncts), newTopProjects, newBottomJoin, right,
                 topJoin.getJoinReorderContext());
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-        return PlanUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
-    }
-
-    public static boolean checkInner(LogicalJoin<? extends Plan, GroupPlan> topJoin,
-            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
-        return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
-                && !topJoin.getJoinReorderContext().hasLAsscom();
-    }
-
-    public static boolean checkOuter(LogicalJoin<? extends Plan, GroupPlan> topJoin,
-            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
-        // hasCommute will cause to lack of OuterJoinAssocRule:Left
-        return !topJoin.getJoinReorderContext().hasLeftAssociate()
-                && !topJoin.getJoinReorderContext().hasRightAssociate()
-                && !topJoin.getJoinReorderContext().hasExchange()
-                && !bottomJoin.getJoinReorderContext().hasCommute();
+        return newTopJoin;
     }
 }

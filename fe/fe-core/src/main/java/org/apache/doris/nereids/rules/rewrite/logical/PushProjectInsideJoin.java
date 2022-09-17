@@ -20,10 +20,11 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
-import com.google.common.base.Preconditions;
+import java.util.List;
 
 /**
  * Push project inside {@link LogicalJoin}
@@ -36,12 +37,11 @@ public class PushProjectInsideJoin extends OneRewriteRuleFactory {
         return logicalProject(logicalJoin()).then(project -> {
             LogicalJoin<GroupPlan, GroupPlan> join = project.child();
 
-            // must after finish MergeProject do this rule.
-            // it means that project-project-join.
-            Preconditions.checkState(join.getProjects().isEmpty());
+            List<NamedExpression> newProjects = MergeConsecutiveProjects.mergeProjects(project.getProjects(),
+                    join.getProjects());
 
             return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(), join.getOtherJoinCondition(),
-                    project.getProjects(), join.left(), join.right(), join.getJoinReorderContext());
+                    newProjects, join.left(), join.right(), join.getJoinReorderContext());
         }).toRule(RuleType.PUSHDOWN_PROJECT_INSIDE_JOIN);
     }
 }

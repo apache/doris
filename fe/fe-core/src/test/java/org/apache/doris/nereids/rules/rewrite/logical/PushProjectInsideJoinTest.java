@@ -37,7 +37,7 @@ public class PushProjectInsideJoinTest implements PatternMatchSupported {
     @Test
     public void testPushProjectInsideJoin() {
         LogicalPlan project = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .hashJoin(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .project(ImmutableList.of(0)) // id
                 .build();
 

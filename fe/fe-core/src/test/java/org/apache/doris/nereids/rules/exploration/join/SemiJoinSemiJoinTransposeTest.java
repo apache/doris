@@ -40,8 +40,8 @@ public class SemiJoinSemiJoinTransposeTest {
     @Test
     public void testSemiJoinLogicalTransposeCommute() {
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .hashJoin(scan2, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0))
+                .hashJoin(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)

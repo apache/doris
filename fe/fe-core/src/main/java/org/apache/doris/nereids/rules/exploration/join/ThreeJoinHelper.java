@@ -18,13 +18,10 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -44,11 +41,10 @@ abstract class ThreeJoinHelper {
     protected final GroupPlan b;
     protected final GroupPlan c;
 
-    protected final Set<Slot> aOutput;
-    protected final Set<Slot> bOutput;
-    protected final Set<Slot> cOutput;
-
-    protected final List<NamedExpression> allProjects = Lists.newArrayList();
+    protected final Set<Slot> aOutputSet;
+    protected final Set<Slot> bOutputSet;
+    protected final Set<Slot> cOutputSet;
+    protected final Set<Slot> bottomJoinOutputSet;
 
     protected final List<Expression> allHashJoinConjuncts = Lists.newArrayList();
     protected final List<Expression> allNonHashJoinConjuncts = Lists.newArrayList();
@@ -70,9 +66,10 @@ abstract class ThreeJoinHelper {
         this.b = b;
         this.c = c;
 
-        aOutput = a.getOutputSet();
-        bOutput = b.getOutputSet();
-        cOutput = c.getOutputSet();
+        aOutputSet = a.getOutputSet();
+        bOutputSet = b.getOutputSet();
+        cOutputSet = c.getOutputSet();
+        bottomJoinOutputSet = bottomJoin.getOutputSet();
 
         Preconditions.checkArgument(!topJoin.getHashJoinConjuncts().isEmpty(), "topJoin hashJoinConjuncts must exist.");
         Preconditions.checkArgument(!bottomJoin.getHashJoinConjuncts().isEmpty(),
@@ -86,13 +83,6 @@ abstract class ThreeJoinHelper {
                 ExpressionUtils.extractConjunction(otherJoinCondition)));
     }
 
-    @SafeVarargs
-    public final void initAllProject(LogicalProject<? extends Plan>... projects) {
-        for (LogicalProject<? extends Plan> project : projects) {
-            allProjects.addAll(project.getProjects());
-        }
-    }
-
     /**
      * Get the onCondition of newTopJoin and newBottomJoin.
      */
@@ -101,17 +91,17 @@ abstract class ThreeJoinHelper {
         // Join C = B + A for above example.
         // TODO: also need for otherJoinCondition
         for (Expression topJoinOnClauseConjunct : topJoin.getHashJoinConjuncts()) {
-            Set<Slot> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
-            if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutput) && ExpressionUtils.isIntersecting(
-                    topJoinUsedSlot, bOutput) && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutput)) {
+            Set<Slot> topJoinUsedSlot = topJoinOnClauseConjunct.collect(Slot.class::isInstance);
+            if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutputSet) && ExpressionUtils.isIntersecting(
+                    topJoinUsedSlot, bOutputSet) && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutputSet)) {
                 return false;
             }
         }
 
-        Set<Slot> newBottomJoinSlots = new HashSet<>(aOutput);
-        newBottomJoinSlots.addAll(cOutput);
+        Set<Slot> newBottomJoinSlots = new HashSet<>(aOutputSet);
+        newBottomJoinSlots.addAll(cOutputSet);
         for (Expression hashConjunct : allHashJoinConjuncts) {
-            Set<SlotReference> slots = hashConjunct.collect(SlotReference.class::isInstance);
+            Set<Slot> slots = hashConjunct.collect(Slot.class::isInstance);
             if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomHashJoinConjuncts.add(hashConjunct);
             } else {
@@ -119,7 +109,7 @@ abstract class ThreeJoinHelper {
             }
         }
         for (Expression nonHashConjunct : allNonHashJoinConjuncts) {
-            Set<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
+            Set<Slot> slots = nonHashConjunct.collect(Slot.class::isInstance);
             if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomNonHashJoinConjuncts.add(nonHashConjunct);
             } else {

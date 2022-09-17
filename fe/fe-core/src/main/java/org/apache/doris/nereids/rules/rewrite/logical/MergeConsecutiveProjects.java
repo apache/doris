@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.Collections;
@@ -56,16 +55,14 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
     private static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
-        /**
+        /*
          * case 1:
          *          project(alias(c) as d, alias(x) as y)
-         *                      |
-         *                      |                          ===>       project(alias(a) as d, alias(b) as y)
-         *                      |
+         *                      |                            ===>       project(alias(a) as d, alias(b) as y)
          *          project(slotRef(a) as c, slotRef(b) as x)
          * case 2:
          *         project(slotRef(x.c), slotRef(x.d))
-         *                      |                          ===>       project(slotRef(a) as x.c, slotRef(b) as x.d)
+         *                      |                            ===>       project(slotRef(a) as x.c, slotRef(b) as x.d)
          *         project(slotRef(a) as c, slotRef(b) as d)
          * case 3: others
          */
@@ -97,19 +94,37 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalProject(logicalProject()).then(project -> {
             List<NamedExpression> projectExpressions = project.getProjects();
-            LogicalProject<GroupPlan> childProject = project.child();
-            List<NamedExpression> childProjectExpressions = childProject.getProjects();
-            Map<Expression, Expression> childAliasMap = childProjectExpressions.stream()
-                    .filter(e -> e instanceof Alias)
-                    .collect(Collectors.toMap(
-                            NamedExpression::toSlot, e -> e)
-                    );
+            List<NamedExpression> childProjectExpressions = project.child().getProjects();
 
-            projectExpressions = projectExpressions.stream()
-                    .map(e -> MergeConsecutiveProjects.ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
-                    .map(NamedExpression.class::cast)
-                    .collect(Collectors.toList());
-            return new LogicalProject<>(projectExpressions, childProject.children().get(0));
+            return new LogicalProject<>(
+                    mergeProjects(projectExpressions, childProjectExpressions),
+                    project.child().child());
         }).toRule(RuleType.MERGE_CONSECUTIVE_PROJECTS);
+    }
+
+    /**
+     * Merge two project.
+     */
+    public static List<NamedExpression> mergeProjects(List<NamedExpression> parentProjects,
+            List<NamedExpression> childProjects) {
+        // NOTICE!: parentProjects is empty means we don't add parent Project.
+        if (parentProjects.isEmpty()) {
+            return childProjects;
+        }
+        if (childProjects.isEmpty()) {
+            return parentProjects;
+        }
+
+        Map<Expression, Expression> childAliasMap = childProjects.stream()
+                .filter(e -> e instanceof Alias)
+                .collect(Collectors.toMap(
+                        NamedExpression::toSlot, e -> e)
+                );
+
+        parentProjects = parentProjects.stream()
+                .map(e -> MergeConsecutiveProjects.ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
+                .map(NamedExpression.class::cast)
+                .collect(Collectors.toList());
+        return parentProjects;
     }
 }

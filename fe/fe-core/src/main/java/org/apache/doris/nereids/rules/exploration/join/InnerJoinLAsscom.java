@@ -20,6 +20,9 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
@@ -37,7 +40,7 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), group())
-                .when(topJoin -> JoinLAsscomHelper.checkInner(topJoin, topJoin.left()))
+                .when(topJoin -> checkInner(topJoin, topJoin.left()))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
                     if (!helper.initJoinOnCondition()) {
@@ -45,5 +48,11 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     }
                     return helper.newTopJoin();
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LASSCOM);
+    }
+
+    private boolean checkInner(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+        return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                && !topJoin.getJoinReorderContext().hasLAsscom();
     }
 }

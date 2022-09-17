@@ -21,12 +21,14 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
@@ -75,32 +77,46 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
                     }
 
+                    // Merge topProjects-bottomProjects -> newTopProjects
+                    List<NamedExpression> newTopProjects = JoinReorderUtil.mergeProjects(topSemiJoin.getProjects(),
+                            bottomJoin.getProjects());
+                    List<NamedExpression> newBottomProjects = ImmutableList.of();
                     if (lasscom) {
-                        /*
-                         *    topSemiJoin                newTopJoin
-                         *      /     \                 /         \
-                         * bottomJoin  C   -->  newBottomSemiJoin  B
-                         *  /    \                  /    \
-                         * A      B                A      C
+                        /* if exists inside-project, we will merge topProjects and bottomProjects.
+                         *       topProjects                     topProjects
+                         *       topSemiJoin                    bottomProjects
+                         *       /         \                      newTopJoin
+                         * bottomProjects  C                    /         \
+                         *   bottomJoin            -->  newBottomSemiJoin   B
+                         *    /    \                        /      \
+                         *   A      B                      A       C
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinCondition(), a, c);
+                                topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
+                                topSemiJoin.getOtherJoinCondition(), newBottomProjects, a, c,
+                                topSemiJoin.getJoinReorderContext());
+
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinCondition(), newBottomSemiJoin, b);
+                                bottomJoin.getOtherJoinCondition(), newTopProjects, newBottomSemiJoin, b,
+                                bottomJoin.getJoinReorderContext());
                     } else {
-                        /*
-                         *    topSemiJoin            newTopJoin
-                         *      /     \             /         \
-                         * bottomJoin  C   -->     A   newBottomSemiJoin
-                         *  /    \                         /      \
-                         * A      B                       B        C
+                        /* if exists inside-project, we will merge topProject and inside-project.
+                         *       topProjects                  topProjects
+                         *       topSemiJoin                 newTopProjects
+                         *       /         \                   newTopJoin
+                         *  bottomProjects  C                 /         \
+                         *   bottomJoin            -->       A    newBottomSemiJoin
+                         *    /    \                                  /      \
+                         *   A      B                                B       C
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinCondition(), b, c);
+                                topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
+                                topSemiJoin.getOtherJoinCondition(), newBottomProjects, b, c,
+                                topSemiJoin.getJoinReorderContext());
+
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinCondition(), a, newBottomSemiJoin);
+                                bottomJoin.getOtherJoinCondition(), newTopProjects, a, newBottomSemiJoin,
+                                bottomJoin.getJoinReorderContext());
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }

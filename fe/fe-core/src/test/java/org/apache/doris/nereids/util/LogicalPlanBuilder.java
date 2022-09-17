@@ -68,7 +68,7 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
-    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
+    public LogicalPlanBuilder hashJoin(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
         ImmutableList<EqualTo> hashConjunts = ImmutableList.of(
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 

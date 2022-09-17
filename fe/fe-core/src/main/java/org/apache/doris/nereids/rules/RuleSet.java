@@ -18,13 +18,9 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
-import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
-import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
-import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -42,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushProjectInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
@@ -55,25 +52,33 @@ import java.util.List;
  * Containers for set of different type rules.
  */
 public class RuleSet {
-    public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
+    public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.LEFT_DEEP)
-            .add(JoinCommuteProject.LEFT_DEEP)
             .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(OuterJoinLAsscom.INSTANCE)
-            .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
-            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
-            .add(new PushdownFilterThroughProject())
-            .add(new MergeConsecutiveProjects())
+            .build();
+
+    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
+            .add(JoinCommute.ZIG_ZAG)
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(OuterJoinLAsscom.INSTANCE)
+            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
+            .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .build();
+
+    public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
+            .addAll(LEFT_DEEP_TREE_JOIN_REORDER)
+            .add(PushProjectInsideJoin.INSTANCE)
+            .add(PushdownFilterThroughProject.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
             new PushdownJoinOtherCondition(),
             new PushPredicatesThroughJoin(),
             new PushdownProjectThroughLimit(),
-            new PushdownFilterThroughProject(),
+            PushdownFilterThroughProject.INSTANCE,
             new MergeConsecutiveProjects(),
             new MergeConsecutiveFilters(),
             new MergeConsecutiveLimits());
@@ -91,40 +96,6 @@ public class RuleSet {
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
-            .build();
-
-    public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
-            // .add(JoinCommute.LEFT_DEEP)
-            // .add(JoinLAsscom.INNER)
-            // .add(JoinLAsscomProject.INNER)
-            // .add(JoinLAsscom.OUTER)
-            // .add(JoinLAsscomProject.OUTER)
-            // semi join Transpose ....
-            .build();
-
-    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
-            // .add(JoinCommute.ZIG_ZAG)
-            // .add(JoinLAsscom.INNER)
-            // .add(JoinLAsscomProject.INNER)
-            // .add(JoinLAsscom.OUTER)
-            // .add(JoinLAsscomProject.OUTER)
-            // semi join Transpose ....
-            .build();
-
-    public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.BUSHY)
-            // TODO: add more rule
-            // .add(JoinLeftAssociate.INNER)
-            // .add(JoinLeftAssociateProject.INNER)
-            // .add(JoinRightAssociate.INNER)
-            // .add(JoinRightAssociateProject.INNER)
-            // .add(JoinExchange.INNER)
-            // .add(JoinExchangeBothProject.INNER)
-            // .add(JoinExchangeLeftProject.INNER)
-            // .add(JoinExchangeRightProject.INNER)
-            // .add(JoinRightAssociate.OUTER)
-            // .add(JoinLAsscom.OUTER)
-            // semi join Transpose ....
             .build();
 
     public List<Rule> getExplorationRules() {
