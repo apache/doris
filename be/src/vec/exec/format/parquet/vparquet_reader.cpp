@@ -113,8 +113,6 @@ Status ParquetReader::get_next_block(Block* block, bool* eof) {
     if (_batch_eof) {
         if (!_next_row_group_reader()) {
             *eof = true;
-        } else {
-            _read_row_groups.pop_front();
         }
     }
     return Status::OK();
@@ -175,11 +173,11 @@ void ParquetReader::_init_conjuncts(const std::vector<ExprContext*>& conjunct_ct
             SlotId conjunct_slot_id = slot_ref->slot_id();
             if (conjunct_slot_id == _tuple_desc->slots()[i]->id()) {
                 // Get conjuncts by conjunct_slot_id
-                auto iter = _slot_conjuncts.find(conjunct_slot_id);
+                auto iter = _slot_conjuncts.find(parquet_col_id);
                 if (_slot_conjuncts.end() == iter) {
                     std::vector<ExprContext*> conjuncts;
                     conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
-                    _slot_conjuncts.emplace(std::make_pair(conjunct_slot_id, conjuncts));
+                    _slot_conjuncts.emplace(std::make_pair(parquet_col_id, conjuncts));
                 } else {
                     std::vector<ExprContext*> conjuncts = iter->second;
                     conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
@@ -238,7 +236,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
 
     std::vector<RowRange> skipped_row_ranges;
     for (auto& read_col : _read_columns) {
-        auto conjunct_iter = _slot_conjuncts.find(read_col._slot_desc->id());
+        auto conjunct_iter = _slot_conjuncts.find(read_col._parquet_col_id);
         if (_slot_conjuncts.end() == conjunct_iter) {
             continue;
         }
@@ -277,7 +275,7 @@ Status ParquetReader::_process_page_index(tparquet::RowGroup& row_group) {
               });
     int skip_end = -1;
     for (auto& skip_range : skipped_row_ranges) {
-        LOG(WARNING) << skip_range.first_row << " " << skip_range.last_row << " | ";
+        VLOG_DEBUG << skip_range.first_row << " " << skip_range.last_row << " | ";
         if (skip_end + 1 >= skip_range.first_row) {
             if (skip_end < skip_range.last_row) {
                 skip_end = skip_range.last_row;
@@ -307,16 +305,16 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
     std::unordered_set<int> _parquet_column_ids(_include_column_ids.begin(),
                                                 _include_column_ids.end());
     for (SlotId slot_id = 0; slot_id < _tuple_desc->slots().size(); slot_id++) {
-        auto slot_iter = _slot_conjuncts.find(slot_id);
-        if (slot_iter == _slot_conjuncts.end()) {
-            continue;
-        }
         const std::string& col_name = _tuple_desc->slots()[slot_id]->col_name();
         auto col_iter = _map_column.find(col_name);
         if (col_iter == _map_column.end()) {
             continue;
         }
         int parquet_col_id = col_iter->second;
+        auto slot_iter = _slot_conjuncts.find(parquet_col_id);
+        if (slot_iter == _slot_conjuncts.end()) {
+            continue;
+        }
         if (_parquet_column_ids.end() == _parquet_column_ids.find(parquet_col_id)) {
             // Column not exist in parquet file
             continue;

@@ -28,17 +28,18 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
     const auto& page_locations = offset_index.page_locations;
     DCHECK_LT(page_idx, page_locations.size());
     row_range->first_row = page_locations[page_idx].first_row_index;
+    // the row range is right open section as "[first_row, last_row)"
     if (page_idx == page_locations.size() - 1) {
-        row_range->last_row = total_rows_of_group - 1;
+        row_range->last_row = total_rows_of_group;
     } else {
-        row_range->last_row = page_locations[page_idx + 1].first_row_index - 1;
+        row_range->last_row = page_locations[page_idx + 1].first_row_index;
     }
     return Status::OK();
 }
 
 Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index,
                                              std::vector<ExprContext*> conjuncts,
-                                             std::vector<int> skipped_ranges) {
+                                             std::vector<int>& skipped_ranges) {
     const vector<std::string>& encoded_min_vals = column_index->min_values;
     const vector<std::string>& encoded_max_vals = column_index->max_values;
     DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
@@ -62,7 +63,7 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
             }
         }
     }
-    LOG(WARNING) << "skipped_ranges.size()=" << skipped_ranges.size();
+    VLOG_DEBUG << "skipped_ranges.size()=" << skipped_ranges.size();
     return Status::OK();
 }
 
