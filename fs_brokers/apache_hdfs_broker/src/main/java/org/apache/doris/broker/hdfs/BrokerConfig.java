@@ -21,19 +21,19 @@ import org.apache.doris.common.ConfigBase;
 
 
 public class BrokerConfig extends ConfigBase {
-    
+
     @ConfField
     public static int hdfs_read_buffer_size_kb = 1024;
-    
+
     @ConfField
     public static int hdfs_write_buffer_size_kb = 1024;
-    
+
     @ConfField
-    public static int client_expire_seconds = 1800;
-    
+    public static int client_expire_seconds = 3600;
+
     @ConfField
     public static int broker_ipc_port = 8000;
-    
+
     @ConfField
     public static String sys_log_dir = System.getenv("BROKER_HOME") + "/log";
     @ConfField
