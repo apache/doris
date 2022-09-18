@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## date_sub
+## seconds_sub
 ### description
 #### Syntax
 
