@@ -2211,3 +2211,24 @@ Default: 1073741824
 Is it possible to dynamically configure: false
 
 Is it a configuration item unique to the Master FE node: false
+
+### `block_data_version`
+
+Used to define the serialization format for passing blocks between fragments.
+
+Sometimes some of our code changes will change the data format of the block. In order to make the BE compatible with each other during the rolling upgrade process, we need to issue a data version from the FE to decide what format to send the data in.
+
+Specifically, for example, there are 2 BEs in the cluster, one of which can support the latest $v_1$ after being upgraded, while the other only supports $v_0$. At this time, since the FE has not been upgraded yet, $v_0 is issued uniformly. $, BE interact in the old data format. After all BEs are upgraded, we will upgrade FE. At this time, the new FE will issue $v_1$, and the cluster will be uniformly switched to the new data format.
+
+
+The default value is `max_block_data_version`. If there are special needs, we can manually set the format version to lower, but it should not be lower than `min_block_data_version`.
+
+Note that we should always keep the value of this variable between `Block::min_data_version` and `Block::max_data_version` for all BEs. (That is to say, if a cluster that has completed the update needs to be downgraded, it should ensure the order of downgrading FE and then downgrading BE, or manually lower the variable in the settings and downgrade BE)
+
+### `max_block_data_version`
+
+The latest data version currently supported, cannot be modified, and should be consistent with the `Block::max_data_version` in the BE of the matching version.
+
+### `min_block_data_version`
+
+The oldest data version currently supported, which cannot be modified, should be consistent with the `Block::min_data_version` in the BE of the matching version.
