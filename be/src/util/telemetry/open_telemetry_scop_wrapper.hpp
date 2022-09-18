@@ -18,6 +18,7 @@
 #pragma once
 
 #include "opentelemetry/trace/provider.h"
+#include "common/compiler_util.h"
 
 namespace doris {
 
