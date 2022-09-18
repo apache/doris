@@ -26,6 +26,8 @@
 #include "opentelemetry/exporters/otlp/otlp_http_exporter.h"
 #include "opentelemetry/exporters/zipkin/zipkin_exporter.h"
 #include "opentelemetry/nostd/shared_ptr.h"
+#include "opentelemetry/sdk/common/attribute_utils.h"
+#include "opentelemetry/sdk/common/global_log_handler.h"
 #include "opentelemetry/sdk/trace/batch_span_processor.h"
 #include "opentelemetry/sdk/trace/tracer_provider.h"
 #include "opentelemetry/trace/propagation/http_trace_context.h"
@@ -38,6 +40,18 @@ namespace zipkin = opentelemetry::exporter::zipkin;
 namespace resource = opentelemetry::sdk::resource;
 namespace propagation = opentelemetry::context::propagation;
 namespace otlp = opentelemetry::exporter::otlp;
+namespace internal_log = opentelemetry::sdk::common::internal_log;
+
+class OpenTelemetryLogHandler : public internal_log::LogHandler {
+public:
+    void Handle(internal_log::LogLevel level, const char* file, int line, const char* msg,
+                const opentelemetry::sdk::common::AttributeMap& attributes) noexcept override {
+        if ((level == internal_log::LogLevel::Error || level == internal_log::LogLevel::Warning) &&
+            file != nullptr && msg != nullptr) {
+            LOG(WARNING) << fmt::format("OpenTelemetry File: {}:{} {}", file, line, msg);
+        }
+    }
+};
 
 void doris::telemetry::init_tracer() {
     if (!doris::config::enable_tracing) {
@@ -82,4 +96,8 @@ void doris::telemetry::init_tracer() {
     propagation::GlobalTextMapPropagator::SetGlobalPropagator(
             nostd::shared_ptr<propagation::TextMapPropagator>(
                     new opentelemetry::trace::propagation::HttpTraceContext()));
+
+    // Output OpenTelemetry logs by glog
+    internal_log::GlobalLogHandler::SetLogHandler(
+            nostd::shared_ptr<internal_log::LogHandler>(new OpenTelemetryLogHandler()));
 }
