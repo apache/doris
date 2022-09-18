@@ -62,8 +62,8 @@ public:
 
     // check if this load channel mem consumption exceeds limit.
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    // If wait flush is true, the mehtod will not return until the chosen tablet channels
-    // finished memtable flush.
+    // The mehtod will not return until the chosen tablet channels finished memtable
+    // flush.
     template <typename TabletWriterAddResult>
     Status handle_mem_exceed_limit(TabletWriterAddResult* response);
 
@@ -182,6 +182,7 @@ Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
                   << " ,mem consumption: " << _mem_tracker->consumption();
         found = _find_largest_consumption_channel(&channel);
     }
+    // Release lock so that other threads can still call add_batch concurrently.
     if (found) {
         DCHECK(channel != nullptr);
         return channel->reduce_mem_usage(_mem_tracker->limit(), response);
