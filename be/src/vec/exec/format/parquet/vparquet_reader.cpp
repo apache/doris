@@ -111,7 +111,7 @@ Status ParquetReader::get_next_block(Block* block, bool* eof) {
         if (!_next_row_group_reader()) {
             *eof = true;
         } else {
-            _read_row_groups.pop_front();
+            // _read_row_groups.pop_front();
         }
     }
     return Status::OK();

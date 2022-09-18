@@ -57,7 +57,7 @@ if ! ${PYTHON} --version; then
 fi
 
 if [[ -z "${DORIS_TOOLCHAIN}" ]]; then
-    DORIS_TOOLCHAIN=gcc
+    DORIS_TOOLCHAIN=clang
 fi
 
 if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then

@@ -86,8 +86,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 void VScanner::_init_input_block(Block* output_block) {
-//    if (_input_tuple_desc == nullptr)
-    if (true) {
+    if (_input_tuple_desc == nullptr) {
         _input_block_ptr = output_block;
         return;
     }

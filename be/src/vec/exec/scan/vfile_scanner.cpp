@@ -48,7 +48,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _mem_pool(std::make_unique<MemPool>()),
           _profile(profile),
           _pre_filter_texprs(pre_filter_texprs),
-          _strict_mode(false){}
+          _strict_mode(false) {}
 
 Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
@@ -134,36 +134,38 @@ Status VFileScanner::_get_next_reader() {
             continue;
         }
         _cur_reader = new ParquetReader(file_reader.release(), _file_slot_descs.size(),
-                                                 _state->query_options().batch_size,range.start_offset, range.size,
-                                                 const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-//        _cur_reader.reset(reader);
-        Status status =
-                _cur_reader->init_reader(_output_tuple_desc, _file_slot_descs, _conjunct_ctxs, _state->timezone());
+                                        _state->query_options().batch_size, range.start_offset,
+                                        range.size,
+                                        const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+        //        _cur_reader.reset(reader);
+        Status status = _cur_reader->init_reader(_output_tuple_desc, _file_slot_descs,
+                                                 _conjunct_ctxs, _state->timezone());
+        _cur_reader_eof = false;
         return status;
     }
 }
 
 Status VFileScanner::_init_expr_ctxes() {
-    if (_input_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown source tuple descriptor, tuple_id=" << _params.src_tuple_id;
-        return Status::InternalError(ss.str());
-    }
+    // if (_input_tuple_desc == nullptr) {
+    //     std::stringstream ss;
+    //     ss << "Unknown source tuple descriptor, tuple_id=" << _params.src_tuple_id;
+    //     return Status::InternalError(ss.str());
+    // }
     DCHECK(!_ranges.empty());
 
-    std::map<SlotId, int> _full_src_index_map;
-    std::map<SlotId, SlotDescriptor*> _full_src_slot_map;
+    std::map<SlotId, int> full_src_index_map;
+    std::map<SlotId, SlotDescriptor*> full_src_slot_map;
     int index = 0;
-    for (const auto& slot_desc : _input_tuple_desc->slots()) {
-        _full_src_slot_map.emplace(slot_desc->id(), slot_desc);
-        _full_src_index_map.emplace(slot_desc->id(), index++);
+    for (const auto& slot_desc : _real_tuple_desc->slots()) {
+        full_src_slot_map.emplace(slot_desc->id(), slot_desc);
+        full_src_index_map.emplace(slot_desc->id(), index++);
     }
 
     _num_of_columns_from_file = _params.num_of_columns_from_file;
     for (const auto& slot_info : _params.required_slots) {
         auto slot_id = slot_info.slot_id;
-        auto it = _full_src_slot_map.find(slot_id);
-        if (it == std::end(_full_src_slot_map)) {
+        auto it = full_src_slot_map.find(slot_id);
+        if (it == std::end(full_src_slot_map)) {
             std::stringstream ss;
             ss << "Unknown source slot descriptor, slot_id=" << slot_id;
             return Status::InternalError(ss.str());
@@ -171,35 +173,36 @@ Status VFileScanner::_init_expr_ctxes() {
         _required_slot_descs.emplace_back(it->second);
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
-            auto iti = _full_src_index_map.find(slot_id);
+            auto iti = full_src_index_map.find(slot_id);
             _file_slot_index_map.emplace(slot_id, iti->second);
         } else {
             _partition_slot_descs.emplace_back(it->second);
-            auto iti = _full_src_index_map.find(slot_id);
+            auto iti = full_src_index_map.find(slot_id);
             _partition_slot_index_map.emplace(slot_id, iti->second - _num_of_columns_from_file);
         }
     }
 
-    _src_tuple = (doris::Tuple*)_mem_pool->allocate(_input_tuple_desc->byte_size());
-    _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
-    _src_tuple_row->set_tuple(0, _src_tuple);
-    _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                      std::vector<TupleId>({_params.src_tuple_id}),
-                                      std::vector<bool>({false})));
-
-    // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
-    if (!_pre_filter_texprs.empty()) {
-        // for vectorized, preceding filter exprs should be compounded to one passed from fe.
-        DCHECK(_pre_filter_texprs.size() == 1);
-        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
-                _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
-    }
+    // _src_tuple = (doris::Tuple*)_mem_pool->allocate(_input_tuple_desc->byte_size());
+    // _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
+    // _src_tuple_row->set_tuple(0, _src_tuple);
 
     // Construct dest slots information
     if (config::enable_new_load_scan_node) {
+        _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
+                                          std::vector<TupleId>({_params.src_tuple_id}),
+                                          std::vector<bool>({false})));
+
+        // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
+        if (!_pre_filter_texprs.empty()) {
+            // for vectorized, preceding filter exprs should be compounded to one passed from fe.
+            DCHECK(_pre_filter_texprs.size() == 1);
+            _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
+                    _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
+        }
+
         if (_output_tuple_desc == nullptr) {
             return Status::InternalError("Unknown dest tuple descriptor, tuple_id={}",
                                          _params.dest_tuple_id);
@@ -227,8 +230,8 @@ Status VFileScanner::_init_expr_ctxes() {
                 if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
                     _src_slot_descs_order_by_dest.emplace_back(nullptr);
                 } else {
-                    auto _src_slot_it = _full_src_slot_map.find(it1->second);
-                    if (_src_slot_it == std::end(_full_src_slot_map)) {
+                    auto _src_slot_it = full_src_slot_map.find(it1->second);
+                    if (_src_slot_it == std::end(full_src_slot_map)) {
                         return Status::InternalError("No src slot {} in src slot descs",
                                                      it1->second);
                     }
