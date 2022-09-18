@@ -42,21 +42,6 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
     return std::min<int64_t>(max_load_memory_bytes, config::load_process_max_memory_limit_bytes);
 }
 
-// Calculate the memory limit for a single load channel.
-static int64_t calc_channel_max_load_memory(int64_t load_mem_limit, int64_t total_mem_limit) {
-    // default mem limit is used to be compatible with old request.
-    // new request should be set load_mem_limit.
-    constexpr int64_t default_channel_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
-    int64_t channel_mem_limit = default_channel_mem_limit;
-    if (load_mem_limit != -1) {
-        // mem-limit of a certain load should between config::write_buffer_size
-        // and total-memory-limit
-        channel_mem_limit = std::max<int64_t>(load_mem_limit, config::write_buffer_size);
-        channel_mem_limit = std::min<int64_t>(channel_mem_limit, total_mem_limit);
-    }
-    return channel_mem_limit;
-}
-
 static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
     int64_t load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
     if (timeout_in_req_s > 0) {
@@ -84,6 +69,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mgr_mem_limit = calc_process_max_load_memory(process_mem_limit);
+    _load_process_soft_limit = load_mgr_mem_limit * config::load_process_soft_limit_percent / 100;
     _mem_tracker = std::make_shared<MemTrackerLimiter>(load_mgr_mem_limit, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
@@ -107,11 +93,9 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t channel_timeout_s = calc_channel_timeout_s(timeout_in_req_s);
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
 
-            int64_t load_mem_limit = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
-            int64_t channel_mem_limit =
-                    calc_channel_max_load_memory(load_mem_limit, _mem_tracker->limit());
+            // Use the same mem limit as LoadChannelMgr for a single load channel
             auto channel_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    channel_mem_limit,
+                    _mem_tracker->limit(),
                     fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
                                 load_id.to_string()),
                     _mem_tracker);
@@ -124,6 +108,13 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
     RETURN_IF_ERROR(channel->open(params));
     return Status::OK();
+}
+
+void LoadChannelMgr::_pending_if_hard_limit_exceeded() {
+    std::unique_lock<std::mutex> l(_lock);
+    while (_hard_limit_reached) {
+        _hard_limit_cond.wait(l);
+    }
 }
 
 static void dummy_deleter(const CacheKey& key, void* value) {}

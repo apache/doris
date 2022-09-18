@@ -62,10 +62,10 @@ public:
 
     // check if this load channel mem consumption exceeds limit.
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    // If force is true, even if this load channel does not exceeds limit, it will still
-    // try to reduce memory.
+    // If wait flush is true, the mehtod will not return until the chosen tablet channels
+    // finished memtable flush.
     template <typename TabletWriterAddResult>
-    Status handle_mem_exceed_limit(bool force, TabletWriterAddResult* response);
+    Status handle_mem_exceed_limit(TabletWriterAddResult* response);
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
@@ -141,10 +141,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
         return st;
     }
 
-    // 2. check if mem consumption exceed limit
-    RETURN_IF_ERROR(handle_mem_exceed_limit(false, response));
-
-    // 3. add batch to tablets channel
+    // 2. add batch to tablets channel
     if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
         if (request.has_row_batch()) {
             RETURN_IF_ERROR(channel->add_batch(request, response));
@@ -155,7 +152,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
         }
     }
 
-    // 4. handle eos
+    // 3. handle eos
     if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel, request, response);
         if (!st.ok()) {
@@ -174,20 +171,19 @@ inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channe
 }
 
 template <typename TabletWriterAddResult>
-Status LoadChannel::handle_mem_exceed_limit(bool force, TabletWriterAddResult* response) {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!(force || _mem_tracker->limit_exceeded())) {
-        return Status::OK();
-    }
-
-    if (!force) {
-        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
-                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    }
-
+Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
+    bool found = false;
     std::shared_ptr<TabletsChannel> channel;
-    if (_find_largest_consumption_channel(&channel)) {
+    {
+        // lock so that only one thread can check mem limit
+        std::lock_guard<std::mutex> l(_lock);
+
+        LOG(INFO) << "reducing memory of " << *this
+                  << " ,mem consumption: " << _mem_tracker->consumption();
+        found = _find_largest_consumption_channel(&channel);
+    }
+    if (found) {
+        DCHECK(channel != nullptr);
         return channel->reduce_mem_usage(_mem_tracker->limit(), response);
     } else {
         // should not happen, add log to observe

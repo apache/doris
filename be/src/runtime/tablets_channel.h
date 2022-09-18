@@ -30,6 +30,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
+#include "util/countdown_latch.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -104,6 +105,8 @@ private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
+    void _pending_on_reduce_mem_usage();
+
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
@@ -146,6 +149,12 @@ private:
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.
     std::unordered_set<int64_t> _broken_tablets;
+
+    bool _reducing_mem_usage = false;
+    // only one thread can reduce memory for one TabletsChannel.
+    // if some other thread call `reduce_memory_usage` at the same time,
+    // it will wait on this condition variable.
+    std::condition_variable _reduce_memory_cond;
 
     std::unordered_set<int64_t> _partition_ids;
 
