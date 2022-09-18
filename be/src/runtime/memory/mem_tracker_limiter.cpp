@@ -213,7 +213,8 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
         } else {
             detail += "\n" + log_usage();
         }
-        detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+        // TODO: memory leak by calling `boost::stacktrace` in mem hook
+        // detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
         LOG(WARNING) << detail;
         _print_log_usage = false;
     }
