@@ -205,7 +205,7 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    // char_type columns cid
+    // char_type or array<char> type columns cid
     std::vector<size_t> _char_type_idx;
 
     // number of rows read in the current batch

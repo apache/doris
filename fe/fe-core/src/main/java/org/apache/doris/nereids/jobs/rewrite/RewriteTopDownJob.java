@@ -44,7 +44,11 @@ public class RewriteTopDownJob extends Job {
     public RewriteTopDownJob(Group group, JobContext context, List<RuleFactory> factories) {
         this(group, factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())
-                .collect(Collectors.toList()), context);
+                .collect(Collectors.toList()), context, true);
+    }
+
+    public RewriteTopDownJob(Group group, List<Rule> rules, JobContext context) {
+        this(group, rules, context, true);
     }
 
     /**
@@ -54,8 +58,8 @@ public class RewriteTopDownJob extends Job {
      * @param rules rewrite rules
      * @param context planner context
      */
-    public RewriteTopDownJob(Group group, List<Rule> rules, JobContext context) {
-        super(JobType.TOP_DOWN_REWRITE, context);
+    public RewriteTopDownJob(Group group, List<Rule> rules, JobContext context, boolean once) {
+        super(JobType.TOP_DOWN_REWRITE, context, once);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
     }
@@ -84,6 +88,7 @@ public class RewriteTopDownJob extends Job {
                     if (result.generateNewExpression) {
                         // new group-expr replaced the origin group-expr in `group`,
                         // run this rule against this `group` again.
+                        context.setRewritten(true);
                         pushJob(new RewriteTopDownJob(group, rules, context));
                         return;
                     }

@@ -28,13 +28,16 @@ import java.util.Objects;
  */
 public class VarcharType extends CharacterType {
 
-    public static VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
 
     public VarcharType(int len) {
         super(len);
     }
 
     public static VarcharType createVarcharType(int len) {
+        if (len == SYSTEM_DEFAULT.len) {
+            return SYSTEM_DEFAULT;
+        }
         return new VarcharType(len);
     }
 

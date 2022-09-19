@@ -182,7 +182,7 @@ public class Group {
      */
     public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
         if (lowestCostPlans.containsKey(properties)) {
-            if (lowestCostPlans.get(properties).first > cost) {
+            if (lowestCostPlans.get(properties).first >= cost) {
                 lowestCostPlans.put(properties, Pair.of(cost, expression));
             }
         } else {

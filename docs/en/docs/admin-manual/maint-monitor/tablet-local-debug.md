@@ -103,7 +103,7 @@ There will be a directory named tablet id under this directory, which will be pa
 
 ```
 cd /path/to/be/storage/snapshot/20220830101353.2.3600
-tar xzf 10020.tar.gz 10020/
+tar czf 10020.tar.gz 10020/
 ```
 
 The command will also generate the table creation statement corresponding to the tablet at the same time. Note that this table creation statement is not the original table creation statement, its bucket number and replica number are both 1, and the `versionInfo` field is specified. This table building statement is used later when loading the tablet locally.

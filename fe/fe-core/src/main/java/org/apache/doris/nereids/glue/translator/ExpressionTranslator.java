@@ -57,7 +57,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
@@ -232,7 +232,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitCast(Cast cast, PlanTranslatorContext context) {
         // left child of cast is expression, right child of cast is target type
         return new CastExpr(cast.getDataType().toCatalogDataType(),
-                cast.child().accept(this, context));
+                cast.child().accept(this, context), null);
     }
 
     @Override
@@ -256,6 +256,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             Count count = (Count) function;
             if (count.isStar()) {
                 return new FunctionCallExpr(function.getName(), FunctionParams.createStarParam());
+            } else if (count.isDistinct()) {
+                return new FunctionCallExpr(function.getName(), new FunctionParams(true, paramList));
             }
         }
         return new FunctionCallExpr(function.getName(), paramList);

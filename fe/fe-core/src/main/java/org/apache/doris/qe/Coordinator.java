@@ -263,7 +263,7 @@ public class Coordinator {
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
-        this.assignedRuntimeFilters = analyzer.getAssignedRuntimeFilter();
+        this.assignedRuntimeFilters = planner.getRuntimeFilters();
     }
 
     // Used for broker load task/export task/update coordinator

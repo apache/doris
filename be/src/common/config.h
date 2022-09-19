@@ -72,7 +72,7 @@ CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+CONF_String(mem_limit, "90%");
 
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
@@ -161,7 +161,7 @@ CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
-CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
@@ -256,6 +256,9 @@ CONF_mBool(disable_auto_compaction, "false");
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
+
+// serialize data version
+CONF_mInt32(block_data_version, "-1");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");

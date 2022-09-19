@@ -80,12 +80,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LOCAL:
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             case GLOBAL:
+            case DISTINCT_LOCAL:
                 List<ExprId> columns = agg.getPartitionExpressions().stream()
                         .map(SlotReference.class::cast)
                         .map(SlotReference::getExprId)
                         .collect(Collectors.toList());
                 return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.AGGREGATE));
-            case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());

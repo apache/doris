@@ -211,7 +211,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         Builder<Expression> builder = new Builder<Expression>()
                 .addAll(hashJoinConjuncts);
         otherJoinCondition.ifPresent(builder::add);

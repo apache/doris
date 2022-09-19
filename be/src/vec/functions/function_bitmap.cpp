@@ -63,7 +63,7 @@ struct ToBitmap {
                 continue;
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                size_t str_size = offsets[i] - offsets[i - 1];
                 StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
                 uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
                         raw_str, str_size, &parse_result);
@@ -85,7 +85,7 @@ struct BitmapFromString {
         std::vector<uint64_t> bits;
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+            int64_t str_size = offsets[i] - offsets[i - 1];
 
             if ((str_size > INT32_MAX) ||
                 !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
@@ -153,7 +153,7 @@ struct BitmapHash {
 
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
+            size_t str_size = offsets[i] - offsets[i - 1];
             uint32_t hash_value =
                     HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
             res_data[i].add(hash_value);
@@ -172,7 +172,7 @@ struct BitmapHash {
                 continue;
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                size_t str_size = offsets[i] - offsets[i - 1];
                 uint32_t hash_value =
                         HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
                 res_data[i].add(hash_value);

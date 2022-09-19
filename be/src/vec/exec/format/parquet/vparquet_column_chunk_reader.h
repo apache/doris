@@ -129,7 +129,7 @@ private:
     cctz::time_zone* _ctz;
 
     std::unique_ptr<PageReader> _page_reader = nullptr;
-    std::unique_ptr<BlockCompressionCodec> _block_compress_codec = nullptr;
+    BlockCompressionCodec* _block_compress_codec = nullptr;
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;

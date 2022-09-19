@@ -78,11 +78,14 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    MutableColumnPtr get_shinked_column() override;
+
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
+    bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
     TypeIndex get_data_type() const { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -95,8 +98,6 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;

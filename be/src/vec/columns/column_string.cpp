@@ -31,7 +31,9 @@ namespace doris::vectorized {
 
 MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     auto res = ColumnString::create();
-    if (to_size == 0) return res;
+    if (to_size == 0) {
+        return res;
+    }
 
     size_t from_size = size();
 
@@ -43,29 +45,33 @@ MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     } else {
         /// Copy column and append empty strings for extra elements.
 
-        Offset offset = 0;
         if (from_size > 0) {
             res->offsets.assign(offsets.begin(), offsets.end());
             res->chars.assign(chars.begin(), chars.end());
-            offset = offsets.back();
         }
 
-        /// Empty strings are just zero terminating bytes.
-
-        res->chars.resize_fill(res->chars.size() + to_size - from_size);
-
-        res->offsets.resize(to_size);
-        for (size_t i = from_size; i < to_size; ++i) {
-            ++offset;
-            res->offsets[i] = offset;
-        }
+        res->offsets.resize_fill(to_size, chars.size());
     }
 
     return res;
 }
 
+MutableColumnPtr ColumnString::get_shinked_column() {
+    auto shrinked_column = ColumnString::create();
+    shrinked_column->get_offsets().reserve(offsets.size());
+    shrinked_column->get_chars().reserve(chars.size());
+    for (int i = 0; i < size(); i++) {
+        StringRef str = get_data_at(i);
+        reinterpret_cast<ColumnString*>(shrinked_column.get())
+                ->insert_data(str.data, strnlen(str.data, str.size));
+    }
+    return shrinked_column;
+}
+
 void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    if (length == 0) return;
+    if (length == 0) {
+        return;
+    }
 
     const ColumnString& src_concrete = assert_cast<const ColumnString&>(src);
 
@@ -87,9 +93,10 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
         size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
         offsets.resize(old_size + length);
 
-        for (size_t i = 0; i < length; ++i)
+        for (size_t i = 0; i < length; ++i) {
             offsets[old_size + i] =
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
+        }
     }
 }
 
@@ -104,8 +111,30 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
+void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
+                                          const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+            }
+        }
+    }
+}
+
 ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) const {
-    if (offsets.size() == 0) return ColumnString::create();
+    if (offsets.size() == 0) {
+        return ColumnString::create();
+    }
 
     auto res = ColumnString::create();
 
@@ -120,27 +149,32 @@ ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) con
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
-    if (limit == 0)
+    if (limit == 0) {
         limit = size;
-    else
+    } else {
         limit = std::min(size, limit);
+    }
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
     }
 
-    if (limit == 0) return ColumnString::create();
+    if (limit == 0) {
+        return ColumnString::create();
+    }
 
     auto res = ColumnString::create();
 
     Chars& res_chars = res->chars;
     Offsets& res_offsets = res->offsets;
 
-    if (limit == size)
+    if (limit == size) {
         res_chars.resize(chars.size());
-    else {
+    } else {
         size_t new_chars_size = 0;
-        for (size_t i = 0; i < limit; ++i) new_chars_size += size_at(perm[i]);
+        for (size_t i = 0; i < limit; ++i) {
+            new_chars_size += size_at(perm[i]);
+        }
         res_chars.resize(new_chars_size);
     }
 
@@ -253,7 +287,9 @@ void ColumnString::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
 
 template <typename Type>
 ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    if (limit == 0) return ColumnString::create();
+    if (limit == 0) {
+        return ColumnString::create();
+    }
 
     auto res = ColumnString::create();
 
@@ -261,7 +297,9 @@ ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t l
     Offsets& res_offsets = res->offsets;
 
     size_t new_chars_size = 0;
-    for (size_t i = 0; i < limit; ++i) new_chars_size += size_at(indexes[i]);
+    for (size_t i = 0; i < limit; ++i) {
+        new_chars_size += size_at(indexes[i]);
+    }
     res_chars.resize(new_chars_size);
 
     res_offsets.resize(limit);
@@ -289,8 +327,8 @@ struct ColumnString::less {
     explicit less(const ColumnString& parent_) : parent(parent_) {}
     bool operator()(size_t lhs, size_t rhs) const {
         int res = memcmp_small_allow_overflow15(
-                parent.chars.data() + parent.offset_at(lhs), parent.size_at(lhs) - 1,
-                parent.chars.data() + parent.offset_at(rhs), parent.size_at(rhs) - 1);
+                parent.chars.data() + parent.offset_at(lhs), parent.size_at(lhs),
+                parent.chars.data() + parent.offset_at(rhs), parent.size_at(rhs));
 
         return positive ? (res < 0) : (res > 0);
     }
@@ -300,20 +338,26 @@ void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_directi
                                    Permutation& res) const {
     size_t s = offsets.size();
     res.resize(s);
-    for (size_t i = 0; i < s; ++i) res[i] = i;
+    for (size_t i = 0; i < s; ++i) {
+        res[i] = i;
+    }
 
-    if (limit >= s) limit = 0;
+    if (limit >= s) {
+        limit = 0;
+    }
 
     if (limit) {
-        if (reverse)
+        if (reverse) {
             std::partial_sort(res.begin(), res.begin() + limit, res.end(), less<false>(*this));
-        else
+        } else {
             std::partial_sort(res.begin(), res.begin() + limit, res.end(), less<true>(*this));
+        }
     } else {
-        if (reverse)
+        if (reverse) {
             std::sort(res.begin(), res.end(), less<false>(*this));
-        else
+        } else {
             std::sort(res.begin(), res.end(), less<true>(*this));
+        }
     }
 }
 
@@ -325,7 +369,9 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
 
     auto res = ColumnString::create();
 
-    if (0 == col_size) return res;
+    if (0 == col_size) {
+        return res;
+    }
 
     Chars& res_chars = res->chars;
     Offsets& res_offsets = res->offsets;
@@ -358,7 +404,9 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
 
 void ColumnString::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
     size_t col_size = size();
-    if (0 == col_size) return;
+    if (0 == col_size) {
+        return;
+    }
 
     auto& res = reinterpret_cast<ColumnString&>(column);
 
@@ -407,7 +455,9 @@ void ColumnString::get_extremes(Field& min, Field& max) const {
 
     size_t col_size = size();
 
-    if (col_size == 0) return;
+    if (col_size == 0) {
+        return;
+    }
 
     size_t min_idx = 0;
     size_t max_idx = 0;
@@ -415,10 +465,11 @@ void ColumnString::get_extremes(Field& min, Field& max) const {
     less<true> less_op(*this);
 
     for (size_t i = 1; i < col_size; ++i) {
-        if (less_op(i, min_idx))
+        if (less_op(i, min_idx)) {
             min_idx = i;
-        else if (less_op(max_idx, i))
+        } else if (less_op(max_idx, i)) {
             max_idx = i;
+        }
     }
 
     get(min_idx, min);

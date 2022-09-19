@@ -65,8 +65,8 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return (List) projects;
+    public List<? extends Expression> getExpressions() {
+        return projects;
     }
 
     @Override

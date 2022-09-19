@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -43,7 +45,7 @@ public class MemoInitTest implements PatternMatchSupported {
     @Test
     public void initByOneLevelPlan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
-        LogicalOlapScan scan = new LogicalOlapScan(table);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
 
         PlanChecker.from(connectContext, scan)
                 .checkGroupNum(1)
@@ -55,7 +57,7 @@ public class MemoInitTest implements PatternMatchSupported {
     @Test
     public void initByTwoLevelChainPlan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
-        LogicalOlapScan scan = new LogicalOlapScan(table);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
 
         LogicalProject<LogicalOlapScan> topProject = new LogicalProject<>(
                 ImmutableList.of(scan.computeOutput().get(0)), scan);
@@ -87,27 +89,30 @@ public class MemoInitTest implements PatternMatchSupported {
 
     @Test
     public void initByJoinSameLogicalTable() {
+        IdGenerator<RelationId> generator = RelationId.createGenerator();
         OlapTable tableA = PlanConstructor.newOlapTable(0, "a", 1);
-        LogicalOlapScan scanA = new LogicalOlapScan(tableA);
+        LogicalOlapScan scanA = new LogicalOlapScan(generator.getNextId(), tableA);
+        LogicalOlapScan scanA1 = new LogicalOlapScan(generator.getNextId(), tableA);
 
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA1);
 
         PlanChecker.from(connectContext, topJoin)
                 .checkGroupNum(3)
                 .matches(
                         logicalJoin(
                                 any().when(left -> Objects.equals(left, scanA)),
-                                any().when(right -> Objects.equals(right, scanA))
+                                any().when(right -> Objects.equals(right, scanA1))
                         ).when(root -> Objects.equals(root, topJoin))
                 );
     }
 
     @Test
     public void initByTwoLevelJoinPlan() {
+        IdGenerator<RelationId> generator = RelationId.createGenerator();
         OlapTable tableA = PlanConstructor.newOlapTable(0, "a", 1);
         OlapTable tableB = PlanConstructor.newOlapTable(0, "b", 1);
-        LogicalOlapScan scanA = new LogicalOlapScan(tableA);
-        LogicalOlapScan scanB = new LogicalOlapScan(tableB);
+        LogicalOlapScan scanA = new LogicalOlapScan(generator.getNextId(), tableA);
+        LogicalOlapScan scanB = new LogicalOlapScan(generator.getNextId(), tableB);
 
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanB);
 
@@ -124,7 +129,7 @@ public class MemoInitTest implements PatternMatchSupported {
     @Test
     public void initByThreeLevelChainPlan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
-        LogicalOlapScan scan = new LogicalOlapScan(table);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
 
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
                 ImmutableList.of(scan.computeOutput().get(0)), scan);
@@ -144,14 +149,15 @@ public class MemoInitTest implements PatternMatchSupported {
 
     @Test
     public void initByThreeLevelBushyPlan() {
+        IdGenerator<RelationId> generator = RelationId.createGenerator();
         OlapTable tableA = PlanConstructor.newOlapTable(0, "a", 1);
         OlapTable tableB = PlanConstructor.newOlapTable(0, "b", 1);
         OlapTable tableC = PlanConstructor.newOlapTable(0, "c", 1);
         OlapTable tableD = PlanConstructor.newOlapTable(0, "d", 1);
-        LogicalOlapScan scanA = new LogicalOlapScan(tableA);
-        LogicalOlapScan scanB = new LogicalOlapScan(tableB);
-        LogicalOlapScan scanC = new LogicalOlapScan(tableC);
-        LogicalOlapScan scanD = new LogicalOlapScan(tableD);
+        LogicalOlapScan scanA = new LogicalOlapScan(generator.getNextId(), tableA);
+        LogicalOlapScan scanB = new LogicalOlapScan(generator.getNextId(), tableB);
+        LogicalOlapScan scanC = new LogicalOlapScan(generator.getNextId(), tableC);
+        LogicalOlapScan scanD = new LogicalOlapScan(generator.getNextId(), tableD);
 
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> leftJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanA, scanB);
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> rightJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanC, scanD);

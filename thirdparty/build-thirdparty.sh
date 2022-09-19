@@ -1297,6 +1297,22 @@ build_hdfs3() {
     strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libhdfs3.a
 }
 
+# jemalloc
+build_jemalloc() {
+    check_if_source_exist "${JEMALLOC_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+
+    make -j "${PARALLEL}"
+    make install
+    mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
+}
+
 # benchmark
 build_benchmark() {
     check_if_source_exist "${BENCHMARK_SOURCE}"
@@ -1382,6 +1398,16 @@ build_sse2neon() {
     cp sse2neon.h "${TP_INSTALL_DIR}/include/"
 }
 
+# xxhash
+build_xxhash() {
+    check_if_source_exist "${XXHASH_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${XXHASH_SOURCE}"
+
+    make -j "${PARALLEL}"
+    cp -r ./*.h "${TP_INSTALL_DIR}/include/"
+    cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
+}
+
 build_libunixodbc
 build_openssl
 build_libevent
@@ -1409,6 +1435,7 @@ build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
 build_orc
+build_jemalloc
 build_arrow
 build_s2
 build_bitshuffle
@@ -1434,5 +1461,6 @@ build_nlohmann_json
 build_opentelemetry
 build_libbacktrace
 build_sse2neon
+build_xxhash
 
 echo "Finished to build all thirdparties"

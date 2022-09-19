@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -44,8 +45,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     protected final List<String> qualifier;
     protected final List<Long> selectedPartitionIds;
 
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
-        this(type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
+    protected final RelationId id;
+
+    public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
+        this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -54,7 +57,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param table Doris table
      * @param qualifier qualified relation name
      */
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier,
+    public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds) {
         super(type, groupExpression, logicalProperties);
@@ -62,8 +65,10 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.selectedPartitionIds = ImmutableList.copyOf(
                 Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
+        this.id = id;
     }
 
+    @Override
     public Table getTable() {
         return table;
     }
@@ -81,12 +86,14 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
             return false;
         }
         LogicalRelation that = (LogicalRelation) o;
-        return Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
+        return this.id.equals(that.getId())
+                && Objects.equals(this.table.getId(), that.table.getId())
+                && Objects.equals(this.qualifier, that.qualifier);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(table.getId(), qualifier);
+        return Objects.hash(id);
     }
 
     @Override
@@ -103,7 +110,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
@@ -125,4 +132,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         return selectedPartitionIds;
     }
 
+    public RelationId getId() {
+        return id;
+    }
 }

@@ -73,7 +73,7 @@ Status IndexedColumnWriter::init() {
     }
 
     if (_options.compression != NO_COMPRESSION) {
-        RETURN_IF_ERROR(get_block_compression_codec(_options.compression, _compress_codec));
+        RETURN_IF_ERROR(get_block_compression_codec(_options.compression, &_compress_codec));
     }
     return Status::OK();
 }
@@ -112,7 +112,7 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     footer.mutable_data_page_footer()->set_nullmap_size(0);
 
     RETURN_IF_ERROR(PageIO::compress_and_write_page(
-            _compress_codec.get(), _options.compression_min_space_saving, _file_writer,
+            _compress_codec, _options.compression_min_space_saving, _file_writer,
             {page_body.slice()}, footer, &_last_data_page));
     _num_data_pages++;
 
@@ -160,7 +160,7 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
 
         PagePointer pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
-                _compress_codec.get(), _options.compression_min_space_saving, _file_writer,
+                _compress_codec, _options.compression_min_space_saving, _file_writer,
                 {page_body.slice()}, page_footer, &pp));
 
         meta->set_is_root_data_page(false);

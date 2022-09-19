@@ -148,7 +148,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
                       ->rowset_meta()
                       ->is_segments_overlapping());
 
-    _tablet_reader_params.direct_mode = _aggregation || single_version;
+    if (_state->skip_storage_engine_merge()) {
+        _tablet_reader_params.direct_mode = true;
+        _aggregation = true;
+    } else {
+        _tablet_reader_params.direct_mode = _aggregation || single_version;
+    }
 
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
@@ -169,10 +174,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
-    auto& delete_preds = _tablet->delete_predicates();
-    std::copy(delete_preds.cbegin(), delete_preds.cend(),
-              std::inserter(_tablet_reader_params.delete_predicates,
-                            _tablet_reader_params.delete_predicates.begin()));
+    if (!_state->skip_delete_predicate()) {
+        auto& delete_preds = _tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
+                  std::inserter(_tablet_reader_params.delete_predicates,
+                                _tablet_reader_params.delete_predicates.begin()));
+    }
 
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred_pb : _tablet_reader_params.delete_predicates) {
@@ -228,15 +235,17 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
     }
 
-    TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
-    if (olap_scan_node.__isset.sort_info && olap_scan_node.sort_info.is_asc_order.size() > 0) {
-        _limit = _parent->_limit_per_scanner;
-        _tablet_reader_params.read_orderby_key = true;
-        if (!olap_scan_node.sort_info.is_asc_order[0]) {
-            _tablet_reader_params.read_orderby_key_reverse = true;
+    if (!_state->skip_storage_engine_merge()) {
+        TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
+        if (olap_scan_node.__isset.sort_info && olap_scan_node.sort_info.is_asc_order.size() > 0) {
+            _limit = _parent->_limit_per_scanner;
+            _tablet_reader_params.read_orderby_key = true;
+            if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                _tablet_reader_params.read_orderby_key_reverse = true;
+            }
+            _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                    olap_scan_node.sort_info.is_asc_order.size();
         }
-        _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                olap_scan_node.sort_info.is_asc_order.size();
     }
 
     return Status::OK();

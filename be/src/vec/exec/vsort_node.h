@@ -20,9 +20,10 @@
 #include <queue>
 
 #include "exec/exec_node.h"
+#include "vec/common/sort/sorter.h"
+#include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
-#include "vec/exec/vsort_exec_exprs.h"
 
 namespace doris::vectorized {
 // Node that implements a full sort of its input with a fixed memory budget
@@ -54,15 +55,6 @@ protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
-    // Fetch input rows and feed them to the sorter until the input is exhausted.
-    Status sort_input(RuntimeState* state);
-
-    Status partial_sort(Block& block);
-
-    void build_merge_tree();
-
-    Status merge_sort_read(RuntimeState* state, Block* block, bool* eos);
-
     // Number of rows to skip.
     int64_t _offset;
 
@@ -72,24 +64,10 @@ private:
     std::vector<bool> _nulls_first;
 
     SortDescription _sort_description;
-    std::vector<SortCursorImpl> _cursors;
-    std::vector<Block> _sorted_blocks;
-    std::priority_queue<SortCursor> _priority_queue;
 
-    // TODO: Not using now, maybe should be delete
-    // Keeps track of the number of rows skipped for handling _offset.
-    int64_t _num_rows_skipped;
-    uint64_t _total_mem_usage = 0;
+    std::unique_ptr<Sorter> _sorter;
 
-    // only valid in TOP-N node
-    uint64_t _num_rows_in_block = 0;
-    std::priority_queue<SortBlockCursor> _block_priority_queue;
-
-    std::unique_ptr<MutableBlock> _unsorted_block;
-    RuntimeProfile::Counter* _partial_sort_timer = nullptr;
-
-    static constexpr size_t BUFFERED_BLOCK_SIZE = 1024 * 1024;
-    static constexpr size_t BUFFERED_BLOCK_BYTES = 16 << 20;
+    static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;
 };
 
 } // namespace doris::vectorized

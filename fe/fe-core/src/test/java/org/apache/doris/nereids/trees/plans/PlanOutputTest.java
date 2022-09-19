@@ -84,7 +84,8 @@ public class PlanOutputTest {
     @Test
     public void testPhysicalPlanMustHaveLogicalProperties() {
         Assertions.assertThrows(NullPointerException.class, () ->
-                new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
+                new PhysicalRelation(RelationId.createGenerator().getNextId(),
+                        PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
                     @Override
                     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
                         return null;

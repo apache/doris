@@ -65,23 +65,42 @@ PROPERTIES (
 ```
 参数说明：
 
-| 参数             | 说明                                                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **type**         | "jdbc", 必填项标志资源类型                                                                                                          |
-| **user**         | 访问外表数据库所使的用户名                                                                                                         |
-| **password**     | 该用户对应的密码信息                                                                                                               |
-| **jdbc_url**     | JDBC的URL协议，包括数据库类型，IP地址，端口号和数据库名，不同数据库协议格式不一样。例如mysql: "jdbc:mysql://127.0.0.1:3306/test"。 |
-| **driver_class** | 访问外表数据库的驱动包类名，例如mysql是:com.mysql.jdbc.Driver.                                                                     |
-| **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar                                               |
-| **resource**     | 在Doris中建立外表时依赖的资源名，对应上步创建资源时的名字。                                                                        |
-| **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。                                                                                    |
-| **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle                                                     |
+| 参数           | 说明|
+| ---------------- | ------------ |
+| **type**         | "jdbc", 必填项标志资源类型  |
+| **user**         | 访问外表数据库所使的用户名 |
+| **password**     | 该用户对应的密码信息 |
+| **jdbc_url**     | JDBC的URL协议，包括数据库类型，IP地址，端口号和数据库名，不同数据库协议格式不一样。例如mysql: "jdbc:mysql://127.0.0.1:3306/test"。|
+| **driver_class** | 访问外表数据库的驱动包类名，例如mysql是:com.mysql.jdbc.Driver. |
+| **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar |
+| **resource**     | 在Doris中建立外表时依赖的资源名，对应上步创建资源时的名字。|
+| **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
+| **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
 
 ### 查询用法
 
 ```
 select * from mysql_table where k1 > 1000 and k3 ='term';
 ```
+
+### 数据写入
+
+在Doris中建立JDBC外表后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入JDBC外表，或者是从一个JDBC外表将数据导入另一个JDBC外表。
+
+
+```
+insert into mysql_table values(1, "doris");
+insert into mysql_table select * from table;
+```
+#### 事务
+
+Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以JDBC外表支持数据写入时的事务，事务的支持需要通过设置session variable: `enable_odbc_transcation `(ODBC事务也受此变量控制)。
+
+```
+set enable_odbc_transcation = true; 
+```
+
+事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
 
 #### 1.Mysql测试
 
@@ -94,12 +113,12 @@ select * from mysql_table where k1 > 1000 and k3 ='term';
 | -------------- | ----------------------- |
 | 14.5           | postgresql-42.5.0.jar   |
 
-#### 2 SQLServer测试
+#### 3.SQLServer测试
 | SQLserver版本 | SQLserver JDBC驱动版本     |
 | ------------- | -------------------------- |
 | 2022          | mssql-jdbc-11.2.0.jre8.jar |
 
-#### 2.oracle测试
+#### 4.oracle测试
 | Oracle版本 | Oracle JDBC驱动版本 |
 | ---------- | ------------------- |
 | 11         | ojdbc6.jar          |

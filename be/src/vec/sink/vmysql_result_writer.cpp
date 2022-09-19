@@ -20,6 +20,7 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"

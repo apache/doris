@@ -24,6 +24,8 @@ suite("join") {
         SET enable_nereids_planner=true
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     order_qt_inner_join_1 """
         SELECT * FROM lineorder JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey
     """

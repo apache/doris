@@ -21,14 +21,8 @@
 
 #include <codecvt>
 
-#include "common/config.h"
-#include "exprs/expr.h"
 #include "runtime/primitive_type.h"
-#include "util/mysql_global.h"
 #include "util/types.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 
 #define ODBC_DISPOSE(h, ht, x, op)                                                        \
     {                                                                                     \
@@ -45,22 +39,12 @@
 static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
 // Now we only treat HLL, CHAR, VARCHAR as big column
 static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
-// Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
-static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
-
-static std::u16string utf8_to_u16string(const char* first, const char* last) {
-    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> utf8_utf16_cvt;
-    return utf8_utf16_cvt.from_bytes(first, last);
-}
 
 namespace doris {
 
 ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
-        : _connect_string(param.connect_string),
-          _sql_str(param.query_string),
-          _tuple_desc(param.tuple_desc),
-          _output_expr_ctxs(param.output_expr_ctxs),
-          _is_open(false),
+        : TableConnector(param.tuple_desc, param.query_string),
+          _connect_string(param.connect_string),
           _field_num(0),
           _env(nullptr),
           _dbc(nullptr),
@@ -189,18 +173,12 @@ Status ODBCConnector::get_next_row(bool* eos) {
     return Status::OK();
 }
 
-void ODBCConnector::_init_profile(doris::RuntimeProfile* profile) {
-    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
-    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
-    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
-}
-
 Status ODBCConnector::init_to_write(doris::RuntimeProfile* profile) {
     if (!_is_open) {
         return Status::InternalError("Init before open.");
     }
 
-    _init_profile(profile);
+    init_profile(profile);
     // Allocate a statement handle
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt),
                  "alloc statement");
@@ -208,116 +186,12 @@ Status ODBCConnector::init_to_write(doris::RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
-                             uint32_t start_send_row, uint32* num_rows_sent) {
-    _insert_stmt_buffer.clear();
-    std::u16string insert_stmt;
-    {
-        SCOPED_TIMER(_convert_tuple_timer);
-        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
-
-        int num_rows = batch->num_rows();
-        for (int i = start_send_row; i < num_rows; ++i) {
-            auto row = batch->get_row(i);
-            (*num_rows_sent)++;
-
-            // Construct insert statement of odbc table
-            int num_columns = _output_expr_ctxs.size();
-            for (int j = 0; j < num_columns; ++j) {
-                if (j != 0) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-                }
-                void* item = _output_expr_ctxs[j]->get_value(row);
-                if (item == nullptr) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
-                    continue;
-                }
-                switch (_output_expr_ctxs[j]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int8_t*>(item));
-                    break;
-                case TYPE_SMALLINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int16_t*>(item));
-                    break;
-                case TYPE_INT:
-                    fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int32_t*>(item));
-                    break;
-                case TYPE_BIGINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int64_t*>(item));
-                    break;
-                case TYPE_FLOAT:
-                    fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<float*>(item));
-                    break;
-                case TYPE_DOUBLE:
-                    fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<double*>(item));
-                    break;
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    char buf[64];
-                    const auto* time_val = (const DateTimeValue*)(item);
-                    time_val->to_string(buf);
-                    fmt::format_to(_insert_stmt_buffer, "'{}'", buf);
-                    break;
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_STRING: {
-                    const auto* string_val = (const StringValue*)(item);
-
-                    if (string_val->ptr == nullptr) {
-                        if (string_val->len == 0) {
-                            fmt::format_to(_insert_stmt_buffer, "{}", "''");
-                        } else {
-                            fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
-                        }
-                    } else {
-                        fmt::format_to(_insert_stmt_buffer, "'{}'",
-                                       fmt::basic_string_view(string_val->ptr, string_val->len));
-                    }
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    const DecimalV2Value decimal_val(
-                            reinterpret_cast<const PackedInt128*>(item)->value);
-                    char buffer[MAX_DECIMAL_WIDTH];
-                    int output_scale = _output_expr_ctxs[j]->root()->output_scale();
-                    int len = decimal_val.to_buffer(buffer, output_scale);
-                    _insert_stmt_buffer.append(buffer, buffer + len);
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   reinterpret_cast<const PackedInt128*>(item)->value);
-                    break;
-                }
-                default: {
-                    return Status::InternalError("can't convert this type to mysql type. type = {}",
-                                                 _output_expr_ctxs[j]->root()->type().type);
-                }
-                }
-            }
-
-            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
-            } else {
-                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-                fmt::format_to(_insert_stmt_buffer, "{}", ")");
-                break;
-            }
-        }
-        // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
-                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    }
-
-    {
-        SCOPED_TIMER(_result_send_timer);
-        ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
-                     SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS),
-                     _insert_stmt_buffer.data());
-    }
-    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+Status ODBCConnector::exec_write_sql(const std::u16string& insert_stmt,
+                                     const fmt::memory_buffer& insert_stmt_buffer) {
+    SCOPED_TIMER(_result_send_timer);
+    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
+                 SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS),
+                 insert_stmt_buffer.data());
     return Status::OK();
 }
 
@@ -395,114 +269,6 @@ std::string ODBCConnector::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLI
     }
 
     return diagnostic_msg;
-}
-
-Status ODBCConnector::append(const std::string& table_name, vectorized::Block* block,
-                             const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
-                             uint32_t start_send_row, uint32_t* num_rows_sent) {
-    _insert_stmt_buffer.clear();
-    std::u16string insert_stmt;
-    {
-        SCOPED_TIMER(_convert_tuple_timer);
-        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
-
-        int num_rows = block->rows();
-        int num_columns = block->columns();
-        for (int i = start_send_row; i < num_rows; ++i) {
-            (*num_rows_sent)++;
-
-            // Construct insert statement of odbc table
-            for (int j = 0; j < num_columns; ++j) {
-                if (j != 0) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-                }
-                auto [item, size] = block->get_by_position(j).column->get_data_at(i);
-                if (item == nullptr) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
-                    continue;
-                }
-                switch (_output_vexpr_ctxs[j]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int8_t*>(item));
-                    break;
-                case TYPE_SMALLINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int16_t*>(item));
-                    break;
-                case TYPE_INT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int32_t*>(item));
-                    break;
-                case TYPE_BIGINT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const int64_t*>(item));
-                    break;
-                case TYPE_FLOAT:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const float*>(item));
-                    break;
-                case TYPE_DOUBLE:
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const double*>(item));
-                    break;
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    vectorized::VecDateTimeValue value =
-                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(
-                                    *(int64_t*)item);
-
-                    char buf[64];
-                    char* pos = value.to_string(buf);
-                    std::string_view str(buf, pos - buf - 1);
-                    fmt::format_to(_insert_stmt_buffer, "'{}'", str);
-                    break;
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_STRING: {
-                    fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    DecimalV2Value value = *(DecimalV2Value*)(item);
-                    fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    fmt::format_to(_insert_stmt_buffer, "{}",
-                                   *reinterpret_cast<const __int128*>(item));
-                    break;
-                }
-                default: {
-                    return Status::InternalError("can't convert this type to mysql type. type = {}",
-                                                 _output_expr_ctxs[j]->root()->type().type);
-                }
-                }
-            }
-
-            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
-            } else {
-                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-                fmt::format_to(_insert_stmt_buffer, "{}", ")");
-                break;
-            }
-        }
-        // Translate utf8 string to utf16 to use unicode encodeing
-        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
-                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    }
-
-    {
-        SCOPED_TIMER(_result_send_timer);
-        ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
-                     SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS),
-                     _insert_stmt_buffer.data());
-    }
-    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
-    return Status::OK();
 }
 
 } // namespace doris

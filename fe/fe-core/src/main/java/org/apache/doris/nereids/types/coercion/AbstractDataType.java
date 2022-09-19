@@ -38,4 +38,19 @@ public interface AbstractDataType {
      * simple string used to print error message
      */
     String simpleString();
+
+    /**
+     * whether the target dataType is assignable to this dataType
+     * @param targetDataType the target data type
+     * @return true if assignable
+     */
+    default boolean isAssignableFrom(AbstractDataType targetDataType) {
+        if (this.equals(targetDataType)) {
+            return true;
+        }
+        if (this instanceof CharacterType) {
+            return true;
+        }
+        return false;
+    }
 }

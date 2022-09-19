@@ -872,9 +872,16 @@ void SegmentIterator::_vec_init_char_column_id() {
         auto cid = _schema.column_id(i);
         auto column_desc = _schema.column(cid);
 
-        if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
-            _char_type_idx.emplace_back(i);
-        }
+        do {
+            if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+                _char_type_idx.emplace_back(i);
+                break;
+            } else if (column_desc->type() != OLAP_FIELD_TYPE_ARRAY) {
+                break;
+            }
+            // for Array<Char> or Array<Array<Char>>
+            column_desc = column_desc->get_sub_field(0);
+        } while (column_desc != nullptr);
     }
 }
 

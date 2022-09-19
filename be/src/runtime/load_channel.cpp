@@ -92,28 +92,6 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
     return Status::OK();
 }
 
-void LoadChannel::handle_mem_exceed_limit(bool force) {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!(force || _mem_tracker->limit_exceeded())) {
-        return;
-    }
-
-    if (!force) {
-        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
-                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    }
-
-    std::shared_ptr<TabletsChannel> channel;
-    if (_find_largest_consumption_channel(&channel)) {
-        channel->reduce_mem_usage(_mem_tracker->limit());
-    } else {
-        // should not happen, add log to observe
-        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
-                     << "load_id=" << _load_id;
-    }
-}
-
 // lock should be held when calling this method
 bool LoadChannel::_find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel) {
     int64_t max_consume = 0;

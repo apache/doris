@@ -34,4 +34,11 @@ public interface Join {
     Optional<Expression> getOtherJoinCondition();
 
     Optional<Expression> getOnClauseCondition();
+
+    /**
+     * The join plan has join condition or not.
+     */
+    default boolean hasJoinCondition() {
+        return !getHashJoinConjuncts().isEmpty() || getOtherJoinCondition().isPresent();
+    }
 }

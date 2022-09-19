@@ -29,9 +29,12 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -137,7 +140,7 @@ public class ExpressionUtils {
 
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
-                .orElse(new BooleanLiteral(type == And.class));
+                .orElse(BooleanLiteral.of(type == And.class));
     }
 
     /**
@@ -236,5 +239,22 @@ public class ExpressionUtils {
             }
             return super.visit(expr, replaceMap);
         }
+    }
+
+    /**
+     * merge arguments into an expression array
+     * @param arguments instance of Expression or Expression Array
+     * @return Expression Array
+     */
+    public static List<Expression> mergeArguments(Object... arguments) {
+        Builder<Expression> builder = ImmutableList.builder();
+        for (Object argument : arguments) {
+            if (argument instanceof Expression[]) {
+                builder.addAll(Arrays.asList((Expression[]) argument));
+            } else {
+                builder.add((Expression) argument);
+            }
+        }
+        return builder.build();
     }
 }

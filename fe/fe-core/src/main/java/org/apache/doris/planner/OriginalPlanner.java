@@ -85,6 +85,11 @@ public class OriginalPlanner extends Planner {
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
+    @Override
+    public List<RuntimeFilter> getRuntimeFilters() {
+        return analyzer.getAssignedRuntimeFilter();
+    }
+
     /**
      */
     private void setResultExprScale(Analyzer analyzer, ArrayList<Expr> outputExprs) {

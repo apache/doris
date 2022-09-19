@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -124,7 +124,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                 root = new LogicalProject<>(bottomProjections, root);
             }
             root = new LogicalAggregate<>(newKeys, newOutputs, aggregate.isDisassembled(),
-                    true, aggregate.getAggPhase(), root);
+                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(), root);
             List<NamedExpression> projections = outputs.stream()
                     .map(e -> ExpressionUtils.replace(e, substitutionMap))
                     .map(NamedExpression.class::cast)

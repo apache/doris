@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -97,13 +93,13 @@ public abstract class DataType implements AbstractDataType {
                 default:
                     throw new AnalysisException("Nereids do not support type: " + scalarType.getPrimitiveType());
             }
-        } else if (catalogType instanceof MapType) {
-            throw new AnalysisException("Nereids do not support map type.");
-        } else if (catalogType instanceof StructType) {
-            throw new AnalysisException("Nereids do not support struct type.");
-        } else if (catalogType instanceof ArrayType) {
+        } else if (catalogType.isArrayType()) {
             throw new AnalysisException("Nereids do not support array type.");
-        } else if (catalogType instanceof MultiRowType) {
+        } else if (catalogType.isMapType()) {
+            throw new AnalysisException("Nereids do not support map type.");
+        } else if (catalogType.isStructType()) {
+            throw new AnalysisException("Nereids do not support struct type.");
+        } else if (catalogType.isMultiRowType()) {
             throw new AnalysisException("Nereids do not support multi row type.");
         } else {
             throw new AnalysisException("Nereids do not support type: " + catalogType);
@@ -126,30 +122,109 @@ public abstract class DataType implements AbstractDataType {
             case "boolean":
                 return BooleanType.INSTANCE;
             case "tinyint":
+            case "tinyint(4)":
                 return TinyIntType.INSTANCE;
             case "smallint":
+            case "smallint(6)":
                 return SmallIntType.INSTANCE;
             case "int":
+            case "int(11)":
                 return IntegerType.INSTANCE;
             case "bigint":
+            case "bigint(20)":
                 return BigIntType.INSTANCE;
             case "largeint":
+            case "largeint(40)":
                 return LargeIntType.INSTANCE;
+            case "float":
+                return FloatType.INSTANCE;
             case "double":
                 return DoubleType.INSTANCE;
+            case "text":
             case "string":
                 return StringType.INSTANCE;
             case "null":
+            case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
+            case "date":
+                return DateType.INSTANCE;
             case "datetime":
+            case "datetime(0)":
                 return DateTimeType.INSTANCE;
+            case "time":
+                return TimeType.INSTANCE;
+            case "hll":
+                return HllType.INSTANCE;
+            case "bitmap":
+                return BitmapType.INSTANCE;
+            case "quantile_state":
+                return QuantileStateType.INSTANCE;
             default:
                 Optional<VarcharType> varcharType = matchVarchar(type);
                 if (varcharType.isPresent()) {
                     return varcharType.get();
                 }
+                if (type.startsWith("array")) {
+                    return resolveArrayType(type);
+                }
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
+    }
+
+    /**
+     * just for generate function and migrate to nereids
+     * @param type legacy date type
+     * @return nereids's data type
+     */
+    public static DataType fromLegacyType(Type type) {
+        if (type == Type.BOOLEAN) {
+            return BooleanType.INSTANCE;
+        } else if (type == Type.TINYINT) {
+            return TinyIntType.INSTANCE;
+        } else if (type == Type.SMALLINT) {
+            return SmallIntType.INSTANCE;
+        } else if (type == Type.INT) {
+            return IntegerType.INSTANCE;
+        } else if (type == Type.BIGINT) {
+            return BigIntType.INSTANCE;
+        } else if (type == Type.LARGEINT) {
+            return LargeIntType.INSTANCE;
+        } else if (type == Type.FLOAT) {
+            return FloatType.INSTANCE;
+        } else if (type == Type.DOUBLE) {
+            return DoubleType.INSTANCE;
+        } else if (type == Type.STRING) {
+            return StringType.INSTANCE;
+        } else if (type == Type.NULL) {
+            return NullType.INSTANCE;
+        } else if (type == Type.DATE) {
+            return DateType.INSTANCE;
+        } else if (type == Type.DATEV2) {
+            return DateV2Type.INSTANCE;
+        } else if (type == Type.DATETIME) {
+            return DateTimeType.INSTANCE;
+        } else if (type == Type.DATETIMEV2) {
+            return DateTimeV2Type.INSTANCE;
+        } else if (type == Type.TIME) {
+            return TimeType.INSTANCE;
+        } else if (type == Type.TIMEV2) {
+            return TimeV2Type.INSTANCE;
+        } else if (type == Type.HLL) {
+            return HllType.INSTANCE;
+        } else if (type == Type.BITMAP) {
+            return BitmapType.INSTANCE;
+        } else if (type == Type.QUANTILE_STATE) {
+            return QuantileStateType.INSTANCE;
+        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.CHAR) {
+            return CharType.createCharType(type.getLength());
+        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
+            return VarcharType.createVarcharType(type.getLength());
+        } else if (type == Type.DECIMALV2) {
+            return DecimalType.SYSTEM_DEFAULT;
+        } else if (type.isArrayType()) {
+            return ArrayType.of(fromLegacyType(((org.apache.doris.catalog.ArrayType) type).getItemType()));
+        }
+        throw new AnalysisException("Nereids do not support type: " + type);
     }
 
     public abstract Type toCatalogDataType();
@@ -254,5 +329,24 @@ public abstract class DataType implements AbstractDataType {
             return Optional.of(varcharType);
         }
         return Optional.empty();
+    }
+
+    private static ArrayType resolveArrayType(String type) {
+        if (!type.startsWith("array")) {
+            throw new AnalysisException("Not array type: " + type);
+        }
+
+        type = type.substring("array".length());
+        if (type.startsWith("<") && type.endsWith(">")) {
+            DataType itemType = convertFromString(type.substring(1, type.length() - 1));
+            if (itemType.equals(NullType.INSTANCE)) {
+                return ArrayType.SYSTEM_DEFAULT;
+            }
+            return new ArrayType(itemType);
+        } else if (type.isEmpty()) {
+            return ArrayType.SYSTEM_DEFAULT;
+        } else {
+            throw new AnalysisException("Illegal array type: " + type);
+        }
     }
 }

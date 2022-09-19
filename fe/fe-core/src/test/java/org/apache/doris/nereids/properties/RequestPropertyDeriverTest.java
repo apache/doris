@@ -146,6 +146,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 AggPhase.LOCAL,
                 true,
+                true,
                 logicalProperties,
                 groupPlan
         );
@@ -167,6 +168,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(partition),
                 AggPhase.GLOBAL,
+                true,
                 true,
                 logicalProperties,
                 groupPlan
@@ -191,6 +193,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(),
                 AggPhase.GLOBAL,
+                true,
                 true,
                 logicalProperties,
                 groupPlan
