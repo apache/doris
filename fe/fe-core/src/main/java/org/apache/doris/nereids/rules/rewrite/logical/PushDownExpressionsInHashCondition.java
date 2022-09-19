@@ -70,16 +70,15 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
                     List<List<Expression>> exprsOfHashConjuncts =
                             Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
                     Map<Expression, Alias> exprMap = Maps.newHashMap();
-                    Plan left = join.left();
                     join.getHashJoinConjuncts().forEach(conjunct -> {
                         Preconditions.checkArgument(conjunct instanceof EqualTo);
-                        List<Expression> exprs = conjunct.children();
                         // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
                         // doesn't swap the two sides.
-                        int tag = JoinUtils.checkIfSwap(exprs.get(0), left);
-                        exprsOfHashConjuncts.get(0).add(exprs.get(tag));
-                        exprsOfHashConjuncts.get(1).add(exprs.get(1 - tag));
-                        exprs.forEach(expr ->
+                        conjunct = JoinUtils.swapEqualToForChildrenOrder(
+                                (EqualTo) conjunct, join.left().getOutputSet());
+                        exprsOfHashConjuncts.get(0).add(conjunct.child(0));
+                        exprsOfHashConjuncts.get(1).add(conjunct.child(1));
+                        conjunct.children().forEach(expr ->
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.hashCode())));
                     });
                     Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
@@ -95,7 +94,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                                     .collect(Collectors.toList()))
                                             .addAll(getOutput(plan, join)).build(), plan))
                                     .collect(Collectors.toList()));
-                }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
+                }).toRule(RuleType.PUSH_DOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 
     private List<Slot> getOutput(Plan plan, LogicalJoin join) {

@@ -38,7 +38,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -260,16 +259,5 @@ public class JoinUtils {
         // Because after property derive upper node's properties is contains lower node
         // if their properties are satisfy.
         return joinDistributionSpec.satisfy(leftDistributionSpec);
-    }
-
-    /**
-     * return 0 if left relation is the relation of left expr of equal to.
-     * @param left left expr
-     * @param joinLeft join left relation
-     * @return see above
-     */
-    public static int checkIfSwap(Expression left, Plan joinLeft) {
-        Set<Expression> joinOut = ImmutableSet.copyOf(joinLeft.getOutput());
-        return left.anyMatch(expr -> (expr instanceof Slot) && joinOut.contains(expr)) ? 0 : 1;
     }
 }
