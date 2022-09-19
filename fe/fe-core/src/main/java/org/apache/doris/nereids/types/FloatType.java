@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
  * Float type in Nereids.
  */
 public class FloatType extends FractionalType {
-    public static FloatType INSTANCE = new FloatType();
+    public static final FloatType INSTANCE = new FloatType();
 
     private static final int WIDTH = 4;
 

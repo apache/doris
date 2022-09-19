@@ -139,39 +139,6 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     VLOG_CRITICAL << "removed load channel " << load_id;
 }
 
-void LoadChannelMgr::_handle_mem_exceed_limit() {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_mem_tracker->limit_exceeded()) {
-        return;
-    }
-
-    int64_t max_consume = 0;
-    std::shared_ptr<LoadChannel> channel;
-    for (auto& kv : _load_channels) {
-        if (kv.second->is_high_priority()) {
-            // do not select high priority channel to reduce memory
-            // to avoid blocking them.
-            continue;
-        }
-        if (kv.second->mem_consumption() > max_consume) {
-            max_consume = kv.second->mem_consumption();
-            channel = kv.second;
-        }
-    }
-    if (max_consume == 0) {
-        // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
-        return;
-    }
-    DCHECK(channel.get() != nullptr);
-
-    // force reduce mem limit of the selected channel
-    LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
-              << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    channel->handle_mem_exceed_limit(true);
-}
-
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> cancelled_channel;

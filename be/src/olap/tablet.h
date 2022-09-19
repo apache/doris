@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <string>
@@ -112,7 +113,6 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
-    int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -289,6 +289,8 @@ public:
 
     TabletSchemaSPtr tablet_schema() const override;
 
+    TabletSchemaSPtr get_max_version_schema(std::lock_guard<std::shared_mutex>&);
+
     // Find the related rowset with specified version and return its tablet schema
     TabletSchemaSPtr tablet_schema(Version version) const {
         return _tablet_meta->tablet_schema(version);
@@ -347,6 +349,8 @@ public:
                                      int64_t num_segments);
 
     bool check_all_rowset_segment();
+
+    void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
 private:
     Status _init_once_action();
@@ -456,6 +460,9 @@ private:
 
     // Remote rowsets not shared by other BE. We can delete them when drop tablet.
     std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
+
+    // Max schema_version schema from Rowset or FE
+    TabletSchemaSPtr _max_version_schema;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
@@ -584,10 +591,6 @@ inline double Tablet::bloom_filter_fpp() const {
 
 inline size_t Tablet::next_unique_id() const {
     return _schema->next_column_unique_id();
-}
-
-inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema->field_index(field_name);
 }
 
 inline size_t Tablet::row_size() const {

@@ -822,10 +822,19 @@ void BitmapFunctions::orthogonal_bitmap_count_merge(FunctionContext* context, co
 // finalize for ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
 BigIntVal BitmapFunctions::orthogonal_bitmap_count_finalize(FunctionContext* context,
                                                             const StringVal& src) {
-    auto* pval = reinterpret_cast<int64_t*>(src.ptr);
-    int64_t result = *pval;
-    delete pval;
-    return result;
+    if (src.is_null) {
+        return BigIntVal::null();
+    } else if (src.len == sizeof(int64_t)) {
+        auto* pval = reinterpret_cast<int64_t*>(src.ptr);
+        BigIntVal result = BigIntVal(*pval);
+        delete pval;
+        return result;
+    } else {
+        auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        BigIntVal result = BigIntVal(src_bitmap->cardinality());
+        delete src_bitmap;
+        return result;
+    }
 }
 
 // This is a serialize function for orthogonal_bitmap_intersect_count(bitmap,t,t).

@@ -185,6 +185,8 @@ struct TypeDescriptor {
 
     bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
+    bool is_array_type() const { return type == TYPE_ARRAY; }
+
     /// Returns the byte size of this type.  Returns 0 for variable length types.
     int get_byte_size() const { return ::doris::get_byte_size(type); }
 
