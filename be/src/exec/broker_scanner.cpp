@@ -389,10 +389,6 @@ bool BrokerScanner::check_decimal_input(const Slice& slice, int precision, int s
     return true;
 }
 
-bool is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
 // Convert one row to this tuple
 Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool,
                                        bool* fill_tuple) {
@@ -491,6 +487,10 @@ Status BrokerScanner::_line_split_to_values(const Slice& line) {
 Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
     RETURN_IF_ERROR(_line_split_to_values(line));
     if (!_success) {
+        return Status::OK();
+    }
+
+    if (!check_array_format(_split_values)) {
         return Status::OK();
     }
 
