@@ -3153,7 +3153,7 @@ public class Catalog {
                     } else {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
-                    columnDef = new ColumnDef(name, typeDef, column.isKey(), null,
+                    columnDef = new ColumnDef(name, typeDef, false, null,
                             column.isAllowNull(), defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
