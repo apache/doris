@@ -18,32 +18,46 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Set;
+
 /**
  * validator plan.
  */
 public class Validator extends PlanPostProcessor {
 
-    /**
-     * Forbidden project-project, we must merge project.
-     */
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
-        Preconditions.checkArgument(!(project.child() instanceof PhysicalProject));
+        Plan child = project.child();
+        // Forbidden project-project, we must merge project.
+        Preconditions.checkArgument(!(child instanceof PhysicalProject));
+
+        // Check projects is from child output.
+        // List<NamedExpression> projects = project.getProjects();
+        // Set<Slot> childOutputSet = child.getOutputSet();
+
         return super.visitPhysicalProject(project, context);
     }
 
-    /**
-     * Forbidden filter-project, we must make filter-project -> project-filter.
-     */
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
-        Preconditions.checkArgument(!(filter.child() instanceof PhysicalProject));
+        Plan child = filter.child();
+        // Forbidden filter-project, we must make filter-project -> project-filter.
+        Preconditions.checkArgument(!(child instanceof PhysicalProject));
+
+        // Check filter is from child output.
+        Set<Slot> childOutputSet = child.getOutputSet();
+        Set<Slot> slotsUsedByFilter = filter.getPredicates().collect(Slot.class::isInstance);
+        for (Slot slot : slotsUsedByFilter) {
+            Preconditions.checkState(childOutputSet.contains(slot));
+        }
+
         return super.visitPhysicalFilter(filter, context);
     }
 }
