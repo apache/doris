@@ -32,12 +32,12 @@ public:
 
     void pop() { _queue.pop(); }
 
-    void replace_top(HeapSortCursorImpl&& new_top) {
+    void replace_top(HeapSortCursorImpl&& top) {
         _queue.pop();
-        _queue.push(std::move(new_top));
+        _queue.push(std::move(top));
     }
 
-    void push(HeapSortCursorImpl&& rowcur) { _queue.push(std::move(rowcur)); }
+    void push(HeapSortCursorImpl&& cursor) { _queue.push(std::move(cursor)); }
 
     void replace_top_if_less(HeapSortCursorImpl&& val) {
         if (val < top()) {

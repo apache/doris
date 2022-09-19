@@ -86,7 +86,8 @@ public:
 
     HeapSortCursorImpl(HeapSortCursorImpl&& other) {
         _row_id = other._row_id;
-        _block_view = std::move(other._block_view);
+        _block_view = other._block_view;
+        other._block_view = nullptr;
     }
 
     HeapSortCursorImpl& operator=(HeapSortCursorImpl&& other) {
