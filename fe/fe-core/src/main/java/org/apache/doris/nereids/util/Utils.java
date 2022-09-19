@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -114,15 +113,6 @@ public class Utils {
             return false;
         }
         return new HashSet<>(one).containsAll(other) && new HashSet<>(other).containsAll(one);
-    }
-
-    /**
-     * Get SlotReference from output of plam.
-     * Warning, plan must have bound, because exists Slot Cast to SlotReference.
-     */
-    public static List<SlotReference> getOutputSlotReference(Plan plan) {
-        return plan.getOutput().stream().map(SlotReference.class::cast)
-                .collect(Collectors.toList());
     }
 
     /**

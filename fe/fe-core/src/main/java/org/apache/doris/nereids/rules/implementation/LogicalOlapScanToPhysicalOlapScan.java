@@ -27,10 +27,9 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -63,7 +62,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         if (distributionInfo instanceof HashDistributionInfo) {
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
 
-            List<SlotReference> output = Utils.getOutputSlotReference(olapScan);
+            List<Slot> output = olapScan.getOutput();
             List<ExprId> hashColumns = Lists.newArrayList();
             List<Column> schemaColumns = olapScan.getTable().getFullSchema();
             for (int i = 0; i < schemaColumns.size(); i++) {

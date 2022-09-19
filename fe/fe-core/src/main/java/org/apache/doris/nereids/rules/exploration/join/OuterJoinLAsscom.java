@@ -21,7 +21,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -50,14 +53,24 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
-                .when(topJoin -> JoinLAsscomHelper.checkOuter(topJoin, topJoin.left()))
+                .when(topJoin -> check(topJoin, topJoin.left()))
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
-                    if (!helper.initJoinOnCondition()) {
-                        return null;
-                    }
                     return helper.newTopJoin();
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM);
+    }
+
+    /**
+     * check.
+     */
+    public static boolean check(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+        // hasCommute will cause to lack of OuterJoinAssocRule:Left
+        return !topJoin.getJoinReorderContext().hasLAsscom()
+                && !topJoin.getJoinReorderContext().hasLeftAssociate()
+                && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasExchange()
+                && !bottomJoin.getJoinReorderContext().hasCommute();
     }
 }
