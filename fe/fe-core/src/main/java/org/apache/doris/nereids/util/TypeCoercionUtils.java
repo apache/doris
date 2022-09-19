@@ -291,11 +291,15 @@ public class TypeCoercionUtils {
             return input;
         } else {
             if (input instanceof Literal) {
-                DataType newType = input.getDataType();
-                while (!newType.equals(dataType) && newType != null) {
-                    newType = newType.promotion();
+                DataType type = input.getDataType();
+                while (!type.equals(dataType)) {
+                    DataType promoted = type.promotion();
+                    if (type.equals(promoted)) {
+                        break;
+                    }
+                    type = promoted;
                 }
-                if (newType != null) {
+                if (type.equals(dataType)) {
                     Literal promoted = DataType.promoteNumberLiteral(((Literal) input).getValue(), dataType);
                     if (promoted != null) {
                         return promoted;
