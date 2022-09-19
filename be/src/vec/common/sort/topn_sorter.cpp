@@ -68,8 +68,11 @@ Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
             SCOPED_TIMER(_topn_filter_timer);
             _do_filter(block_view->value(), num_rows, filter);
         }
-        size_t remain_rows = 0;
 
+        // TODO: We keep the origin block and build HeapSortCursorImpl for each rows after filtering now.
+        //  If blocks are too much it will bring pressure on memory and maybe we should consider to filter
+        //  this block for this case
+        size_t remain_rows = 0;
         COUNTER_SET(_topn_filter_rows_counter, _topn_filter_rows);
         for (size_t i = 0; i < num_rows; ++i) {
             if (filter[i]) {

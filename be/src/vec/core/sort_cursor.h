@@ -35,11 +35,6 @@ public:
 
     HeapSortCursorBlockView(Block&& cur_block, SortDescription& sort_desc)
             : block(cur_block), desc(sort_desc) {
-        _reset();
-    }
-
-private:
-    void _reset() {
         sort_columns.clear();
         auto columns = block.get_columns();
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
