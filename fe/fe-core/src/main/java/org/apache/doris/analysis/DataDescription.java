@@ -918,7 +918,7 @@ public class DataDescription {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
         }
         if (fileFormat != null && !fileFormat.isEmpty()) {
-            sb.append(" FORMAT AS \"" + fileFormat + "\"");
+            sb.append(" FORMAT AS '" + fileFormat + "'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
