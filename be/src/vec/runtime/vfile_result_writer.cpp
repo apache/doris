@@ -292,8 +292,6 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << buf;
                     break;
                 }
-                case TYPE_OBJECT:
-                case TYPE_HLL:
                 case TYPE_VARCHAR:
                 case TYPE_CHAR:
                 case TYPE_STRING: {
@@ -327,7 +325,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 default: {
-                    // not supported type, like BITMAP, HLL, just export null
+                    // not supported type, like BITMAP, OBJECT, HLL, just export null
                     _plain_text_outstream << NULL_IN_CSV;
                 }
                 }
