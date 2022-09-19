@@ -246,7 +246,7 @@ public class ScalarFunction extends Function {
                     beFn.append("_string_val");
                     break;
                 case JSONB:
-                    beFn.append("_json_val");
+                    beFn.append("_jsonb_val");
                     break;
                 case DATE:
                 case DATETIME:

@@ -79,7 +79,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128>>();
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        return std::make_unique<OlapColumnDataConvertorJson>();
+        return std::make_unique<OlapColumnDataConvertorJsonb>();
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt8>>();
@@ -395,75 +395,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
         }
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap() {
-    assert(_typed_column.column);
-    const vectorized::ColumnString* column_string = nullptr;
-    if (_nullmap) {
-        auto nullable_column =
-                assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_string = assert_cast<const vectorized::ColumnString*>(
-                nullable_column->get_nested_column_ptr().get());
-    } else {
-        column_string = assert_cast<const vectorized::ColumnString*>(_typed_column.column.get());
-    }
-
-    assert(column_string);
-
-    const char* char_data = (const char*)(column_string->get_chars().data());
-    const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
-    const ColumnString::Offset* offset_end = offset_cur + _num_rows;
-
-    Slice* slice = _slice.data();
-    size_t string_offset = *(offset_cur - 1);
-    if (_nullmap) {
-        const UInt8* nullmap_cur = _nullmap + _row_pos;
-        while (offset_cur != offset_end) {
-            if (!*nullmap_cur) {
-                slice->data = const_cast<char*>(char_data + string_offset);
-                slice->size = *offset_cur - string_offset;
-                if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
-                             _check_length)) {
-                    return Status::NotSupported(
-                            "Not support string len over than "
-                            "`string_type_length_soft_limit_bytes` in vec engine.");
-                }
-            } else {
-                // TODO: this may not be necessary, check and remove later
-                slice->data = nullptr;
-                slice->size = 0;
-            }
-            string_offset = *offset_cur;
-            ++nullmap_cur;
-            ++slice;
-            ++offset_cur;
-        }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
-    } else {
-        while (offset_cur != offset_end) {
-            slice->data = const_cast<char*>(char_data + string_offset);
-            slice->size = *offset_cur - string_offset;
-            if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
-                         _check_length)) {
-                return Status::NotSupported(
-                        "Not support string len over than `string_type_length_soft_limit_bytes`"
-                        " in vec engine.");
-            }
-            string_offset = *offset_cur;
-            ++slice;
-            ++offset_cur;
-        }
-        assert(slice == _slice.get_end_ptr());
-=======
-    const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data() const {
-        return _slice.data();
->>>>>>> 7f323a214 (resolve rebase master conflicts)
-    }
-=======
     return Status::OK();
 }
->>>>>>> a350ce4b0 (fix rebase conflicts with master)
 
 // class OlapBlockDataConvertor::OlapColumnDataConvertorVarChar
 OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::OlapColumnDataConvertorVarChar(
@@ -516,7 +449,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
         while (offset_cur != offset_end) {
             if (!*nullmap_cur) {
                 slice->data = const_cast<char*>(char_data + string_offset);
-                slice->size = *offset_cur - string_offset - 1;
+                slice->size = *offset_cur - string_offset;
                 if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
                              _check_length)) {
                     return Status::NotSupported(
@@ -537,7 +470,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
     } else {
         while (offset_cur != offset_end) {
             slice->data = const_cast<char*>(char_data + string_offset);
-            slice->size = *offset_cur - string_offset - 1;
+            slice->size = *offset_cur - string_offset;
             if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
                          _check_length)) {
                 return Status::NotSupported(
@@ -652,19 +585,19 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
     }
 }
 
-// class OlapBlockDataConvertor::OlapColumnDataConvertorJson
-void OlapBlockDataConvertor::OlapColumnDataConvertorJson::set_source_column(
+// class OlapBlockDataConvertor::OlapColumnDataConvertorJsonb
+void OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
     _slice.resize(num_rows);
 }
 
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorJson::get_data() const {
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::get_data() const {
     return _slice.data();
 }
 
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorJson::get_data_at(size_t offset) const {
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::get_data_at(size_t offset) const {
     assert(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
@@ -673,7 +606,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorJson::get_data_at(siz
     return null_flag ? nullptr : _slice.data() + offset;
 }
 
-Status OlapBlockDataConvertor::OlapColumnDataConvertorJson::convert_to_olap() {
+Status OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::convert_to_olap() {
     assert(_typed_column.column);
     const vectorized::ColumnJsonb* column_json = nullptr;
     if (_nullmap) {

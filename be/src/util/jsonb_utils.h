@@ -51,6 +51,12 @@ public:
         return os_.getBuffer();
     }
 
+    const char* jsonb_to_string(const char* data, size_t size) {
+        doris::JsonbToJson toStr;
+        doris::JsonbValue* val = doris::JsonbDocument::createDocument(data, size)->getValue();
+        return toStr.jsonb_to_string(val);
+    }
+
 private:
     // recursively convert JsonbValue
     void intern_json(const JsonbValue* val) {

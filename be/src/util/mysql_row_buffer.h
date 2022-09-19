@@ -71,7 +71,6 @@ public:
     int push_datetime(const DateTimeValue& data);
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_string(const char* str, int64_t length);
-    int push_json_string(const char* data, int64_t length);
     int push_null();
 
     // this function reserved size, change the pos step size, return old pos

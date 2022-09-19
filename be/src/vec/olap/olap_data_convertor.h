@@ -18,11 +18,8 @@
 #pragma once
 
 #include "olap/types.h"
-<<<<<<< HEAD
-=======
 #include "runtime/mem_pool.h"
 #include "vec/columns/column_jsonb.h"
->>>>>>> a23caa7b3 (rename json to jsonb)
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -171,10 +168,10 @@ private:
         PaddedPODArray<Slice> _slice;
     };
 
-    class OlapColumnDataConvertorJson : public OlapColumnDataConvertorBase {
+    class OlapColumnDataConvertorJsonb : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorJson() = default;
-        ~OlapColumnDataConvertorJson() override = default;
+        OlapColumnDataConvertorJsonb() = default;
+        ~OlapColumnDataConvertorJsonb() override = default;
 
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;

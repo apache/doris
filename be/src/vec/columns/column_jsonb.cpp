@@ -40,8 +40,6 @@ MutableColumnPtr ColumnJsonb::clone_resized(size_t to_size) const {
         res->offsets.assign(offsets.begin(), offsets.begin() + to_size);
         res->chars.assign(chars.begin(), chars.begin() + offsets[to_size - 1]);
     } else {
-        /// Copy column and append empty jsons for extra elements.
-
         Offset offset = 0;
         if (from_size > 0) {
             res->offsets.assign(offsets.begin(), offsets.end());
@@ -49,7 +47,7 @@ MutableColumnPtr ColumnJsonb::clone_resized(size_t to_size) const {
             offset = offsets.back();
         }
 
-        /// Empty jsons are just zero terminating bytes.
+        /// Empty strings are just zero terminating bytes.
 
         res->chars.resize_fill(res->chars.size() + to_size - from_size);
 
@@ -58,6 +56,7 @@ MutableColumnPtr ColumnJsonb::clone_resized(size_t to_size) const {
             ++offset;
             res->offsets[i] = offset;
         }
+        res->offsets.resize_fill(to_size, chars.size());
     }
 
     return res;
@@ -367,6 +366,18 @@ void ColumnJsonb::replicate(const uint32_t* counts, size_t target_size, IColumn&
 void ColumnJsonb::reserve(size_t n) {
     offsets.reserve(n);
     chars.reserve(n);
+}
+
+MutableColumnPtr ColumnJsonb::get_shinked_column() {
+    auto shrinked_column = ColumnJsonb::create();
+    shrinked_column->get_offsets().reserve(offsets.size());
+    shrinked_column->get_chars().reserve(chars.size());
+    for (int i = 0; i < size(); i++) {
+        StringRef str = get_data_at(i);
+        reinterpret_cast<ColumnJsonb*>(shrinked_column.get())
+                ->insert_data(str.data, strnlen(str.data, str.size));
+    }
+    return shrinked_column;
 }
 
 void ColumnJsonb::resize(size_t n) {

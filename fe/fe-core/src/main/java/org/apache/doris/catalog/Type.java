@@ -142,6 +142,7 @@ public abstract class Type {
         trivialTypes.add(DATETIMEV2);
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
+        trivialTypes.add(JSONB);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -149,19 +150,6 @@ public abstract class Type {
         supportedTypes.add(HLL);
         supportedTypes.add(BITMAP);
         supportedTypes.add(QUANTILE_STATE);
-        supportedTypes.add(CHAR);
-        supportedTypes.add(DATE);
-        supportedTypes.add(DATETIME);
-        supportedTypes.add(DATEV2);
-        supportedTypes.add(DATETIMEV2);
-        supportedTypes.add(DECIMALV2);
-        supportedTypes.add(DECIMAL32);
-        supportedTypes.add(DECIMAL64);
-        supportedTypes.add(DECIMAL128);
-        supportedTypes.add(TIME);
-        supportedTypes.add(TIMEV2);
-        supportedTypes.add(STRING);
-        supportedTypes.add(JSONB);
 
         arraySubTypes = Lists.newArrayList();
         arraySubTypes.add(BOOLEAN);

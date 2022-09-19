@@ -522,7 +522,7 @@ public class Function implements Writable {
             case STRING:
                 return "string_val";
             case JSONB:
-                return "json_val";
+                return "jsonb_val";
             case DATE:
             case DATETIME:
                 return "datetime_val";
@@ -574,7 +574,7 @@ public class Function implements Writable {
             case STRING:
                 return "StringVal";
             case JSONB:
-                return "JsonVal";
+                return "JsonbVal";
             case DATE:
             case DATETIME:
                 return "DateTimeVal";

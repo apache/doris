@@ -82,7 +82,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr.setType(type);
                 break;
             case JSONB:
-                literalExpr = new JsonbLiteral(value);
+                literalExpr = new JsonLiteral(value);
                 break;
             case DATE:
             case DATETIME:
@@ -123,8 +123,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             literalExpr = new DecimalLiteral(value);
         } else if (expr instanceof StringLiteral) {
             literalExpr = new StringLiteral(value);
-        } else if (expr instanceof JsonbLiteral) {
-            literalExpr = new JsonbLiteral(value);
+        } else if (expr instanceof JsonLiteral) {
+            literalExpr = new JsonLiteral(value);
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
         } else {

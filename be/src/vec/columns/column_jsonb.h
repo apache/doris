@@ -320,14 +320,6 @@ public:
         chars.emplace_back(0);
     }
 
-    MutableColumnPtr get_shinked_column() const {
-        auto shrinked_column = ColumnJsonb::create();
-        for (int i = 0; i < size(); i++) {
-            StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnJsonb*>(shrinked_column.get())
-                    ->insert_data(str.data, strnlen(str.data, str.size));
-        }
-        return shrinked_column;
-    }
+    MutableColumnPtr get_shinked_column() override;
 };
 }; // namespace doris::vectorized

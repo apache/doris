@@ -18,6 +18,7 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
@@ -109,17 +110,20 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
             if constexpr (type == TYPE_JSONB) {
                 const auto json_val = column->get_data_at(i);
-
                 if (json_val.data == nullptr) {
                     if (json_val.size == 0) {
                         // 0x01 is a magic num, not useful actually, just for present ""
                         char* tmp_val = reinterpret_cast<char*>(0x01);
-                        buf_ret = _buffer.push_json_string(tmp_val, json_val.size);
+                        buf_ret = _buffer.push_string(tmp_val, json_val.size);
                     } else {
                         buf_ret = _buffer.push_null();
                     }
                 } else {
-                    buf_ret = _buffer.push_json_string(json_val.data, json_val.size);
+                    JsonbToJson toStr;
+                    std::string json_str = toStr.jsonb_to_string(
+                            JsonbDocument::createDocument(json_val.data, json_val.size)
+                                    ->getValue());
+                    buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
                 }
             }
 

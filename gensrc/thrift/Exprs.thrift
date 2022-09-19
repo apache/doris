@@ -40,7 +40,7 @@ enum TExprNodeType {
   NULL_LITERAL,
   SLOT_REF,
   STRING_LITERAL,
-  JSONB_LITERAL,
+  JSON_LITERAL,
   TUPLE_IS_NULL_PRED,
   INFO_FUNC,
   FUNCTION_CALL,
@@ -141,7 +141,7 @@ struct TStringLiteral {
   1: required string value;
 }
 
-struct TJsonbLiteral {
+struct TJsonLiteral {
   1: required string value;
 }
 
@@ -198,7 +198,7 @@ struct TExprNode {
   // For vectorized engine
   29: optional bool is_nullable
   
-  30: optional TJsonbLiteral jsonb_literal
+  30: optional TJsonLiteral json_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

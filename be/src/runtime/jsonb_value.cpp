@@ -23,7 +23,7 @@
 
 namespace doris {
 
-JsonbErrType JsonBinaryValue::from_json_str(const char* s, int length) {
+JsonbErrType JsonBinaryValue::from_json_string(const char* s, int length) {
     JsonbErrType error = JsonbErrType::E_NONE;
     if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
@@ -37,12 +37,12 @@ JsonbErrType JsonBinaryValue::from_json_str(const char* s, int length) {
     return error;
 }
 
-std::string JsonBinaryValue::to_string() const {
+std::string JsonBinaryValue::to_json_string() const {
     JsonbToJson toStr;
     return toStr.jsonb_to_string(JsonbDocument::createDocument(ptr, len)->getValue());
 }
 
 std::ostream& operator<<(std::ostream& os, const JsonBinaryValue& json_value) {
-    return os << json_value.to_string();
+    return os << json_value.to_json_string();
 }
 } // namespace doris

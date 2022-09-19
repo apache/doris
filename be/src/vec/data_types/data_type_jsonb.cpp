@@ -48,25 +48,21 @@ static inline void read(IColumn& column, Reader&& reader) {
     }
 }
 
-std::string jsonb_to_string(const StringRef& s) {
-    doris::JsonbToJson toStr;
-    doris::JsonbValue* val = doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
-    return toStr.jsonb_to_string(val);
-}
-
 std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) const {
+    JsonbToJson toStr;
     const StringRef& s =
             reinterpret_cast<const ColumnJsonb&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
-    return jsonb_to_string(s);
+    return toStr.jsonb_to_string(s.data, s.size);
 }
 
 void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
                               class doris::vectorized::BufferWritable& ostr) const {
+    JsonbToJson toStr;
     const StringRef& s =
             reinterpret_cast<const ColumnJsonb&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
-    std::string str = jsonb_to_string(s);
+    std::string str = toStr.jsonb_to_string(s.data, s.size);
     ostr.write(str.c_str(), str.size());
 }
 
@@ -78,16 +74,46 @@ bool DataTypeJsonb::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-int64_t DataTypeJsonb::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeJsonb::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                         int data_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnJsonb&>(*ptr.get());
+
+    if (data_version == -1) {
+        return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
+               data_column.get_chars().size() + column.size();
+    }
+
     return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
            data_column.get_chars().size();
 }
 
-char* DataTypeJsonb::serialize(const IColumn& column, char* buf) const {
+char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int data_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnJsonb&>(*ptr.get());
+
+    if (data_version == -1) {
+        // row num
+        *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
+        buf += sizeof(IColumn::Offset);
+        // offsets
+        for (int i = 0; i < column.size(); i++) {
+            *reinterpret_cast<IColumn::Offset*>(buf) = data_column.get_offsets()[i] + i + 1;
+            buf += sizeof(IColumn::Offset);
+        }
+        // total length
+        *reinterpret_cast<uint64_t*>(buf) = data_column.get_chars().size() + column.size();
+        buf += sizeof(uint64_t);
+        // values
+        for (int i = 0; i < column.size(); i++) {
+            auto data = data_column.get_data_at(i);
+            memcpy(buf, data.data, data.size);
+            buf += data.size;
+            *buf = '\0';
+            buf++;
+        }
+        return buf;
+    }
 
     // row num
     *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
@@ -106,13 +132,36 @@ char* DataTypeJsonb::serialize(const IColumn& column, char* buf) const {
     return buf;
 }
 
-const char* DataTypeJsonb::deserialize(const char* buf, IColumn* column) const {
-    ColumnJsonb* column_json = assert_cast<ColumnJsonb*>(column);
-    ColumnJsonb::Chars& data = column_json->get_chars();
-    ColumnJsonb::Offsets& offsets = column_json->get_offsets();
+const char* DataTypeJsonb::deserialize(const char* buf, IColumn* column, int data_version) const {
+    ColumnJsonb* column_string = assert_cast<ColumnJsonb*>(column);
+    ColumnJsonb::Chars& data = column_string->get_chars();
+    ColumnJsonb::Offsets& offsets = column_string->get_offsets();
+
+    if (data_version == -1) {
+        // row num
+        IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+        buf += sizeof(IColumn::Offset);
+        // offsets
+        offsets.resize(row_num);
+        for (int i = 0; i < row_num; i++) {
+            offsets[i] = *reinterpret_cast<const IColumn::Offset*>(buf) - i - 1;
+            buf += sizeof(IColumn::Offset);
+        }
+        // total length
+        uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
+        buf += sizeof(uint64_t);
+        // values
+        data.resize(value_len - row_num);
+        for (int i = 0; i < row_num; i++) {
+            memcpy(data.data() + offsets[i - 1], buf, offsets[i] - offsets[i - 1]);
+            buf += offsets[i] - offsets[i - 1] + 1;
+        }
+
+        return buf;
+    }
 
     // row num
-    uint32_t row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
     buf += sizeof(IColumn::Offset);
     // offsets
     offsets.resize(row_num);

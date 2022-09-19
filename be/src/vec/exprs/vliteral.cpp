@@ -127,9 +127,9 @@ void VLiteral::init(const TExprNode& node) {
             break;
         }
         case TYPE_JSONB: {
-            DCHECK_EQ(node.node_type, TExprNodeType::JSONB_LITERAL);
-            DCHECK(node.__isset.jsonb_literal);
-            JsonBinaryValue value(node.jsonb_literal.value);
+            DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
+            DCHECK(node.__isset.json_literal);
+            JsonBinaryValue value(node.json_literal.value);
             field = JsonbField(value.value(), value.size());
             break;
         }
@@ -236,13 +236,9 @@ std::string VLiteral::debug_string() const {
             }
             case TYPE_STRING:
             case TYPE_CHAR:
-            case TYPE_VARCHAR: {
-                out << ref;
-                break;
-            }
+            case TYPE_VARCHAR:
             case TYPE_JSONB: {
-                JsonBinaryValue value(ref.data, ref.size);
-                out << value.to_string();
+                out << ref;
                 break;
             }
             case TYPE_DECIMALV2: {

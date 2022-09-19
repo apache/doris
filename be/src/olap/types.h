@@ -29,6 +29,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/mem_pool.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
@@ -1574,7 +1575,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIEL
 
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        auto jdoc = JsonbDocument::createDocument(scan_key.c_str(), scan_key.size());
+        JsonBinaryValue binary_val(scan_key.c_str(), scan_key.size());
+        auto jdoc = JsonbDocument::createDocument(binary_val.value(), binary_val.size());
         size_t value_len = jdoc->numPackedBytes();
         if (value_len > config::jsonb_type_length_soft_limit_bytes) {
             LOG(WARNING) << "the len of value json is too long, len=" << value_len
@@ -1597,8 +1599,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIEL
         case OLAP_FIELD_TYPE_VARCHAR:
         case OLAP_FIELD_TYPE_STRING: {
             auto s = src_type->to_string(src);
+            JsonBinaryValue binary_val(s.c_str(), s.size());
             std::string result = toStr.jsonb_to_string(
-                    JsonbDocument::createDocument(s.c_str(), s.size())->getValue());
+                    JsonbDocument::createDocument(binary_val.value(), binary_val.size())
+                            ->getValue());
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
@@ -1617,7 +1621,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIEL
 
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = OLAP_JSONB_MAX_LENGTH; // 2G
+        slice->size = 0;
     }
 };
 

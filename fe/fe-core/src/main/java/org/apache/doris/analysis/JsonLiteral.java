@@ -22,7 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TJsonbLiteral;
+import org.apache.doris.thrift.TJsonLiteral;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
@@ -34,19 +34,19 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
-public class JsonbLiteral extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(JsonbLiteral.class);
+public class JsonLiteral extends LiteralExpr {
+    private static final Logger LOG = LogManager.getLogger(JsonLiteral.class);
     private JsonParser parser = new JsonParser();
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
 
-    public JsonbLiteral() {
+    public JsonLiteral() {
         super();
         type = Type.JSONB;
     }
 
-    public JsonbLiteral(String value) throws AnalysisException {
+    public JsonLiteral(String value) throws AnalysisException {
         try {
             parser.parse(value);
         } catch (JsonSyntaxException e) {
@@ -57,7 +57,7 @@ public class JsonbLiteral extends LiteralExpr {
         analysisDone();
     }
 
-    protected JsonbLiteral(JsonbLiteral other) {
+    protected JsonLiteral(JsonLiteral other) {
         super(other);
         value = other.value;
     }
@@ -68,7 +68,7 @@ public class JsonbLiteral extends LiteralExpr {
 
     @Override
     public Expr clone() {
-        return new JsonbLiteral(this);
+        return new JsonLiteral(this);
     }
 
     @Override
@@ -92,8 +92,8 @@ public class JsonbLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.JSONB_LITERAL;
-        msg.jsonb_literal = new TJsonbLiteral(getUnescapedValue());
+        msg.node_type = TExprNodeType.JSON_LITERAL;
+        msg.json_literal = new TJsonLiteral(getUnescapedValue());
     }
 
     public String getUnescapedValue() {
@@ -138,8 +138,8 @@ public class JsonbLiteral extends LiteralExpr {
         value = Text.readString(in);
     }
 
-    public static JsonbLiteral read(DataInput in) throws IOException {
-        JsonbLiteral literal = new JsonbLiteral();
+    public static JsonLiteral read(DataInput in) throws IOException {
+        JsonLiteral literal = new JsonLiteral();
         literal.readFields(in);
         return literal;
     }

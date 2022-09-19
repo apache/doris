@@ -40,9 +40,8 @@ TEST(JsonBinaryValueTest, TestValidation) {
     // single value not wrapped as an arrar or object is invalid
     std::vector<string> invalid_strs = {"", "1", "null", "false", "abc"};
     for (size_t i = 0; i < invalid_strs.size(); i++) {
-        err = json_val.from_json_str(invalid_strs[i].c_str(), invalid_strs[i].size());
+        err = json_val.from_json_string(invalid_strs[i].c_str(), invalid_strs[i].size());
         EXPECT_NE(err, JsonbErrType::E_NONE);
-        std::cout << JsonbErrMsg::getErrMsg(err) << std::endl;
     }
 
     // valid enums
@@ -54,7 +53,7 @@ TEST(JsonBinaryValueTest, TestValidation) {
     valid_strs.push_back("{\"key1\": \"js6\", \"key2\": [\"val1\", \"val2\"]}");
     valid_strs.push_back("[123, {\"key1\": null, \"key2\": [\"val1\", \"val2\"]}]");
     for (size_t i = 0; i < valid_strs.size(); i++) {
-        err = json_val.from_json_str(valid_strs[i].c_str(), valid_strs[i].size());
+        err = json_val.from_json_string(valid_strs[i].c_str(), valid_strs[i].size());
         EXPECT_EQ(err, JsonbErrType::E_NONE);
     }
 }

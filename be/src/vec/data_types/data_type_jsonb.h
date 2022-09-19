@@ -32,15 +32,17 @@ public:
     const char* get_family_name() const override { return "JSONB"; }
     TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int data_version) const override;
+    char* serialize(const IColumn& column, char* buf, int data_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
 
     MutableColumnPtr create_column() const override;
 
     virtual Field get_default() const override {
         std::string default_json = "{}";
-        return JsonbField(default_json.c_str(), default_json.size());
+        JsonBinaryValue binary_val(default_json.c_str(), default_json.size());
+        return JsonbField(binary_val.value(), binary_val.size());
     }
 
     bool equals(const IDataType& rhs) const override;

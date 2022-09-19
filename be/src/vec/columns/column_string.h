@@ -174,7 +174,7 @@ public:
             offset += len;
             offsets.push_back(offset);
         }
-    }
+    };
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;

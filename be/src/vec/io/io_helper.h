@@ -199,22 +199,10 @@ inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
     return StringRef(data, size);
 }
 
-inline void read_json_binary(StringRef& s, BufferReadable& buf,
-                             size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
-    size_t size = 0;
-    read_var_uint(size, buf);
-
-    if (size > MAX_JSON_SIZE) {
-        throw Exception("Too large jsonb size.", TStatusCode::VEC_EXCEPTION);
-    }
-
-    s = buf.read(size);
-}
-
 inline void read_json_binary(JsonbField val, BufferReadable& buf,
                              size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
     StringRef jrf = StringRef {val.get_value(), val.get_size()};
-    read_json_binary(jrf, buf);
+    read_string_binary(jrf, buf);
 }
 
 template <typename Type>

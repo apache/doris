@@ -35,7 +35,6 @@ JsonBinaryValue FromStdString(const std::string& str) {
 }
 
 TEST(ColumnJsonbTest, SingleValueTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
     auto data_column = ColumnJsonb::create();
 
     std::vector<IColumn::Offset> offs = {0};
@@ -43,7 +42,6 @@ TEST(ColumnJsonbTest, SingleValueTest) {
                                      "{\"key1\": \"js6\", \"key2\": [\"val1\", \"val2\"]}"};
     for (size_t i = 0; i < vals.size(); i++) {
         JsonBinaryValue v = FromStdString(vals[i]);
-        off_column->insert_data((const char*)(v.size()), 0);
         if (i) {
             offs.push_back(offs[i - 1] + v.size());
         }
