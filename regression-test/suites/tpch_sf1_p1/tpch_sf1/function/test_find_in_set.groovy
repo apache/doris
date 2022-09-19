@@ -24,7 +24,7 @@ suite("test_find_in_set") {
         select find_in_set(
         cast(regression_test_tpch_sf1_p1.orders.`O_COMMENT` as varchar),
         cast(BITMAP_TO_STRING(
-        cast(BITMAP_EMPTY() as bitmap)) as varchar)) from regression_test_tpch_sf1_p1.orders
+        cast(BITMAP_EMPTY() as bitmap)) as varchar)) from regression_test_tpch_sf1_p1.orders limit 1
     """
 
 }
