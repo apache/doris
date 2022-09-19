@@ -38,11 +38,6 @@ public:
         _reset();
     }
 
-    void filter_block(IColumn::Filter& filter) {
-        Block::filter_block_internal(&block, filter, block.columns());
-        _reset();
-    }
-
 private:
     void _reset() {
         sort_columns.clear();
@@ -77,13 +72,13 @@ public:
 
 private:
     ~SharedHeapSortCursorBlockView() noexcept = default;
-    int _ref_count;
+    uint32_t _ref_count;
     HeapSortCursorBlockView _reference;
 };
 
 struct HeapSortCursorImpl {
 public:
-    HeapSortCursorImpl(int row_id, SharedHeapSortCursorBlockView* block_view)
+    HeapSortCursorImpl(size_t row_id, SharedHeapSortCursorBlockView* block_view)
             : _row_id(row_id), _block_view(block_view) {
         block_view->ref();
     }

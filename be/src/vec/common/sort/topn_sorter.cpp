@@ -60,17 +60,25 @@ Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
     Defer defer([&] { block_view->unref(); });
     size_t num_rows = tmp_block.rows();
     if (_heap_size == _heap->size()) {
+        IColumn::Filter filter(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            filter[i] = 0;
+        }
         {
             SCOPED_TIMER(_topn_filter_timer);
-            _do_filter(block_view->value(), num_rows);
+            _do_filter(block_view->value(), num_rows, filter);
         }
-        size_t remain_rows = block_view->value().block.rows();
-        _topn_filter_rows += (num_rows - remain_rows);
+        size_t remain_rows = 0;
+
         COUNTER_SET(_topn_filter_rows_counter, _topn_filter_rows);
-        for (size_t i = 0; i < remain_rows; ++i) {
-            HeapSortCursorImpl cursor(i, block_view);
-            _heap->replace_top_if_less(std::move(cursor));
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (filter[i]) {
+                HeapSortCursorImpl cursor(i, block_view);
+                _heap->replace_top_if_less(std::move(cursor));
+                remain_rows++;
+            }
         }
+        _topn_filter_rows += (num_rows - remain_rows);
     } else {
         size_t free_slots = std::min<size_t>(_heap_size - _heap->size(), num_rows);
 
@@ -129,14 +137,10 @@ Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     return Status::OK();
 }
 
-void TopNSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows) {
+void TopNSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows,
+                            IColumn::Filter& filter) {
     const auto& top_cursor = _heap->top();
     const int cursor_rid = top_cursor.row_id();
-
-    IColumn::Filter filter(num_rows);
-    for (size_t i = 0; i < num_rows; ++i) {
-        filter[i] = 0;
-    }
 
     std::vector<uint8_t> cmp_res(num_rows, 0);
 
@@ -146,7 +150,6 @@ void TopNSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows
                 _sort_description[col_id].nulls_direction, _sort_description[col_id].direction,
                 cmp_res, filter.data());
     }
-    block_view.filter_block(filter);
 }
 
 Status TopNSorter::_prepare_sort_descs(Block* block) {
