@@ -49,15 +49,9 @@ public class CostCalculator {
         PlanContext planContext = new PlanContext(groupExpression);
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-        return costFormula(costEstimate);
-    }
 
-    private static double costFormula(CostEstimate costEstimate) {
-        double cpuCostWeight = 1;
-        double memoryCostWeight = 1;
-        double networkCostWeight = 1;
-        return costEstimate.getCpuCost() * cpuCostWeight + costEstimate.getMemoryCost() * memoryCostWeight
-                + costEstimate.getNetworkCost() * networkCostWeight;
+        CostWeight costWeight = new CostWeight(0.5, 2, 1.5);
+        return costWeight.calculate(costEstimate);
     }
 
     private static class CostEstimator extends PlanVisitor<CostEstimate, PlanContext> {
@@ -142,25 +136,16 @@ public class CostCalculator {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
             Preconditions.checkState(context.getChildrenStats().size() == 2);
 
-            StatsDeriveResult leftStatistics = context.getChildStatistics(0);
-            StatsDeriveResult rightStatistics = context.getChildStatistics(1);
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
+            CostEstimate inputCost = calculateJoinInputCost(context);
+            CostEstimate outputCost = calculateJoinOutputCost(physicalHashJoin);
 
             // TODO: handle some case
             // handle cross join, onClause is empty .....
             if (physicalHashJoin.getJoinType().isCrossJoin()) {
-                return new CostEstimate(
-                        leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds),
-                        rightStatistics.computeColumnSize(rightIds),
-                        0);
+                return CostEstimate.sum(inputCost, outputCost, outputCost);
             }
 
-            // TODO: network 0?
-            return new CostEstimate(
-                    (leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds)) / 2,
-                    rightStatistics.computeColumnSize(rightIds),
-                    0);
+            return CostEstimate.sum(inputCost, outputCost);
         }
 
         @Override
@@ -191,5 +176,25 @@ public class CostCalculator {
                     rightStatistics.computeColumnSize(rightIds),
                     0);
         }
+    }
+
+    private static CostEstimate calculateJoinInputCost(PlanContext context) {
+        StatsDeriveResult probeStats = context.getChildStatistics(0);
+        StatsDeriveResult buildStats = context.getChildStatistics(1);
+        List<Id> leftIds = context.getChildOutputIds(0);
+        List<Id> rightIds = context.getChildOutputIds(1);
+
+        double cpuCost = probeStats.computeColumnSize(leftIds) + buildStats.computeColumnSize(rightIds);
+        double memoryCost = buildStats.computeColumnSize(rightIds);
+
+        return CostEstimate.of(cpuCost, memoryCost, 0);
+    }
+
+    private static CostEstimate calculateJoinOutputCost(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin) {
+        StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
+
+        float size = outputStats.computeSize();
+        return CostEstimate.ofCpu(size);
     }
 }
