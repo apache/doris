@@ -55,14 +55,6 @@ Status SetOperationNode::prepare(RuntimeState* state) {
     }
     _build_tuple_size = child(0)->row_desc().tuple_descriptors().size();
     _build_tuple_row_size = _build_tuple_size * sizeof(Tuple*);
-    _build_tuple_idx.reserve(_build_tuple_size);
-
-    for (int i = 0; i < _build_tuple_size; ++i) {
-        TupleDescriptor* build_tuple_desc = child(0)->row_desc().tuple_descriptors()[i];
-        auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
-        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
-        _build_tuple_idx.push_back(tuple_idx);
-    }
     _find_nulls = std::vector<bool>();
     for (auto ctx : _child_expr_lists[0]) {
         _find_nulls.push_back(!ctx->root()->is_slotref() || ctx->is_nullable());
