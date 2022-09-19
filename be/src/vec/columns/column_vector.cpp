@@ -122,6 +122,33 @@ void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
 }
 
 template <typename T>
+void ColumnVector<T>::next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                           int nan_direction_hint, int direction,
+                                           uint32_t* end_index) const {
+    size_t limit = std::min((uint32_t)this->size(), *end_index);
+    auto& other = assert_cast<const Self&>(rhs);
+    const T& base = other.data[n];
+
+    auto cmp = [&](const T& a, const T& b) {
+        return a > b ? 1 * direction : (a < b ? -1 * direction : 0);
+    };
+    size_t i = *offset;
+    bool set_begin = false;
+    for (; i < limit; i++) {
+        if (cmp(data[i], base) == 0 && !set_begin) {
+            *offset = i;
+            set_begin = true;
+        } else if (cmp(data[i], base) > 0) {
+            break;
+        }
+    }
+    if (!set_begin) {
+        *offset = i;
+    }
+    *end_index = i;
+}
+
+template <typename T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
                                   bool last_column) const {

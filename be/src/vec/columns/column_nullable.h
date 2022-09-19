@@ -151,6 +151,9 @@ public:
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
+    void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                              int nan_direction_hint, int direction,
+                              uint32_t* end_index) const override;
     void get_permutation(bool reverse, size_t limit, int null_direction_hint,
                          Permutation& res) const override;
     void reserve(size_t n) override;

@@ -205,6 +205,12 @@ public:
         LOG(FATAL) << "compare_at not implemented";
     }
 
+    [[noreturn]] void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                           int nan_direction_hint, int direction,
+                                           uint32_t* num_rows) const override {
+        LOG(FATAL) << "next_range_less_than not implemented";
+    }
+
     void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not implemented";
     }

@@ -270,6 +270,10 @@ public:
                                          nan_direction_hint);
     }
 
+    void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                              int nan_direction_hint, int direction,
+                              uint32_t* end_index) const override;
+
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
 

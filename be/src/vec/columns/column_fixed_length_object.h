@@ -152,6 +152,12 @@ public:
         LOG(FATAL) << "compare_at not supported";
     }
 
+    [[noreturn]] void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                           int nan_direction_hint, int direction,
+                                           uint32_t* end_index) const override {
+        LOG(FATAL) << "next_range_less_than not implemented";
+    }
+
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported";

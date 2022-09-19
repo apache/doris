@@ -115,6 +115,12 @@ public:
                                       Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
     }
+
+    [[noreturn]] void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                           int nan_direction_hint, int direction,
+                                           uint32_t* num_rows) const override {
+        LOG(FATAL) << "next_range_less_than not implemented";
+    }
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;

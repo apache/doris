@@ -47,6 +47,33 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
 }
 
 template <typename T>
+void ColumnDecimal<T>::next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                            int nan_direction_hint, int direction,
+                                            uint32_t* end_index) const {
+    size_t limit = std::min((uint32_t)this->size(), *end_index);
+    auto& other = assert_cast<const Self&>(rhs);
+    const T& base = other.data[n];
+
+    auto cmp = [&](const T& a, const T& b) {
+        return a > b ? 1 * direction : (a < b ? -1 * direction : 0);
+    };
+    size_t i = *offset;
+    bool set_begin = false;
+    for (; i < limit; i++) {
+        if (cmp(data[i], base) == 0 && !set_begin) {
+            *offset = i;
+            set_begin = true;
+        } else if (cmp(data[i], base) > 0) {
+            break;
+        }
+    }
+    if (!set_begin) {
+        *offset = i;
+    }
+    *end_index = i;
+}
+
+template <typename T>
 StringRef ColumnDecimal<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                        char const*& begin) const {
     auto pos = arena.alloc_continue(sizeof(T), begin);

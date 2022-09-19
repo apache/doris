@@ -162,6 +162,9 @@ public:
                                 const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
+    void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                              int nan_direction_hint, int direction,
+                              uint32_t* end_index) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
 

@@ -191,6 +191,43 @@ public:
         return result;
     }
 
+    size_t append_if_less_than(Block* block, VMergeIteratorContext& rhs) {
+        Block& src = *_block;
+        Block& dst = *block;
+
+        // copy a row to dst block column by column
+        size_t start = _index_in_block;
+        DCHECK(start >= 0);
+
+        uint32_t end_index = _next_range_less_than(rhs);
+
+        for (size_t i = 0; i < _num_columns; ++i) {
+            auto& s_col = src.get_by_position(i);
+            auto& d_col = dst.get_by_position(i);
+
+            ColumnPtr& s_cp = s_col.column;
+            ColumnPtr& d_cp = d_col.column;
+
+            d_cp->assume_mutable()->insert_range_from(*s_cp, start, end_index - _index_in_block);
+        }
+
+        _index_in_block = end_index;
+        return _index_in_block - start;
+    }
+
+    size_t append_if_less_than(BlockView* view, VMergeIteratorContext& rhs) {
+        size_t start = _index_in_block;
+        DCHECK(start >= 0);
+
+        uint32_t end_index = _next_range_less_than(rhs);
+        for (size_t i = start; i < end_index; ++i) {
+            view->push_back({_block, static_cast<int>(i), false});
+        }
+
+        _index_in_block = end_index;
+        return _index_in_block - start;
+    }
+
     // `advanced = false` when current block finished
     void copy_rows(Block* block, bool advanced = true) {
         Block& src = *_block;
@@ -234,10 +271,17 @@ public:
         return _block_row_locations[_index_in_block];
     }
 
+    RowLocation current_row_locations(size_t offset) {
+        DCHECK(_record_rowids);
+        return _block_row_locations[_index_in_block - 1 - offset];
+    }
+
     // Advance internal row index to next valid row
     // Return error if error happens
     // Don't call this when valid() is false, action is undefined
     Status advance();
+
+    Status load_next_block_if_exhausted();
 
     // Return if it has remaining data in this context.
     // Only when this function return true, current_row()
@@ -259,6 +303,41 @@ public:
 private:
     // Load next block into _block
     Status _load_next_block();
+
+    uint32_t _next_range_less_than(VMergeIteratorContext& rhs) {
+        uint32_t offset = _index_in_block;
+        uint32_t end_index = _block->rows();
+
+#define BREAK_IF_NO_EQUAL_RANGE(stmt) \
+    if (offset == end_index) {        \
+        break;                        \
+    } else {                          \
+        stmt;                         \
+    }
+        if (_compare_columns) {
+            for (auto i : *_compare_columns) {
+                auto& base_col = rhs._block->get_by_position(i);
+                auto& s_col = _block->get_by_position(i);
+
+                ColumnPtr& s_cp = s_col.column;
+                BREAK_IF_NO_EQUAL_RANGE(s_cp->next_range_less_than(
+                        &offset, rhs._index_in_block, *(base_col.column.get()), -1,
+                        _is_reverse ? -1 : 1, &end_index))
+            }
+        } else {
+            for (size_t i = 0; i < _num_key_columns; ++i) {
+                auto& base_col = rhs._block->get_by_position(i);
+                auto& s_col = _block->get_by_position(i);
+
+                ColumnPtr& s_cp = s_col.column;
+                BREAK_IF_NO_EQUAL_RANGE(s_cp->next_range_less_than(
+                        &offset, rhs._index_in_block, *(base_col.column.get()), -1,
+                        _is_reverse ? -1 : 1, &end_index))
+            }
+        }
+        DCHECK_GT(end_index, _index_in_block);
+        return end_index;
+    }
 
     RowwiseIterator* _iter;
 
@@ -304,6 +383,19 @@ Status VMergeIteratorContext::advance() {
         }
         // current batch has no data, load next batch
         RETURN_IF_ERROR(_load_next_block());
+    } while (_valid);
+    return Status::OK();
+}
+
+Status VMergeIteratorContext::load_next_block_if_exhausted() {
+    // NOTE: we increase _index_in_block directly to valid one check
+    do {
+        if (LIKELY(_index_in_block < _block->rows())) {
+            return Status::OK();
+        }
+        // current batch has no data, load next batch
+        RETURN_IF_ERROR(_load_next_block());
+        _index_in_block = 0;
     } while (_valid);
     return Status::OK();
 }
@@ -387,58 +479,93 @@ private:
         if (UNLIKELY(_record_rowids)) {
             _block_row_locations.resize(_block_row_max);
         }
-        size_t row_idx = 0;
-        VMergeIteratorContext* pre_ctx = nullptr;
-        while (_get_size(block) < _block_row_max) {
-            if (_merge_heap.empty()) {
-                break;
-            }
+        if (_is_unique) {
+            size_t row_idx = 0;
+            VMergeIteratorContext* pre_ctx = nullptr;
+            while (_get_size(block) < _block_row_max) {
+                if (_merge_heap.empty()) {
+                    break;
+                }
+                auto ctx = _merge_heap.top();
+                _merge_heap.pop();
 
-            auto ctx = _merge_heap.top();
-            _merge_heap.pop();
-
-            if (!ctx->need_skip()) {
-                ctx->add_cur_batch();
-                if (pre_ctx != ctx) {
+                if (!ctx->need_skip()) {
+                    ctx->add_cur_batch();
+                    if (pre_ctx != ctx) {
+                        if (pre_ctx) {
+                            pre_ctx->copy_rows(block);
+                        }
+                        pre_ctx = ctx;
+                    }
+                    if (UNLIKELY(_record_rowids)) {
+                        _block_row_locations[row_idx] = ctx->current_row_location();
+                    }
+                    row_idx++;
+                    if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
+                        // current block finished, ctx not advance
+                        // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
+                        ctx->copy_rows(block, false);
+                        pre_ctx = nullptr;
+                    }
+                } else if (_merged_rows != nullptr) {
+                    (*_merged_rows)++;
+                    // need skip cur row, so flush rows in pre_ctx
                     if (pre_ctx) {
                         pre_ctx->copy_rows(block);
+                        pre_ctx = nullptr;
                     }
-                    pre_ctx = ctx;
                 }
+
+                RETURN_IF_ERROR(ctx->advance());
+                if (ctx->valid()) {
+                    _merge_heap.push(ctx);
+                } else {
+                    // Release ctx earlier to reduce resource consumed
+                    delete ctx;
+                }
+            }
+            if (!_merge_heap.empty()) {
+                return Status::OK();
+            }
+            // Still last batch needs to be processed
+
+            if (UNLIKELY(_record_rowids)) {
+                _block_row_locations.resize(row_idx);
+            }
+        } else {
+            size_t row_idx = 0;
+            while (_get_size(block) < _block_row_max) {
+                if (_merge_heap.empty()) {
+                    break;
+                }
+                auto ctx = _merge_heap.top();
+                _merge_heap.pop();
+
+                auto& base = _merge_heap.top();
+                DCHECK(!ctx->need_skip());
+                size_t num_rows = ctx->append_if_less_than(block, *base);
+                row_idx += num_rows;
                 if (UNLIKELY(_record_rowids)) {
-                    _block_row_locations[row_idx] = ctx->current_row_location();
+                    for (size_t i = 0; i < num_rows; i++) {
+                        _block_row_locations[row_idx - 1 - i] = ctx->current_row_locations(i);
+                    }
                 }
-                row_idx++;
-                if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
-                    // current block finished, ctx not advance
-                    // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                    ctx->copy_rows(block, false);
-                    pre_ctx = nullptr;
-                }
-            } else if (_merged_rows != nullptr) {
-                (*_merged_rows)++;
-                // need skip cur row, so flush rows in pre_ctx
-                if (pre_ctx) {
-                    pre_ctx->copy_rows(block);
-                    pre_ctx = nullptr;
+                RETURN_IF_ERROR(ctx->load_next_block_if_exhausted());
+                if (ctx->valid()) {
+                    _merge_heap.push(ctx);
+                } else {
+                    // Release ctx earlier to reduce resource consumed
+                    delete ctx;
                 }
             }
-
-            RETURN_IF_ERROR(ctx->advance());
-            if (ctx->valid()) {
-                _merge_heap.push(ctx);
-            } else {
-                // Release ctx earlier to reduce resource consumed
-                delete ctx;
+            if (!_merge_heap.empty()) {
+                return Status::OK();
             }
-        }
-        if (!_merge_heap.empty()) {
-            return Status::OK();
-        }
-        // Still last batch needs to be processed
+            // Still last batch needs to be processed
 
-        if (UNLIKELY(_record_rowids)) {
-            _block_row_locations.resize(row_idx);
+            if (UNLIKELY(_record_rowids)) {
+                _block_row_locations.resize(row_idx);
+            }
         }
 
         return Status::EndOfFile("no more data in segment");

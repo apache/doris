@@ -167,6 +167,30 @@ public:
         }
     }
 
+    void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                              int nan_direction_hint, int direction,
+                              uint32_t* num_rows) const override {
+        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+
+        auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
+        auto* rhs_nullable = check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
+        if (this_nullable && rhs_nullable) {
+            return data->next_range_less_than(offset, 0, *rhs_const_column.data, nan_direction_hint,
+                                              direction, num_rows);
+        } else if (this_nullable) {
+            auto rhs_nullable_column = make_nullable(rhs_const_column.data, false);
+            return this_nullable->next_range_less_than(offset, 0, *rhs_nullable_column,
+                                                       nan_direction_hint, direction, num_rows);
+        } else if (rhs_nullable) {
+            auto this_nullable_column = make_nullable(data, false);
+            return this_nullable_column->next_range_less_than(
+                    offset, 0, *rhs_const_column.data, nan_direction_hint, direction, num_rows);
+        } else {
+            return data->next_range_less_than(offset, 0, *rhs_const_column.data, nan_direction_hint,
+                                              direction, num_rows);
+        }
+    }
+
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
     void append_data_by_selector(MutableColumnPtr& res,

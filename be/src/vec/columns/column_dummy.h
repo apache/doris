@@ -45,6 +45,9 @@ public:
     size_t byte_size() const override { return 0; }
     size_t allocated_bytes() const override { return 0; }
     int compare_at(size_t, size_t, const IColumn&, int) const override { return 0; }
+    void next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                              int nan_direction_hint, int direction,
+                              uint32_t* end_index) const override {}
 
     [[noreturn]] Field operator[](size_t) const override {
         LOG(FATAL) << "Cannot get value from " << get_name();

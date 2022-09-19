@@ -321,6 +321,33 @@ ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t l
     return res;
 }
 
+void ColumnString::next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                        int nan_direction_hint, int direction,
+                                        uint32_t* end_index) const {
+    size_t limit = std::min((uint32_t)this->size(), *end_index);
+    const ColumnString& other = assert_cast<const ColumnString&>(rhs);
+
+    auto cmp = [&](const uint8* lhs_ptr, size_t lhs_size) {
+        return direction * memcmp_small_allow_overflow15(lhs_ptr, lhs_size,
+                                                         other.chars.data() + other.offset_at(n),
+                                                         other.size_at(n));
+    };
+    size_t i = *offset;
+    bool set_begin = false;
+    for (; i < limit; i++) {
+        if (cmp(chars.data() + offset_at(i), size_at(i)) == 0 && !set_begin) {
+            *offset = i;
+            set_begin = true;
+        } else if (cmp(chars.data() + offset_at(i), size_at(i)) > 0) {
+            break;
+        }
+    }
+    if (!set_begin) {
+        *offset = i;
+    }
+    *end_index = i;
+}
+
 template <bool positive>
 struct ColumnString::less {
     const ColumnString& parent;

@@ -325,6 +325,39 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
                                           null_direction_hint);
 }
 
+void ColumnNullable::next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
+                                          int nan_direction_hint, int direction,
+                                          uint32_t* end_index) const {
+    const ColumnNullable& nullable_rhs = assert_cast<const ColumnNullable&>(rhs);
+
+    bool rhs_is_null = nullable_rhs.is_null_at(n);
+    size_t limit = std::min((uint32_t)this->size(), *end_index);
+
+    auto cmp = [&](bool lhs_is_null) {
+        if (is_null_at(n)) {
+            return rhs_is_null ? 0 : nan_direction_hint * direction;
+        } else if (rhs_is_null) {
+            return -nan_direction_hint * direction;
+        }
+        return 0;
+    };
+
+    size_t i = *offset;
+    bool set_begin = false;
+    for (; i < limit; i++) {
+        if (cmp(is_null_at(i)) == 0 && !set_begin) {
+            *offset = i;
+            set_begin = true;
+        } else if (cmp(is_null_at(i)) > 0) {
+            break;
+        }
+    }
+    if(!set_begin) {
+        *offset = i;
+    }
+    *end_index = i;
+}
+
 void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direction_hint,
                                      Permutation& res) const {
     /// Cannot pass limit because of unknown amount of NULLs.
