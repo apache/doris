@@ -102,6 +102,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         TFileAttributes fileAttributes = new TFileAttributes();
         setFileAttributes(ctx.fileGroup, fileAttributes);
         params.setFileAttributes(fileAttributes);
+        params.setFileType(fileGroupInfo.getBrokerDesc().getFileType());
         ctx.params = params;
 
         initColumns(ctx, analyzer);
