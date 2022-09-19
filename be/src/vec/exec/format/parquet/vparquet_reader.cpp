@@ -98,6 +98,16 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
     return Status::OK();
 }
 
+std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
+    std::unordered_map<std::string, TypeDescriptor> map;
+    auto schema_desc = _file_metadata->schema();
+    for (auto& it : _map_column) {
+        const FieldSchema* field = schema_desc.get_column(it.second);
+        map.emplace(it.first, field->type);
+    }
+    return map;
+}
+
 Status ParquetReader::get_next_block(Block* block, bool* eof) {
     int32_t num_of_readers = _row_group_readers.size();
     DCHECK(num_of_readers <= _read_row_groups.size());

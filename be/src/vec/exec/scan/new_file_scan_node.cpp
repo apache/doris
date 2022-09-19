@@ -28,10 +28,22 @@ namespace doris::vectorized {
 
 NewFileScanNode::NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
-        : VScanNode(pool, tnode, descs),
-          _pre_filter_texprs(tnode.file_scan_node.pre_filter_exprs),
-          _file_scan_node(tnode.file_scan_node) {
+        : VScanNode(pool, tnode, descs) {
     _output_tuple_id = tnode.file_scan_node.tuple_id;
+}
+
+Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(VScanNode::init(tnode, state));
+
+    /*
+    if (!tnode.file_scan_node.pre_filter_exprs.empty()) {
+        DCHECK(tnode.file_scan_node.pre_filter_exprs.size() == 1);
+
+        _pre_conjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(
+                _pool, tnode.file_scan_node.pre_filter_exprs[0], _pre_conjunct_ctx_ptr.get()));
+    }
+     */
 }
 
 Status NewFileScanNode::prepare(RuntimeState* state) {
@@ -71,7 +83,7 @@ void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
 }
 
 Status NewFileScanNode::_init_profile() {
-    VScanNode::_init_profile();
+    RETURN_IF_ERROR(VScanNode::_init_profile());
     return Status::OK();
 }
 
@@ -103,8 +115,7 @@ VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
     VScanner* scanner = nullptr;
     if (config::enable_new_file_scanner) {
         scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range,
-                                   _scanner_mem_tracker.get(), runtime_profile(),
-                                   _pre_filter_texprs, scan_range.params.format_type);
+                                   _scanner_mem_tracker.get(), runtime_profile());
         ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get());
     } else {
         switch (scan_range.params.format_type) {

@@ -28,6 +28,7 @@ class Block;
 class GenericReader {
 public:
     virtual Status get_next_block(Block* block, bool* eof) = 0;
+    virtual ~GenericReader() {}
 };
 
 } // namespace doris::vectorized
