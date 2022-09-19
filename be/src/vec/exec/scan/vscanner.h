@@ -119,9 +119,9 @@ protected:
     int64_t _limit = -1;
     MemTracker* _mem_tracker;
 
-    const TupleDescriptor* _input_tuple_desc;
-    const TupleDescriptor* _output_tuple_desc;
-    const TupleDescriptor* _real_tuple_desc;
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
+    const TupleDescriptor* _real_tuple_desc = nullptr;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.

@@ -111,6 +111,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         _chunk_reader->get_def_levels(definitions, read_values);
     }
     // fill NullMap
+    // TODO cmy why must nullable?
     CHECK(doris_column->is_nullable());
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());

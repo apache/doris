@@ -146,8 +146,8 @@ protected:
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc;
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // These two values are from query_options
     int _max_scan_key_num;
