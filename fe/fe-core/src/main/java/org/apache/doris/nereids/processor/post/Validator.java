@@ -38,11 +38,11 @@ public class Validator extends PlanPostProcessor {
         // Forbidden project-project, we must merge project.
         Preconditions.checkArgument(!(child instanceof PhysicalProject));
 
-        // Check projects is from child output.
+        // TODO: Check projects is from child output.
         // List<NamedExpression> projects = project.getProjects();
         // Set<Slot> childOutputSet = child.getOutputSet();
 
-        return super.visitPhysicalProject(project, context);
+        return project;
     }
 
     @Override
@@ -58,6 +58,6 @@ public class Validator extends PlanPostProcessor {
             Preconditions.checkState(childOutputSet.contains(slot));
         }
 
-        return super.visitPhysicalFilter(filter, context);
+        return filter;
     }
 }
