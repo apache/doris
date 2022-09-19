@@ -64,9 +64,7 @@ Status NewFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
 }
 
 Status NewFileScanner::_init_expr_ctxes() {
-    const TupleDescriptor* src_tuple_desc =
-            _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
-    if (src_tuple_desc == nullptr) {
+    if (_input_tuple_desc == nullptr) {
         std::stringstream ss;
         ss << "Unknown source tuple descriptor, tuple_id=" << _params.src_tuple_id;
         return Status::InternalError(ss.str());
@@ -76,7 +74,7 @@ Status NewFileScanner::_init_expr_ctxes() {
     std::map<SlotId, int> _full_src_index_map;
     std::map<SlotId, SlotDescriptor*> _full_src_slot_map;
     int index = 0;
-    for (const auto& slot_desc : src_tuple_desc->slots()) {
+    for (const auto& slot_desc : _input_tuple_desc->slots()) {
         _full_src_slot_map.emplace(slot_desc->id(), slot_desc);
         _full_src_index_map.emplace(slot_desc->id(), index++);
     }
@@ -102,7 +100,7 @@ Status NewFileScanner::_init_expr_ctxes() {
         }
     }
 
-    _src_tuple = (doris::Tuple*)_mem_pool->allocate(src_tuple_desc->byte_size());
+    _src_tuple = (doris::Tuple*)_mem_pool->allocate(_input_tuple_desc->byte_size());
     _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
     _src_tuple_row->set_tuple(0, _src_tuple);
     _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -122,14 +120,13 @@ Status NewFileScanner::_init_expr_ctxes() {
 
     // Construct dest slots information
     if (config::enable_new_load_scan_node) {
-        _dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
-        if (_dest_tuple_desc == nullptr) {
+        if (_output_tuple_desc == nullptr) {
             return Status::InternalError("Unknown dest tuple descriptor, tuple_id={}",
                                          _params.dest_tuple_id);
         }
 
         bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
-        for (auto slot_desc : _dest_tuple_desc->slots()) {
+        for (auto slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->is_materialized()) {
                 continue;
             }
@@ -231,7 +228,7 @@ Status NewFileScanner::_materialize_dest_block(vectorized::Block* dest_block) {
     auto& filter_map = filter_column->get_data();
     auto origin_column_num = _input_block.columns();
 
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
+    for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
