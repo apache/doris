@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -47,7 +46,7 @@ class JoinCommuteHelper {
 
     private static boolean containJoin(GroupPlan groupPlan) {
         // TODO: tmp way to judge containJoin
-        List<SlotReference> output = Utils.getOutputSlotReference(groupPlan);
-        return !output.stream().map(SlotReference::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        List<Slot> output = groupPlan.getOutput();
+        return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
     }
 }

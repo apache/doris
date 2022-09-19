@@ -40,12 +40,12 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
-                .when(topJoin -> JoinLAsscomHelper.checkOuter(topJoin, topJoin.left().child()))
+                .when(topJoin -> OuterJoinLAsscom.check(topJoin, topJoin.left().child()))
                 .when(join -> OuterJoinLAsscom.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left().child());
-                    helper.initAllProject(topJoin.left());
+                    helper.initProject(topJoin.left());
                     if (!helper.initJoinOnCondition()) {
                         return null;
                     }
