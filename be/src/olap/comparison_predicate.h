@@ -552,7 +552,8 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column)
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
+                            column)
                             ->get_data()
                             .data();
 
@@ -561,6 +562,10 @@ private:
     }
 
     T _value;
+    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 };
+
+template <PrimitiveType Type, PredicateType PT>
+constexpr PrimitiveType ComparisonPredicateBase<Type, PT>::EvalType;
 
 } //namespace doris
