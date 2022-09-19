@@ -248,7 +248,8 @@ set(VEC_FILES
   exec/scan/new_file_scan_node.cpp
   exec/scan/new_file_scanner.cpp
   exec/scan/new_file_text_scanner.cpp
-  )
+  exec/scan/vfile_scanner.cpp
+)
 
 add_library(Vec STATIC
         ${VEC_FILES}

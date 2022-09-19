@@ -872,6 +872,9 @@ CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 // Temp config. True to use new file scan node to do load job. Will remove after fully test.
 CONF_Bool(enable_new_load_scan_node, "false");
 
+// Temp config. True to use new file scanner. Will remove after fully test.
+CONF_Bool(enable_new_file_scanner, "false");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
