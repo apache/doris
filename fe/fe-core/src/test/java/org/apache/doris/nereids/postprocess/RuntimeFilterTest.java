@@ -22,6 +22,7 @@ import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -46,7 +47,8 @@ public class RuntimeFilterTest extends SSBTestBase {
     public void testGenerateRuntimeFilter() throws AnalysisException {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 1);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey"));
     }
 
     @Test
@@ -61,14 +63,17 @@ public class RuntimeFilterTest extends SSBTestBase {
         String sql
                 = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 3);
+        Assertions.assertTrue(filters.size() == 3
+            && checkRuntimeFilterExprs(filters, "c_name", "s_name", "c_city", "s_city", "c_nation", "s_nation"));
     }
 
     @Test
     public void testNestedJoinGenerateRuntimeFilter() throws AnalysisException {
         String sql = SSBUtils.Q4_1;
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 4);
+        Assertions.assertTrue(filters.size() == 4
+                && checkRuntimeFilterExprs(filters, "p_partkey", "lo_partkey", "s_suppkey", "lo_suppkey",
+                "c_custkey", "lo_custkey", "lo_orderdate", "d_datekey"));
     }
 
     @Test
@@ -78,7 +83,8 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " left outer join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 3);
+        Assertions.assertTrue(filters.size() == 2
+                && checkRuntimeFilterExprs(filters, "d_datekey", "lo_orderdate", "s_suppkey", "c_custkey"));
     }
 
     @Test
@@ -88,7 +94,8 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 3);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExprs(filters, "s_suppkey", "c_custkey"));
     }
 
     @Test
@@ -99,7 +106,9 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 3);
+        Assertions.assertTrue(filters.size() == 3
+            && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey", "d_datekey", "lo_orderdate",
+                "s_suppkey", "c_custkey"));
     }
 
     @Test
@@ -110,21 +119,24 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " inner join (select sum(c_custkey) c_custkey from customer inner join supplier on c_custkey = s_suppkey group by s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 2);
+        Assertions.assertTrue(filters.size() == 2
+                && checkRuntimeFilterExprs(filters, "d_datekey", "lo_orderdate", "s_suppkey", "c_custkey"));
     }
 
     @Test
     public void testCrossJoin() throws AnalysisException {
         String sql = "select c_custkey, lo_custkey from lineorder, customer where lo_custkey = c_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 1);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey"));
     }
 
     @Test
     public void testSubQueryAlias() throws AnalysisException {
         String sql = "select c_custkey, lo_custkey from lineorder l, customer c where c.c_custkey = l.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 1);
+        Assertions.assertTrue(filters.size() == 1
+                && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey"));
     }
 
     @Test
@@ -153,8 +165,9 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + "        on t1.p_partkey = t2.lo_partkey\n"
                 + "        order by t1.lo_custkey, t1.p_partkey, t2.s_suppkey, t2.c_custkey, t2.lo_orderkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 4);
-
+        Assertions.assertTrue(filters.size() == 4
+                && checkRuntimeFilterExprs(filters, "lo_partkey", "p_partkey", "lo_partkey", "p_partkey",
+                "c_region", "s_region", "lo_custkey", "c_custkey"));
     }
 
     @Test
@@ -165,7 +178,9 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 5);
+        Assertions.assertTrue(filters.size() == 5
+                && checkRuntimeFilterExprs(filters, "lo_custkey", "c_custkey", "c_custkey", "lo_custkey",
+                "d_datekey", "lo_orderdate", "s_suppkey", "c_custkey", "lo_custkey", "c_custkey"));
     }
 
     @Test
@@ -176,18 +191,33 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertTrue(filters.size() == 5);
+        Assertions.assertTrue(filters.size() == 3
+                && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey", "d_datekey", "lo_orderdate",
+                "lo_custkey", "c_custkey"));
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).implement();
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
+        new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
         new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(checker.getCascadesContext()));
         RuntimeFilterContext context = checker.getCascadesContext().getRuntimeFilterContext();
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(filters.size(), context.getLegacyFilters().size() + context.getTargetNullCount());
         return Optional.of(filters);
+    }
+
+    private boolean checkRuntimeFilterExprs(List<RuntimeFilter> filters, String... colNames) {
+        int idx = 0;
+        for (RuntimeFilter filter : filters) {
+            if (!checkRuntimeFilterExpr(filter, colNames[idx++], colNames[idx++])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -139,6 +140,11 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker rewrite() {
+        new NereidsRewriteJobExecutor(cascadesContext).execute();
         return this;
     }
 
