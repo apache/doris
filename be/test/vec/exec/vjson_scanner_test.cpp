@@ -790,17 +790,8 @@ TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
         vectorized::Block block;
         status = scan_node.get_next(&_runtime_state, &block, &eof);
         EXPECT_TRUE(status.ok());
-        EXPECT_EQ(2, block.rows());
-        EXPECT_EQ(6, block.columns());
-
-        auto columns = block.get_columns_with_type_and_name();
-        ASSERT_EQ(columns.size(), 6);
-        ASSERT_EQ(columns[0].to_string(0), "NULL");
-        ASSERT_EQ(columns[0].to_string(1), "NULL");
-        ASSERT_EQ(columns[1].to_string(0), "NULL");
-        ASSERT_EQ(columns[1].to_string(1), "NULL");
-        ASSERT_EQ(columns[2].to_string(0), "NULL");
-        ASSERT_EQ(columns[2].to_string(1), "NULL");
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.columns());
         block.clear();
         scan_node.close(&_runtime_state);
     };
