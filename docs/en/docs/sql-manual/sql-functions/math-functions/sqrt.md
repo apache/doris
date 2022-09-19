@@ -28,7 +28,7 @@ under the License.
 #### Syntax
 
 `DOUBLE sqrt(DOUBLE x)`
-Returns the square root of `x`.
+Returns the square root of `x`.`x` is required to be greater than or equal to `0`.
 
 ### example
 

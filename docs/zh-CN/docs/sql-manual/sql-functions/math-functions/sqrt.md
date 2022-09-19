@@ -28,7 +28,7 @@ under the License.
 #### Syntax
 
 `DOUBLE sqrt(DOUBLE x)`
-返回`x`的平方根.
+返回`x`的平方根，要求x大于或等于0.
 
 ### example
 
