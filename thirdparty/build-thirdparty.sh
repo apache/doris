@@ -1420,7 +1420,7 @@ build_xxhash() {
 
 # Choose what to compile
 if [[ -d ${TP_INSTALL_DIR} && "${DEPS}" != "" ]]; then
-    for i in `echo ${DEPS}`; do
+    for i in $(echo ${DEPS}); do
         build_${i}
     done
     echo "Built specified dependencies: ${DEPS}"
@@ -1428,13 +1428,13 @@ if [[ -d ${TP_INSTALL_DIR} && "${DEPS}" != "" ]]; then
 fi
 
 if [[ -f version.txt ]]; then
-    CUR_VERSION=`cat version.txt | grep -v "#"`
+    CUR_VERSION=$(cat version.txt | grep -v "#")
 else
     CUR_VERSION="y"
 fi
 
 if [[ -f ${TP_INSTALL_DIR}/version.txt ]]; then
-    INSTALLED_VERSION=`cat ${TP_INSTALL_DIR}/version.txt | grep -v "#"`
+    INSTALLED_VERSION=$(cat ${TP_INSTALL_DIR}/version.txt | grep -v "#")
 else
     INSTALLED_VERSION="x"
 fi
@@ -1446,19 +1446,19 @@ fi
 
 # Incremental build
 if [[ -f version.txt && -f ${TP_INSTALL_DIR}/version.txt && ${BUILD_ALL} -eq 0 ]]; then
-    CUR_VERSION=`cat version.txt | grep -v "#" | awk '{print $1; exit}'`
-    INSTALLED_VERSION=`cat ${TP_INSTALL_DIR}/version.txt | grep -v "#" | awk '{print $1; exit}'`
+    CUR_VERSION=$(cat version.txt | grep -v "#" | awk '{print $1; exit}')
+    INSTALLED_VERSION=$(cat ${TP_INSTALL_DIR}/version.txt | grep -v "#" | awk '{print $1; exit}')
     if [[ "${INSTALLED_VERSION}" -gt "${CUR_VERSION}" ]]; then
         echo "Installed dependencies are up to date, if you want to downgrade, use -a or -d option to rebuild"
         exit
     fi
-    VER_DIFF=$[${CUR_VERSION} - ${INSTALLED_VERSION}]
+    VER_DIFF=$((${CUR_VERSION} - ${INSTALLED_VERSION}))
     if [[ ${VER_DIFF} -lt 2 ]]; then
         INC_BUILD_DEPS=""
         CNT=0
-        for i in `cat version.txt | grep -v "#"`; do
+        for i in $(cat version.txt | grep -v "#"); do
             if [[ ${CNT} -lt 2 ]]; then
-                CNT=$[${CNT} + 1]
+                CNT=$((${CNT} + 1))
                 continue
             fi
             INC_BUILD_DEPS="${INC_BUILD_DEPS} ${i}"
@@ -1544,7 +1544,7 @@ build_xxhash
 
 # Full build done
 if [[ -f version.txt ]]; then
-    cp -f version.txt  ${TP_INSTALL_DIR}/version.txt
+    cp -f version.txt ${TP_INSTALL_DIR}/version.txt
 fi
 
 echo "Finished to build all thirdparties"
