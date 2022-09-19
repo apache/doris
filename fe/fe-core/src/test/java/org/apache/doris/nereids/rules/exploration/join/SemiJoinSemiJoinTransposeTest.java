@@ -45,7 +45,7 @@ public class SemiJoinSemiJoinTransposeTest {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(SemiJoinSemiJoinTranspose.INSTANCE.build())
+                .applyExploration(SemiJoinSemiJoinTranspose.INSTANCE.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());

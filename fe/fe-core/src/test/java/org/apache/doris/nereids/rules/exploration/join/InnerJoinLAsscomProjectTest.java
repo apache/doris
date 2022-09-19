@@ -81,7 +81,7 @@ public class InnerJoinLAsscomProjectTest {
                 Optional.empty(), project, scan3);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(InnerJoinLAsscomProject.INSTANCE.build())
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
