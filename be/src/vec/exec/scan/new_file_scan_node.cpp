@@ -44,6 +44,7 @@ Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 _pool, tnode.file_scan_node.pre_filter_exprs[0], _pre_conjunct_ctx_ptr.get()));
     }
      */
+	return Status::OK();
 }
 
 Status NewFileScanNode::prepare(RuntimeState* state) {
@@ -122,18 +123,18 @@ VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
         case TFileFormatType::FORMAT_PARQUET:
             scanner = new NewFileParquetScanner(_state, this, _limit_per_scanner, scan_range,
                                                 _scanner_mem_tracker.get(), runtime_profile(),
-                                                _pre_filter_texprs);
+                                                std::vector<TExpr>());
             break;
         case TFileFormatType::FORMAT_ORC:
             scanner = new NewFileORCScanner(_state, this, _limit_per_scanner, scan_range,
                                             _scanner_mem_tracker.get(), runtime_profile(),
-                                            _pre_filter_texprs);
+                                            std::vector<TExpr>());
             break;
 
         default:
             scanner = new NewFileTextScanner(_state, this, _limit_per_scanner, scan_range,
                                              _scanner_mem_tracker.get(), runtime_profile(),
-                                             _pre_filter_texprs);
+                                             std::vector<TExpr>());
             break;
         }
         ((NewFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get());

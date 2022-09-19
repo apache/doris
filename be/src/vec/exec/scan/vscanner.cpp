@@ -72,7 +72,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 SCOPED_TIMER(_parent->_convert_block_timer);
                 RETURN_IF_ERROR(_convert_to_output_block(block));
             }
-ÅÅ
+
             // 4. Filter the output block finally.
             //    NOTE that step 2/3 may be skipped, for Query.
             {
@@ -104,23 +104,10 @@ void VScanner::_init_input_block(Block* output_block) {
 }
 
 Status VScanner::_filter_input_block(Block* block) {
-    if (_pre_conjunct_ctx_ptr == nullptr) {
-        return Status::OK();
-    }
-    auto origin_column_num = block->columns();
-    auto old_rows = block->rows();
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr, block,
-                                                           origin_column_num));
-    // _counter->num_rows_unselected += old_rows - _src_block.rows();
     return Status::OK();
 }
 
 Status VScanner::_convert_to_output_block(Block* output_block) {
-    if (_input_block_ptr == output_block) {
-        return Status::OK();
-    }
-    // TODO: implement
-
     return Status::OK();
 }
 
@@ -163,9 +150,6 @@ Status VScanner::close(RuntimeState* state) {
     }
     if (_vconjunct_ctx) {
         _vconjunct_ctx->close(state);
-    }
-    if (_pre_conjunct_ctx) {
-        _pre_conjunct_ctx->close(state);
     }
 
     COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);

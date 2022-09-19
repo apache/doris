@@ -1116,10 +1116,8 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
     _buffered_bytes += block->allocated_bytes();
     return block;
 }
-Å
 
-        int
-        VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per_scanner) {
+int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per_scanner) {
     std::list<VOlapScanner*> olap_scanners;
     int assigned_thread_num = _running_thread;
     size_t max_thread = config::doris_scanner_queue_size;

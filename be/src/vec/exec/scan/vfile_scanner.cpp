@@ -108,7 +108,7 @@ Status VFileScanner::_init_src_block(Block* block) {
         return Status::OK();
     }
 
-    size_t batch_pos = 0;
+    // size_t batch_pos = 0;
     _src_block.clear();
 
     std::unordered_map<std::string, TypeDescriptor> name_to_type = _cur_reader->get_name_to_type();
@@ -285,7 +285,7 @@ Status VFileScanner::_pre_filter_src_block() {
     if (_pre_conjunct_ctx_ptr) {
         auto origin_column_num = _src_block_ptr->columns();
         // filter block
-        auto old_rows = _src_block_ptr->rows();
+        // auto old_rows = _src_block_ptr->rows();
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr,
                                                                _src_block_ptr, origin_column_num));
         // _counter->num_rows_unselected += old_rows - _src_block.rows();
@@ -386,7 +386,7 @@ Status VFileScanner::_init_expr_ctxes() {
                                                      it1->second);
                     }
                     _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                         full_src_index_map[_src_slot_it->second]);
+                                                         full_src_index_map[_src_slot_it->first]);
                     _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
                 }
             }
