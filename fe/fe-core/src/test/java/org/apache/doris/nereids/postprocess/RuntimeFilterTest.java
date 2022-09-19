@@ -18,17 +18,14 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -171,7 +168,6 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertTrue(filters.size() == 5);
     }
 
-    /*
     @Test
     public void testPushDownThroughUnsupportedJoinType() throws AnalysisException {
         String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
@@ -182,21 +178,16 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 5);
     }
-     */
 
-    private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) throws AnalysisException {
-        NereidsPlanner planner = new NereidsPlanner(createStatementCtx(sql));
-        PhysicalPlan plan = planner.plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
+    private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
         System.out.println(plan.treeString());
-        PlanTranslatorContext context = new PlanTranslatorContext(planner.getCascadesContext());
-        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, context);
-        System.out.println(root.getFragmentId());
-        if (context.getRuntimeTranslator().isPresent()) {
-            RuntimeFilterContext ctx = planner.getCascadesContext().getRuntimeFilterContext();
-            Assertions.assertEquals(ctx.getNereidsRuntimeFilter().size(), ctx.getLegacyFilters().size());
-            return Optional.of(ctx.getNereidsRuntimeFilter());
-        }
-        return Optional.empty();
+        new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(checker.getCascadesContext()));
+        RuntimeFilterContext context = checker.getCascadesContext().getRuntimeFilterContext();
+        List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
+        Assertions.assertEquals(filters.size(), context.getLegacyFilters().size() + context.getTargetNullCount());
+        return Optional.of(filters);
     }
 
     private boolean checkRuntimeFilterExpr(RuntimeFilter filter, String srcColName, String targetColName) {
