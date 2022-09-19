@@ -49,7 +49,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (nameParts.size()) {
                 case 1: { // table
                     // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, nameParts);
+                    return bindWithCurrentDb(ctx.cascadesContext, nameParts.get(0));
                 }
                 case 2: { // db.table
                     // Use database name from table name parts.
@@ -73,20 +73,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, List<String> nameParts) {
+    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String nameParts) {
         // check if it is a with reference
-        LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts.get(0));
+        LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts);
         if (ctePlan != null) {
             // if there exists the same name between a cte-alias and a table, we use cte first
-            // todo: should also deliver the context-related infos(like withQueries)
+            // todo: just deliver the parent cascadesCtx; maybe it's better or necessary to use scope after supporting columnNames;
             CascadesContext cteContext = new Memo(ctePlan).newCascadesContext(cascadesContext.getStatementContext());
             cteContext.copyWithQuery(cascadesContext);
             cteContext.newAnalyzer().analyze();
-            return new LogicalSubQueryAlias<>(nameParts.get(0), cteContext.getMemo().copyOut(false));
+            return new LogicalSubQueryAlias<>(nameParts, cteContext.getMemo().copyOut(false));
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();
-        Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
+        Table table = getTable(dbName, nameParts, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),

@@ -202,7 +202,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
-        System.out.println("single stmt");
         LogicalPlan plan = visitQuery(ctx.query());
         return ctx.cte() == null ? plan : withCte(ctx.cte(), plan);
     }
@@ -241,9 +240,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitWithClause(WithClauseContext ctx) {
-        LogicalPlan withQueryPlan = visitQuery(ctx.query());
-        // todo: support column aliases
-        return new WithClause(ctx.identifier().getText(), withQueryPlan);
+        LogicalPlan withQueryPlan = plan(ctx.query());
+        List<String> columnNames = null;
+        if (ctx.columnAliases() != null) {
+            columnNames = ctx.columnAliases().identifier().stream()
+                    .map(id -> id.getText()).collect(Collectors.toList());
+        }
+        return new WithClause(ctx.identifier().getText(), withQueryPlan, Optional.ofNullable(columnNames));
     }
 
     @Override

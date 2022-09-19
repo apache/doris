@@ -33,12 +33,10 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
-            LogicalCTE cte = ctx.root;
-            CascadesContext context = ctx.cascadesContext;
-            List<WithClause> withClauses = cte.getWithClauses();
-            withClauses.stream().forEach(withClause -> context.registerWithQuery(withClause));
-            // todo: recursive and column name aliases
-            return cte.child(0);
+            List<WithClause> withClauses = ctx.root.getWithClauses();
+            withClauses.stream().forEach(withClause -> ctx.cascadesContext.registerWithQuery(withClause));
+            // todo: recursive and columnNames
+            return ctx.root.child(0);
         }).toRule(RuleType.REGISTER_CTE);
     }
 }
