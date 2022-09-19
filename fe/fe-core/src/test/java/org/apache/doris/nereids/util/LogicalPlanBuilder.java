@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -74,5 +75,14 @@ public class LogicalPlanBuilder {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
                 Optional.empty(), this.plan, right);
         return from(join);
+    }
+
+    public LogicalPlanBuilder limit(long limit, long offset) {
+        LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, this.plan);
+        return from(limitPlan);
+    }
+
+    public LogicalPlanBuilder limit(long limit) {
+        return limit(limit, 0);
     }
 }

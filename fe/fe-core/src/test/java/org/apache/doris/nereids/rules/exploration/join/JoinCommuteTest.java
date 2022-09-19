@@ -45,7 +45,7 @@ public class JoinCommuteTest {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
-                .transform(JoinCommute.LEFT_DEEP.build())
+                .applyExploration(JoinCommute.LEFT_DEEP.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
