@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 /**
  * One withClause of CTE
@@ -25,9 +26,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 public class WithClause extends Expression {
 
     private final String name;
-    private final WithSubquery query;
+    private final LogicalPlan query;
 
-    public WithClause(String name, WithSubquery query) {
+    public WithClause(String name, LogicalPlan query) {
         this.name = name;
         this.query = query;
     }
@@ -36,7 +37,7 @@ public class WithClause extends Expression {
         return name;
     }
 
-    public WithSubquery getQuery() {
+    public LogicalPlan getQuery() {
         return query;
     }
 

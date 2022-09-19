@@ -117,7 +117,6 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WithClause;
-import org.apache.doris.nereids.trees.expressions.WithSubquery;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -242,9 +241,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitWithClause(WithClauseContext ctx) {
-        LogicalPlan plan = visitQuery(ctx.query());
+        LogicalPlan withQueryPlan = visitQuery(ctx.query());
         // todo: support column aliases
-        return new WithClause(ctx.identifier().getText(), new WithSubquery(plan));
+        return new WithClause(ctx.identifier().getText(), withQueryPlan);
     }
 
     @Override

@@ -167,7 +167,7 @@ public class CascadesContext {
         if (withQueries.containsKey(name)) {
             throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
         }
-        withQueries.put(name, withClause.getQuery().getQueryPlan());
+        withQueries.put(name, withClause.getQuery());
     }
 
     public void copyWithQuery(CascadesContext parentCtx) {
