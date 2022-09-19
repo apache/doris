@@ -28,10 +28,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -76,7 +76,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
                         List<Expression> exprs = conjunct.children();
                         // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
                         // doesn't swap the two sides.
-                        int tag = checkIfSwap(exprs.get(0), left);
+                        int tag = JoinUtils.checkIfSwap(exprs.get(0), left);
                         exprsOfHashConjuncts.get(0).add(exprs.get(tag));
                         exprsOfHashConjuncts.get(1).add(exprs.get(1 - tag));
                         exprs.forEach(expr ->
@@ -96,11 +96,6 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                             .addAll(getOutput(plan, join)).build(), plan))
                                     .collect(Collectors.toList()));
                 }).toRule(RuleType.PUSH_DOWN_NOT_SLOT_REFERENCE_EXPRESSION);
-    }
-
-    int checkIfSwap(Expression left, Plan joinLeft) {
-        Set<Expression> joinOut = ImmutableSet.copyOf(joinLeft.getOutput());
-        return left.anyMatch(expr -> (expr instanceof Slot) && joinOut.contains(expr)) ? 0 : 1;
     }
 
     private List<Slot> getOutput(Plan plan, LogicalJoin join) {
