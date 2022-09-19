@@ -683,10 +683,18 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
 Status StorageEngine::_handle_quick_compaction(TabletSharedPtr tablet) {
     CumulativeCompaction compact(tablet);
     compact.quick_rowsets_compact();
+    _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
     return Status::OK();
 }
 
 Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
+    bool already_exist =
+            _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
+    if (already_exist) {
+        return Status::AlreadyExist(
+                "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
+                tablet->tablet_id(), CompactionType::CUMULATIVE_COMPACTION);
+    }
     _quick_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_quick_compaction, this, tablet));
     return Status::OK();
