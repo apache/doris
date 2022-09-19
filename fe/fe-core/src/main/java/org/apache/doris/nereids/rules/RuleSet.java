@@ -45,7 +45,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushDownJoinOtherCondition
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
-import org.apache.doris.nereids.rules.rewrite.logical.SingleSidePredicate;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownExpressionsInHashCondition;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -78,7 +78,7 @@ public class RuleSet {
             new MergeConsecutiveProjects(),
             new MergeConsecutiveFilters(),
             new MergeConsecutiveLimits(),
-            new SingleSidePredicate());
+            new PushDownExpressionsInHashCondition());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalAggToPhysicalHashAgg())

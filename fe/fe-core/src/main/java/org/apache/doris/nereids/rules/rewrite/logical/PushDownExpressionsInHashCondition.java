@@ -36,7 +36,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +45,7 @@ import java.util.stream.Collectors;
 /**
  * push down expression which is not slot reference
  */
-public class SingleSidePredicate extends OneRewriteRuleFactory {
+public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
     /*
      * rewrite example:
      *       join(t1.a + 1 = t2.b + 2)                            join(c = d)
@@ -65,25 +64,25 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getHashJoinConjuncts().stream().anyMatch(expr ->
-                        expr.children().stream().anyMatch(expr1 -> !(expr1 instanceof Slot))))
+                .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
+                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
                 .then(join -> {
-                    List<List<Expression>> exprsOfJoinRelation =
+                    List<List<Expression>> exprsOfHashConjuncts =
                             Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
                     Map<Expression, Alias> exprMap = Maps.newHashMap();
                     Plan left = join.left();
                     join.getHashJoinConjuncts().forEach(conjunct -> {
                         Preconditions.checkArgument(conjunct instanceof EqualTo);
-                        Expression[] exprs = conjunct.children().toArray(new Expression[0]);
+                        List<Expression> exprs = conjunct.children();
                         // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
                         // doesn't swap the two sides.
-                        int tag = checkIfSwap(exprs[0], left);
-                        exprsOfJoinRelation.get(0).add(exprs[tag]);
-                        exprsOfJoinRelation.get(1).add(exprs[tag ^ 1]);
-                        Arrays.stream(exprs).sequential().forEach(expr ->
+                        int tag = checkIfSwap(exprs.get(0), left);
+                        exprsOfHashConjuncts.get(0).add(exprs.get(tag));
+                        exprsOfHashConjuncts.get(1).add(exprs.get(1 - tag));
+                        exprs.forEach(expr ->
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.hashCode())));
                     });
-                    Iterator<List<Expression>> iter = exprsOfJoinRelation.iterator();
+                    Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
                     return join.withhashJoinConjunctsAndChildren(
                             join.getHashJoinConjuncts()
                                     .stream().map(equalTo -> equalTo.withChildren(equalTo.children()
@@ -105,8 +104,8 @@ public class SingleSidePredicate extends OneRewriteRuleFactory {
     }
 
     private List<Slot> getOutput(Plan plan, LogicalJoin join) {
-        Set<Slot> set = Sets.newHashSet(plan.getOutputSet());
-        set.retainAll(join.getOutputSet());
-        return Arrays.asList(set.toArray(new Slot[0]));
+        Set<Slot> intersectionSlots = Sets.newHashSet(plan.getOutputSet());
+        intersectionSlots.retainAll(join.getOutputSet());
+        return Lists.newArrayList(intersectionSlots);
     }
 }
