@@ -1,0 +1,1 @@
+DELETE FROM partsupp where ps_partkey >= 8000001 and ps_partkey <= 12000000;
