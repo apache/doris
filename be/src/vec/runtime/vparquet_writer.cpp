@@ -378,11 +378,19 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_OBJECT: {
-                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnBitmap)
+                if (_output_object_data) {
+                    DISPATCH_PARQUET_COMPLEX_WRITER(ColumnBitmap)
+                } else {
+                    RETURN_WRONG_TYPE
+                }
                 break;
             }
             case TYPE_HLL: {
-                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnHLL)
+                if (_output_object_data) {
+                    DISPATCH_PARQUET_COMPLEX_WRITER(ColumnHLL)
+                } else {
+                    RETURN_WRONG_TYPE
+                }
                 break;
             }
             case TYPE_CHAR:
