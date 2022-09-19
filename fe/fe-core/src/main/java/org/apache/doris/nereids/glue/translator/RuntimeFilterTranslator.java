@@ -75,6 +75,7 @@ public class RuntimeFilterTranslator {
         SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
         SlotRef target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
         if (target == null) {
+            context.setTargetNullCount();
             return;
         }
         org.apache.doris.planner.RuntimeFilter origFilter
