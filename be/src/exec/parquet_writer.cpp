@@ -154,7 +154,7 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
         break;
     }
     default:
-        builder.version(parquet::ParquetVersion::PARQUET_2_LATEST);
+        builder.version(parquet::ParquetVersion::PARQUET_1_0);
     }
 }
 

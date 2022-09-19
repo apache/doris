@@ -42,8 +42,8 @@ struct ResultFileOptions {
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
     std::string success_file_name = "";
-    std::vector<std::vector<std::string>> schema;  //not use in outfile with parquet format
-    std::map<std::string, std::string> file_properties;//not use in outfile with parquet format
+    std::vector<std::vector<std::string>> schema;       //not use in outfile with parquet format
+    std::map<std::string, std::string> file_properties; //not use in outfile with parquet format
 
     std::vector<TParquetRepetitionType::type> schemas_repetition_type;
     std::vector<TParquetDataType::type> schemas_data_type;
@@ -89,10 +89,10 @@ struct ResultFileOptions {
         if (t_opt.__isset.parquet_compression_type) {
             parquet_commpression_type = t_opt.parquet_compression_type;
         }
-        if(t_opt.__isset.parquet_disable_dictionary) {
+        if (t_opt.__isset.parquet_disable_dictionary) {
             parquert_disable_dictionary = t_opt.parquet_disable_dictionary;
         }
-        if(t_opt.__isset.parquet_version) {
+        if (t_opt.__isset.parquet_version) {
             parquet_version = t_opt.parquet_version;
         }
     }

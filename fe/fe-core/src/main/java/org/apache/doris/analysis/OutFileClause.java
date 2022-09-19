@@ -145,9 +145,9 @@ public class OutFileClause {
     private static final String PARQUET_COMPRESSION = "compression";
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.UNCOMPRESSED;
     private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
-    private boolean parquetDisableDictionary = false;
+    private boolean parquetDisableDictionary = true;
     private static final String PARQUET_VERSION = "version";
-    private static TParquetVersion parquetVersion = TParquetVersion.PARQUET_2_LATEST;
+    private static TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
@@ -632,8 +632,6 @@ public class OutFileClause {
             sinkOptions.setSuccessFileName(successFileName);
         }
         if (isParquetFormat()) {
-            //sinkOptions.setSchema(this.schema);
-            //sinkOptions.setFileProperties(this.fileProperties);
             sinkOptions.setParquetCompressionType(parquetCompressionType);
             sinkOptions.setParquetDisableDictionary(parquetDisableDictionary);
             sinkOptions.setParquetVersion(parquetVersion);
