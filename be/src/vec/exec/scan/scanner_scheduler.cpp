@@ -32,11 +32,28 @@ namespace doris::vectorized {
 ScannerScheduler::ScannerScheduler() {}
 
 ScannerScheduler::~ScannerScheduler() {
+    if (!_is_init) {
+        return;
+    }
+
+    for (int i = 0; i < QUEUE_NUM; i++) {
+        _pending_queues[i]->shutdown();
+    }
+
     _is_closed = true;
+
     _scheduler_pool->shutdown();
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
-    // TODO: safely delete all objects and graceful exit
+
+    _scheduler_pool->wait();
+    _local_scan_thread_pool->join();
+    _remote_scan_thread_pool->join();
+
+    for (int i = 0; i < QUEUE_NUM; i++) {
+        delete _pending_queues[i];
+    }
+    delete[] _pending_queues;
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
@@ -53,14 +70,16 @@ Status ScannerScheduler::init(ExecEnv* env) {
     }
 
     // 2. local scan thread pool
-    _local_scan_thread_pool = new PriorityWorkStealingThreadPool(
+    _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
             config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
-            config::doris_scanner_thread_pool_queue_size);
+            config::doris_scanner_thread_pool_queue_size));
 
     // 3. remote scan thread pool
-    _remote_scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                                      config::doris_scanner_thread_pool_queue_size);
+    _remote_scan_thread_pool.reset(
+            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
+                                   config::doris_scanner_thread_pool_queue_size));
 
+    _is_init = true;
     return Status::OK();
 }
 
