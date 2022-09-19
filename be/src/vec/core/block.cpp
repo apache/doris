@@ -46,10 +46,10 @@
 
 namespace doris::vectorized {
 // When we have some breaking change for serialize/deserialize, we should update data_version.
-// -1: not contain data_version.
-//  0: remove ColumnString's terminating zero.
-const int Block::max_data_version = 0;
-const int Block::min_data_version = -1;
+// 0: not contain data_version.
+// 1: remove ColumnString's terminating zero.
+const int Block::max_data_version = 1;
+const int Block::min_data_version = 0;
 
 // For support rolling upgrade, we send data as second newest version.
 int Block::current_serialize_data_version = max_data_version - 1;

@@ -88,7 +88,7 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    if (data_version == -1) {
+    if (data_version == 0) {
         return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
                data_column.get_chars().size() + column.size();
     }
@@ -101,7 +101,7 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int data_versi
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    if (data_version == -1) {
+    if (data_version == 0) {
         // row num
         *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
         buf += sizeof(IColumn::Offset);
@@ -146,7 +146,7 @@ const char* DataTypeString::deserialize(const char* buf, IColumn* column, int da
     ColumnString::Chars& data = column_string->get_chars();
     ColumnString::Offsets& offsets = column_string->get_offsets();
 
-    if (data_version == -1) {
+    if (data_version == 0) {
         // row num
         IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
         buf += sizeof(IColumn::Offset);

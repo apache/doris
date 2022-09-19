@@ -1772,13 +1772,13 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_block_data_version = 0;
+    public static int max_block_data_version = 1;
 
     /**
      * Min data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int min_block_data_version = -1;
+    public static int min_block_data_version = 0;
 
     /**
      * Data version of backends serialize block.
