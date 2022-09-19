@@ -184,7 +184,7 @@ public class FEFunctionsTest {
         Assert.assertEquals(expectedResult, actualResult);
 
         actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07", Type.DATETIMEV2);
+        expectedResult = new DateLiteral("2018-08-07", Type.DATEV2);
         Assert.assertEquals(expectedResult, actualResult);
     }
 
