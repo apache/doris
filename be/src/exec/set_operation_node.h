@@ -71,7 +71,6 @@ protected:
     // holds everything referenced in _hash_tbl
     std::unique_ptr<MemPool> _build_pool;
 
-    std::vector<int> _build_tuple_idx;
     int _build_tuple_size;
     int _build_tuple_row_size;
     std::vector<bool> _find_nulls;
