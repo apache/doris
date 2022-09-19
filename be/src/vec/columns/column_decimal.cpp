@@ -392,7 +392,7 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
-        size_t end = simd::find_nonzero(cmp_res, begin + 1);
+        size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data()[row_id];
             int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);

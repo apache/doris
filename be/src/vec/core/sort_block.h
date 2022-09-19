@@ -77,7 +77,7 @@ struct EqualRangeIterator {
         // should continue to sort this row according to current column. Using the first non-zero
         // value and first zero value after first non-zero value as two bounds, we can get an equal range here
         if (!(_cur_range_begin == 0) || !(_flags[_cur_range_begin] == 1)) {
-            _cur_range_begin = simd::find_nonzero(_flags, _cur_range_begin + 1);
+            _cur_range_begin = simd::find_one(_flags, _cur_range_begin + 1);
             if (_cur_range_begin >= _end) {
                 return false;
             }
@@ -220,7 +220,6 @@ public:
                      EqualRange& range, bool last_column) const {
         if (!column.has_null()) {
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
-            return;
         } else {
             const auto& null_map = column.get_null_map_data();
             EqualRangeIterator iterator(flags, range.first, range.second);

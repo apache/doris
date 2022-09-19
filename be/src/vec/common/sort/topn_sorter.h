@@ -60,6 +60,7 @@ public:
     void init_profile(RuntimeProfile* runtime_profile) override {
         _topn_filter_timer = ADD_TIMER(runtime_profile, "TopNFilterTime");
         _topn_filter_rows_counter = ADD_COUNTER(runtime_profile, "TopNFilterRows", TUnit::UNIT);
+        _materialize_timer = ADD_TIMER(runtime_profile, "MaterializeTime");
     }
 
     Status append_block(Block* block, bool* mem_reuse) override;
@@ -71,15 +72,19 @@ public:
     static constexpr size_t HEAP_SORT_THRESHOLD = 1024;
 
 private:
-    void _do_filter(HeapSortCursorBlockView* block_view, size_t num_rows);
+    void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
+
+    Status _prepare_sort_descs(Block* block);
 
     size_t _heap_size;
     std::unique_ptr<SortingHeap> _heap;
     Block _return_block;
-
     int64_t _topn_filter_rows;
+    bool _init_sort_descs;
+
     RuntimeProfile::Counter* _topn_filter_timer = nullptr;
     RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
+    RuntimeProfile::Counter* _materialize_timer = nullptr;
 };
 
 } // namespace doris::vectorized

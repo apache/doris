@@ -59,7 +59,7 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
     DCHECK(cmp_res.size() == sz);
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
-        size_t end = simd::find_nonzero(cmp_res, begin + 1);
+        size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             int res = this->compare_at(row_id, rhs_row_id, rhs, nan_direction_hint);
             if (res * direction < 0) {

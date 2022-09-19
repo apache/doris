@@ -17,6 +17,8 @@
 
 #include "vec/common/sort/topn_sorter.h"
 
+#include "util/defer_op.h"
+
 namespace doris::vectorized {
 
 TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
@@ -25,11 +27,13 @@ TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _heap_size(limit + offset),
           _heap(std::make_unique<SortingHeap>()),
-          _topn_filter_rows(0) {}
+          _topn_filter_rows(0),
+          _init_sort_descs(false) {}
 
 Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
     DCHECK(block->rows() > 0);
     {
+        SCOPED_TIMER(_materialize_timer);
         if (_vsort_exec_exprs.need_materialize_tuple()) {
             auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
             std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
@@ -43,29 +47,24 @@ Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
             }
             block->swap(new_block);
         }
-
-        // TODO: could we init `_sort_description` only once?
-        _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
-        for (int i = 0; i < _sort_description.size(); i++) {
-            const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
-            RETURN_IF_ERROR(ordering_expr->execute(block, &_sort_description[i].column_number));
-
-            _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
-            _sort_description[i].nulls_direction = _nulls_first[i] ? -_sort_description[i].direction
-                                                                   : _sort_description[i].direction;
-        }
+    }
+    if (!_init_sort_descs) {
+        RETURN_IF_ERROR(_prepare_sort_descs(block));
     }
     Block tmp_block = block->clone_empty();
     tmp_block.swap(*block);
-    std::shared_ptr<HeapSortCursorBlockView> block_view(
-            new HeapSortCursorBlockView(std::move(tmp_block), _sort_description));
+    HeapSortCursorBlockView block_view_val(std::move(tmp_block), _sort_description);
+    SharedHeapSortCursorBlockView* block_view =
+            new SharedHeapSortCursorBlockView(std::move(block_view_val));
+    block_view->ref();
+    Defer defer([&] { block_view->unref(); });
     size_t num_rows = tmp_block.rows();
     if (_heap_size == _heap->size()) {
         {
             SCOPED_TIMER(_topn_filter_timer);
-            _do_filter(block_view.get(), num_rows);
+            _do_filter(block_view->value(), num_rows);
         }
-        size_t remain_rows = block_view->block.rows();
+        size_t remain_rows = block_view->value().block.rows();
         _topn_filter_rows += (num_rows - remain_rows);
         COUNTER_SET(_topn_filter_rows_counter, _topn_filter_rows);
         for (size_t i = 0; i < remain_rows; ++i) {
@@ -91,7 +90,7 @@ Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
 
 Status TopNSorter::prepare_for_read() {
     if (!_heap->empty() && _heap->size() > _offset) {
-        auto top = _heap->top();
+        const auto& top = _heap->top();
         size_t num_columns = top.block()->columns();
         MutableColumns result_columns = top.block()->clone_empty_columns();
 
@@ -100,29 +99,26 @@ Status TopNSorter::prepare_for_read() {
 
         DCHECK(_heap->size() <= _heap_size);
         // Use a vector to reverse elements in heap
-        std::vector<HeapSortCursorImpl> vector_to_reverse(init_size);
+        std::vector<HeapSortCursorImpl> vector_to_reverse;
+        vector_to_reverse.reserve(init_size);
         size_t capacity = 0;
         while (!_heap->empty()) {
             auto current = _heap->top();
             _heap->pop();
-            vector_to_reverse[capacity++] = std::move(current);
+            vector_to_reverse.emplace_back(std::move(current));
+            capacity++;
             if (_offset != 0 && _heap->size() == _offset) {
                 break;
             }
         }
-        for (size_t i = capacity - 1; i > 0; i--) {
+        for (int i = capacity - 1; i >= 0; i--) {
             auto rid = vector_to_reverse[i].row_id();
             const auto cur_block = vector_to_reverse[i].block();
             for (size_t j = 0; j < num_columns; ++j) {
                 result_columns[j]->insert_from(*(cur_block->get_columns()[j]), rid);
             }
         }
-        auto rid = vector_to_reverse[0].row_id();
-        const auto cur_block = vector_to_reverse[0].block();
-        for (size_t j = 0; j < num_columns; ++j) {
-            result_columns[j]->insert_from(*(cur_block->get_columns()[j]), rid);
-        }
-        _return_block = top.block()->clone_with_columns(std::move(result_columns));
+        _return_block = vector_to_reverse[0].block()->clone_with_columns(std::move(result_columns));
     }
     return Status::OK();
 }
@@ -133,7 +129,7 @@ Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     return Status::OK();
 }
 
-void TopNSorter::_do_filter(HeapSortCursorBlockView* block_view, size_t num_rows) {
+void TopNSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows) {
     const auto& top_cursor = _heap->top();
     const int cursor_rid = top_cursor.row_id();
 
@@ -145,12 +141,26 @@ void TopNSorter::_do_filter(HeapSortCursorBlockView* block_view, size_t num_rows
     std::vector<uint8_t> cmp_res(num_rows, 0);
 
     for (size_t col_id = 0; col_id < _sort_description.size(); ++col_id) {
-        block_view->sort_columns[col_id]->compare_internal(
+        block_view.sort_columns[col_id]->compare_internal(
                 cursor_rid, *top_cursor.sort_columns()[col_id],
                 _sort_description[col_id].nulls_direction, _sort_description[col_id].direction,
                 cmp_res, filter.data());
     }
-    block_view->filter_block(filter);
+    block_view.filter_block(filter);
+}
+
+Status TopNSorter::_prepare_sort_descs(Block* block) {
+    _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    for (int i = 0; i < _sort_description.size(); i++) {
+        const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
+        RETURN_IF_ERROR(ordering_expr->execute(block, &_sort_description[i].column_number));
+
+        _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
+        _sort_description[i].nulls_direction =
+                _nulls_first[i] ? -_sort_description[i].direction : _sort_description[i].direction;
+    }
+    _init_sort_descs = true;
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

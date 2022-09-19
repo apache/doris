@@ -495,7 +495,7 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
     const auto& cmp_base = assert_cast<const ColumnString&>(rhs).get_data_at(rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
-        size_t end = simd::find_nonzero(cmp_res, begin + 1);
+        size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data_at(row_id);
             int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
