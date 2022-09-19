@@ -17,33 +17,29 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mocked;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class PushdownProjectThroughLimitTest {
-
-    @Mocked
-    private CascadesContext cascadesContext;
+public class PushdownProjectThroughLimitTest implements PatternMatchSupported {
 
     @Test
-    public void testPushdownProjectThroughLimit(@Mocked GroupPlan groupPlan) {
-        SlotReference slotRef = new SlotReference("col1", IntegerType.INSTANCE);
-        LogicalLimit logicalLimit = new LogicalLimit(1, 1, groupPlan);
-        LogicalProject logicalProject = new LogicalProject(ImmutableList.of(slotRef), logicalLimit);
-        PushdownProjectThroughLimit pushdownProjectThroughLimit = new PushdownProjectThroughLimit();
-        LogicalPlan rewrittenPlan =
-                (LogicalPlan) pushdownProjectThroughLimit.build().transform(logicalProject, cascadesContext).get(0);
-        Assertions.assertTrue(rewrittenPlan instanceof LogicalLimit);
-        Assertions.assertTrue(rewrittenPlan.child(0) instanceof LogicalProject);
+    public void testPushdownProjectThroughLimit() {
+        LogicalPlan project = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .limit(1, 1)
+                .project(ImmutableList.of(0)) // id
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushdownProjectThroughLimit())
+                .matches(
+                        logicalLimit(logicalProject())
+                );
     }
 }

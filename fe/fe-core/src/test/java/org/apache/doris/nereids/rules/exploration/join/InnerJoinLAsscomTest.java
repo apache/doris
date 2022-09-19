@@ -70,7 +70,7 @@ public class InnerJoinLAsscomTest {
                 Optional.empty(), bottomJoin, scan3);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(InnerJoinLAsscom.INSTANCE.build())
+                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
@@ -115,7 +115,7 @@ public class InnerJoinLAsscomTest {
                 Optional.empty(), bottomJoin, scan3);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(InnerJoinLAsscom.INSTANCE.build())
+                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
 
