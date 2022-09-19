@@ -202,6 +202,9 @@ struct ProcessHashTableProbe {
                                 ->get_null_map_column()
                                 .insert_join_nullmap(_build_block_rows.data(),
                                                      _build_block_rows.data() + size);
+                        reinterpret_cast<ColumnNullable*>(mcol[i + column_offset].get())
+                                ->get_nested_column()
+                                .resize(size);
                     } else {
                         mcol[i + column_offset]->resize(size);
                     }
@@ -274,6 +277,9 @@ struct ProcessHashTableProbe {
                                 ->get_null_map_column()
                                 .insert_join_nullmap(_build_block_rows.data(),
                                                      _build_block_rows.data() + size);
+                        reinterpret_cast<ColumnNullable*>(mcol[i + column_offset].get())
+                                ->get_nested_column()
+                                .resize(size);
                     } else {
                         mcol[i + column_offset]->resize(size);
                     }
