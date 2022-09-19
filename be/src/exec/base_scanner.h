@@ -92,6 +92,10 @@ protected:
     Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
     virtual Status _init_src_block();
 
+    bool is_null(const Slice& slice);
+    bool is_array(const Slice& slice);
+    bool check_array_format(std::vector<Slice>& split_values);
+
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
 
