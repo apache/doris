@@ -20,40 +20,53 @@
 #include "exec/text_converter.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
+#include "io/file_factory.h"
 #include "runtime/tuple.h"
+#include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
 
 class NewFileScanNode;
 
-class NewFileScanner : public VScanner {
+class VFileScanner : public VScanner {
 public:
-    NewFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                   const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile,
-                   const std::vector<TExpr>& pre_filter_texprs);
+    VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
+                 const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile,
+                 const std::vector<TExpr>& pre_filter_texprs, TFileFormatType::type format);
 
     Status open(RuntimeState* state) override;
 
+public:
     Status prepare(VExprContext** vconjunct_ctx_ptr);
 
 protected:
-    // Use prefilters to filter input block
-    Status _filter_input_block(Block* block);
-    Status _materialize_dest_block(vectorized::Block* output_block);
+    Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
-protected:
-    virtual void _init_profiles(RuntimeProfile* profile) = 0;
+    // TODO: Use prefilters to filter input block
+    Status _filter_input_block(Block* block) { return Status::OK(); }
+
+    // TODO: Convert input block to output block, if needed.
+    Status _convert_to_output_block(Block* output_block) { return Status::OK(); }
+
+    void _init_profiles(RuntimeProfile* profile);
 
     Status _fill_columns_from_path(vectorized::Block* output_block, size_t rows);
-    Status init_block(vectorized::Block* block);
 
+    Status _get_next_reader();
+
+    // TODO: cast input block columns type to string.
+    Status _cast_src_block(Block* block) { return Status::OK(); };
+
+protected:
     std::unique_ptr<TextConverter> _text_converter;
-
     const TFileScanRangeParams& _params;
-
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
+
+    ParquetReader* _cur_reader;
+    bool _cur_reader_eof;
+    TFileFormatType::type _file_format;
 
     // Used for constructing tuple
     std::vector<SlotDescriptor*> _required_slot_descs;
@@ -71,6 +84,9 @@ protected:
 
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
+
+    // Dest tuple descriptor and dest expr context
+    const TupleDescriptor* _dest_tuple_desc;
 
     // Profile
     RuntimeProfile* _profile;
