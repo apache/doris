@@ -49,7 +49,7 @@ import java.util.function.Consumer;
  * Utility to apply rules to plan and check output plan matches the expected pattern.
  */
 public class PlanChecker {
-    private ConnectContext connectContext;
+    private final ConnectContext connectContext;
     private CascadesContext cascadesContext;
 
     private Plan parsedPlan;
@@ -165,24 +165,24 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker transform(Rule rule) {
-        return transform(cascadesContext.getMemo().getRoot(), rule);
+    // Exploration Rule.
+    public PlanChecker applyExploration(Rule rule) {
+        return applyExploration(cascadesContext.getMemo().getRoot(), rule);
     }
 
-    // Exploration Rule.
-    public PlanChecker transform(Group group, Rule rule) {
+    private PlanChecker applyExploration(Group group, Rule rule) {
         // copy groupExpressions can prevent ConcurrentModificationException
         for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
-            transformApply(logicalExpression, rule);
+            applyExploration(logicalExpression, rule);
         }
 
         for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
-            transformApply(physicalExpression, rule);
+            applyExploration(physicalExpression, rule);
         }
         return this;
     }
 
-    private void transformApply(GroupExpression groupExpression, Rule rule) {
+    private void applyExploration(GroupExpression groupExpression, Rule rule) {
         GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
 
         for (Plan before : matchResult) {
@@ -193,7 +193,7 @@ public class PlanChecker {
         }
 
         for (Group childGroup : groupExpression.children()) {
-            transform(childGroup, rule);
+            applyExploration(childGroup, rule);
         }
     }
 
