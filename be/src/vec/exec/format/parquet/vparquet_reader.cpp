@@ -28,7 +28,6 @@ ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_fro
           _range_start_offset(range_start_offset),
           _range_size(range_size),
           _ctz(ctz) {
-    DCHECK(range_start_offset < range_size);
     _file_reader = file_reader;
     _total_groups = 0;
     _current_row_group_id = 0;
@@ -112,7 +111,7 @@ Status ParquetReader::get_next_block(Block* block, bool* eof) {
         if (!_next_row_group_reader()) {
             *eof = true;
         } else {
-            _read_row_groups.pop_front();
+            // _read_row_groups.pop_front();
         }
     }
     return Status::OK();
