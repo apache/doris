@@ -34,15 +34,15 @@ import org.junit.Test;
 import java.util.UUID;
 
 public class CreateTableAsSelectStmtTest {
-    
+
     private static String runningDir = "fe/mocked/CreateTableAsSelectStmtTest/" + UUID.randomUUID() + "/";
     private static ConnectContext connectContext;
-    
+
     @AfterClass
     public static void tearDown() throws Exception {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
-    
+
     @BeforeClass
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
@@ -93,17 +93,17 @@ public class CreateTableAsSelectStmtTest {
         createTable(decimalTable);
         createTable(joinTable);
     }
-    
+
     private static void createTable(String sql) throws Exception {
         CreateTableStmt stmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(stmt);
     }
-    
+
     private static void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt stmt = (CreateTableAsSelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTableAsSelect(stmt);
     }
-    
+
     private static ShowResultSet showCreateTable(String tableName) throws Exception {
         ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("test", tableName));
         Analyzer dummyRootAnalyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
@@ -111,14 +111,14 @@ public class CreateTableAsSelectStmtTest {
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         return executor.execute();
     }
-    
+
     @Test
     public void testErrorColumn() {
         String selectFromColumn = "create table `test`.`select_column_table`(test_error) PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Number of columns don't equal number of SELECT statement's select list",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromColumn, connectContext));
     }
-    
+
     @Test
     public void testVarchar() throws Exception {
         String selectFromDecimal = "create table `test`.`select_varchar` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
@@ -137,7 +137,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
     }
-    
+
     @Test
     public void testFunction() throws Exception {
         String selectFromFunction1 = "create table `test`.`select_function_1` PROPERTIES(\"replication_num\" = \"1\") as select count(*) from `test`.`varchar_table`";
@@ -154,7 +154,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet1.getResultRows().get(0).get(1));
-        
+
         String selectFromFunction2 = "create table `test`.`select_function_2` PROPERTIES(\"replication_num\" = \"1\") as select sum(status), sum(status), sum(status), count(status), count(status) from `test`.`join_table`";
         createTableAsSelect(selectFromFunction2);
         ShowResultSet showResultSet2 = showCreateTable("select_function_2");
@@ -174,7 +174,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet2.getResultRows().get(0).get(1));
     }
-    
+
     @Test
     public void testAlias() throws Exception {
         String selectAlias1 = "create table `test`.`select_alias_1` PROPERTIES(\"replication_num\" = \"1\") as select count(*) as amount from `test`.`varchar_table`";
@@ -207,7 +207,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet2.getResultRows().get(0).get(1));
     }
-    
+
     @Test
     public void testJoin() throws Exception {
         String selectFromJoin = "create table `test`.`select_join` PROPERTIES(\"replication_num\" = \"1\") " +
@@ -228,7 +228,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
     }
-    
+
     @Test
     public void testName() throws Exception {
         String selectFromName = "create table `test`.`select_name`(user, testname, userstatus) PROPERTIES(\"replication_num\" = \"1\") " +
@@ -249,7 +249,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
     }
-    
+
     @Test
     public void testUnion() throws Exception {
         String selectFromName = "create table `test`.`select_union` PROPERTIES(\"replication_num\" = \"1\") " +
@@ -268,7 +268,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
     }
-    
+
     @Test
     public void testCte() throws Exception {
         String selectFromName = "create table `test`.`select_cte` PROPERTIES(\"replication_num\" = \"1\") " +
@@ -287,4 +287,52 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
     }
+
+    @Test
+    public void testPartition() throws Exception {
+        String selectFromPartition = "create table `test`.`selectPartition` PARTITION BY LIST "
+                + "(userId)(PARTITION p1 values in (\"CA\",\"GB\",\"US\",\"ZH\")) "
+                + "PROPERTIES (\"replication_num\" = \"1\") as " + "select * from `test`.`varchar_table`;";
+        createTableAsSelect(selectFromPartition);
+        ShowResultSet showResultSet = showCreateTable("selectPartition");
+        Assert.assertEquals("CREATE TABLE `selectPartition` (\n" + "  `userId` varchar(255) NOT NULL COMMENT \"\",\n"
+                        + "  `username` varchar(255) NOT NULL COMMENT \"\"\n" + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`userId`)\n"
+                        + "COMMENT \"OLAP\"\n" + "PARTITION BY LIST(`userId`)\n"
+                        + "(PARTITION p1 VALUES IN (\"CA\",\"GB\",\"US\",\"ZH\"))\n"
+                        + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\"\n" + ");",
+                showResultSet.getResultRows().get(0).get(1));
+    }
+
+    @Test
+    public void testAggValue() throws Exception {
+        String createSql = "create table `test`.`test_agg_value` PROPERTIES (\"replication_num\" = \"1\")"
+                + " as select username from `test`.`varchar_table`";
+        createTableAsSelect(createSql);
+        ShowResultSet showResultSet = showCreateTable("test_agg_value");
+        Assert.assertEquals(
+                "CREATE TABLE `test_agg_value` (\n" + "  `username` varchar(255) NOT NULL COMMENT \"\"\n"
+                        + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`username`)\n" + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`username`) BUCKETS 10\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\"\n" + ");",
+                showResultSet.getResultRows().get(0).get(1));
+    }
+
+    @Test
+    public void testUseKeyType() throws Exception {
+        String createSql = "create table `test`.`test_use_key_type` UNIQUE KEY(`userId`) PROPERTIES (\"replication_num\" = \"1\")"
+                + " as select * from `test`.`varchar_table`";
+        createTableAsSelect(createSql);
+        ShowResultSet showResultSet = showCreateTable("test_use_key_type");
+        Assert.assertEquals(
+                "CREATE TABLE `test_use_key_type` (\n" + "  `userId` varchar(255) NOT NULL COMMENT \"\",\n"
+                        + "  `username` varchar(255) NOT NULL COMMENT \"\"\n" + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`userId`)\n" + "COMMENT \"OLAP\"\n" + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
+                        + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ");",
+                showResultSet.getResultRows().get(0).get(1));
+    }
+
 }
