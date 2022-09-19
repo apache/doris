@@ -185,7 +185,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
             initAndSetWhereExpr(context.fileGroup.getWhereExpr(), context.destTupleDescriptor, analyzer);
-            context.destTupleDescriptor = desc;
             context.conjuncts = conjuncts;
             this.contexts.add(context);
         }
@@ -193,6 +192,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     private void initAndSetPrecedingFilter(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer)
             throws UserException {
+        if (type != Type.LOAD) {
+            return;
+        }
         Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
         if (newWhereExpr != null) {
             addPreFilterConjuncts(newWhereExpr.getConjuncts());
@@ -258,6 +260,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     protected void finalizeParamsForLoad(ParamCreateContext context, Analyzer analyzer) throws UserException {
         if (type != Type.LOAD) {
+            context.params.setSrcTupleId(-1);
             return;
         }
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
@@ -420,3 +423,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
+
