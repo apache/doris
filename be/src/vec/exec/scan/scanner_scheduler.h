@@ -40,13 +40,6 @@ namespace doris::vectorized {
 //     Each Scanner will act as a producer, read a group of blocks and put them into
 //     the corresponding block queue.
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
-
-using ContextMap = phmap::parallel_flat_hash_map<
-        std::string, std::shared_ptr<ScannerContext>, phmap::priv::hash_default_hash<std::string>,
-        phmap::priv::hash_default_eq<std::string>,
-        std::allocator<std::pair<const std::string, std::shared_ptr<ScannerContext>>>, 12,
-        std::mutex>;
-
 class Env;
 class ScannerScheduler {
 public:
@@ -82,13 +75,12 @@ private:
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
-    PriorityThreadPool* _local_scan_thread_pool;
-    PriorityThreadPool* _remote_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
-
-    ContextMap _context_map;
+    bool _is_init = false;
 };
 
 } // namespace doris::vectorized
