@@ -86,6 +86,33 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     return Status::OK();
 }
 
+Status VFileScanner::_filter_input_block(Block* block) {
+    if (!config::enable_new_load_scan_node) {
+        return Status::OK();
+    }
+    if (_is_load) {
+        auto origin_column_num = block->columns();
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_vpre_filter_ctx_ptr, block,
+                                                               origin_column_num));
+    }
+    return Status::OK();
+}
+
+Status VFileScanner::_convert_to_output_block(Block* output_block) {
+    if (!config::enable_new_load_scan_node) {
+        return Status::OK();
+    }
+    if (_input_block_ptr == output_block) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_cast_src_block(_input_block_ptr));
+    if (LIKELY(_input_block_ptr->rows() > 0)) {
+        RETURN_IF_ERROR(_materialize_dest_block(output_block));
+    }
+
+    return Status::OK();
+}
+
 Status VFileScanner::_fill_columns_from_path(vectorized::Block* _block, size_t rows) {
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -240,6 +267,102 @@ Status VFileScanner::_init_expr_ctxes() {
             }
         }
     }
+
+    return Status::OK();
+}
+
+Status VFileScanner::_materialize_dest_block(vectorized::Block* dest_block) {
+    // Do vectorized expr here
+    int ctx_idx = 0;
+    size_t rows = _input_block.rows();
+    auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
+    auto& filter_map = filter_column->get_data();
+    auto origin_column_num = _input_block.columns();
+
+    for (auto slot_desc : _output_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        int dest_index = ctx_idx++;
+
+        auto* ctx = _dest_vexpr_ctx[dest_index];
+        int result_column_id = -1;
+        // PT1 => dest primitive type
+        RETURN_IF_ERROR(ctx->execute(_input_block_ptr, &result_column_id));
+        bool is_origin_column = result_column_id < origin_column_num;
+        auto column_ptr =
+                is_origin_column && _src_block_mem_reuse
+                ? _input_block.get_by_position(result_column_id).column->clone_resized(rows)
+                : _input_block.get_by_position(result_column_id).column;
+
+        DCHECK(column_ptr != nullptr);
+
+        // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
+        // is likely to be nullable
+        if (LIKELY(column_ptr->is_nullable())) {
+            auto nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            for (int i = 0; i < rows; ++i) {
+                if (filter_map[i] && nullable_column->is_null_at(i)) {
+                    if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
+                        !_input_block.get_by_position(dest_index).column->is_null_at(i)) {
+                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                                [&]() -> std::string {
+                                    return _input_block.dump_one_line(i, _num_of_columns_from_file);
+                                },
+                                [&]() -> std::string {
+                                    auto raw_value = _input_block.get_by_position(ctx_idx)
+                                            .column->get_data_at(i);
+                                    std::string raw_string = raw_value.to_string();
+                                    fmt::memory_buffer error_msg;
+                                    fmt::format_to(error_msg,
+                                                   "column({}) value is incorrect while strict "
+                                                   "mode is {}, "
+                                                   "src value is {}",
+                                                   slot_desc->col_name(), _strict_mode, raw_string);
+                                    return fmt::to_string(error_msg);
+                                },
+                                &_scanner_eof));
+                        filter_map[i] = false;
+                    } else if (!slot_desc->is_nullable()) {
+                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                                [&]() -> std::string {
+                                    return _input_block.dump_one_line(i, _num_of_columns_from_file);
+                                },
+                                [&]() -> std::string {
+                                    fmt::memory_buffer error_msg;
+                                    fmt::format_to(error_msg,
+                                                   "column({}) values is null while columns is not "
+                                                   "nullable",
+                                                   slot_desc->col_name());
+                                    return fmt::to_string(error_msg);
+                                },
+                                &_scanner_eof));
+                        filter_map[i] = false;
+                    }
+                }
+            }
+            if (!slot_desc->is_nullable()) column_ptr = nullable_column->get_nested_column_ptr();
+        } else if (slot_desc->is_nullable()) {
+            column_ptr = vectorized::make_nullable(column_ptr);
+        }
+        dest_block->insert(vectorized::ColumnWithTypeAndName(
+                std::move(column_ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+    }
+
+    // after do the dest block insert operation, clear _src_block to remove the reference of origin column
+    if (_src_block_mem_reuse) {
+        _input_block.clear_column_data(origin_column_num);
+    } else {
+        _input_block.clear();
+    }
+
+    size_t dest_size = dest_block->columns();
+    // do filter
+    dest_block->insert(vectorized::ColumnWithTypeAndName(
+            std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
+            "filter column"));
+    RETURN_IF_ERROR(vectorized::Block::filter_block(dest_block, dest_size, dest_size));
 
     return Status::OK();
 }

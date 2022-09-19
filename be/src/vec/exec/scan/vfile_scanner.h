@@ -43,11 +43,11 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
-    // TODO: Use prefilters to filter input block
-    Status _filter_input_block(Block* block) { return Status::OK(); }
+    Status _filter_input_block(Block* block);
 
-    // TODO: Convert input block to output block, if needed.
-    Status _convert_to_output_block(Block* output_block) { return Status::OK(); }
+    Status _convert_to_output_block(Block* output_block);
+
+    Status _materialize_dest_block(vectorized::Block* output_block);
 
     void _init_profiles(RuntimeProfile* profile);
 
