@@ -43,6 +43,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -83,7 +84,7 @@ public class StreamLoadPlanner {
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    private StreamLoadScanNode scanNode;
+    private ScanNode scanNode;
     private TupleDescriptor tupleDesc;
     private TupleDescriptor scanTupleDesc;
 
@@ -165,7 +166,11 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+        if (Config.enable_new_load_scan_node) {
+            scanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc, "FileScanNode");
+        } else {
+            scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+        }
         scanNode.init(analyzer);
         descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
