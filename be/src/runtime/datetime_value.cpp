@@ -54,15 +54,19 @@ bool DateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uin
                                 uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59 ||
                 microsecond > 999999;
-    return time || check_date(year, month, day);
+    if (type == TIME_TIME) {
+        return time;
+    } else {
+        return time || check_date(year, month, day);
+    }
 }
 
 bool DateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
-    if (month != 0 && month <= 12 && day > s_days_in_month[month]) {
-        // Feb 29 in leap year is valid.
-        if (!(month == 2 && day == 29 && is_leap(year))) return true;
+    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
+    if (year > 9999 || month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
+        return true;
     }
-    return year > 9999 || month > 12 || day > 31;
+    return false;
 }
 
 // The interval format is that with no delimiters

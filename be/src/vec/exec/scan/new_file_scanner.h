@@ -72,9 +72,6 @@ protected:
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
 
-    // Dest tuple descriptor and dest expr context
-    const TupleDescriptor* _dest_tuple_desc;
-
     // Profile
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _rows_read_counter;

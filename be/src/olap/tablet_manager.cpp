@@ -1148,7 +1148,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
             //    unique_id in old_tablet to be the column's ordinal number in new_tablet
             // 2. if column exists only in new_tablet, assign next_unique_id of old_tablet
             //    to the new column
-            int32_t old_col_idx = base_tablet->field_index(column.column_name);
+            int32_t old_col_idx = base_tablet->tablet_schema()->field_index(column.column_name);
             if (old_col_idx != -1) {
                 uint32_t old_unique_id =
                         base_tablet->tablet_schema()->column(old_col_idx).unique_id();

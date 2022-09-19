@@ -302,6 +302,22 @@ suite("test_window_fn") {
         WHERE total <> fourcount + twosum;
     """
 
+    // cte
+    qt_sql """
+        with cte as (select empno as x from ${tbName1}) 
+        SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and UNBOUNDED following)) FROM cte;
+    """
+    qt_sql """
+        with cte as (select empno as x from ${tbName1}) 
+        SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and CURRENT ROW)) FROM cte;
+    """
+    qt_sql """
+        WITH cte  AS (
+        select 1 as x union all select 1 as x union all select 1 as x union all
+        SELECT empno as x FROM ${tbName1})
+        SELECT x, (sum(x) over  (ORDER BY x rows between 1 preceding and 1 following)) FROM cte;
+    """
+
     sql "DROP TABLE IF EXISTS ${tbName1};"
     sql "DROP TABLE IF EXISTS ${tbName2};"
 }

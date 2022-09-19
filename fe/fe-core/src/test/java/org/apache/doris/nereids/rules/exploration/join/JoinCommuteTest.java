@@ -17,27 +17,22 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
 
 public class JoinCommuteTest {
     @Test
@@ -45,15 +40,12 @@ public class JoinCommuteTest {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
-        Expression onCondition = new EqualTo(
-                new SlotReference("id", BigIntType.INSTANCE, true, ImmutableList.of("table1")),
-                new SlotReference("id", BigIntType.INSTANCE, true, ImmutableList.of("table2")));
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Lists.newArrayList(onCondition),
-                Optional.empty(), scan1, scan2);
+        LogicalPlan join = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
-                .transform(JoinCommute.LEFT_DEEP.build())
+                .applyExploration(JoinCommute.LEFT_DEEP.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());

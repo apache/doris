@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "gen_cpp/descriptors.pb.h"
+#include "olap/utils.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -465,6 +466,11 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     if (column.is_nullable()) {
         _num_null_columns++;
     }
+    if (UNLIKELY(column.name() == DELETE_SIGN)) {
+        _delete_sign_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
+        _sequence_col_idx = _num_columns;
+    }
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
     if (!is_dropped_column) {
@@ -552,8 +558,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
-    _delete_sign_idx = ori_tablet_schema.delete_sign_idx();
-    _sequence_col_idx = ori_tablet_schema.sequence_col_idx();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
 
@@ -578,6 +582,11 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         }
         if (column.is_bf_column()) {
             has_bf_columns = true;
+        }
+        if (UNLIKELY(column.name() == DELETE_SIGN)) {
+            _delete_sign_idx = _num_columns;
+        } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
+            _sequence_col_idx = _num_columns;
         }
         _field_name_to_index[column.name()] = _num_columns;
         _field_id_to_index[column.unique_id()] = _num_columns;

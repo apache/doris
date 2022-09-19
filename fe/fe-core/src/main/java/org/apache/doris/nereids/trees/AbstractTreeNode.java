@@ -49,7 +49,10 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
      */
     public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
         this.children = ImmutableList.copyOf(children);
+    }
 
+    public AbstractTreeNode(Optional<GroupExpression> groupExpression, List<NODE_TYPE> children) {
+        this.children = ImmutableList.copyOf(children);
     }
 
     @Override

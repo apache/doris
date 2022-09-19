@@ -72,7 +72,7 @@ CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+CONF_String(mem_limit, "90%");
 
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
@@ -871,6 +871,9 @@ CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
 // Temp config. True to use new file scan node to do load job. Will remove after fully test.
 CONF_Bool(enable_new_load_scan_node, "false");
+
+// Temp config. True to use new file scanner. Will remove after fully test.
+CONF_Bool(enable_new_file_scanner, "false");
 
 #ifdef BE_TEST
 // test s3
