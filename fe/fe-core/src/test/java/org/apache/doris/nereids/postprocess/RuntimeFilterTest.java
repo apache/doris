@@ -64,7 +64,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 3
-            && checkRuntimeFilterExprs(filters, "c_name", "s_name", "c_city", "s_city", "c_nation", "s_nation"));
+                && checkRuntimeFilterExprs(filters, "c_name", "s_name", "c_city", "s_city", "c_nation", "s_nation"));
     }
 
     @Test
@@ -107,7 +107,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertTrue(filters.size() == 3
-            && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey", "d_datekey", "lo_orderdate",
+                && checkRuntimeFilterExprs(filters, "c_custkey", "lo_custkey", "d_datekey", "lo_orderdate",
                 "s_suppkey", "c_custkey"));
     }
 
