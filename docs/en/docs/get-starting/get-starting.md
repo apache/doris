@@ -191,7 +191,7 @@ priority_networks=172.23.16.0/24
 
 
 ```
-storage_root=/path/your/doris-meta
+storage_root_path=/path/your/doris-meta
 ```
 
 >Notes.
