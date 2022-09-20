@@ -275,8 +275,25 @@ public class TimestampArithmeticExpr extends Expr {
                     (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
         }
 
-        fn = getBuiltinFunction(funcOpName.toLowerCase(), collectChildReturnTypes(),
+        Type[] childrenTypes = collectChildReturnTypes();
+        fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        Preconditions.checkArgument(fn != null);
+        Type[] argTypes = fn.getArgs();
+        if (argTypes.length > 0) {
+            // Implicitly cast all the children to match the function if necessary
+            for (int i = 0; i < childrenTypes.length; ++i) {
+                // For varargs, we must compare with the last type in callArgs.argTypes.
+                int ix = Math.min(argTypes.length - 1, i);
+                if (!childrenTypes[i].matchesType(argTypes[ix]) && Config.enable_date_conversion
+                        && !childrenTypes[i].isDateType() && (argTypes[ix].isDate() || argTypes[ix].isDatetime())) {
+                    uncheckedCastChild(ScalarType.getDefaultDateType(argTypes[ix]), i);
+                } else if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
+                        childrenTypes[i].isDateType() && argTypes[ix].isDateType())) {
+                    uncheckedCastChild(argTypes[ix], i);
+                }
+            }
+        }
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
