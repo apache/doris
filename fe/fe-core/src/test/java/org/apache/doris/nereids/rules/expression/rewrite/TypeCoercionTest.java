@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -177,7 +176,7 @@ public class TypeCoercionTest {
     @Test
     public void testBinaryOperator() {
         Expression actual = new Divide(new SmallIntLiteral((short) 1), new BigIntLiteral(10L));
-        Expression expected = new Divide(new Cast(new SmallIntLiteral((short) 1), BigIntType.INSTANCE),
+        Expression expected = new Divide(new BigIntLiteral(1L),
                 new BigIntLiteral(10L));
         assertRewrite(expected, actual);
     }

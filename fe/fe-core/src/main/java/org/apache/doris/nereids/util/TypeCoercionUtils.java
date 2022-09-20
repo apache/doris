@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -289,6 +290,23 @@ public class TypeCoercionUtils {
         if (input.getDataType().equals(dataType)) {
             return input;
         } else {
+            if (input instanceof Literal) {
+                DataType type = input.getDataType();
+                while (!type.equals(dataType)) {
+                    DataType promoted = type.promotion();
+                    if (type.equals(promoted)) {
+                        break;
+                    }
+                    type = promoted;
+                }
+                if (type.equals(dataType)) {
+                    Literal promoted = DataType.promoteNumberLiteral(((Literal) input).getValue(), dataType);
+                    if (promoted != null) {
+                        return promoted;
+                    }
+
+                }
+            }
             return new Cast(input, dataType);
         }
     }
