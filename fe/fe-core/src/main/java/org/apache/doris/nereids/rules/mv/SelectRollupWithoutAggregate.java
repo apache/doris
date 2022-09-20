@@ -52,7 +52,7 @@ public class SelectRollupWithoutAggregate extends OneRewriteRuleFactory {
                 return scan.withMaterializedIndexSelected(PreAggStatus.off("No aggregate on scan."),
                         ImmutableList.of(scan.getTable().getBaseIndexId()));
             default:
-                // Set pre-aggregation to `on` to be keep consistency with legacy logic.
+                // Set pre-aggregation to `on` to keep consistency with legacy logic.
                 return scan.withMaterializedIndexSelected(PreAggStatus.on(),
                         ImmutableList.of(scan.getTable().getBaseIndexId()));
         }

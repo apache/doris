@@ -103,7 +103,6 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                 .analyze("select k2, sum(v1) from t where k3=0 group by k2")
                 .applyTopDown(new SelectRollupWithAggregate())
                 .matches(logicalOlapScan().when(scan -> {
-                    // actual t
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     Assertions.assertEquals("r2", scan.getSelectRollupName().get());
                     return true;
@@ -112,26 +111,24 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
 
     @Test
     void testTranslate() {
-        PlanChecker.from(connectContext)
-                .checkPlannerResult("select k2, sum(v1) from t group by k2");
+        PlanChecker.from(connectContext).checkPlannerResult("select k2, sum(v1) from t group by k2");
     }
 
     @Test
     public void testTranslateWhenPreAggIsOff() {
-        PlanChecker.from(connectContext)
-                .checkPlannerResult(
-                        "select k2, min(v1) from t group by k2",
-                        planner -> {
-                            List<ScanNode> scans = planner.getScanNodes();
-                            Assertions.assertEquals(1, scans.size());
-                            ScanNode scanNode = scans.get(0);
-                            Assertions.assertTrue(scanNode instanceof OlapScanNode);
-                            OlapScanNode olapScan = (OlapScanNode) scanNode;
-                            Assertions.assertFalse(olapScan.isPreAggregation());
-                            Assertions.assertEquals("Aggregate operator don't match, "
-                                            + "aggregate function: min(v1), column aggregate type: SUM",
-                                    olapScan.getReasonOfPreAggregation());
-                        });
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "select k2, min(v1) from t group by k2",
+                planner -> {
+                    List<ScanNode> scans = planner.getScanNodes();
+                    Assertions.assertEquals(1, scans.size());
+                    ScanNode scanNode = scans.get(0);
+                    Assertions.assertTrue(scanNode instanceof OlapScanNode);
+                    OlapScanNode olapScan = (OlapScanNode) scanNode;
+                    Assertions.assertFalse(olapScan.isPreAggregation());
+                    Assertions.assertEquals("Aggregate operator don't match, "
+                                    + "aggregate function: min(v1), column aggregate type: SUM",
+                            olapScan.getReasonOfPreAggregation());
+                });
     }
 
     @Test
