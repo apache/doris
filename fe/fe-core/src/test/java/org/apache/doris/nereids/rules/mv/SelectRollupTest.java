@@ -212,7 +212,6 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                 .applyTopDown(new SelectRollupWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
-                    System.out.println(preAgg.getOffReason());
                     Assertions.assertTrue(preAgg.isOff());
                     Assertions.assertEquals("Aggregate operator don't match, "
                             + "aggregate function: min(v1), column aggregate type: SUM", preAgg.getOffReason());
@@ -228,7 +227,6 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                 .applyTopDown(new SelectRollupWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
-                    System.out.println(preAgg.getOffReason());
                     Assertions.assertTrue(preAgg.isOff());
                     Assertions.assertEquals("Input of aggregate function sum((v1 + 1)) should be slot or cast on slot.",
                             preAgg.getOffReason());
@@ -244,7 +242,6 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                 .applyTopDown(new SelectRollupWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
-                    System.out.println(preAgg.getOffReason());
                     Assertions.assertTrue(preAgg.isOff());
                     Assertions.assertEquals("Aggregate function sum(k2) contains key column k2.",
                             preAgg.getOffReason());
@@ -288,7 +285,6 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                 .applyTopDown(new SelectRollupWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
-                    System.out.println(preAgg.getOffReason());
                     Assertions.assertTrue(preAgg.isOn());
                     return true;
                 }));
