@@ -352,7 +352,7 @@ void ColumnNullable::next_range_less_than(uint32_t* offset, size_t n, const ICol
             break;
         }
     }
-    if(!set_begin) {
+    if (!set_begin) {
         *offset = i;
     }
     *end_index = i;

@@ -546,6 +546,9 @@ private:
                 size_t num_rows = ctx->append_if_less_than(block, *base);
                 row_idx += num_rows;
                 if (UNLIKELY(_record_rowids)) {
+                    if (row_idx > _block_row_max) {
+                        _block_row_locations.resize(row_idx);
+                    }
                     for (size_t i = 0; i < num_rows; i++) {
                         _block_row_locations[row_idx - 1 - i] = ctx->current_row_locations(i);
                     }
